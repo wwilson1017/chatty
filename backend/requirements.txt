@@ -1,0 +1,14 @@
+fastapi
+uvicorn[standard]
+python-dotenv
+python-jose[cryptography]
+passlib[bcrypt]
+httpx
+google-auth
+google-auth-oauthlib
+google-api-python-client
+google-cloud-storage
+anthropic
+openai
+google-generativeai
+python-multipart
