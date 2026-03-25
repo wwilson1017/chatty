@@ -1,9 +1,10 @@
 import { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { api } from '../core/api/client';
 import { AgentCard } from './AgentCard';
 import { CreateAgentModal } from './CreateAgentModal';
 import { SettingsPanel } from './SettingsPanel';
-import type { Agent, BrandingConfig } from '../core/types';
+import type { Agent, BrandingConfig, Integration } from '../core/types';
 
 export function DashboardPage() {
   const [agents, setAgents] = useState<Agent[]>([]);
@@ -11,14 +12,18 @@ export function DashboardPage() {
   const [showCreate, setShowCreate] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [crmEnabled, setCrmEnabled] = useState(false);
+  const navigate = useNavigate();
 
   useEffect(() => {
     Promise.all([
       api<{ agents: Agent[] }>('/api/agents'),
       api<BrandingConfig>('/api/branding'),
-    ]).then(([agentsData, brandingData]) => {
+      api<{ integrations: Integration[] }>('/api/integrations'),
+    ]).then(([agentsData, brandingData, intData]) => {
       setAgents(agentsData.agents);
       setBranding(brandingData);
+      setCrmEnabled(intData.integrations.some(i => i.id === 'crm_lite' && i.enabled));
       // Apply brand color
       if (brandingData.accent_color) {
         document.documentElement.style.setProperty('--brand-color', brandingData.accent_color);
@@ -90,6 +95,44 @@ export function DashboardPage() {
             {agents.map(agent => (
               <AgentCard key={agent.id} agent={agent} onDelete={handleDelete} />
             ))}
+          </div>
+        )}
+
+        {/* CRM Card */}
+        {!loading && (
+          <div className="mt-10">
+            {crmEnabled ? (
+              <button
+                onClick={() => navigate('/crm')}
+                className="w-full bg-gray-900 border border-gray-800 rounded-2xl p-5 text-left hover:border-gray-700 transition group"
+              >
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h3 className="text-white font-semibold">CRM</h3>
+                    <p className="text-gray-400 text-sm mt-0.5">Manage contacts, deals, tasks, and pipeline</p>
+                  </div>
+                  <span className="text-gray-500 group-hover:text-gray-300 transition">&rarr;</span>
+                </div>
+              </button>
+            ) : (
+              <div className="bg-gray-900 border border-gray-800 rounded-2xl p-5">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h3 className="text-white font-semibold">CRM</h3>
+                    <p className="text-gray-400 text-sm mt-0.5">Lightweight CRM for contacts, deals, and pipeline tracking</p>
+                  </div>
+                  <button
+                    onClick={async () => {
+                      await api('/api/integrations/crm_lite/setup', { method: 'POST' });
+                      setCrmEnabled(true);
+                    }}
+                    className="bg-brand text-white text-sm font-medium px-4 py-2 rounded-lg hover:opacity-90 transition"
+                  >
+                    Setup CRM
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         )}
       </main>

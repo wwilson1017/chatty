@@ -18,6 +18,7 @@ from core.providers.router import router as providers_router
 from agents.router import router as agents_router
 from branding.router import router as branding_router
 from integrations.router import router as integrations_router
+from integrations.crm_lite.router import router as crm_router
 from webby.router import router as webby_router
 
 logger = logging.getLogger(__name__)
@@ -71,6 +72,7 @@ app.include_router(providers_router, prefix="/api/providers", tags=["providers"]
 app.include_router(agents_router, prefix="/api/agents", tags=["agents"])
 app.include_router(branding_router, prefix="/api/branding", tags=["branding"])
 app.include_router(integrations_router, prefix="/api/integrations", tags=["integrations"])
+app.include_router(crm_router, prefix="/api/crm", tags=["crm"])
 app.include_router(webby_router, tags=["webby"])
 
 

@@ -40,8 +40,8 @@ AVAILABLE_INTEGRATIONS = {
         "auth_type": "api_key",
     },
     "crm_lite": {
-        "name": "CRM Lite",
-        "description": "Built-in lightweight CRM — contacts, deals, notes",
+        "name": "CRM",
+        "description": "Built-in CRM — contacts, deals, tasks, pipeline tracking",
         "icon": "📋",
         "auth_type": "none",
     },

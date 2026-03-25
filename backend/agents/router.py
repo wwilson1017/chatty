@@ -23,6 +23,7 @@ Per-agent (chat, context, conversations):
   PATCH  /api/agents/{agent_id}/conversations/{conv_id}/title
 """
 
+import importlib
 import shutil
 import logging
 
@@ -46,6 +47,44 @@ from core.agents import ai_service
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
+
+
+# ── Integration tool loader ───────────────────────────────────────────────────
+
+_INTEGRATION_MODULES = {
+    "crm_lite": ("integrations.crm_lite.tools", "CRM_LITE_TOOL_DEFS"),
+    "odoo": ("integrations.odoo.tools", "ODOO_TOOL_DEFS"),
+    "bamboohr": ("integrations.bamboohr.tools", "BAMBOOHR_TOOL_DEFS"),
+    "quickbooks": ("integrations.quickbooks.tools", "QB_TOOL_DEFS"),
+}
+
+
+def _load_integration_tools() -> tuple[list[dict], dict]:
+    """Load tool definitions and executors from all enabled integrations."""
+    from integrations.registry import is_enabled
+
+    tool_defs: list[dict] = []
+    executors: dict = {}
+
+    for name, (module_path, defs_attr) in _INTEGRATION_MODULES.items():
+        if not is_enabled(name):
+            continue
+        try:
+            # CRM Lite needs its DB initialized before tools can run
+            if name == "crm_lite":
+                from integrations.crm_lite.db import init_db, _connection
+                if _connection is None:
+                    init_db()
+
+            mod = importlib.import_module(module_path)
+            defs = getattr(mod, defs_attr, [])
+            execs = getattr(mod, "TOOL_EXECUTORS", {})
+            tool_defs.extend(defs)
+            executors.update(execs)
+        except Exception as e:
+            logger.warning("Failed to load integration %s: %s", name, e)
+
+    return tool_defs, executors
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -172,9 +211,12 @@ async def agent_chat(agent_id: str, req: ChatRequest, user=Depends(get_current_u
     if config.gmail_enabled or config.calendar_enabled:
         google_token = store.get_google_token() or ""
 
+    integration_tool_defs, integration_executors = _load_integration_tools()
+
     registry = ToolRegistry(
         context_dir=config.context_dir,
         google_access_token=google_token,
+        integration_executors=integration_executors,
     )
 
     _, anthropic_profile = store.get_active_profile(provider_override="anthropic")
@@ -191,6 +233,7 @@ async def agent_chat(agent_id: str, req: ChatRequest, user=Depends(get_current_u
             conversation_id=req.conversation_id,
             chat_service=chat_service,
             anthropic_api_key=anthropic_api_key,
+            integration_tool_defs=integration_tool_defs or None,
         ):
             yield event
 

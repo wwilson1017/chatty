@@ -320,6 +320,18 @@ async def chat(
     # ── Build system prompt ───────────────────────────────────────────
     system_prompt = _build_system_prompt(config, ctx_manager, training_mode=training_mode)
 
+    # Append integration-specific instructions
+    if integration_tool_defs:
+        crm_tools = [t for t in integration_tool_defs if t.get("name", "").startswith("crm_")]
+        if crm_tools:
+            system_prompt += (
+                "\n\n# CRM Tools Available\n\n"
+                "You have CRM tools for managing contacts, deals, tasks, and activities. "
+                "When the user mentions a customer, prospect, deal, or follow-up, proactively use CRM tools. "
+                "After logging a meeting or call, suggest creating follow-up tasks. "
+                "Use crm_dashboard when the user asks for an overview or summary of their business."
+            )
+
     accumulated_text = ""
 
     # ── Tool execution loop ───────────────────────────────────────────

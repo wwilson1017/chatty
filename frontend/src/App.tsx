@@ -1,6 +1,6 @@
 /**
  * Chatty — App shell.
- * Routes: /login → / (dashboard) → /agent/:id
+ * Routes: /login → / (dashboard) → /agent/:id → /crm/*
  */
 
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
@@ -10,6 +10,12 @@ import { LoginPage } from './login/LoginPage';
 import { DashboardPage } from './dashboard/DashboardPage';
 import { AgentPage } from './agent/AgentPage';
 import { WebbyPage } from './webby/WebbyPage';
+import { CrmLayout } from './crm/CrmLayout';
+import { CrmDashboardPage } from './crm/CrmDashboardPage';
+import { ContactsPage } from './crm/ContactsPage';
+import { ContactDetailPage } from './crm/ContactDetailPage';
+import { PipelinePage } from './crm/PipelinePage';
+import { TasksPage } from './crm/TasksPage';
 
 export default function App() {
   return (
@@ -35,6 +41,21 @@ export default function App() {
               </ProtectedRoute>
             }
           />
+
+          <Route
+            path="/crm"
+            element={
+              <ProtectedRoute>
+                <CrmLayout />
+              </ProtectedRoute>
+            }
+          >
+            <Route index element={<CrmDashboardPage />} />
+            <Route path="contacts" element={<ContactsPage />} />
+            <Route path="contacts/:id" element={<ContactDetailPage />} />
+            <Route path="pipeline" element={<PipelinePage />} />
+            <Route path="tasks" element={<TasksPage />} />
+          </Route>
 
           <Route
             path="/webby"
