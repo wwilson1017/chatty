@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../core/api/client';
 import { AgentCard } from './AgentCard';
@@ -14,6 +14,18 @@ export function DashboardPage() {
   const [loading, setLoading] = useState(true);
   const [crmEnabled, setCrmEnabled] = useState(false);
   const navigate = useNavigate();
+  const setupChecked = useRef(false);
+
+  // Check if setup wizard should be shown (first login)
+  useEffect(() => {
+    if (setupChecked.current) return;
+    setupChecked.current = true;
+    api<{ setup_complete: boolean }>('/api/setup/status')
+      .then(s => {
+        if (!s.setup_complete) navigate('/setup', { replace: true });
+      })
+      .catch(() => {}); // if endpoint fails, just show dashboard
+  }, [navigate]);
 
   useEffect(() => {
     Promise.all([

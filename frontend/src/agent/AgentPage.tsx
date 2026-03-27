@@ -3,7 +3,7 @@
  * Chat + Knowledge tabs with collapsible sidebar.
  */
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { api } from '../core/api/client';
 import { useAgentChat } from './hooks/useAgentChat';
@@ -12,6 +12,7 @@ import { AgentChatPanel } from './components/AgentChatPanel';
 import { AgentContextEditor } from './components/AgentContextEditor';
 import ReportsPanel from './reports/ReportsPanel';
 import { ConversationSidebar } from './components/ConversationSidebar';
+import { AvatarPicker } from './components/AvatarPicker';
 
 interface AgentRow {
   id: string;
@@ -31,6 +32,9 @@ export function AgentPage() {
 
   const [agent, setAgent] = useState<AgentRow | null>(null);
   const [activeTab, setActiveTab] = useState<Tab>('chat');
+  const [showAvatarPicker, setShowAvatarPicker] = useState(false);
+  const [openaiAvailable, setOpenaiAvailable] = useState(false);
+  const prevOnboardingComplete = useRef<boolean | null>(null);
 
   const apiPrefix = `/api/agents/${agentId}`;
 
@@ -50,6 +54,24 @@ export function AgentPage() {
       .then(setAgent)
       .catch(() => navigate('/'));
   }, [agentId, navigate]);
+
+  // Check avatar availability on mount
+  useEffect(() => {
+    if (!agentId) return;
+    api<{ generate_available: boolean }>(`/api/agents/${agentId}/avatar/availability`)
+      .then(d => setOpenaiAvailable(d.generate_available))
+      .catch(() => {});
+  }, [agentId]);
+
+  // Show avatar picker when onboarding just completed and no avatar set
+  useEffect(() => {
+    if (!agent) return;
+    const wasIncomplete = prevOnboardingComplete.current === false;
+    prevOnboardingComplete.current = agent.onboarding_complete;
+    if (wasIncomplete && agent.onboarding_complete && !agent.avatar_url) {
+      setShowAvatarPicker(true);
+    }
+  }, [agent]);
 
   // Load conversation list on mount
   useEffect(() => {
@@ -76,6 +98,14 @@ export function AgentPage() {
   function handleStartOnboarding() {
     convs.startNewChat();
     chat.setTrainingMode(true);
+  }
+
+  function handleAvatarComplete() {
+    setShowAvatarPicker(false);
+    // Reload agent to get updated avatar_url
+    if (agentId) {
+      api<AgentRow>(`/api/agents/${agentId}`).then(setAgent).catch(() => {});
+    }
   }
 
   if (!agent) {
@@ -120,6 +150,16 @@ export function AgentPage() {
             title="Run onboarding interview"
           >
             Start Onboarding
+          </button>
+        )}
+
+        {agent.onboarding_complete && !agent.avatar_url && (
+          <button
+            onClick={() => setShowAvatarPicker(true)}
+            className="text-xs bg-gray-800 text-gray-300 border border-gray-700 rounded-full px-2.5 py-0.5 hover:bg-gray-700 transition"
+            title="Set an avatar for this agent"
+          >
+            Set Avatar
           </button>
         )}
 
@@ -178,6 +218,21 @@ export function AgentPage() {
           <ReportsPanel apiPrefix={apiPrefix} />
         )}
       </div>
+
+      {/* Avatar picker overlay */}
+      {showAvatarPicker && (
+        <div className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center">
+          <div className="bg-gray-900 border border-gray-800 rounded-2xl max-w-lg w-full mx-4 shadow-2xl">
+            <AvatarPicker
+              agentId={agentId!}
+              agentName={agent.agent_name}
+              openaiAvailable={openaiAvailable}
+              onComplete={handleAvatarComplete}
+              onSkip={() => setShowAvatarPicker(false)}
+            />
+          </div>
+        </div>
+      )}
     </div>
   );
 }

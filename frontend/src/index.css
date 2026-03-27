@@ -1,9 +1,9 @@
 @import "tailwindcss";
 
 :root {
-  --brand-color: #6366f1;
-  --brand-color-dark: #4f46e5;
-  --brand-color-light: #818cf8;
+  --brand-color: #393c74;
+  --brand-color-dark: #2d2f5e;
+  --brand-color-light: #5558a0;
 }
 
 .bg-brand { background-color: var(--brand-color); }

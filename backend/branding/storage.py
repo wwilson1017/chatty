@@ -16,7 +16,7 @@ LOGO_FILE = BRANDING_DIR / "logo.png"
 
 DEFAULT_CONFIG = {
     "company_name": "Chatty",
-    "accent_color": "#6366f1",  # indigo-500
+    "accent_color": "#393c74",
     "has_logo": False,
 }
 

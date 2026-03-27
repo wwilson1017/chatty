@@ -15,7 +15,7 @@ type Tab = 'providers' | 'branding' | 'integrations';
 export function SettingsPanel({ branding, onBrandingUpdate, onClose }: Props) {
   const [tab, setTab] = useState<Tab>('providers');
   const [companyName, setCompanyName] = useState(branding?.company_name || '');
-  const [accentColor, setAccentColor] = useState(branding?.accent_color || '#6366f1');
+  const [accentColor, setAccentColor] = useState(branding?.accent_color || '#393c74');
   const [saving, setSaving] = useState(false);
 
   async function saveBranding() {

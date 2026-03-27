@@ -21,6 +21,7 @@ from integrations.router import router as integrations_router
 from integrations.crm_lite.router import router as crm_router
 from webby.router import router as webby_router
 from core.agents.scheduled_actions.router import router as scheduled_actions_router
+from setup.router import router as setup_router
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
@@ -101,6 +102,7 @@ app.include_router(integrations_router, prefix="/api/integrations", tags=["integ
 app.include_router(crm_router, prefix="/api/crm", tags=["crm"])
 app.include_router(webby_router, tags=["webby"])
 app.include_router(scheduled_actions_router, prefix="/api/scheduled-actions", tags=["scheduled-actions"])
+app.include_router(setup_router, prefix="/api/setup", tags=["setup"])
 
 
 @app.get("/api/health")
