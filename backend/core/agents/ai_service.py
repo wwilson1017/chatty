@@ -30,7 +30,7 @@ from core.providers.base import AIProvider, _sse
 from .config import AgentConfig
 from .context_manager import ContextManager
 from .tool_registry import ToolRegistry
-from .tool_definitions import get_tool_definitions
+from .tool_definitions import get_tool_definitions, get_report_instructions, get_scheduling_instructions
 
 logger = logging.getLogger(__name__)
 
@@ -158,6 +158,8 @@ def _build_system_prompt(
             "",
         ])
         parts.append(_knowledge_management_instructions())
+        parts.append(get_report_instructions())
+        parts.append(get_scheduling_instructions())
 
     return "\n".join(parts)
 

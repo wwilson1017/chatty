@@ -223,10 +223,310 @@ CALENDAR_TOOLS = [
 ]
 
 
+# ── Web tools ─────────────────────────────────────────────────────────────────
+
+WEB_TOOLS = [
+    {
+        "name": "web_search",
+        "description": "Search the web for current information using DuckDuckGo. Returns titles, snippets, and URLs for top results.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "Search query",
+                },
+                "num_results": {
+                    "type": "integer",
+                    "description": "Number of results to return (default 5, max 10)",
+                },
+            },
+            "required": ["query"],
+        },
+        "kind": "web",
+    },
+    {
+        "name": "web_fetch",
+        "description": "Fetch a web page and extract its readable text content. Use after web_search to read a specific page.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "url": {
+                    "type": "string",
+                    "description": "URL to fetch",
+                },
+                "extract_links": {
+                    "type": "boolean",
+                    "description": "Also extract links from the page (default false)",
+                },
+            },
+            "required": ["url"],
+        },
+        "kind": "web",
+    },
+]
+
+
+# ── Real AI tools (management) ────────────────────────────────────────────────
+
+REAL_TOOL_DEFS = [
+    {
+        "name": "create_real_tool",
+        "description": "Create a new Python code tool. Write a markdown definition with # name, description, ## Parameters table, ## Code with ```python block containing a run(ctx, ...) function, and optional ## Writes (yes/no). The ctx object provides: ctx.http (GET/POST with SSRF protection), ctx.json, ctx.datetime, ctx.math, ctx.re, ctx.decimal.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "name": {"type": "string", "description": "Tool name (alphanumeric, hyphens, underscores)"},
+                "definition": {"type": "string", "description": "Full markdown tool definition"},
+            },
+            "required": ["name", "definition"],
+        },
+        "kind": "real_tool",
+    },
+    {
+        "name": "update_real_tool",
+        "description": "Update an existing Python code tool with a new definition.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "name": {"type": "string", "description": "Tool name to update"},
+                "definition": {"type": "string", "description": "Full updated markdown definition"},
+            },
+            "required": ["name", "definition"],
+        },
+        "kind": "real_tool",
+    },
+    {
+        "name": "delete_real_tool",
+        "description": "Delete a Python code tool.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "name": {"type": "string", "description": "Tool name to delete"},
+            },
+            "required": ["name"],
+        },
+        "kind": "real_tool",
+    },
+    {
+        "name": "list_real_tools",
+        "description": "List all Python code tools that have been created.",
+        "input_schema": {
+            "type": "object",
+            "properties": {},
+            "required": [],
+        },
+        "kind": "real_tool",
+    },
+    {
+        "name": "test_real_tool",
+        "description": "Parse, validate, and execute a Python code tool definition without saving it. Use this to test before creating.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "definition": {"type": "string", "description": "Full markdown tool definition to test"},
+                "test_args": {"type": "object", "description": "Test arguments to pass to the tool"},
+            },
+            "required": ["definition"],
+        },
+        "kind": "real_tool",
+    },
+]
+
+# ── Report tools ──────────────────────────────────────────────────────────────
+
+REPORT_TOOLS = [
+    {
+        "name": "generate_report",
+        "description": "Generate a structured report with charts and tables. The report will be saved and viewable in the Reports tab.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "title": {"type": "string", "description": "Report title"},
+                "subtitle": {"type": "string", "description": "Optional subtitle or date range"},
+                "sections": {
+                    "type": "array",
+                    "description": "Report sections, each with a chart_type and data",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "title": {"type": "string"},
+                            "chart_type": {
+                                "type": "string",
+                                "enum": ["bar", "horizontal_bar", "stacked_bar", "grouped_bar",
+                                         "line", "area", "pie", "donut", "table", "metric"],
+                            },
+                            "data": {
+                                "type": "array",
+                                "description": "Data points. For charts: [{label, value, ...}]. For tables: [{col1, col2, ...}]. For metrics: [{label, value, change?, unit?}].",
+                            },
+                        },
+                        "required": ["title", "chart_type", "data"],
+                    },
+                },
+            },
+            "required": ["title", "sections"],
+        },
+        "kind": "report",
+    },
+]
+
+# ── Reminder tools ────────────────────────────────────────────────────────────
+
+REMINDER_TOOLS = [
+    {
+        "name": "create_reminder",
+        "description": "Set a reminder for yourself to follow up on something. When the reminder fires, you will receive the message as context in a new conversation turn.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "message": {"type": "string", "description": "What to remind about"},
+                "due_at": {"type": "string", "description": "When the reminder should fire (ISO 8601 datetime, e.g. '2026-03-27T14:00:00')"},
+                "context": {"type": "string", "description": "Optional additional context for when the reminder fires"},
+            },
+            "required": ["message", "due_at"],
+        },
+        "kind": "reminder",
+    },
+    {
+        "name": "list_reminders",
+        "description": "List your active reminders.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "status": {"type": "string", "description": "Filter by status: 'pending', 'fired', 'cancelled' (default: 'pending')"},
+            },
+            "required": [],
+        },
+        "kind": "reminder",
+    },
+    {
+        "name": "cancel_reminder",
+        "description": "Cancel a pending reminder by its ID.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "reminder_id": {"type": "string", "description": "The reminder ID to cancel"},
+            },
+            "required": ["reminder_id"],
+        },
+        "kind": "reminder",
+    },
+]
+
+# ── Scheduled action tools ────────────────────────────────────────────────────
+
+SCHEDULED_ACTION_TOOLS = [
+    {
+        "name": "create_scheduled_action",
+        "description": "Create a scheduled action that runs automatically on a cron schedule. The action will execute a prompt with your tools available.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "name": {"type": "string", "description": "Short name for this action"},
+                "description": {"type": "string", "description": "What this action does"},
+                "schedule_type": {"type": "string", "enum": ["cron", "interval", "once"], "description": "Schedule type"},
+                "cron_expression": {"type": "string", "description": "Cron expression (for schedule_type='cron'), e.g. '0 9 * * 1-5' for weekdays at 9am"},
+                "interval_minutes": {"type": "integer", "description": "Interval in minutes (for schedule_type='interval', min 5)"},
+                "run_at": {"type": "string", "description": "ISO 8601 datetime (for schedule_type='once')"},
+                "prompt": {"type": "string", "description": "The prompt to execute on each run"},
+                "active_hours_start": {"type": "integer", "description": "Start hour for active window (0-23, default: 6)"},
+                "active_hours_end": {"type": "integer", "description": "End hour for active window (0-23, default: 22)"},
+            },
+            "required": ["name", "prompt", "schedule_type"],
+        },
+        "kind": "scheduled_action",
+    },
+    {
+        "name": "list_scheduled_actions",
+        "description": "List your scheduled actions.",
+        "input_schema": {
+            "type": "object",
+            "properties": {},
+            "required": [],
+        },
+        "kind": "scheduled_action",
+    },
+    {
+        "name": "update_scheduled_action",
+        "description": "Update a scheduled action's settings.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "action_id": {"type": "string", "description": "The action ID to update"},
+                "enabled": {"type": "boolean", "description": "Enable or disable the action"},
+                "prompt": {"type": "string", "description": "Updated prompt"},
+                "cron_expression": {"type": "string", "description": "Updated cron expression"},
+                "interval_minutes": {"type": "integer", "description": "Updated interval"},
+                "active_hours_start": {"type": "integer"},
+                "active_hours_end": {"type": "integer"},
+            },
+            "required": ["action_id"],
+        },
+        "kind": "scheduled_action",
+    },
+    {
+        "name": "delete_scheduled_action",
+        "description": "Delete a scheduled action.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "action_id": {"type": "string", "description": "The action ID to delete"},
+            },
+            "required": ["action_id"],
+        },
+        "kind": "scheduled_action",
+    },
+]
+
+
+# ── System prompt additions ───────────────────────────────────────────────────
+
+def get_report_instructions() -> str:
+    """Instructions for the AI on how to use the generate_report tool."""
+    return """## Reports
+You can generate visual reports using the `generate_report` tool. Reports appear in the user's Reports tab with interactive charts.
+
+Supported chart types: bar, horizontal_bar, stacked_bar, grouped_bar, line, area, pie, donut, table, metric.
+
+Guidelines:
+- Use `metric` for single KPI values (revenue, count, etc.)
+- Use `bar` or `horizontal_bar` for comparisons across categories
+- Use `line` or `area` for time series data
+- Use `pie` or `donut` for proportions (keep to 7 or fewer slices)
+- Use `table` for detailed data that doesn't suit a chart
+- Use `stacked_bar` or `grouped_bar` for multi-series comparisons
+- All numeric values in data must be numbers, not strings
+- Include a clear title and optional subtitle (e.g. date range)
+"""
+
+
+def get_scheduling_instructions() -> str:
+    """Instructions for the AI on how to use reminders and scheduled actions."""
+    return """## Scheduling & Reminders
+You can set reminders and create scheduled actions:
+
+- **Reminders**: Use `create_reminder` to set a follow-up for yourself. When the reminder fires, you'll receive the context and can take action. Use ISO 8601 format for due_at.
+- **Scheduled Actions**: Use `create_scheduled_action` to create recurring tasks. These run automatically on a cron schedule with your tools available. Use for periodic checks, reports, or maintenance tasks.
+
+Guidelines:
+- Always confirm with the user before creating scheduled actions
+- Use descriptive names for scheduled actions
+- Set reasonable active hours to avoid running during off-hours
+- Prefer cron expressions for recurring tasks, 'once' for one-time future tasks
+"""
+
+
 def get_tool_definitions(
     gmail_enabled: bool = False,
     calendar_enabled: bool = False,
+    web_enabled: bool = True,
+    real_tools_enabled: bool = True,
+    reports_enabled: bool = True,
+    reminders_enabled: bool = True,
+    scheduled_actions_enabled: bool = True,
     integration_tools: list[dict] | None = None,
+    dynamic_real_tools: list[dict] | None = None,
 ) -> list[dict]:
     """Return the full list of tool definitions for the given feature flags."""
     tools = list(CONTEXT_TOOLS)
@@ -234,6 +534,19 @@ def get_tool_definitions(
         tools.extend(GMAIL_TOOLS)
     if calendar_enabled:
         tools.extend(CALENDAR_TOOLS)
+    if web_enabled:
+        tools.extend(WEB_TOOLS)
+    if real_tools_enabled:
+        tools.extend(REAL_TOOL_DEFS)
+    if reports_enabled:
+        tools.extend(REPORT_TOOLS)
+    if reminders_enabled:
+        tools.extend(REMINDER_TOOLS)
+    if scheduled_actions_enabled:
+        tools.extend(SCHEDULED_ACTION_TOOLS)
     if integration_tools:
         tools.extend(integration_tools)
+    # Append agent-created real tools (loaded from filesystem)
+    if dynamic_real_tools:
+        tools.extend(dynamic_real_tools)
     return tools

@@ -10,6 +10,7 @@ import { useAgentChat } from './hooks/useAgentChat';
 import { useConversations } from './hooks/useConversations';
 import { AgentChatPanel } from './components/AgentChatPanel';
 import { AgentContextEditor } from './components/AgentContextEditor';
+import ReportsPanel from './reports/ReportsPanel';
 import { ConversationSidebar } from './components/ConversationSidebar';
 
 interface AgentRow {
@@ -22,7 +23,7 @@ interface AgentRow {
   calendar_enabled: boolean;
 }
 
-type Tab = 'chat' | 'knowledge';
+type Tab = 'chat' | 'knowledge' | 'reports';
 
 export function AgentPage() {
   const { id: agentId } = useParams<{ id: string }>();
@@ -130,7 +131,7 @@ export function AgentPage() {
 
         {/* Tab switcher */}
         <div className="ml-auto flex items-center bg-gray-800 rounded-lg p-0.5 gap-0.5">
-          {(['chat', 'knowledge'] as Tab[]).map(tab => (
+          {(['chat', 'knowledge', 'reports'] as Tab[]).map(tab => (
             <button
               key={tab}
               onClick={() => setActiveTab(tab)}
@@ -140,7 +141,7 @@ export function AgentPage() {
                   : 'text-gray-400 hover:text-white'
               }`}
             >
-              {tab === 'chat' ? 'Chat' : 'Knowledge'}
+              {tab === 'chat' ? 'Chat' : tab === 'knowledge' ? 'Knowledge' : 'Reports'}
             </button>
           ))}
         </div>
@@ -171,8 +172,10 @@ export function AgentPage() {
               onStop={chat.stop}
             />
           </>
-        ) : (
+        ) : activeTab === 'knowledge' ? (
           <AgentContextEditor agentId={agentId!} />
+        ) : (
+          <ReportsPanel apiPrefix={apiPrefix} />
         )}
       </div>
     </div>

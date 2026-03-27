@@ -1,7 +1,7 @@
 """
 Chatty — FastAPI entry point.
 
-Mounts all routers, initializes databases, sets up CORS.
+Mounts all routers, initializes databases, sets up CORS and APScheduler.
 """
 
 import logging
@@ -20,17 +20,23 @@ from branding.router import router as branding_router
 from integrations.router import router as integrations_router
 from integrations.crm_lite.router import router as crm_router
 from webby.router import router as webby_router
+from core.agents.scheduled_actions.router import router as scheduled_actions_router
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
+
+# APScheduler instance (started in lifespan)
+_scheduler = None
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Initialize required directories and databases on startup."""
+    global _scheduler
+
     # Ensure data directories exist
     data_root = Path(__file__).resolve().parent / "data"
-    for subdir in ("agents", "branding", "integrations"):
+    for subdir in ("agents", "branding", "integrations", "reminders"):
         (data_root / subdir).mkdir(parents=True, exist_ok=True)
 
     # Initialize agent registry DB
@@ -43,8 +49,28 @@ async def lifespan(app: FastAPI):
         from integrations.crm_lite.db import init_db as init_crm_db
         init_crm_db()
 
+    # Initialize reminders + scheduled actions DB
+    from core.agents.reminders.db import init_db as init_reminders_db
+    init_reminders_db()
+
+    # Start APScheduler for reminders and scheduled actions
+    from apscheduler.schedulers.background import BackgroundScheduler
+    _scheduler = BackgroundScheduler()
+
+    from core.agents.reminders.heartbeat import process_due_reminders
+    from core.agents.scheduled_actions.processor import process_due_actions
+
+    _scheduler.add_job(process_due_reminders, "interval", seconds=60, id="reminder_heartbeat")
+    _scheduler.add_job(process_due_actions, "interval", seconds=60, id="scheduled_actions_processor")
+    _scheduler.start()
+    logger.info("APScheduler started (reminder heartbeat + scheduled actions processor)")
+
     logger.info("Chatty backend started. Data dir: %s", data_root)
     yield
+
+    # Shutdown scheduler
+    if _scheduler:
+        _scheduler.shutdown(wait=False)
     logger.info("Chatty backend shutting down.")
 
 
@@ -74,6 +100,7 @@ app.include_router(branding_router, prefix="/api/branding", tags=["branding"])
 app.include_router(integrations_router, prefix="/api/integrations", tags=["integrations"])
 app.include_router(crm_router, prefix="/api/crm", tags=["crm"])
 app.include_router(webby_router, tags=["webby"])
+app.include_router(scheduled_actions_router, prefix="/api/scheduled-actions", tags=["scheduled-actions"])
 
 
 @app.get("/api/health")

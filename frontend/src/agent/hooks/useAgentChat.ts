@@ -27,6 +27,7 @@ export interface ChatMessage {
   timestamp: number;
   toolCalls?: ToolCallInfo[];
   isStreaming?: boolean;
+  attachments?: { name: string; size: number }[];
 }
 
 interface Options {
@@ -41,12 +42,13 @@ export function useAgentChat(apiPrefix: string, options?: Options) {
   const abortRef = useRef<AbortController | null>(null);
   const trainingKickoffRef = useRef(false);
 
-  const sendMessage = useCallback(async (text: string) => {
+  const sendMessage = useCallback(async (text: string, files?: File[]) => {
     const userMsg: ChatMessage = {
       id: crypto.randomUUID(),
       role: 'user',
       content: text,
       timestamp: Date.now(),
+      attachments: files?.map(f => ({ name: f.name, size: f.size })),
     };
     const assistantMsg: ChatMessage = {
       id: crypto.randomUUID(),
@@ -66,19 +68,42 @@ export function useAgentChat(apiPrefix: string, options?: Options) {
 
     try {
       const token = getToken();
-      const res = await fetch(`${apiPrefix}/chat`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        },
-        body: JSON.stringify({
+      const hasFiles = files && files.length > 0;
+
+      let res: Response;
+      if (hasFiles) {
+        const formData = new FormData();
+        formData.append('payload', JSON.stringify({
           messages: history,
           training_mode: trainingMode,
           conversation_id: conversationId,
-        }),
-        signal: abortRef.current.signal,
-      });
+        }));
+        for (const f of files) {
+          formData.append('files', f);
+        }
+        res = await fetch(`${apiPrefix}/chat/upload`, {
+          method: 'POST',
+          headers: {
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          },
+          body: formData,
+          signal: abortRef.current.signal,
+        });
+      } else {
+        res = await fetch(`${apiPrefix}/chat`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          },
+          body: JSON.stringify({
+            messages: history,
+            training_mode: trainingMode,
+            conversation_id: conversationId,
+          }),
+          signal: abortRef.current.signal,
+        });
+      }
 
       if (res.status === 401) {
         localStorage.removeItem('chatty_token');
