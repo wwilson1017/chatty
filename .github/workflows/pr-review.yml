@@ -159,12 +159,12 @@ jobs:
             TRUNCATION_NOTE="NOTE: This diff was truncated to 300,000 characters. Focus your review on what is visible."
           fi
 
-          # Use jq to safely build the user message from files (handles all escaping)
+          # Use jq with --rawfile for large inputs to avoid "Argument list too long"
           jq -n -r \
-            --arg title "$(cat /tmp/pr_title.txt)" \
-            --arg body "$(cat /tmp/pr_body.txt)" \
-            --arg diff "$(cat /tmp/pr_diff.txt)" \
-            --arg files "$(cat /tmp/pr_file_summary.txt)" \
+            --rawfile title /tmp/pr_title.txt \
+            --rawfile body /tmp/pr_body.txt \
+            --rawfile diff /tmp/pr_diff.txt \
+            --rawfile files /tmp/pr_file_summary.txt \
             --arg note "$TRUNCATION_NOTE" \
             '"Review this pull request. Follow the steps below exactly.
 
