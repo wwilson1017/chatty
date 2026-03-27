@@ -1,10 +1,10 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../core/api/client';
 import { AgentCard } from './AgentCard';
 import { CreateAgentModal } from './CreateAgentModal';
 import { SettingsPanel } from './SettingsPanel';
-import type { Agent, BrandingConfig, Integration } from '../core/types';
+import type { Agent, BrandingConfig, Integration, ProviderStatus } from '../core/types';
 
 export function DashboardPage() {
   const [agents, setAgents] = useState<Agent[]>([]);
@@ -14,25 +14,21 @@ export function DashboardPage() {
   const [loading, setLoading] = useState(true);
   const [crmEnabled, setCrmEnabled] = useState(false);
   const navigate = useNavigate();
-  const setupChecked = useRef(false);
-
-  // Check if setup wizard should be shown (first login)
-  useEffect(() => {
-    if (setupChecked.current) return;
-    setupChecked.current = true;
-    api<{ setup_complete: boolean }>('/api/setup/status')
-      .then(s => {
-        if (!s.setup_complete) navigate('/setup', { replace: true });
-      })
-      .catch(() => {}); // if endpoint fails, just show dashboard
-  }, [navigate]);
 
   useEffect(() => {
     Promise.all([
       api<{ agents: Agent[] }>('/api/agents'),
       api<BrandingConfig>('/api/branding'),
       api<{ integrations: Integration[] }>('/api/integrations'),
-    ]).then(([agentsData, brandingData, intData]) => {
+      api<ProviderStatus>('/api/providers'),
+    ]).then(([agentsData, brandingData, intData, providerData]) => {
+      // Redirect to onboarding if no AI provider is configured
+      const anyProviderConfigured = Object.values(providerData.profiles).some(p => p.configured);
+      if (!anyProviderConfigured) {
+        navigate('/setup', { replace: true });
+        return;
+      }
+
       setAgents(agentsData.agents);
       setBranding(brandingData);
       setCrmEnabled(intData.integrations.some(i => i.id === 'crm_lite' && i.enabled));
@@ -41,7 +37,7 @@ export function DashboardPage() {
         document.documentElement.style.setProperty('--brand-color', brandingData.accent_color);
       }
     }).finally(() => setLoading(false));
-  }, []);
+  }, [navigate]);
 
   async function handleDelete(id: string) {
     if (!confirm('Delete this agent? This cannot be undone.')) return;

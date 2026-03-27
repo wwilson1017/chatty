@@ -132,6 +132,18 @@ export interface CrmDashboard {
   top_deals: CrmDeal[];
 }
 
+// Provider status (from GET /api/providers)
+export interface ProviderStatus {
+  active_provider: string;
+  active_model: string;
+  profiles: Record<string, {
+    type: string;
+    configured: boolean;
+    key_preview?: string;
+    expired?: boolean;
+  }>;
+}
+
 // SSE event types
 export type SSEEvent =
   | { type: 'conversation_id'; id: string }

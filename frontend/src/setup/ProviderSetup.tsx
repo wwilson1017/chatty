@@ -1,20 +1,9 @@
 import { useState, useEffect } from 'react';
 import { api } from '../core/api/client';
+import type { ProviderStatus } from '../core/types';
 import { ApiKeyEntry } from './ApiKeyEntry';
 import { OAuthConnect } from './OAuthConnect';
 import { ModelSelector } from './ModelSelector';
-
-// Matches CredentialStore.to_dict() response shape
-interface ProviderStatus {
-  active_provider: string;
-  active_model: string;
-  profiles: Record<string, {
-    type: string;
-    configured: boolean;
-    key_preview?: string;
-    expired?: boolean;
-  }>;
-}
 
 export function ProviderSetup() {
   const [status, setStatus] = useState<ProviderStatus | null>(null);

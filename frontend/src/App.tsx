@@ -8,9 +8,9 @@ import { AuthProvider } from './core/auth/AuthContext';
 import { ProtectedRoute } from './core/auth/ProtectedRoute';
 import { LoginPage } from './login/LoginPage';
 import { DashboardPage } from './dashboard/DashboardPage';
+import { OnboardingPage } from './onboarding/OnboardingPage';
 import { AgentPage } from './agent/AgentPage';
 import { WebbyPage } from './webby/WebbyPage';
-import { SetupWizard } from './setup/SetupWizard';
 import { CrmLayout } from './crm/CrmLayout';
 import { CrmDashboardPage } from './crm/CrmDashboardPage';
 import { ContactsPage } from './crm/ContactsPage';
@@ -29,7 +29,7 @@ export default function App() {
             path="/setup"
             element={
               <ProtectedRoute>
-                <SetupWizard />
+                <OnboardingPage />
               </ProtectedRoute>
             }
           />
