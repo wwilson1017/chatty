@@ -219,12 +219,10 @@ async def delete_agent(agent_id: str, user=Depends(get_current_user)):
     return {"deleted": True, "agent_id": agent_id}
 
 
-# ── Per-agent: Chat ───────────────────────────────────────────────────────────
+# ── Per-agent: Chat (shared helper) ──────────────────────────────────────────
 
-@router.post("/{agent_id}/chat")
-async def agent_chat(agent_id: str, req: ChatRequest, user=Depends(get_current_user)):
-    """Stream a chat response for a specific agent."""
-    agent = _get_agent_or_404(agent_id)
+def _stream_chat(agent: dict, messages: list, training_mode: bool, conversation_id: str | None):
+    """Build provider, registry, and return a StreamingResponse for agent chat."""
     config = build_agent_config(agent)
     ctx_manager = get_context_manager(agent["slug"])
     chat_service = get_chat_service(agent["slug"])
@@ -262,9 +260,9 @@ async def agent_chat(agent_id: str, req: ChatRequest, user=Depends(get_current_u
             provider=provider,
             registry=registry,
             ctx_manager=ctx_manager,
-            messages=req.messages,
-            training_mode=req.training_mode,
-            conversation_id=req.conversation_id,
+            messages=messages,
+            training_mode=training_mode,
+            conversation_id=conversation_id,
             chat_service=chat_service,
             anthropic_api_key=anthropic_api_key,
             integration_tool_defs=integration_tool_defs or None,
@@ -280,6 +278,13 @@ async def agent_chat(agent_id: str, req: ChatRequest, user=Depends(get_current_u
             "X-Accel-Buffering": "no",
         },
     )
+
+
+@router.post("/{agent_id}/chat")
+async def agent_chat(agent_id: str, req: ChatRequest, user=Depends(get_current_user)):
+    """Stream a chat response for a specific agent."""
+    agent = _get_agent_or_404(agent_id)
+    return _stream_chat(agent, req.messages, req.training_mode, req.conversation_id)
 
 
 # ── Per-agent: Onboarding progress ───────────────────────────────────────────
@@ -450,12 +455,14 @@ async def agent_chat_upload(
         # Convert XLSX to CSV
         if ext == "xlsx":
             try:
+                import csv
                 import openpyxl
                 wb = openpyxl.load_workbook(io.BytesIO(content_bytes), read_only=True)
                 csv_out = io.StringIO()
+                writer = csv.writer(csv_out)
                 ws = wb.active
                 for row in ws.iter_rows(values_only=True):
-                    csv_out.write(",".join(str(cell) if cell is not None else "" for cell in row) + "\n")
+                    writer.writerow([str(cell) if cell is not None else "" for cell in row])
                 text = csv_out.getvalue()
                 wb.close()
             except Exception as e:
@@ -477,62 +484,7 @@ async def agent_chat_upload(
         prefix = "\n\n".join(file_texts)
         last_msg["content"] = prefix + "\n\n" + (last_msg.get("content") or "")
 
-    # Continue with normal chat flow
-    config = build_agent_config(agent)
-    ctx_manager = get_context_manager(agent["slug"])
-    chat_service = get_chat_service(agent["slug"])
-
-    store = CredentialStore()
-    provider = get_ai_provider(
-        agent_provider=config.provider_override or None,
-        agent_model=config.model_override or None,
-    )
-    if not provider:
-        raise HTTPException(status_code=400, detail="No AI provider configured")
-
-    google_token = ""
-    if config.gmail_enabled or config.calendar_enabled:
-        google_token = store.get_google_token() or ""
-
-    integration_tool_defs, integration_executors = _load_integration_tools()
-
-    reminder_handlers, sa_handlers = _build_agent_handlers(agent["slug"])
-    registry = ToolRegistry(
-        context_dir=config.context_dir,
-        google_access_token=google_token,
-        integration_executors=integration_executors,
-        agent_slug=agent["slug"],
-        reminder_handlers=reminder_handlers,
-        scheduled_action_handlers=sa_handlers,
-    )
-
-    _, anthropic_profile = store.get_active_profile(provider_override="anthropic")
-    anthropic_api_key = (anthropic_profile or {}).get("api_key", "")
-
-    async def event_generator():
-        async for event in ai_service.chat(
-            config=config,
-            provider=provider,
-            registry=registry,
-            ctx_manager=ctx_manager,
-            messages=messages,
-            training_mode=body.get("training_mode", False),
-            conversation_id=body.get("conversation_id"),
-            chat_service=chat_service,
-            anthropic_api_key=anthropic_api_key,
-            integration_tool_defs=integration_tool_defs or None,
-        ):
-            yield event
-
-    return StreamingResponse(
-        event_generator(),
-        media_type="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache",
-            "Connection": "keep-alive",
-            "X-Accel-Buffering": "no",
-        },
-    )
+    return _stream_chat(agent, messages, body.get("training_mode", False), body.get("conversation_id"))
 
 
 # ── Per-agent: Reports ───────────────────────────────────────────────────────

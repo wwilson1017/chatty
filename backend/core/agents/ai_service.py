@@ -22,6 +22,7 @@ import threading
 import time
 import uuid
 from datetime import datetime
+from pathlib import Path
 from typing import AsyncGenerator
 from zoneinfo import ZoneInfo
 
@@ -31,6 +32,7 @@ from .config import AgentConfig
 from .context_manager import ContextManager
 from .tool_registry import ToolRegistry
 from .tool_definitions import get_tool_definitions, get_report_instructions, get_scheduling_instructions
+from .tools.real_tools import load_all_real_tools
 
 logger = logging.getLogger(__name__)
 
@@ -274,10 +276,15 @@ async def chat(
     persist = not training_mode and chat_service is not None
 
     # ── Get tool definitions ──────────────────────────────────────────
+    # Load agent-created real tools from filesystem
+    real_tools_dir = str(Path(config.context_dir).parent / "real_tools")
+    dynamic_real_tools = load_all_real_tools(real_tools_dir)
+
     tool_defs = get_tool_definitions(
         gmail_enabled=config.gmail_enabled,
         calendar_enabled=config.calendar_enabled,
         integration_tools=integration_tool_defs,
+        dynamic_real_tools=dynamic_real_tools or None,
     )
     kind_map = _build_kind_map(tool_defs)
 

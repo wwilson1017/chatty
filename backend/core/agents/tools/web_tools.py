@@ -4,9 +4,30 @@ Provides web_search (DuckDuckGo) and web_fetch (httpx + BeautifulSoup) handlers
 for use by all AI agents.
 """
 
+from urllib.parse import urlparse
+
 import httpx
 from bs4 import BeautifulSoup
 from ddgs import DDGS
+
+_BLOCKED_HOSTS = {
+    "metadata.google.internal",
+    "metadata.google.internal.",
+    "169.254.169.254",
+}
+
+def _validate_url(url: str) -> str | None:
+    """Return an error string if the URL targets a blocked host, else None."""
+    try:
+        parsed = urlparse(url)
+        hostname = (parsed.hostname or "").lower()
+        if hostname in _BLOCKED_HOSTS or hostname.startswith("169.254."):
+            return f"Requests to '{hostname}' are blocked"
+        if parsed.scheme not in ("http", "https"):
+            return f"Unsupported scheme '{parsed.scheme}'"
+    except Exception:
+        return "Invalid URL"
+    return None
 
 _USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
@@ -36,6 +57,9 @@ def web_search(query: str, num_results: int = 5) -> dict:
 
 def web_fetch(url: str, extract_links: bool = False) -> dict:
     """Fetch a URL and extract readable text content using BeautifulSoup."""
+    ssrf_err = _validate_url(url)
+    if ssrf_err:
+        return {"error": ssrf_err, "url": url}
     try:
         resp = httpx.get(url, headers={"User-Agent": _USER_AGENT}, timeout=15.0, follow_redirects=True)
         resp.raise_for_status()

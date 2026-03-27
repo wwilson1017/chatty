@@ -346,7 +346,7 @@ REPORT_TOOLS = [
                 "subtitle": {"type": "string", "description": "Optional subtitle or date range"},
                 "sections": {
                     "type": "array",
-                    "description": "Report sections, each with a chart_type and data",
+                    "description": "Report sections, each with a chart_type and data object",
                     "items": {
                         "type": "object",
                         "properties": {
@@ -357,8 +357,15 @@ REPORT_TOOLS = [
                                          "line", "area", "pie", "donut", "table", "metric"],
                             },
                             "data": {
-                                "type": "array",
-                                "description": "Data points. For charts: [{label, value, ...}]. For tables: [{col1, col2, ...}]. For metrics: [{label, value, change?, unit?}].",
+                                "type": "object",
+                                "description": "Data object. For bar/line/area/pie/donut: {labels: [str], datasets: [{name: str, values: [number]}]}. For table: {headers: [str], rows: [[value]]}. For metric: {metrics: [{label: str, value: number, change?: str, unit?: str}]}.",
+                                "properties": {
+                                    "labels": {"type": "array", "items": {"type": "string"}, "description": "Category labels (bar/line/pie charts)"},
+                                    "datasets": {"type": "array", "description": "Data series. Each: {name: str, values: [number]}"},
+                                    "headers": {"type": "array", "items": {"type": "string"}, "description": "Column headers (table only)"},
+                                    "rows": {"type": "array", "description": "Table rows, each an array of values"},
+                                    "metrics": {"type": "array", "description": "Metric cards: [{label, value, change?, unit?}]"},
+                                },
                             },
                         },
                         "required": ["title", "chart_type", "data"],
