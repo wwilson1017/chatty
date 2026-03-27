@@ -81,6 +81,24 @@ class OdooClient:
         """Read specific records by ID."""
         return self.execute(model, "read", ids, {"fields": fields or []}) or []
 
+    def write(self, model: str, ids: list[int], vals: dict):
+        """Write field values to records. Raises on failure."""
+        if not self.models or not self.uid:
+            raise RuntimeError(f"Odoo not connected — cannot write to {model}")
+        return self.models.execute_kw(
+            self.database, self.uid, self.api_key,
+            model, "write", [ids, vals],
+        )
+
+    def create(self, model: str, vals: dict) -> int:
+        """Create a record. Returns the new record ID. Raises on failure."""
+        if not self.models or not self.uid:
+            raise RuntimeError(f"Odoo not connected — cannot create {model}")
+        return self.models.execute_kw(
+            self.database, self.uid, self.api_key,
+            model, "create", [vals],
+        )
+
 
 def get_client() -> OdooClient | None:
     """Return a configured OdooClient from stored credentials, or None."""

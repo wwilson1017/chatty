@@ -322,6 +322,19 @@ async def chat(
 
     # Append integration-specific instructions
     if integration_tool_defs:
+        odoo_tools = [t for t in integration_tool_defs if t.get("name", "").startswith("odoo_")]
+        if odoo_tools:
+            system_prompt += (
+                "\n\n# Odoo ERP Tools Available\n\n"
+                "You have Odoo tools for CRM, helpdesk, sales, purchasing, contacts, projects, "
+                "accounting, manufacturing, inventory, quality, and maintenance. "
+                "When the user asks about orders, tickets, leads, invoices, projects, equipment, "
+                "or quality checks, use the appropriate odoo_ tool. "
+                "For CRM: use odoo_search_leads, odoo_get_pipeline_summary, odoo_create_lead, etc. "
+                "For helpdesk: use odoo_search_tickets, odoo_send_ticket_reply, etc. "
+                "For generic queries against any model: use odoo_query."
+            )
+
         crm_tools = [t for t in integration_tool_defs if t.get("name", "").startswith("crm_")]
         if crm_tools:
             system_prompt += (
