@@ -36,6 +36,8 @@ export function DashboardPage() {
       if (brandingData.accent_color) {
         document.documentElement.style.setProperty('--brand-color', brandingData.accent_color);
       }
+    }).catch(() => {
+      // If provider check fails, show dashboard anyway (graceful degradation)
     }).finally(() => setLoading(false));
   }, [navigate]);
 

@@ -76,9 +76,12 @@ export function OnboardingWizard({ onComplete }: Props) {
     return '';
   }, [providerStatus]);
 
-  function handleProviderComplete() {
-    // Refresh provider status so completion screen is accurate
-    api<ProviderStatus>('/api/providers').then(setProviderStatus).catch(console.error);
+  async function handleProviderComplete() {
+    // Refresh provider status so completion screen shows accurate provider name
+    try {
+      const data = await api<ProviderStatus>('/api/providers');
+      setProviderStatus(data);
+    } catch { /* proceed anyway */ }
     setPhase('pick-integrations');
   }
 
