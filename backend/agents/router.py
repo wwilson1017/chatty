@@ -166,6 +166,10 @@ class UpdateTitleRequest(BaseModel):
     title: str
 
 
+class AvatarSelectRequest(BaseModel):
+    index: int
+
+
 # ── Agent CRUD ────────────────────────────────────────────────────────────────
 
 @router.get("")
@@ -217,6 +221,128 @@ async def delete_agent(agent_id: str, user=Depends(get_current_user)):
         shutil.rmtree(agent_dir)
         logger.info("Deleted agent data directory: %s", agent_dir)
     return {"deleted": True, "agent_id": agent_id}
+
+
+# ── Per-agent: Avatar ────────────────────────────────────────────────────────
+
+# Server-side storage for generated avatar URLs (keyed by agent_id)
+_avatar_urls: dict[str, list[str]] = {}
+_avatar_cooldowns: dict[str, float] = {}
+_AVATAR_COOLDOWN_SECONDS = 300  # 5 minutes between generations
+
+
+@router.get("/{agent_id}/avatar/availability")
+async def avatar_availability(agent_id: str, user=Depends(get_current_user)):
+    """Check whether avatar generation is available (requires OpenAI)."""
+    _get_agent_or_404(agent_id)
+    store = CredentialStore()
+    _, profile = store.get_active_profile(provider_override="openai")
+    openai_connected = bool(profile and profile.get("access"))
+    return {"generate_available": openai_connected, "upload_available": True}
+
+
+@router.post("/{agent_id}/avatar/generate")
+async def avatar_generate(agent_id: str, user=Depends(get_current_user)):
+    """Generate 3 avatar options using DALL-E 3 based on agent personality."""
+    import time as _time
+    from .avatar import generate_avatar_options
+
+    agent = _get_agent_or_404(agent_id)
+
+    # Rate limit: one generation per agent per 5 minutes
+    last_gen = _avatar_cooldowns.get(agent_id, 0)
+    if _time.time() - last_gen < _AVATAR_COOLDOWN_SECONDS:
+        remaining = int(_AVATAR_COOLDOWN_SECONDS - (_time.time() - last_gen))
+        raise HTTPException(429, f"Please wait {remaining}s before generating again")
+
+    ctx_manager = get_context_manager(agent["slug"])
+    identity = ctx_manager.read_context("identity.md")
+    soul = ctx_manager.read_context("soul.md")
+    agent_name = agent.get("agent_name") or "Assistant"
+
+    store = CredentialStore()
+    _, profile = store.get_active_profile(provider_override="openai")
+    openai_token = (profile or {}).get("access", "")
+
+    try:
+        urls = await generate_avatar_options(identity, soul, agent_name, openai_token, count=3)
+        _avatar_urls[agent_id] = urls
+        _avatar_cooldowns[agent_id] = _time.time()
+        return {"urls": urls, "count": len(urls), "partial": len(urls) < 3}
+    except ValueError as e:
+        raise HTTPException(503, f"Avatar generation not available: {e}")
+    except RuntimeError as e:
+        raise HTTPException(502, str(e))
+    except Exception as e:
+        logger.error("Avatar generation unexpected error: %s", e)
+        raise HTTPException(502, f"Avatar generation failed: {e}")
+
+
+@router.post("/{agent_id}/avatar/select")
+async def avatar_select(agent_id: str, req: AvatarSelectRequest, user=Depends(get_current_user)):
+    """Download and save a chosen avatar by index. URL is resolved server-side."""
+    from .avatar import download_and_save_avatar
+
+    urls = _avatar_urls.get(agent_id)
+    if not urls:
+        raise HTTPException(400, "No avatar options available — generate first")
+    if req.index < 0 or req.index >= len(urls):
+        raise HTTPException(400, f"Invalid index {req.index}, must be 0-{len(urls) - 1}")
+
+    agent = _get_agent_or_404(agent_id)
+    slug = agent["slug"]
+    agent_dir = DATA_DIR / slug
+    gcs_prefix = f"agents/{slug}/"
+
+    try:
+        await download_and_save_avatar(urls[req.index], agent_dir, gcs_prefix)
+        agent_db.update_agent(agent_id, avatar_url=f"/api/agents/{agent_id}/avatar")
+        _avatar_urls.pop(agent_id, None)
+        return {"ok": True, "avatar_url": f"/api/agents/{agent_id}/avatar"}
+    except Exception as e:
+        logger.error("Avatar save failed: %s", e)
+        raise HTTPException(502, f"Avatar save failed: {e}")
+
+
+@router.post("/{agent_id}/avatar/upload")
+async def avatar_upload(
+    agent_id: str,
+    file: UploadFile = File(...),
+    user=Depends(get_current_user),
+):
+    """Upload a custom avatar image."""
+    from core.storage import upload_file
+
+    if file.content_type not in ("image/png", "image/jpeg", "image/webp"):
+        raise HTTPException(400, "Avatar must be PNG, JPEG, or WebP")
+
+    contents = await file.read()
+    if len(contents) > 2 * 1024 * 1024:
+        raise HTTPException(400, "Avatar must be under 2MB")
+
+    agent = _get_agent_or_404(agent_id)
+    slug = agent["slug"]
+    agent_dir = DATA_DIR / slug
+    agent_dir.mkdir(parents=True, exist_ok=True)
+    avatar_path = agent_dir / "avatar.png"
+    avatar_path.write_bytes(contents)
+
+    upload_file(avatar_path, f"agents/{slug}/avatar.png")
+    agent_db.update_agent(agent_id, avatar_url=f"/api/agents/{agent_id}/avatar")
+
+    return {"ok": True, "avatar_url": f"/api/agents/{agent_id}/avatar"}
+
+
+@router.get("/{agent_id}/avatar")
+async def get_avatar(agent_id: str, user=Depends(get_current_user)):
+    """Serve the agent's avatar image."""
+    from fastapi.responses import FileResponse
+
+    agent = _get_agent_or_404(agent_id)
+    avatar_path = DATA_DIR / agent["slug"] / "avatar.png"
+    if not avatar_path.exists():
+        raise HTTPException(404, "No avatar set")
+    return FileResponse(str(avatar_path), media_type="image/png")
 
 
 # ── Per-agent: Chat (shared helper) ──────────────────────────────────────────

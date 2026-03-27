@@ -10,6 +10,7 @@ import { LoginPage } from './login/LoginPage';
 import { DashboardPage } from './dashboard/DashboardPage';
 import { AgentPage } from './agent/AgentPage';
 import { WebbyPage } from './webby/WebbyPage';
+import { SetupWizard } from './setup/SetupWizard';
 import { CrmLayout } from './crm/CrmLayout';
 import { CrmDashboardPage } from './crm/CrmDashboardPage';
 import { ContactsPage } from './crm/ContactsPage';
@@ -23,6 +24,15 @@ export default function App() {
       <BrowserRouter>
         <Routes>
           <Route path="/login" element={<LoginPage />} />
+
+          <Route
+            path="/setup"
+            element={
+              <ProtectedRoute>
+                <SetupWizard />
+              </ProtectedRoute>
+            }
+          />
 
           <Route
             path="/"

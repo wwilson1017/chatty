@@ -30,14 +30,27 @@ class ContextManager:
     def load_all_context(self) -> str:
         """Load all .md files and concatenate them with headers. Used for system prompt.
 
-        Enforces MAX_CONTEXT_CHARS to prevent prompt bloat. Files starting with '_'
-        (like _training-progress.md) are loaded last so operational files take priority.
+        Enforces MAX_CONTEXT_CHARS to prevent prompt bloat. soul.md is loaded first
+        as the agent's identity anchor. Files starting with '_' (like
+        _training-progress.md) are loaded last so operational files take priority.
         """
         self.ensure_dir()
         files = sorted(self.data_dir.glob("*.md"), key=lambda f: (f.name.startswith("_"), f.name))
         parts = []
         total = 0
+
+        # Load soul.md first for identity prominence
+        soul_file = self.data_dir / "soul.md"
+        if soul_file.exists():
+            soul_content = soul_file.read_text(encoding="utf-8").strip()
+            if soul_content:
+                section = f"## soul\n\n{soul_content}"
+                parts.append(section)
+                total += len(section)
+
         for f in files:
+            if f.name == "soul.md":
+                continue  # already loaded above
             content = f.read_text(encoding="utf-8").strip()
             if not content:
                 continue
