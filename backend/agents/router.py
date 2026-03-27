@@ -285,6 +285,8 @@ async def avatar_select(agent_id: str, req: AvatarSelectRequest, user=Depends(ge
 
     urls = _avatar_urls.get(agent_id)
     if not urls:
+        # Clear stale cooldown so user can re-generate (e.g. after server restart)
+        _avatar_cooldowns.pop(agent_id, None)
         raise HTTPException(400, "No avatar options available — generate first")
     if req.index < 0 or req.index >= len(urls):
         raise HTTPException(400, f"Invalid index {req.index}, must be 0-{len(urls) - 1}")
@@ -316,8 +318,9 @@ async def avatar_upload(
     if file.content_type not in ("image/png", "image/jpeg", "image/webp"):
         raise HTTPException(400, "Avatar must be PNG, JPEG, or WebP")
 
-    contents = await file.read()
-    if len(contents) > 2 * 1024 * 1024:
+    max_size = 2 * 1024 * 1024
+    contents = await file.read(max_size + 1)
+    if len(contents) > max_size:
         raise HTTPException(400, "Avatar must be under 2MB")
 
     agent = _get_agent_or_404(agent_id)

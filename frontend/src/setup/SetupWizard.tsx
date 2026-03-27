@@ -34,12 +34,16 @@ export function SetupWizard() {
   }
 
   async function finish() {
-    await api('/api/setup/complete', { method: 'POST' });
+    try {
+      await api('/api/setup/complete', { method: 'POST' });
+    } catch { /* navigate regardless */ }
     navigate('/');
   }
 
   async function skipAll() {
-    await api('/api/setup/skip', { method: 'POST' });
+    try {
+      await api('/api/setup/skip', { method: 'POST' });
+    } catch { /* navigate regardless */ }
     navigate('/');
   }
 
