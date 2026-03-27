@@ -12,3 +12,8 @@ anthropic
 openai
 google-generativeai
 python-multipart
+beautifulsoup4
+ddgs
+openpyxl
+apscheduler
+croniter

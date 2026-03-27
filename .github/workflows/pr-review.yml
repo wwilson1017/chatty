@@ -1,0 +1,390 @@
+name: AI Code Review
+
+on:
+  pull_request:
+    branches: [master]
+    types: [opened, synchronize]
+
+# Cancel in-progress review if new commits are pushed (cost control)
+concurrency:
+  group: pr-review-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  review:
+    name: AI Code Review
+    runs-on: ubuntu-latest
+    if: github.event.pull_request.draft == false
+
+    steps:
+      # ── Checkout ──────────────────────────────────
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # ── Get PR diff ──────────────────────────────
+      - name: Get PR diff
+        id: diff
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # Fetch the full diff via GitHub API
+          DIFF=$(gh api \
+            "repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}" \
+            -H "Accept: application/vnd.github.diff" \
+            --cache 0)
+
+          # Check if diff is empty
+          if [ -z "$DIFF" ]; then
+            echo "empty=true" >> "$GITHUB_OUTPUT"
+            echo "No changes detected in PR diff."
+            exit 0
+          fi
+          echo "empty=false" >> "$GITHUB_OUTPUT"
+
+          # Check if diff contains reviewable code files
+          CHANGED_FILES=$(gh api \
+            "repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/files" \
+            --jq '.[].filename' | grep -E '\.(py|ts|tsx|js|jsx|css|yml|yaml|sh)$|Dockerfile$' || true)
+
+          if [ -z "$CHANGED_FILES" ]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "PR only contains non-reviewable file types."
+            exit 0
+          fi
+          echo "skip=false" >> "$GITHUB_OUTPUT"
+
+          # Size tiering for diff handling
+          DIFF_CHARS=${#DIFF}
+          echo "diff_chars=$DIFF_CHARS" >> "$GITHUB_OUTPUT"
+
+          SKIP_LIMIT=500000    # >500K chars: skip AI review entirely
+          TRUNCATE_LIMIT=300000 # >300K chars: truncate diff
+
+          TRUNCATED="false"
+          DIFF_STATUS="normal"  # normal | large | too_large
+
+          if [ "$DIFF_CHARS" -gt "$SKIP_LIMIT" ]; then
+            echo "diff_status=too_large" >> "$GITHUB_OUTPUT"
+            echo "Diff is $DIFF_CHARS chars (>${SKIP_LIMIT}). Skipping AI review."
+            exit 0
+          elif [ "$DIFF_CHARS" -gt "$TRUNCATE_LIMIT" ]; then
+            DIFF="${DIFF:0:$TRUNCATE_LIMIT}"
+            TRUNCATED="true"
+            DIFF_STATUS="large"
+          fi
+          echo "truncated=$TRUNCATED" >> "$GITHUB_OUTPUT"
+          echo "diff_status=$DIFF_STATUS" >> "$GITHUB_OUTPUT"
+
+          # Save diff to file (avoids shell escaping issues with large diffs)
+          printf '%s' "$DIFF" > /tmp/pr_diff.txt
+
+          # Build a file summary so the model has full context even when diff is truncated
+          gh api \
+            "repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/files" \
+            --paginate --jq '.[] | "- \(.filename) (+\(.additions)/-\(.deletions)) [\(.status)]"' \
+            > /tmp/pr_file_summary.txt
+
+      # ── Get PR metadata ─────────────────────────
+      - name: Get PR info
+        if: steps.diff.outputs.empty != 'true' && steps.diff.outputs.skip != 'true' && steps.diff.outputs.diff_status != 'too_large'
+        id: pr_info
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          PR_TITLE=$(gh api \
+            "repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}" \
+            --jq '.title')
+          PR_BODY=$(gh api \
+            "repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}" \
+            --jq '.body // ""')
+
+          printf '%s' "$PR_TITLE" > /tmp/pr_title.txt
+          printf '%s' "$PR_BODY" > /tmp/pr_body.txt
+
+      # ── Write system prompt to file ─────────────
+      - name: Write system prompt
+        if: steps.diff.outputs.empty != 'true' && steps.diff.outputs.skip != 'true' && steps.diff.outputs.diff_status != 'too_large'
+        run: |
+          cat > /tmp/system_prompt.txt <<'SYSPROMPT'
+          You are a senior engineer reviewing a pull request for Chatty — a generic, brandable personal AI agent platform. Single-user (password login), multi-agent, multi-provider AI (Anthropic, OpenAI, Google Gemini). FastAPI backend + React/TypeScript/Tailwind frontend.
+
+          ## Review Philosophy
+
+          Focus on issues that would actually break production, introduce security vulnerabilities, or create real maintainability problems. Do NOT flag:
+          - Code that follows established patterns in the codebase, even if you'd design it differently
+          - Performance concerns that are theoretical rather than measured
+          - Missing validation on internal-only code paths that don't face external user input
+          - "Could be improved" suggestions that don't address a real problem
+
+          Before flagging something as BLOCKER or HIGH RISK, verify your understanding of the code flow. Read the full function — not just the block in question. A false BLOCKER wastes more time than a missed SUGGESTION.
+
+          ## Chatty Project Architecture (Key Patterns)
+
+          - Monorepo: Python 3.12 FastAPI backend + React 19 / TypeScript / Vite / Tailwind CSS frontend
+          - Multi-provider AI: AIProvider ABC with Anthropic, OpenAI, and Gemini implementations
+          - Provider-agnostic AI service: ai_service.py orchestrates tool loops via SSE streaming
+          - Per-agent isolation: each agent has own context dir, chat.db, slug dir under data/agents/{slug}/
+          - Global credentials: provider auth in data/auth-profiles.json, shared across agents
+          - Single-user auth: password-based login with JWT tokens
+          - Tool registry: dispatches by kind (context, gmail, calendar, web, real_tool, report, reminder, scheduled_action, integration)
+          - Integration system: toggleable integrations (CRM Lite, Odoo, QuickBooks, BambooHR) with dynamic tool loading
+          - Branding: logo, company name, accent color stored in data/branding/
+          - APScheduler: background processing for reminders and scheduled actions
+          - Background runner: provider-agnostic AI execution for reminders/scheduled actions
+
+          ## Established Backend Patterns (do not flag as issues)
+
+          - **Tool registry dispatch**: tool_registry.py uses if/elif by kind. This is intentional.
+          - **Lazy singletons**: Google API clients use module-level caching.
+          - **Settings**: Plain Python class in config.py with os.getenv() calls.
+          - **Integration loading**: Dynamic import via importlib in agents/router.py _load_integration_tools().
+          - **Agent factory**: LRU-cached agent engine in agents/engine.py.
+          - **No per-resource ownership**: Single-user app — auth guard is sufficient.
+          - **Real tools AST sandbox**: Python code tools use AST validation + restricted builtins + ThreadPoolExecutor timeout.
+          SYSPROMPT
+
+      # ── Build user message ─────────────────────
+      - name: Build user message
+        if: steps.diff.outputs.empty != 'true' && steps.diff.outputs.skip != 'true' && steps.diff.outputs.diff_status != 'too_large'
+        run: |
+          TRUNCATED="${{ steps.diff.outputs.truncated }}"
+          TRUNCATION_NOTE=""
+          if [ "$TRUNCATED" = "true" ]; then
+            TRUNCATION_NOTE="NOTE: This diff was truncated to 300,000 characters. Focus your review on what is visible."
+          fi
+
+          # Use jq with --rawfile for large inputs to avoid "Argument list too long"
+          jq -n -r \
+            --rawfile title /tmp/pr_title.txt \
+            --rawfile body /tmp/pr_body.txt \
+            --rawfile diff /tmp/pr_diff.txt \
+            --rawfile files /tmp/pr_file_summary.txt \
+            --arg note "$TRUNCATION_NOTE" \
+            '"Review this pull request. Follow the steps below exactly.
+
+          PR Title: \($title)
+          PR Description: \($body)
+
+          Files changed (full list):
+          \($files)
+
+          Step 1: High-Level Summary
+          - What does this PR change?
+          - What user-facing behavior is impacted?
+          - What backend behavior is impacted?
+
+          Step 2: Behavioral Risk Analysis
+          Identify real bugs, unhandled edge cases, failure modes, and breaking changes. Before flagging anything BLOCKER or HIGH RISK, trace the full code path to confirm the issue is real. Classify each:
+          - BLOCKER (must fix before merge — confirmed bug or will break production)
+          - HIGH RISK (likely to cause issues in realistic usage)
+          - MEDIUM RISK (edge case worth noting but unlikely in practice)
+          - LOW RISK / SUGGESTION (improvement ideas, not blocking)
+
+          Step 3: Security Review
+          Look for: auth bypass, exposed secrets, SQL/command injection, XSS, missing auth guards on new endpoints, overly permissive CORS.
+
+          Step 4: Data and API Integrity
+          Are request/response models consistent? Could this break existing consumers?
+
+          Step 5: Maintainability & Code Quality
+          Focus on: duplicated logic that should be shared, overly complex code, naming that misleads.
+
+          Pay special attention to changes that will break the TypeScript build:
+          - Variables, imports, or type declarations that are declared but never used
+          - Type mismatches introduced by partial refactors
+          Flag these as BLOCKER since they will fail the CI build.
+
+          Step 6: Testing & Verification Gaps
+          What manual test cases should be run before merge?
+
+          Step 7: Rollback & Deployment Risk
+          If this fails in production, how hard is rollback?
+
+          Step 8: Executive Risk Summary
+          - Overall risk score: Low / Moderate / High / Critical
+          - Top 3 concerns
+          - Recommendation: Approve / Approve with changes / Request revisions
+
+          Step 9: Action Items Table
+          | Severity | File | Finding | Verified | Suggested Fix |
+
+          \($note)
+
+          Diff:
+          ```diff
+          \($diff)
+          ```"' > /tmp/user_message.txt
+
+      # ── Build JSON payload and call Anthropic API ──
+      - name: Run AI review
+        if: steps.diff.outputs.empty != 'true' && steps.diff.outputs.skip != 'true' && steps.diff.outputs.diff_status != 'too_large'
+        id: review
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          # Trim any whitespace/newlines from API key
+          ANTHROPIC_API_KEY=$(printf '%s' "$ANTHROPIC_API_KEY" | tr -d '[:space:]')
+
+          # Build the Anthropic Messages API payload
+          jq -n \
+            --rawfile system /tmp/system_prompt.txt \
+            --rawfile user /tmp/user_message.txt \
+            '{
+              model: "claude-opus-4-6",
+              max_tokens: 16384,
+              temperature: 0.3,
+              system: $system,
+              messages: [
+                {role: "user", content: $user}
+              ]
+            }' > /tmp/payload_raw.json
+
+          # Re-serialize through jq to guarantee valid compact JSON
+          jq -c . /tmp/payload_raw.json > /tmp/payload.json
+
+          # Call Anthropic Messages API
+          RESPONSE=$(curl -s -w "\n%{http_code}" \
+            --max-time 180 \
+            -X POST https://api.anthropic.com/v1/messages \
+            -H "content-type: application/json" \
+            -H "x-api-key: $ANTHROPIC_API_KEY" \
+            -H "anthropic-version: 2023-06-01" \
+            --data-binary @/tmp/payload.json)
+
+          # Extract HTTP status code (last line)
+          HTTP_CODE=$(echo "$RESPONSE" | tail -1)
+          BODY=$(echo "$RESPONSE" | sed '$d')
+
+          if [ "$HTTP_CODE" != "200" ]; then
+            echo "::warning::Anthropic API returned HTTP $HTTP_CODE"
+            echo "::warning::Response body: $BODY"
+            echo "api_error=true" >> "$GITHUB_OUTPUT"
+            printf '%s' "$BODY" > /tmp/api_error.txt
+            exit 0
+          fi
+
+          echo "api_error=false" >> "$GITHUB_OUTPUT"
+
+          # Extract the review text from the Anthropic response
+          echo "$BODY" | jq -r '.content[0].text' > /tmp/review.txt
+
+      # ── Upsert review comment (create or update) ─
+      - name: Post or update review comment
+        if: steps.diff.outputs.empty != 'true' && steps.diff.outputs.skip != 'true' && steps.diff.outputs.diff_status != 'too_large' && steps.review.outputs.api_error != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          REVIEW=$(cat /tmp/review.txt)
+          TRUNCATED="${{ steps.diff.outputs.truncated }}"
+          DIFF_STATUS="${{ steps.diff.outputs.diff_status }}"
+
+          TRUNCATION_BANNER=""
+          if [ "$TRUNCATED" = "true" ]; then
+            TRUNCATION_BANNER=$'\n> **Note:** The diff was truncated to 300,000 characters. Some changes may not be covered in this review.\n'
+          fi
+
+          DIFF_BANNER=""
+          if [ "$DIFF_STATUS" = "large" ]; then
+            DIFF_BANNER=$'\n> **Note:** This is a large PR. The diff was truncated to fit within model limits. Focus on the files shown.\n'
+          fi
+
+          # Hidden marker so we can find this comment later
+          MARKER="<!-- ai-code-review-bot -->"
+
+          COMMENT="${MARKER}
+          ## AI Code Review
+          ${TRUNCATION_BANNER}${DIFF_BANNER}
+          ${REVIEW}
+
+          ---
+          *Automated review by Claude Opus 4.6 · This is an AI-generated review — use your judgment on the suggestions.*"
+
+          # Find existing bot comment by marker
+          EXISTING_ID=$(gh api \
+            "repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/comments" \
+            --paginate --jq '.[] | select(.body | startswith("<!-- ai-code-review-bot -->")) | .id' \
+            | head -1)
+
+          if [ -n "$EXISTING_ID" ]; then
+            echo "Updating existing comment $EXISTING_ID"
+            gh api \
+              "repos/${{ github.repository }}/issues/comments/$EXISTING_ID" \
+              -X PATCH -f body="$COMMENT"
+          else
+            echo "Creating new comment"
+            gh api \
+              "repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/comments" \
+              -f body="$COMMENT"
+          fi
+
+      # ── Handle skip / error / too-large cases ───
+      - name: Post skip or error notice
+        if: steps.diff.outputs.empty == 'true' || steps.diff.outputs.skip == 'true' || steps.diff.outputs.diff_status == 'too_large' || steps.review.outputs.api_error == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          MARKER="<!-- ai-code-review-bot -->"
+
+          if [ "${{ steps.diff.outputs.empty }}" = "true" ] || [ "${{ steps.diff.outputs.skip }}" = "true" ]; then
+            BODY="${MARKER}
+          ## AI Code Review
+
+          No reviewable code changes detected. Skipping AI review.
+
+          ---
+          *Automated review by Claude Opus 4.6*"
+
+          elif [ "${{ steps.diff.outputs.diff_status }}" = "too_large" ]; then
+            DIFF_CHARS="${{ steps.diff.outputs.diff_chars }}"
+            BODY="${MARKER}
+          ## AI Code Review
+
+          :information_source: This PR is too large for automated review (**${DIFF_CHARS}** characters). Please review manually.
+
+          ---
+          *Automated review by Claude Opus 4.6*"
+
+          elif [ "${{ steps.review.outputs.api_error }}" = "true" ]; then
+            ERROR_DETAIL=""
+            if [ -f /tmp/api_error.txt ]; then
+              ERROR_DETAIL=$(cat /tmp/api_error.txt | jq -r '.error.message // .error // "Unknown error"' 2>/dev/null || cat /tmp/api_error.txt)
+              ERROR_DETAIL="${ERROR_DETAIL:0:500}"
+            fi
+
+            BODY="${MARKER}
+          ## AI Code Review
+
+          :warning: The AI review could not be completed due to an API error. Please review manually.
+
+          <details><summary>Error details</summary>
+
+          \`\`\`
+          ${ERROR_DETAIL}
+          \`\`\`
+          </details>
+
+          ---
+          *Automated review by Claude Opus 4.6*"
+          fi
+
+          # Upsert: find existing comment or create new
+          EXISTING_ID=$(gh api \
+            "repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/comments" \
+            --paginate --jq '.[] | select(.body | startswith("<!-- ai-code-review-bot -->")) | .id' \
+            | head -1)
+
+          if [ -n "$EXISTING_ID" ]; then
+            gh api \
+              "repos/${{ github.repository }}/issues/comments/$EXISTING_ID" \
+              -X PATCH -f body="$BODY"
+          else
+            gh api \
+              "repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/comments" \
+              -f body="$BODY"
+          fi

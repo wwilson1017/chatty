@@ -24,10 +24,13 @@ Per-agent (chat, context, conversations):
 """
 
 import importlib
+import io
+import json as _json_mod
 import shutil
 import logging
+from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
@@ -35,6 +38,17 @@ from core.auth import get_current_user
 from core.providers import get_ai_provider
 from core.providers.credentials import CredentialStore
 from core.agents.tool_registry import ToolRegistry
+from core.agents.reminders.tools import (
+    create_reminder_handler,
+    list_reminders_handler,
+    cancel_reminder_handler,
+)
+from core.agents.scheduled_actions.tools import (
+    create_scheduled_action_handler,
+    list_scheduled_actions_handler,
+    update_scheduled_action_handler,
+    delete_scheduled_action_handler,
+)
 from . import db as agent_db
 from .engine import (
     build_agent_config,
@@ -94,6 +108,22 @@ def _get_agent_or_404(agent_id: str) -> dict:
     if not agent:
         raise HTTPException(status_code=404, detail="Agent not found")
     return agent
+
+
+def _build_agent_handlers(agent_slug: str) -> tuple[dict, dict]:
+    """Build reminder and scheduled action handler dicts for an agent."""
+    reminder_handlers = {
+        "create_reminder": lambda **kw: create_reminder_handler(agent_slug, **kw),
+        "list_reminders": lambda **kw: list_reminders_handler(agent_slug, **kw),
+        "cancel_reminder": lambda **kw: cancel_reminder_handler(agent_slug, **kw),
+    }
+    sa_handlers = {
+        "create_scheduled_action": lambda **kw: create_scheduled_action_handler(agent_slug, **kw),
+        "list_scheduled_actions": lambda **kw: list_scheduled_actions_handler(agent_slug, **kw),
+        "update_scheduled_action": lambda **kw: update_scheduled_action_handler(agent_slug, **kw),
+        "delete_scheduled_action": lambda **kw: delete_scheduled_action_handler(agent_slug, **kw),
+    }
+    return reminder_handlers, sa_handlers
 
 
 def _safe_filename(filename: str) -> bool:
@@ -189,12 +219,10 @@ async def delete_agent(agent_id: str, user=Depends(get_current_user)):
     return {"deleted": True, "agent_id": agent_id}
 
 
-# ── Per-agent: Chat ───────────────────────────────────────────────────────────
+# ── Per-agent: Chat (shared helper) ──────────────────────────────────────────
 
-@router.post("/{agent_id}/chat")
-async def agent_chat(agent_id: str, req: ChatRequest, user=Depends(get_current_user)):
-    """Stream a chat response for a specific agent."""
-    agent = _get_agent_or_404(agent_id)
+def _stream_chat(agent: dict, messages: list, training_mode: bool, conversation_id: str | None):
+    """Build provider, registry, and return a StreamingResponse for agent chat."""
     config = build_agent_config(agent)
     ctx_manager = get_context_manager(agent["slug"])
     chat_service = get_chat_service(agent["slug"])
@@ -213,10 +241,14 @@ async def agent_chat(agent_id: str, req: ChatRequest, user=Depends(get_current_u
 
     integration_tool_defs, integration_executors = _load_integration_tools()
 
+    reminder_handlers, sa_handlers = _build_agent_handlers(agent["slug"])
     registry = ToolRegistry(
         context_dir=config.context_dir,
         google_access_token=google_token,
         integration_executors=integration_executors,
+        agent_slug=agent["slug"],
+        reminder_handlers=reminder_handlers,
+        scheduled_action_handlers=sa_handlers,
     )
 
     _, anthropic_profile = store.get_active_profile(provider_override="anthropic")
@@ -228,9 +260,9 @@ async def agent_chat(agent_id: str, req: ChatRequest, user=Depends(get_current_u
             provider=provider,
             registry=registry,
             ctx_manager=ctx_manager,
-            messages=req.messages,
-            training_mode=req.training_mode,
-            conversation_id=req.conversation_id,
+            messages=messages,
+            training_mode=training_mode,
+            conversation_id=conversation_id,
             chat_service=chat_service,
             anthropic_api_key=anthropic_api_key,
             integration_tool_defs=integration_tool_defs or None,
@@ -246,6 +278,13 @@ async def agent_chat(agent_id: str, req: ChatRequest, user=Depends(get_current_u
             "X-Accel-Buffering": "no",
         },
     )
+
+
+@router.post("/{agent_id}/chat")
+async def agent_chat(agent_id: str, req: ChatRequest, user=Depends(get_current_user)):
+    """Stream a chat response for a specific agent."""
+    agent = _get_agent_or_404(agent_id)
+    return _stream_chat(agent, req.messages, req.training_mode, req.conversation_id)
 
 
 # ── Per-agent: Onboarding progress ───────────────────────────────────────────
@@ -372,3 +411,108 @@ async def update_title(
     if new_title is None:
         raise HTTPException(status_code=404, detail="Conversation not found or title empty")
     return {"title": new_title}
+
+
+# ── Per-agent: File upload chat ──────────────────────────────────────────────
+
+_ALLOWED_EXTENSIONS = {"csv", "xlsx", "md", "txt"}
+_MAX_FILE_SIZE = 10 * 1024 * 1024  # 10 MB
+_MAX_FILES = 5
+
+
+@router.post("/{agent_id}/chat/upload")
+async def agent_chat_upload(
+    agent_id: str,
+    payload: str = Form(...),
+    files: list[UploadFile] = File(default=[]),
+    user=Depends(get_current_user),
+):
+    """Chat with file attachments. Reads file contents and prepends to the user message."""
+    agent = _get_agent_or_404(agent_id)
+
+    try:
+        body = _json_mod.loads(payload)
+    except _json_mod.JSONDecodeError:
+        raise HTTPException(status_code=400, detail="Invalid JSON payload")
+
+    messages = body.get("messages", [])
+    if not messages:
+        raise HTTPException(status_code=400, detail="No messages provided")
+
+    # Process uploaded files
+    file_texts = []
+    for f in files[:_MAX_FILES]:
+        ext = (f.filename or "").rsplit(".", 1)[-1].lower()
+        if ext not in _ALLOWED_EXTENSIONS:
+            raise HTTPException(status_code=400, detail=f"File type '.{ext}' not allowed")
+
+        content_bytes = await f.read()
+        if len(content_bytes) > _MAX_FILE_SIZE:
+            raise HTTPException(status_code=400, detail=f"File '{f.filename}' exceeds 10 MB limit")
+        if not content_bytes:
+            continue
+
+        # Convert XLSX to CSV
+        if ext == "xlsx":
+            try:
+                import csv
+                import openpyxl
+                wb = openpyxl.load_workbook(io.BytesIO(content_bytes), read_only=True)
+                csv_out = io.StringIO()
+                writer = csv.writer(csv_out)
+                ws = wb.active
+                for row in ws.iter_rows(values_only=True):
+                    writer.writerow([str(cell) if cell is not None else "" for cell in row])
+                text = csv_out.getvalue()
+                wb.close()
+            except Exception as e:
+                raise HTTPException(status_code=400, detail=f"Failed to parse '{f.filename}': {e}")
+        else:
+            try:
+                text = content_bytes.decode("utf-8")
+            except UnicodeDecodeError:
+                try:
+                    text = content_bytes.decode("latin-1")
+                except UnicodeDecodeError:
+                    raise HTTPException(status_code=400, detail=f"Cannot decode '{f.filename}'")
+
+        file_texts.append(f"[Attached file: {f.filename}]\n{text}\n[End of file]")
+
+    # Prepend file contents to the last user message
+    if file_texts:
+        last_msg = messages[-1]
+        prefix = "\n\n".join(file_texts)
+        last_msg["content"] = prefix + "\n\n" + (last_msg.get("content") or "")
+
+    return _stream_chat(agent, messages, body.get("training_mode", False), body.get("conversation_id"))
+
+
+# ── Per-agent: Reports ───────────────────────────────────────────────────────
+
+@router.get("/{agent_id}/reports")
+async def list_agent_reports(agent_id: str, user=Depends(get_current_user)):
+    agent = _get_agent_or_404(agent_id)
+    from core.agents.tools.report_tools import list_reports
+    reports_dir = str(DATA_DIR / agent["slug"] / "reports")
+    return {"reports": list_reports(reports_dir)}
+
+
+@router.get("/{agent_id}/reports/{report_id}")
+async def get_agent_report(agent_id: str, report_id: str, user=Depends(get_current_user)):
+    agent = _get_agent_or_404(agent_id)
+    from core.agents.tools.report_tools import get_report
+    reports_dir = str(DATA_DIR / agent["slug"] / "reports")
+    report = get_report(reports_dir, report_id)
+    if not report:
+        raise HTTPException(status_code=404, detail="Report not found")
+    return report
+
+
+@router.delete("/{agent_id}/reports/{report_id}")
+async def delete_agent_report(agent_id: str, report_id: str, user=Depends(get_current_user)):
+    agent = _get_agent_or_404(agent_id)
+    from core.agents.tools.report_tools import delete_report
+    reports_dir = str(DATA_DIR / agent["slug"] / "reports")
+    if not delete_report(reports_dir, report_id):
+        raise HTTPException(status_code=404, detail="Report not found")
+    return {"deleted": True}

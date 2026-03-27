@@ -1,0 +1,93 @@
+"""Chatty — Reminder + Scheduled Actions SQLite database.
+
+Single shared database for all agents. WAL mode for concurrent reads.
+All writes go through _write_lock.
+"""
+
+import logging
+import sqlite3
+import threading
+from pathlib import Path
+
+logger = logging.getLogger(__name__)
+
+DATA_DIR = Path(__file__).resolve().parent.parent.parent.parent / "data" / "reminders"
+DB_PATH = DATA_DIR / "reminders.db"
+
+_connection: sqlite3.Connection | None = None
+_write_lock = threading.Lock()
+
+
+def get_db() -> sqlite3.Connection:
+    if _connection is None:
+        raise RuntimeError("Reminders DB not initialized — call init_db() first")
+    return _connection
+
+
+def write_lock() -> threading.Lock:
+    return _write_lock
+
+
+def init_db() -> None:
+    global _connection
+
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
+
+    _connection = sqlite3.connect(str(DB_PATH), check_same_thread=False)
+    _connection.row_factory = sqlite3.Row
+    _connection.execute("PRAGMA journal_mode=WAL")
+    _connection.execute("PRAGMA busy_timeout=5000")
+
+    _connection.executescript("""
+        CREATE TABLE IF NOT EXISTS reminders (
+            id TEXT PRIMARY KEY,
+            agent TEXT NOT NULL,
+            created_by_email TEXT NOT NULL DEFAULT 'user',
+            reminder_type TEXT NOT NULL DEFAULT 'self' CHECK(reminder_type IN ('self', 'user')),
+            target_email TEXT,
+            message TEXT NOT NULL,
+            context TEXT,
+            due_at TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending', 'fired', 'cancelled')),
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            fired_at TEXT,
+            result TEXT
+        );
+        CREATE INDEX IF NOT EXISTS idx_reminders_due ON reminders(status, due_at);
+
+        CREATE TABLE IF NOT EXISTS scheduled_actions (
+            id TEXT PRIMARY KEY,
+            agent TEXT NOT NULL,
+            created_by_email TEXT NOT NULL DEFAULT 'user',
+            action_type TEXT NOT NULL CHECK(action_type IN ('heartbeat', 'cron')),
+            name TEXT NOT NULL DEFAULT '',
+            description TEXT NOT NULL DEFAULT '',
+            schedule_type TEXT NOT NULL CHECK(schedule_type IN ('cron', 'interval', 'once')),
+            cron_expression TEXT,
+            interval_minutes INTEGER,
+            run_at TEXT,
+            active_hours_start TEXT DEFAULT '06:00',
+            active_hours_end TEXT DEFAULT '20:00',
+            active_hours_tz TEXT NOT NULL DEFAULT 'America/Chicago',
+            prompt TEXT NOT NULL DEFAULT '',
+            model_override TEXT,
+            max_tool_iterations INTEGER NOT NULL DEFAULT 5,
+            enabled INTEGER NOT NULL DEFAULT 1,
+            next_run TEXT,
+            last_run TEXT,
+            last_status TEXT,
+            last_result TEXT,
+            last_duration_ms INTEGER,
+            last_input_tokens INTEGER DEFAULT 0,
+            last_output_tokens INTEGER DEFAULT 0,
+            consecutive_errors INTEGER NOT NULL DEFAULT 0,
+            total_runs INTEGER NOT NULL DEFAULT 0,
+            total_input_tokens INTEGER NOT NULL DEFAULT 0,
+            total_output_tokens INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+        CREATE INDEX IF NOT EXISTS idx_sa_next ON scheduled_actions(enabled, next_run);
+        CREATE INDEX IF NOT EXISTS idx_sa_agent ON scheduled_actions(agent);
+    """)
+    logger.info("Reminders DB initialized at %s", DB_PATH)
