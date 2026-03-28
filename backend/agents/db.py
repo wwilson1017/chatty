@@ -167,6 +167,14 @@ def delete_agent(agent_id: str) -> bool:
     return cursor.rowcount > 0
 
 
+def close_db() -> None:
+    """Close the registry DB connection (for backup/restore)."""
+    global _connection
+    if _connection:
+        _connection.close()
+        _connection = None
+
+
 def backup_to_gcs() -> None:
     """Checkpoint WAL then upload the registry DB to GCS."""
     if _connection is not None:

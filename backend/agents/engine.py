@@ -93,3 +93,18 @@ def get_chat_service(slug: str) -> ChatHistoryService:
 def invalidate_cache(slug: str) -> None:
     """Invalidate the LRU cache entry for a given slug (e.g. after deletion)."""
     _get_initialized_db.cache_clear()
+
+
+def close_all_agent_dbs() -> None:
+    """Close all cached chat DB connections and clear LRU cache (for backup/restore)."""
+    from .db import list_agents
+    try:
+        for agent in list_agents():
+            try:
+                db = _get_initialized_db(agent["slug"])
+                db.close()
+            except Exception:
+                pass
+    except Exception:
+        pass
+    _get_initialized_db.cache_clear()

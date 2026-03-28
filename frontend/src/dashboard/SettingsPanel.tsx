@@ -3,6 +3,7 @@ import { api } from '../core/api/client';
 import type { BrandingConfig } from '../core/types';
 import { ProviderSetup } from '../setup/ProviderSetup';
 import { IntegrationsTab } from './IntegrationsTab';
+import { DataTab } from './DataTab';
 
 interface Props {
   branding: BrandingConfig | null;
@@ -10,7 +11,7 @@ interface Props {
   onClose: () => void;
 }
 
-type Tab = 'providers' | 'branding' | 'integrations';
+type Tab = 'providers' | 'branding' | 'integrations' | 'data';
 
 export function SettingsPanel({ branding, onBrandingUpdate, onClose }: Props) {
   const [tab, setTab] = useState<Tab>('providers');
@@ -48,6 +49,7 @@ export function SettingsPanel({ branding, onBrandingUpdate, onClose }: Props) {
     { id: 'providers', label: 'AI Providers' },
     { id: 'branding', label: 'Branding' },
     { id: 'integrations', label: 'Integrations' },
+    { id: 'data', label: 'Data' },
   ];
 
   return (
@@ -133,6 +135,8 @@ export function SettingsPanel({ branding, onBrandingUpdate, onClose }: Props) {
           )}
 
           {tab === 'integrations' && <IntegrationsTab />}
+
+          {tab === 'data' && <DataTab />}
         </div>
       </div>
     </div>
