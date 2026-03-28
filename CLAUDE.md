@@ -2,13 +2,23 @@
 
 ## What This Is
 
-**Chatty** — a generic, brandable personal AI agent platform.
+**Chatty** — a free, open-source personal AI agent platform built for small business owners.
+- **Free and open source** — no paid tiers, no vendor lock-in, no SaaS fees. Users only pay for their own AI provider API usage (Anthropic, OpenAI, or Google)
+- **Target audience**: small business owners who want a powerful AI chatbot without enterprise pricing or technical complexity
 - Single user (password login), multiple agents
 - User creates agents from a dashboard; each has name/personality/knowledge via onboarding
 - Optional branding: logo, company name, accent color
 - Multi-provider AI: Anthropic (API key), OpenAI (OAuth), Google Gemini (OAuth)
 - Toggleable integrations: Odoo, QuickBooks Online, BambooHR
-- Local-only for Phase 1
+- One-click cloud deployment via Railway for mobile + desktop access anywhere
+
+## Deployment
+
+- **Primary deploy target**: Railway (one-click "Deploy on Railway" button in README)
+- Users get a cloud URL accessible from phone or desktop — no local setup required
+- SQLite-based, no external database needed — persistent volume on Railway handles storage
+- Deployment requires only env vars: `AUTH_PASSWORD`, `JWT_SECRET`, and AI provider credentials
+- Keep deployment simple — avoid requiring Postgres, Redis, or any external services
 
 **Full plan**: `PLAN.md` in this directory — read this before starting any work.
 

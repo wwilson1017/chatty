@@ -66,6 +66,12 @@ class ChatHistoryDB:
                 logger.warning("WAL checkpoint before backup failed: %s", e)
         upload_file(self.db_path, self.gcs_key)
 
+    def close(self) -> None:
+        """Close the DB connection (for backup/restore)."""
+        if self._connection:
+            self._connection.close()
+            self._connection = None
+
     @staticmethod
     def _create_schema(conn: sqlite3.Connection) -> None:
         """Create tables if they don't exist."""

@@ -91,3 +91,11 @@ def init_db() -> None:
         CREATE INDEX IF NOT EXISTS idx_sa_agent ON scheduled_actions(agent);
     """)
     logger.info("Reminders DB initialized at %s", DB_PATH)
+
+
+def close_db() -> None:
+    """Close the reminders DB connection (for backup/restore)."""
+    global _connection
+    if _connection:
+        _connection.close()
+        _connection = None

@@ -131,5 +131,13 @@ def init_db() -> None:
     logger.info("CRM Lite DB initialized at %s", DB_PATH)
 
 
+def close_db() -> None:
+    """Close the CRM Lite DB connection (for backup/restore)."""
+    global _connection
+    if _connection:
+        _connection.close()
+        _connection = None
+
+
 def write_lock() -> threading.Lock:
     return _write_lock
