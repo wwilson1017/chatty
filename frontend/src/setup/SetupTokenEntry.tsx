@@ -2,30 +2,25 @@ import { useState } from 'react';
 import { api } from '../core/api/client';
 
 interface Props {
-  provider: string;
   onConnected: () => void;
 }
 
-export function ApiKeyEntry({ provider, onConnected }: Props) {
-  const [key, setKey] = useState('');
+export function SetupTokenEntry({ onConnected }: Props) {
+  const [token, setToken] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
   async function connect() {
-    if (!key.trim()) return;
+    if (!token.trim()) return;
     setLoading(true); setError('');
     try {
-      // OpenAI and Google use /connect-key for API key auth (separate from OAuth /connect)
-      const endpoint = (provider === 'openai' || provider === 'google')
-        ? `/api/providers/${provider}/connect-key`
-        : `/api/providers/${provider}/connect`;
-      await api(endpoint, {
+      await api('/api/providers/anthropic/setup-token', {
         method: 'POST',
-        body: JSON.stringify({ api_key: key.trim() }),
+        body: JSON.stringify({ token: token.trim() }),
       });
       onConnected();
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Invalid API key');
+      setError(err instanceof Error ? err.message : 'Invalid setup token');
     } finally {
       setLoading(false);
     }
@@ -33,18 +28,21 @@ export function ApiKeyEntry({ provider, onConnected }: Props) {
 
   return (
     <div className="space-y-3">
+      <p className="text-gray-400 text-xs">
+        Run <code className="text-indigo-400 bg-gray-900 px-1.5 py-0.5 rounded">claude setup-token</code> in your terminal, then paste the result below.
+      </p>
       <input
         type="password"
-        value={key}
-        onChange={e => setKey(e.target.value)}
-        placeholder="sk-ant-..."
+        value={token}
+        onChange={e => setToken(e.target.value)}
+        placeholder="Paste your setup token"
         onKeyDown={e => e.key === 'Enter' && connect()}
         className="w-full bg-gray-700 border border-gray-600 text-white rounded-lg px-4 py-3 text-sm focus:outline-none focus:border-indigo-500"
       />
       {error && <p className="text-red-400 text-xs">{error}</p>}
       <button
         onClick={connect}
-        disabled={loading || !key.trim()}
+        disabled={loading || !token.trim()}
         className="w-full py-2.5 bg-brand text-white text-sm font-semibold rounded-lg hover:opacity-90 transition disabled:opacity-50"
       >
         {loading ? 'Validating...' : 'Connect'}

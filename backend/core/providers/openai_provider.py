@@ -15,18 +15,29 @@ from core.providers.base import AIProvider
 logger = logging.getLogger(__name__)
 
 OPENAI_MODELS = [
+    "gpt-5.4",
+    "gpt-5.4-mini",
+    "gpt-5.4-nano",
+    "o3",
+    "o4-mini",
     "gpt-4o",
     "gpt-4o-mini",
-    "gpt-4-turbo",
-    "o1",
-    "o3-mini",
 ]
+
+CHATGPT_PROXY_URL = "http://127.0.0.1:9877/v1"
 
 
 class OpenAIProvider(AIProvider):
-    def __init__(self, access_token: str, model: str = "gpt-4o"):
+    def __init__(self, access_token: str, model: str = "gpt-4o", use_chatgpt_api: bool = False):
         super().__init__(model=model)
         self.access_token = access_token
+        self.use_chatgpt_api = use_chatgpt_api
+
+    def _build_client_kwargs(self) -> dict:
+        kwargs: dict = {"api_key": self.access_token}
+        if self.use_chatgpt_api:
+            kwargs["base_url"] = CHATGPT_PROXY_URL
+        return kwargs
 
     @property
     def provider_name(self) -> str:
@@ -52,7 +63,7 @@ class OpenAIProvider(AIProvider):
         tools: list[dict],
         system_prompt: str,
     ) -> AsyncGenerator[dict, None]:
-        client = openai.AsyncOpenAI(api_key=self.access_token)
+        client = openai.AsyncOpenAI(**self._build_client_kwargs())
         openai_tools = self._format_tools(tools)
 
         # Build messages with system prompt prepended
@@ -176,8 +187,12 @@ class OpenAIProvider(AIProvider):
 
     async def validate(self) -> bool:
         try:
-            client = openai.OpenAI(api_key=self.access_token)
-            client.models.list()
+            client = openai.OpenAI(**self._build_client_kwargs())
+            client.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=[{"role": "user", "content": "hi"}],
+                max_tokens=1,
+            )
             return True
         except Exception:
             return False

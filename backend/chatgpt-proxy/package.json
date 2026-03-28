@@ -1,0 +1,10 @@
+{
+  "name": "chatty-chatgpt-proxy",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Node.js sidecar that proxies OpenAI-format requests through pi-ai to ChatGPT's backend API",
+  "dependencies": {
+    "@mariozechner/pi-ai": "0.63.0"
+  }
+}

@@ -13,6 +13,7 @@ GET  /api/providers/{provider}/models   — list models for a provider
 import asyncio
 import logging
 
+import httpx
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
@@ -53,6 +54,25 @@ async def connect_anthropic(body: AnthropicConnectRequest, user=Depends(get_curr
     return {"ok": True, "provider": "anthropic", "model": body.model}
 
 
+class SetupTokenRequest(BaseModel):
+    token: str
+    model: str = "claude-opus-4-6"
+
+
+@router.post("/anthropic/setup-token")
+async def connect_anthropic_token(body: SetupTokenRequest, user=Depends(get_current_user)):
+    """Validate and store a setup-token from `claude setup-token`."""
+    from core.providers.anthropic_provider import AnthropicProvider
+    token = body.token.strip()
+    provider = AnthropicProvider(api_key=token, model=body.model)
+    if not await provider.validate():
+        raise HTTPException(status_code=400, detail="Invalid setup token. Run `claude setup-token` in your terminal and paste the result.")
+
+    store = CredentialStore()
+    store.set_setup_token("anthropic", body.token, model=body.model)
+    return {"ok": True, "provider": "anthropic", "model": body.model}
+
+
 # ── Connect Google / OpenAI (PKCE OAuth) ─────────────────────────────────────
 
 class OAuthStartRequest(BaseModel):
@@ -76,6 +96,42 @@ async def connect_google(user=Depends(get_current_user)):
         model="gemini-2.0-flash-exp",
     )
     return {"ok": True, "provider": "google"}
+
+
+class GoogleKeyRequest(BaseModel):
+    api_key: str
+    model: str = "gemini-2.0-flash-exp"
+
+
+@router.post("/google/connect-key")
+async def connect_google_key(body: GoogleKeyRequest, user=Depends(get_current_user)):
+    """Validate and store a Google AI (Gemini) API key."""
+    from core.providers.google_provider import GoogleProvider
+    provider = GoogleProvider(api_key=body.api_key, model=body.model)
+    if not await provider.validate():
+        raise HTTPException(status_code=400, detail="Invalid Google AI API key")
+
+    store = CredentialStore()
+    store.set_api_key("google", body.api_key, model=body.model)
+    return {"ok": True, "provider": "google", "model": body.model}
+
+
+class OpenAIKeyRequest(BaseModel):
+    api_key: str
+    model: str = "gpt-4o"
+
+
+@router.post("/openai/connect-key")
+async def connect_openai_key(body: OpenAIKeyRequest, user=Depends(get_current_user)):
+    """Validate and store an OpenAI API key."""
+    from core.providers.openai_provider import OpenAIProvider
+    provider = OpenAIProvider(access_token=body.api_key, model=body.model)
+    if not await provider.validate():
+        raise HTTPException(status_code=400, detail="Invalid OpenAI API key")
+
+    store = CredentialStore()
+    store.set_api_key("openai", body.api_key, model=body.model)
+    return {"ok": True, "provider": "openai", "model": body.model}
 
 
 @router.post("/openai/connect")
@@ -166,3 +222,76 @@ async def refresh_google(user=Depends(get_current_user)):
         expires_in=tokens.get("expires_in", 3600),
     )
     return {"ok": True}
+
+
+# ── CLI credential sync ──────────────────────────────────────────────────────
+
+@router.post("/openai/sync-cli")
+async def sync_openai_cli(user=Depends(get_current_user)):
+    """Import OpenAI credentials from local CLI config (~/.codex/auth.json)."""
+    import json
+    from pathlib import Path
+
+    # Try known OpenAI CLI credential locations
+    candidates = [
+        Path.home() / ".codex" / "auth.json",
+        Path.home() / ".openai" / "auth.json",
+    ]
+
+    for cred_path in candidates:
+        if not cred_path.exists():
+            continue
+        try:
+            data = json.loads(cred_path.read_text())
+            auth_mode = data.get("auth_mode", "")
+
+            # Prefer an explicit API key if set
+            api_key = data.get("OPENAI_API_KEY") or data.get("api_key")
+
+            if api_key:
+                from core.providers.openai_provider import OpenAIProvider
+                provider = OpenAIProvider(access_token=api_key)
+                if await provider.validate():
+                    store = CredentialStore()
+                    store.set_api_key("openai", api_key, model="gpt-4o")
+                    return {"ok": True, "provider": "openai", "source": str(cred_path)}
+
+            # ChatGPT mode: validate via the Node.js proxy sidecar
+            if auth_mode == "chatgpt":
+                tokens = data.get("tokens", {})
+                access_token = tokens.get("access_token")
+                refresh_token = tokens.get("refresh_token", "")
+                if access_token:
+                    # Validate through the ChatGPT proxy
+                    try:
+                        validate_resp = await httpx.AsyncClient().post(
+                            "http://127.0.0.1:9877/v1/validate",
+                            json={"token": access_token},
+                            timeout=30,
+                        )
+                        result = validate_resp.json()
+                        if result.get("valid"):
+                            store = CredentialStore()
+                            store.set_chatgpt_oauth(
+                                access_token=access_token,
+                                refresh_token=refresh_token,
+                                expires_in=864000,  # ~10 days
+                            )
+                            return {"ok": True, "provider": "openai", "source": str(cred_path), "mode": "chatgpt"}
+                        else:
+                            raise HTTPException(status_code=400, detail=result.get("error", "Token validation failed"))
+                    except httpx.ConnectError:
+                        raise HTTPException(
+                            status_code=503,
+                            detail="ChatGPT proxy is not running. Start it with: node backend/chatgpt-proxy/server.mjs",
+                        )
+
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.warning("Failed to read %s: %s", cred_path, e)
+
+    raise HTTPException(
+        status_code=404,
+        detail="No OpenAI CLI credentials found. Install the OpenAI CLI and sign in first, or use an API key instead."
+    )
