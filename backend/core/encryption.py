@@ -16,7 +16,7 @@ import logging
 import os
 from pathlib import Path
 
-from cryptography.fernet import Fernet, InvalidToken
+from cryptography.fernet import Fernet
 
 logger = logging.getLogger(__name__)
 
@@ -29,6 +29,7 @@ KEYCHAIN_ACCOUNT = "encryption-key"
 ENCRYPTED_PREFIX = "enc:v1:"
 
 # JSON keys whose values contain secrets and must be encrypted on disk.
+# When adding a new integration, add any secret field names here.
 SENSITIVE_FIELDS = frozenset({
     "key",              # API keys  (auth-profiles.json)
     "token",            # setup tokens (auth-profiles.json)
@@ -162,7 +163,7 @@ def decrypt_value(stored: str) -> str:
     try:
         key = EncryptionKeyManager.get_key()
         return Fernet(key).decrypt(token.encode()).decode()
-    except (InvalidToken, Exception) as exc:
+    except Exception as exc:
         logger.warning("Failed to decrypt value (tampered or wrong key): %s", exc)
         return ""
 
@@ -172,7 +173,7 @@ def decrypt_value(stored: str) -> str:
 # ---------------------------------------------------------------------------
 
 def encrypt_dict(data: dict) -> dict:
-    """Return a shallow copy with sensitive string fields encrypted."""
+    """Return a copy with sensitive string fields encrypted (recurses into nested dicts)."""
     result = {}
     for k, v in data.items():
         if k in SENSITIVE_FIELDS and isinstance(v, str):
@@ -185,7 +186,7 @@ def encrypt_dict(data: dict) -> dict:
 
 
 def decrypt_dict(data: dict) -> dict:
-    """Return a shallow copy with sensitive string fields decrypted."""
+    """Return a copy with sensitive string fields decrypted (recurses into nested dicts)."""
     result = {}
     for k, v in data.items():
         if k in SENSITIVE_FIELDS and isinstance(v, str):
