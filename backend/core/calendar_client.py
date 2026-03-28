@@ -79,11 +79,12 @@ def get_event(service, event_id: str, calendar_id: str = "primary") -> dict:
 
 
 def search_events(service, query: str, time_min: str | None = None,
-                  time_max: str | None = None, max_results: int = 20) -> list[dict]:
+                  time_max: str | None = None, max_results: int = 20,
+                  calendar_id: str = "primary") -> list[dict]:
     """Search calendar events by text query."""
     try:
         kwargs = {
-            "calendarId": "primary",
+            "calendarId": calendar_id,
             "q": query,
             "maxResults": max_results,
             "singleEvents": True,
