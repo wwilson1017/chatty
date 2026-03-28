@@ -21,9 +21,10 @@ ANTHROPIC_MODELS = [
 
 
 class AnthropicProvider(AIProvider):
-    def __init__(self, api_key: str, model: str = "claude-opus-4-6"):
+    def __init__(self, api_key: str = "", auth_token: str = "", model: str = "claude-opus-4-6"):
         super().__init__(model=model)
         self.api_key = api_key
+        self.auth_token = auth_token
 
     @property
     def provider_name(self) -> str:
@@ -46,7 +47,10 @@ class AnthropicProvider(AIProvider):
         tools: list[dict],
         system_prompt: str,
     ) -> AsyncGenerator[dict, None]:
-        client = anthropic.AsyncAnthropic(api_key=self.api_key)
+        client = anthropic.AsyncAnthropic(
+            api_key=self.api_key or None,
+            auth_token=self.auth_token or None,
+        )
         anthropic_tools = self._format_tools(tools)
 
         # Convert messages: filter to user/assistant only
@@ -157,8 +161,18 @@ class AnthropicProvider(AIProvider):
 
     async def validate(self) -> bool:
         try:
-            client = anthropic.Anthropic(api_key=self.api_key)
-            client.models.list()
+            client = anthropic.Anthropic(
+                api_key=self.api_key or None,
+                auth_token=self.auth_token or None,
+            )
+            # Use messages.create — works with both API keys and OAuth tokens
+            # (models.list rejects OAuth tokens passed as api_key)
+            client.messages.create(
+                model="claude-haiku-4-5-20251001",
+                max_tokens=1,
+                messages=[{"role": "user", "content": "hi"}],
+            )
             return True
-        except Exception:
+        except Exception as e:
+            logger.error("Anthropic validation failed: %s", e)
             return False

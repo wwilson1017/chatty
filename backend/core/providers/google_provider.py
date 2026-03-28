@@ -22,9 +22,10 @@ GOOGLE_MODELS = [
 
 
 class GoogleProvider(AIProvider):
-    def __init__(self, access_token: str, model: str = "gemini-2.0-flash-exp"):
+    def __init__(self, access_token: str = "", api_key: str = "", model: str = "gemini-2.0-flash-exp"):
         super().__init__(model=model)
         self.access_token = access_token
+        self.api_key = api_key
 
     @property
     def provider_name(self) -> str:
@@ -65,9 +66,12 @@ class GoogleProvider(AIProvider):
             yield {"type": "_turn_complete", "tool_calls": [], "stop_reason": "error"}
             return
 
-        # Configure with OAuth token
-        credentials = Credentials(token=self.access_token)
-        genai.configure(credentials=credentials)
+        # Configure with API key or OAuth token
+        if self.api_key:
+            genai.configure(api_key=self.api_key)
+        else:
+            credentials = Credentials(token=self.access_token)
+            genai.configure(credentials=credentials)
 
         gemini_tools = self._format_tools(tools)
 
@@ -163,9 +167,12 @@ class GoogleProvider(AIProvider):
     async def validate(self) -> bool:
         try:
             import google.generativeai as genai
-            from google.oauth2.credentials import Credentials
-            credentials = Credentials(token=self.access_token)
-            genai.configure(credentials=credentials)
+            if self.api_key:
+                genai.configure(api_key=self.api_key)
+            else:
+                from google.oauth2.credentials import Credentials
+                credentials = Credentials(token=self.access_token)
+                genai.configure(credentials=credentials)
             list(genai.list_models())
             return True
         except Exception:

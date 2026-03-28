@@ -8,8 +8,10 @@ Schema:
     "active_provider": "anthropic" | "openai" | "google",
     "active_model": "claude-opus-4-6",
     "profiles": {
-        "anthropic:default": {"type": "api_key", "key": "sk-ant-..."},
-        "openai:default":    {"type": "oauth", "access": "...", "refresh": "...", "expires": 1234567890},
+        "anthropic:default": {"type": "api_key", "key": "sk-ant-..."}
+                           | {"type": "setup_token", "token": "..."},
+        "openai:default":    {"type": "api_key", "key": "sk-..."}
+                           | {"type": "oauth", "access": "...", "refresh": "...", "expires": 1234567890},
         "google:default":    {"type": "oauth", "access": "...", "refresh": "...", "expires": 1234567890}
     }
 }
@@ -27,7 +29,7 @@ PROFILES_PATH = DATA_DIR / "auth-profiles.json"
 
 PROVIDER_DEFAULTS = {
     "anthropic": "claude-opus-4-6",
-    "openai": "gpt-4o",
+    "openai": "gpt-5.4",
     "google": "gemini-2.0-flash-exp",
 }
 
@@ -71,7 +73,41 @@ class CredentialStore:
                 return True
             if p.get("type") == "oauth" and p.get("access"):
                 return True
+            if p.get("type") == "setup_token" and p.get("token"):
+                return True
+            if p.get("type") == "chatgpt_oauth" and p.get("access"):
+                return True
         return False
+
+    def set_chatgpt_oauth(
+        self,
+        access_token: str,
+        refresh_token: str,
+        expires_in: int,
+        model: str | None = None,
+    ):
+        """Store ChatGPT OAuth tokens (from Codex CLI) and set OpenAI as active."""
+        if "profiles" not in self.data:
+            self.data["profiles"] = {}
+        self.data["profiles"]["openai:default"] = {
+            "type": "chatgpt_oauth",
+            "access": access_token,
+            "refresh": refresh_token,
+            "expires": int(time.time()) + expires_in,
+        }
+        self.data["active_provider"] = "openai"
+        self.data["active_model"] = model or PROVIDER_DEFAULTS.get("openai", "")
+        self._save()
+
+    def set_setup_token(self, provider: str, token: str, model: str | None = None):
+        """Store a setup-token (e.g. from `claude setup-token`) and set as active."""
+        profile_name = f"{provider}:default"
+        if "profiles" not in self.data:
+            self.data["profiles"] = {}
+        self.data["profiles"][profile_name] = {"type": "setup_token", "token": token}
+        self.data["active_provider"] = provider
+        self.data["active_model"] = model or PROVIDER_DEFAULTS.get(provider, "")
+        self._save()
 
     def set_api_key(self, provider: str, key: str, model: str | None = None):
         """Store an API key for the given provider and set it as active."""
@@ -147,6 +183,17 @@ class CredentialStore:
             elif p.get("type") == "oauth":
                 profiles[provider] = {
                     "type": "oauth",
+                    "configured": bool(p.get("access")),
+                    "expired": self.is_token_expired(provider),
+                }
+            elif p.get("type") == "setup_token":
+                profiles[provider] = {
+                    "type": "setup_token",
+                    "configured": bool(p.get("token")),
+                }
+            elif p.get("type") == "chatgpt_oauth":
+                profiles[provider] = {
+                    "type": "chatgpt_oauth",
                     "configured": bool(p.get("access")),
                     "expired": self.is_token_expired(provider),
                 }

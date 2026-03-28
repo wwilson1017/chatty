@@ -2,12 +2,15 @@ import { useState, useEffect } from 'react';
 import { api } from '../core/api/client';
 import type { ProviderStatus } from '../core/types';
 import { ApiKeyEntry } from './ApiKeyEntry';
-import { OAuthConnect } from './OAuthConnect';
+import { SetupTokenEntry } from './SetupTokenEntry';
 import { ModelSelector } from './ModelSelector';
+
+type AuthTab = 'setup-token' | 'api-key';
 
 export function ProviderSetup() {
   const [status, setStatus] = useState<ProviderStatus | null>(null);
   const [loading, setLoading] = useState(true);
+  const [authTab, setAuthTab] = useState<Record<string, AuthTab>>({});
 
   function reload() {
     api<ProviderStatus>('/api/providers')
@@ -25,10 +28,61 @@ export function ProviderSetup() {
   );
 
   const providers = [
-    { id: 'anthropic', name: 'Anthropic (Claude)', icon: '🤖', authType: 'api_key' },
-    { id: 'openai', name: 'OpenAI (GPT)', icon: '⚡', authType: 'oauth' },
-    { id: 'google', name: 'Google Gemini', icon: '✨', authType: 'oauth' },
+    {
+      id: 'anthropic',
+      name: 'Anthropic (Claude)',
+      icon: '\u{1F916}',
+      tabs: [{ id: 'api-key' as AuthTab, label: 'API Key' }],
+      defaultTab: 'api-key' as AuthTab,
+    },
+    {
+      id: 'openai',
+      name: 'OpenAI (GPT)',
+      icon: '\u26A1',
+      tabs: [{ id: 'api-key' as AuthTab, label: 'API Key' }],
+      defaultTab: 'api-key' as AuthTab,
+    },
+    {
+      id: 'google',
+      name: 'Google (Gemini)',
+      icon: '\u2728',
+      tabs: [{ id: 'api-key' as AuthTab, label: 'API Key' }],
+      defaultTab: 'api-key' as AuthTab,
+    },
   ];
+
+  function getTab(providerId: string): AuthTab {
+    return authTab[providerId] || providers.find(p => p.id === providerId)!.defaultTab;
+  }
+
+  function renderConnectUI(p: typeof providers[0]) {
+    const tab = getTab(p.id);
+
+    return (
+      <div>
+        {p.tabs.length > 1 && (
+          <div className="flex gap-2 mb-3">
+            {p.tabs.map(t => (
+              <button
+                key={t.id}
+                onClick={() => setAuthTab(prev => ({ ...prev, [p.id]: t.id }))}
+                className={`px-3 py-1 rounded-lg text-xs font-medium transition ${
+                  tab === t.id
+                    ? 'bg-indigo-500/20 text-indigo-400 border border-indigo-500/50'
+                    : 'bg-gray-700 text-gray-400 border border-gray-600 hover:bg-gray-600'
+                }`}
+              >
+                {t.label}
+              </button>
+            ))}
+          </div>
+        )}
+
+        {tab === 'setup-token' && <SetupTokenEntry onConnected={reload} />}
+        {tab === 'api-key' && <ApiKeyEntry provider={p.id} onConnected={reload} />}
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-4">
@@ -60,13 +114,7 @@ export function ProviderSetup() {
               )}
             </div>
 
-            {!isConnected ? (
-              p.authType === 'api_key' ? (
-                <ApiKeyEntry provider={p.id} onConnected={reload} />
-              ) : (
-                <OAuthConnect provider={p.id} onConnected={reload} />
-              )
-            ) : (
+            {!isConnected ? renderConnectUI(p) : (
               <div className="space-y-3">
                 <ModelSelector
                   provider={p.id}
