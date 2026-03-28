@@ -4,6 +4,8 @@ Curated high-value tools (employee name resolution, formatted output) plus
 a generic tool for full BambooHR API coverage.
 """
 
+from datetime import date
+
 from .client import get_client
 
 BAMBOOHR_TOOL_DEFS = [
@@ -318,8 +320,6 @@ def bamboohr_get_time_off_requests(
 def bamboohr_get_time_off_balance(
     employee_name: str, end_date: str | None = None,
 ) -> dict:
-    from datetime import date
-
     emp, err = _resolve_employee(employee_name)
     if err:
         return err

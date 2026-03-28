@@ -6,6 +6,8 @@ Credentials loaded from data/integrations/bamboohr.json.
 """
 
 import logging
+import re
+
 import httpx
 
 logger = logging.getLogger(__name__)
@@ -89,8 +91,6 @@ class BambooHRClient:
         Returns:
             Dict with 'ok' (bool), 'status_code' (int), and 'data' (parsed JSON or raw text).
         """
-        import re
-
         method = method.upper()
         if method not in ("GET", "POST", "PUT", "DELETE", "PATCH"):
             return {"ok": False, "status_code": 0, "data": f"Invalid HTTP method: {method}"}
