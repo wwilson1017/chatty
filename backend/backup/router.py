@@ -10,6 +10,7 @@ import logging
 import shutil
 import sqlite3
 import tempfile
+import threading
 import zipfile
 from datetime import datetime, timezone
 from pathlib import Path
@@ -27,6 +28,8 @@ DATA_DIR = Path(__file__).resolve().parent.parent / "data"
 
 MAX_RESTORE_SIZE = 100 * 1024 * 1024  # 100 MB
 
+_restore_lock = threading.Lock()
+
 
 def _backup_sqlite(db_path: Path) -> bytes:
     """Create a consistent snapshot of a SQLite DB (handles WAL mode).
@@ -36,14 +39,18 @@ def _backup_sqlite(db_path: Path) -> bytes:
     """
     with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as tmp:
         tmp_path = tmp.name
+    src = None
+    dst = None
     try:
         src = sqlite3.connect(str(db_path))
         dst = sqlite3.connect(tmp_path)
         src.backup(dst)
-        dst.close()
-        src.close()
         return Path(tmp_path).read_bytes()
     finally:
+        if dst:
+            dst.close()
+        if src:
+            src.close()
         Path(tmp_path).unlink(missing_ok=True)
 
 
@@ -96,12 +103,21 @@ async def restore_backup(
 
     Replaces all current data. This cannot be undone.
     """
+    if not _restore_lock.acquire(blocking=False):
+        raise HTTPException(status_code=409, detail="A restore is already in progress")
+
+    try:
+        return _do_restore(file, await file.read())
+    finally:
+        _restore_lock.release()
+
+
+def _do_restore(file: UploadFile, content: bytes) -> dict:
     # Validate file type
     if not file.filename or not file.filename.endswith(".zip"):
         raise HTTPException(status_code=400, detail="File must be a .zip archive")
 
-    # Read and validate size
-    content = await file.read()
+    # Validate size
     if len(content) > MAX_RESTORE_SIZE:
         raise HTTPException(
             status_code=400,
@@ -123,9 +139,11 @@ async def restore_backup(
             detail="Invalid backup: missing agents.db. This doesn't appear to be a Chatty backup.",
         )
 
-    # Reject path traversal
+    # Reject path traversal — verify all resolved paths stay within DATA_DIR
+    data_dir_resolved = DATA_DIR.resolve()
     for name in names:
-        if ".." in name or name.startswith("/"):
+        resolved = (DATA_DIR / name).resolve()
+        if not resolved.is_relative_to(data_dir_resolved):
             raise HTTPException(status_code=400, detail=f"Invalid path in ZIP: {name}")
 
     # Close all database connections before overwriting files
@@ -143,13 +161,20 @@ async def restore_backup(
     except Exception:
         pass
 
-    # Clear existing data and extract backup
-    if DATA_DIR.exists():
-        shutil.rmtree(DATA_DIR)
-    DATA_DIR.mkdir(parents=True, exist_ok=True)
+    # Extract to a temp directory first, then swap — atomic restore
+    tmp_dir = Path(tempfile.mkdtemp(prefix="chatty-restore-"))
+    try:
+        zf.extractall(tmp_dir)
+        zf.close()
 
-    zf.extractall(DATA_DIR)
-    zf.close()
+        # Swap: remove old data, move new data into place
+        if DATA_DIR.exists():
+            shutil.rmtree(DATA_DIR)
+        shutil.move(str(tmp_dir), str(DATA_DIR))
+    except Exception:
+        # Clean up temp dir on failure; original data is intact if rmtree hasn't run
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+        raise
 
     # Re-initialize all databases
     from agents.db import init_db as init_agents_db

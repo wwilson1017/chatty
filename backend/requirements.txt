@@ -17,4 +17,3 @@ ddgs
 openpyxl
 apscheduler
 croniter
-gunicorn

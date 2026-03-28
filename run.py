@@ -82,7 +82,9 @@ def setup_env():
     print()
     password = input("  Choose a login password (or press Enter for 'changeme'): ").strip()
     if password:
-        content = content.replace("AUTH_PASSWORD=changeme", f"AUTH_PASSWORD={password}")
+        # Quote the value to handle special characters (=, #, spaces)
+        safe_password = password.replace("'", "'\\''")
+        content = content.replace("AUTH_PASSWORD=changeme", f"AUTH_PASSWORD='{safe_password}'")
     ENV_FILE.write_text(content)
     print("  Created .env file.")
 
@@ -98,6 +100,7 @@ def setup_venv():
         [_pip(), "install", "-r", str(BACKEND / "requirements.txt")],
         check=True,
     )
+    (VENV / "deps_installed").touch()
 
 
 def install_deps():
