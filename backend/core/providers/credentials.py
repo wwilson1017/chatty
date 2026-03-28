@@ -22,6 +22,8 @@ import logging
 import time
 from pathlib import Path
 
+from core.encryption import decrypt_dict, encrypt_dict, needs_migration
+
 logger = logging.getLogger(__name__)
 
 DATA_DIR = Path(__file__).parent.parent.parent / "data"
@@ -41,14 +43,22 @@ class CredentialStore:
     def _load(self) -> dict:
         if PROFILES_PATH.exists():
             try:
-                return json.loads(PROFILES_PATH.read_text())
+                raw = json.loads(PROFILES_PATH.read_text())
+                decrypted = decrypt_dict(raw)
+                # Auto-migrate plaintext credentials to encrypted on disk
+                if needs_migration(raw):
+                    logger.info("Migrating auth-profiles.json to encrypted storage")
+                    self.data = decrypted
+                    self._save()
+                return decrypted
             except Exception as e:
                 logger.error("Failed to load auth-profiles.json: %s", e)
         return {"active_provider": "", "active_model": "", "profiles": {}}
 
     def _save(self):
         DATA_DIR.mkdir(parents=True, exist_ok=True)
-        PROFILES_PATH.write_text(json.dumps(self.data, indent=2))
+        encrypted = encrypt_dict(self.data)
+        PROFILES_PATH.write_text(json.dumps(encrypted, indent=2))
 
     def get_active_profile(self, provider_override: str | None = None) -> tuple[str, dict | None]:
         """Return (profile_name, profile_dict) for the active (or overridden) provider."""

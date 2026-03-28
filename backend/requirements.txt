@@ -8,6 +8,8 @@ google-auth
 google-auth-oauthlib
 google-api-python-client
 google-cloud-storage
+cryptography
+keyring
 anthropic
 openai
 google-generativeai
