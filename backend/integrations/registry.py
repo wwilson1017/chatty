@@ -16,6 +16,8 @@ import json
 import logging
 from pathlib import Path
 
+from core.encryption import decrypt_dict, encrypt_dict, needs_migration
+
 logger = logging.getLogger(__name__)
 
 DATA_DIR = Path(__file__).resolve().parent.parent / "data" / "integrations"
@@ -80,15 +82,22 @@ def get_credentials(name: str) -> dict:
     if not path.exists():
         return {}
     try:
-        return json.loads(path.read_text(encoding="utf-8"))
+        raw = json.loads(path.read_text(encoding="utf-8"))
+        decrypted = decrypt_dict(raw)
+        # Auto-migrate plaintext credentials to encrypted on disk
+        if needs_migration(raw):
+            logger.info("Migrating %s.json to encrypted storage", name)
+            save_credentials(name, decrypted)
+        return decrypted
     except Exception:
         return {}
 
 
 def save_credentials(name: str, data: dict) -> None:
-    """Save integration credentials."""
+    """Save integration credentials (sensitive fields encrypted at rest)."""
     ensure_dir()
-    _creds_path(name).write_text(json.dumps(data, indent=2), encoding="utf-8")
+    encrypted = encrypt_dict(data)
+    _creds_path(name).write_text(json.dumps(encrypted, indent=2), encoding="utf-8")
 
 
 def enable(name: str) -> None:
