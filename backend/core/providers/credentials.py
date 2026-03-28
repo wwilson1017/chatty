@@ -107,7 +107,11 @@ class CredentialStore:
 
     def set_active_model(self, model: str):
         """Update the active model."""
-        self.data["active_model"] = model
+        if model and model != "default":
+            self.data["active_model"] = model
+        else:
+            provider = self.data.get("active_provider", "")
+            self.data["active_model"] = PROVIDER_DEFAULTS.get(provider, "")
         self._save()
 
     def set_active_provider(self, provider: str):

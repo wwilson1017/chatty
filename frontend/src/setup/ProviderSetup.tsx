@@ -78,7 +78,7 @@ export function ProviderSetup() {
                     onClick={async () => {
                       await api('/api/providers/active', {
                         method: 'PUT',
-                        body: JSON.stringify({ provider: p.id, model: currentModel || 'default' }),
+                        body: JSON.stringify({ provider: p.id, model: currentModel || '' }),
                       });
                       reload();
                     }}

@@ -25,7 +25,8 @@ def get_ai_provider(agent_provider: str | None = None, agent_model: str | None =
         return None
 
     provider_type = profile.get("type")
-    model = agent_model or store.data.get("active_model", "")
+    raw_model = agent_model or store.data.get("active_model", "")
+    model = raw_model if raw_model and raw_model != "default" else ""
 
     if profile_name.startswith("anthropic:"):
         from core.providers.anthropic_provider import AnthropicProvider
