@@ -361,10 +361,38 @@ REPORT_TOOLS = [
                                 "description": "Data object. For bar/line/area/pie/donut: {labels: [str], datasets: [{name: str, values: [number]}]}. For table: {headers: [str], rows: [[value]]}. For metric: {metrics: [{label: str, value: number, change?: str, unit?: str}]}.",
                                 "properties": {
                                     "labels": {"type": "array", "items": {"type": "string"}, "description": "Category labels (bar/line/pie charts)"},
-                                    "datasets": {"type": "array", "description": "Data series. Each: {name: str, values: [number]}"},
+                                    "datasets": {
+                                        "type": "array",
+                                        "description": "Data series. Each: {name: str, values: [number]}",
+                                        "items": {
+                                            "type": "object",
+                                            "properties": {
+                                                "name": {"type": "string"},
+                                                "values": {"type": "array", "items": {"type": "number"}},
+                                            },
+                                            "required": ["name", "values"],
+                                        },
+                                    },
                                     "headers": {"type": "array", "items": {"type": "string"}, "description": "Column headers (table only)"},
-                                    "rows": {"type": "array", "description": "Table rows, each an array of values"},
-                                    "metrics": {"type": "array", "description": "Metric cards: [{label, value, change?, unit?}]"},
+                                    "rows": {
+                                        "type": "array",
+                                        "description": "Table rows, each an array of values",
+                                        "items": {"type": "array", "items": {}},
+                                    },
+                                    "metrics": {
+                                        "type": "array",
+                                        "description": "Metric cards: [{label, value, change?, unit?}]",
+                                        "items": {
+                                            "type": "object",
+                                            "properties": {
+                                                "label": {"type": "string"},
+                                                "value": {"type": "number"},
+                                                "change": {"type": "string"},
+                                                "unit": {"type": "string"},
+                                            },
+                                            "required": ["label", "value"],
+                                        },
+                                    },
                                 },
                             },
                         },
