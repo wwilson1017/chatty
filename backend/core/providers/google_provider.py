@@ -13,16 +13,35 @@ from core.providers.base import AIProvider
 
 logger = logging.getLogger(__name__)
 
+# Fields not supported by Gemini's Schema protobuf
+_UNSUPPORTED_SCHEMA_FIELDS = {"default", "examples", "additionalProperties"}
+
+
+def _clean_schema(schema: dict) -> dict:
+    """Recursively strip fields that Gemini's FunctionDeclaration doesn't support."""
+    if not isinstance(schema, dict):
+        return schema
+    result = {k: v for k, v in schema.items() if k not in _UNSUPPORTED_SCHEMA_FIELDS}
+    if "properties" in result:
+        result["properties"] = {
+            k: _clean_schema(v) for k, v in result["properties"].items()
+        }
+    if "items" in result and isinstance(result["items"], dict):
+        result["items"] = _clean_schema(result["items"])
+    return result
+
 GOOGLE_MODELS = [
-    "gemini-2.0-flash-exp",
-    "gemini-2.0-pro-exp",
+    "gemini-2.5-flash",
+    "gemini-2.5-pro",
+    "gemini-2.0-flash",
+    "gemini-2.0-flash-lite",
     "gemini-1.5-pro",
     "gemini-1.5-flash",
 ]
 
 
 class GoogleProvider(AIProvider):
-    def __init__(self, access_token: str = "", api_key: str = "", model: str = "gemini-2.0-flash-exp"):
+    def __init__(self, access_token: str = "", api_key: str = "", model: str = "gemini-2.0-flash"):
         super().__init__(model=model)
         self.access_token = access_token
         self.api_key = api_key
@@ -41,7 +60,7 @@ class GoogleProvider(AIProvider):
 
         declarations = []
         for t in tools:
-            schema = t.get("input_schema", {})
+            schema = _clean_schema(t.get("input_schema", {}))
             declarations.append(FunctionDeclaration(
                 name=t["name"],
                 description=t.get("description", ""),
@@ -60,6 +79,7 @@ class GoogleProvider(AIProvider):
     ) -> AsyncGenerator[dict, None]:
         try:
             import google.generativeai as genai
+            from google.generativeai import protos
             from google.oauth2.credentials import Credentials
         except ImportError:
             yield {"type": "error", "error": "google-generativeai package not installed"}
@@ -78,10 +98,38 @@ class GoogleProvider(AIProvider):
         # Build Gemini history (all but last user message)
         history = []
         for m in messages[:-1]:
-            role = "user" if m["role"] == "user" else "model"
+            role = m.get("role", "user")
             content = m.get("content", "")
-            if isinstance(content, str) and content:
-                history.append({"role": role, "parts": [content]})
+
+            if isinstance(content, list):
+                # Structured parts: function calls or function responses
+                parts = []
+                for part_data in content:
+                    if not isinstance(part_data, dict):
+                        continue
+                    if part_data.get("_type") == "function_call":
+                        parts.append(protos.Part(
+                            function_call=protos.FunctionCall(
+                                name=part_data["name"],
+                                args=part_data.get("args", {}),
+                            )
+                        ))
+                    elif part_data.get("_type") == "function_response":
+                        parts.append(protos.Part(
+                            function_response=protos.FunctionResponse(
+                                name=part_data["name"],
+                                response=part_data.get("response", {}),
+                            )
+                        ))
+                if parts:
+                    gemini_role = "model" if role == "assistant" else "user"
+                    history.append(protos.Content(role=gemini_role, parts=parts))
+            elif isinstance(content, str) and content:
+                gemini_role = "model" if role != "user" else "user"
+                history.append(protos.Content(
+                    role=gemini_role,
+                    parts=[protos.Part(text=content)],
+                ))
 
         model_kwargs = {
             "model_name": self.model,
@@ -95,6 +143,8 @@ class GoogleProvider(AIProvider):
 
         # Last user message
         last_msg = messages[-1].get("content", "") if messages else ""
+        if not isinstance(last_msg, str):
+            last_msg = str(last_msg)
 
         full_text = ""
         tool_calls = []
@@ -147,19 +197,34 @@ class GoogleProvider(AIProvider):
         tool_calls: list[dict],
         results: list[dict],
     ) -> list[dict]:
-        """Append function call + function response to messages."""
-        # For Gemini we store these as special message entries that get
-        # converted to Parts in the next stream_turn() call.
-        # We use a simplified approach: store as tool_result role entries.
-        tool_result_msgs = []
-        for r in results:
-            tool_result_msgs.append({
-                "role": "tool",
-                "tool_use_id": r["tool_use_id"],
-                "tool_name": r.get("tool_name", ""),
-                "content": str(r["content"]),
+        """Append model function calls + user function responses to messages.
+
+        Gemini requires the conversation history to contain:
+        1. A model message with FunctionCall parts
+        2. A user message with FunctionResponse parts
+        These are stored as structured dicts and converted to protos in stream_turn().
+        """
+        # Model's function calls
+        fc_parts = []
+        for tc in tool_calls:
+            fc_parts.append({
+                "_type": "function_call",
+                "name": tc["name"],
+                "args": tc.get("args", {}),
             })
-        return messages + tool_result_msgs
+        assistant_msg = {"role": "assistant", "content": fc_parts}
+
+        # User's function responses
+        fr_parts = []
+        for r in results:
+            fr_parts.append({
+                "_type": "function_response",
+                "name": r.get("tool_name", ""),
+                "response": {"result": str(r["content"])},
+            })
+        user_msg = {"role": "user", "content": fr_parts}
+
+        return messages + [assistant_msg, user_msg]
 
     async def list_models(self) -> list[str]:
         return GOOGLE_MODELS
