@@ -108,8 +108,8 @@ class OpenAIProvider(AIProvider):
         tool_calls: list[dict] = []
 
         try:
-            # Newer models (o-series, gpt-5.4+) require max_completion_tokens
-            uses_completion_tokens = self.model.startswith(("o", "gpt-5"))
+            # Newer models (o-series, gpt-5.x) require max_completion_tokens
+            uses_completion_tokens = self.model.startswith(("o1", "o3", "o4", "gpt-5"))
             token_param = "max_completion_tokens" if uses_completion_tokens else "max_tokens"
             kwargs = {
                 "model": self.model,

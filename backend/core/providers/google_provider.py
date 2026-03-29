@@ -141,16 +141,28 @@ class GoogleProvider(AIProvider):
         model = genai.GenerativeModel(**model_kwargs)
         chat = model.start_chat(history=history)
 
-        # Last user message
-        last_msg = messages[-1].get("content", "") if messages else ""
-        if not isinstance(last_msg, str):
-            last_msg = str(last_msg)
+        # Last user message — may be plain text or structured function responses
+        last_content = messages[-1].get("content", "") if messages else ""
+        if isinstance(last_content, list):
+            # Structured parts (function responses after tool execution)
+            parts = []
+            for part_data in last_content:
+                if isinstance(part_data, dict) and part_data.get("_type") == "function_response":
+                    parts.append(protos.Part(
+                        function_response=protos.FunctionResponse(
+                            name=part_data["name"],
+                            response=part_data.get("response", {}),
+                        )
+                    ))
+            send_msg = protos.Content(role="user", parts=parts) if parts else ""
+        else:
+            send_msg = last_content
 
         full_text = ""
         tool_calls = []
 
         try:
-            response = await chat.send_message_async(last_msg, stream=True)
+            response = await chat.send_message_async(send_msg, stream=True)
 
             async for chunk in response:
                 # Text chunks
