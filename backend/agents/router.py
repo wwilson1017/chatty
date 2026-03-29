@@ -156,6 +156,13 @@ class ChatRequest(BaseModel):
     messages: list[dict]
     conversation_id: str | None = None
     training_mode: bool = False
+    tool_mode: str = "normal"
+    approved_tool: dict | None = None
+
+
+class ToolExecuteRequest(BaseModel):
+    tool: str
+    args: dict
 
 
 class ContextWriteRequest(BaseModel):
@@ -350,7 +357,8 @@ async def get_avatar(agent_id: str, user=Depends(get_current_user)):
 
 # ── Per-agent: Chat (shared helper) ──────────────────────────────────────────
 
-def _stream_chat(agent: dict, messages: list, training_mode: bool, conversation_id: str | None):
+def _stream_chat(agent: dict, messages: list, training_mode: bool, conversation_id: str | None,
+                  tool_mode: str = "normal", approved_tool: dict | None = None):
     """Build provider, registry, and return a StreamingResponse for agent chat."""
     config = build_agent_config(agent)
     ctx_manager = get_context_manager(agent["slug"])
@@ -395,6 +403,8 @@ def _stream_chat(agent: dict, messages: list, training_mode: bool, conversation_
             chat_service=chat_service,
             anthropic_api_key=anthropic_api_key,
             integration_tool_defs=integration_tool_defs or None,
+            tool_mode=tool_mode,
+            approved_tool=approved_tool,
         ):
             yield event
 
@@ -413,7 +423,8 @@ def _stream_chat(agent: dict, messages: list, training_mode: bool, conversation_
 async def agent_chat(agent_id: str, req: ChatRequest, user=Depends(get_current_user)):
     """Stream a chat response for a specific agent."""
     agent = _get_agent_or_404(agent_id)
-    return _stream_chat(agent, req.messages, req.training_mode, req.conversation_id)
+    return _stream_chat(agent, req.messages, req.training_mode, req.conversation_id,
+                        tool_mode=req.tool_mode, approved_tool=req.approved_tool)
 
 
 # ── Per-agent: Onboarding progress ───────────────────────────────────────────
@@ -613,7 +624,57 @@ async def agent_chat_upload(
         prefix = "\n\n".join(file_texts)
         last_msg["content"] = prefix + "\n\n" + (last_msg.get("content") or "")
 
-    return _stream_chat(agent, messages, body.get("training_mode", False), body.get("conversation_id"))
+    return _stream_chat(
+        agent, messages, body.get("training_mode", False), body.get("conversation_id"),
+        tool_mode=body.get("tool_mode", "normal"), approved_tool=body.get("approved_tool"),
+    )
+
+
+# ── Per-agent: Tool execute (confirmation approval) ─────────────────────────
+
+@router.post("/{agent_id}/tool/execute")
+async def tool_execute(agent_id: str, req: ToolExecuteRequest, user=Depends(get_current_user)):
+    """Execute a write tool after user approval (confirmation flow)."""
+    agent = _get_agent_or_404(agent_id)
+    config = build_agent_config(agent)
+
+    store = CredentialStore()
+    google_token = ""
+    if config.gmail_enabled or config.calendar_enabled:
+        google_token = store.get_google_token() or ""
+
+    integration_tool_defs, integration_executors = _load_integration_tools()
+    reminder_handlers, sa_handlers = _build_agent_handlers(agent["slug"])
+
+    registry = ToolRegistry(
+        context_dir=config.context_dir,
+        google_access_token=google_token,
+        integration_executors=integration_executors,
+        agent_slug=agent["slug"],
+        reminder_handlers=reminder_handlers,
+        scheduled_action_handlers=sa_handlers,
+    )
+
+    from core.agents.tool_definitions import get_tool_definitions, build_writes_map
+    tool_defs = get_tool_definitions(
+        gmail_enabled=config.gmail_enabled,
+        calendar_enabled=config.calendar_enabled,
+        integration_tools=integration_tool_defs,
+    )
+    writes_map = build_writes_map(tool_defs)
+    if not writes_map.get(req.tool, False):
+        raise HTTPException(status_code=400, detail="Tool is not a write operation")
+
+    kind_map = {t["name"]: t.get("kind", "context") for t in tool_defs}
+    kind = kind_map.get(req.tool, "context")
+    result = await registry.execute_tool(req.tool, req.args, kind)
+
+    # Sync context files to GCS after write
+    ctx_manager = get_context_manager(agent["slug"])
+    from core.agents.ai_service import _sync_context_after_tool
+    _sync_context_after_tool(req.tool, result, ctx_manager)
+
+    return result
 
 
 # ── Per-agent: Reports ───────────────────────────────────────────────────────

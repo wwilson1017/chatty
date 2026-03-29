@@ -17,6 +17,8 @@ CONTEXT_TOOLS = [
             "required": [],
         },
         "kind": "context",
+        "writes": False,
+        "context_memory": True,
     },
     {
         "name": "read_context_file",
@@ -32,6 +34,8 @@ CONTEXT_TOOLS = [
             "required": ["filename"],
         },
         "kind": "context",
+        "writes": False,
+        "context_memory": True,
     },
     {
         "name": "write_context_file",
@@ -51,6 +55,8 @@ CONTEXT_TOOLS = [
             "required": ["filename", "content"],
         },
         "kind": "context",
+        "writes": True,
+        "context_memory": True,
     },
     {
         "name": "append_to_context_file",
@@ -70,6 +76,8 @@ CONTEXT_TOOLS = [
             "required": ["filename", "content"],
         },
         "kind": "context",
+        "writes": True,
+        "context_memory": True,
     },
     {
         "name": "delete_context_file",
@@ -85,6 +93,8 @@ CONTEXT_TOOLS = [
             "required": ["filename"],
         },
         "kind": "context",
+        "writes": True,
+        "context_memory": True,
     },
 ]
 
@@ -110,6 +120,7 @@ GMAIL_TOOLS = [
             "required": ["query"],
         },
         "kind": "gmail",
+        "writes": False,
     },
     {
         "name": "get_email",
@@ -125,6 +136,7 @@ GMAIL_TOOLS = [
             "required": ["message_id"],
         },
         "kind": "gmail",
+        "writes": False,
     },
     {
         "name": "get_email_thread",
@@ -140,6 +152,7 @@ GMAIL_TOOLS = [
             "required": ["thread_id"],
         },
         "kind": "gmail",
+        "writes": False,
     },
 ]
 
@@ -174,6 +187,7 @@ CALENDAR_TOOLS = [
             "required": [],
         },
         "kind": "calendar",
+        "writes": False,
     },
     {
         "name": "get_calendar_event",
@@ -194,6 +208,7 @@ CALENDAR_TOOLS = [
             "required": ["event_id"],
         },
         "kind": "calendar",
+        "writes": False,
     },
     {
         "name": "search_calendar_events",
@@ -219,6 +234,7 @@ CALENDAR_TOOLS = [
             "required": ["query"],
         },
         "kind": "calendar",
+        "writes": False,
     },
 ]
 
@@ -244,6 +260,7 @@ WEB_TOOLS = [
             "required": ["query"],
         },
         "kind": "web",
+        "writes": False,
     },
     {
         "name": "web_fetch",
@@ -263,6 +280,7 @@ WEB_TOOLS = [
             "required": ["url"],
         },
         "kind": "web",
+        "writes": False,
     },
 ]
 
@@ -282,6 +300,8 @@ REAL_TOOL_DEFS = [
             "required": ["name", "definition"],
         },
         "kind": "real_tool",
+        "writes": True,
+        "context_memory": True,
     },
     {
         "name": "update_real_tool",
@@ -295,6 +315,8 @@ REAL_TOOL_DEFS = [
             "required": ["name", "definition"],
         },
         "kind": "real_tool",
+        "writes": True,
+        "context_memory": True,
     },
     {
         "name": "delete_real_tool",
@@ -307,6 +329,8 @@ REAL_TOOL_DEFS = [
             "required": ["name"],
         },
         "kind": "real_tool",
+        "writes": True,
+        "context_memory": True,
     },
     {
         "name": "list_real_tools",
@@ -317,6 +341,8 @@ REAL_TOOL_DEFS = [
             "required": [],
         },
         "kind": "real_tool",
+        "writes": False,
+        "context_memory": True,
     },
     {
         "name": "test_real_tool",
@@ -330,6 +356,8 @@ REAL_TOOL_DEFS = [
             "required": ["definition"],
         },
         "kind": "real_tool",
+        "writes": False,
+        "context_memory": True,
     },
 ]
 
@@ -403,6 +431,8 @@ REPORT_TOOLS = [
             "required": ["title", "sections"],
         },
         "kind": "report",
+        "writes": True,
+        "context_memory": True,
     },
 ]
 
@@ -422,6 +452,7 @@ REMINDER_TOOLS = [
             "required": ["message", "due_at"],
         },
         "kind": "reminder",
+        "writes": True,
     },
     {
         "name": "list_reminders",
@@ -434,6 +465,7 @@ REMINDER_TOOLS = [
             "required": [],
         },
         "kind": "reminder",
+        "writes": False,
     },
     {
         "name": "cancel_reminder",
@@ -446,6 +478,7 @@ REMINDER_TOOLS = [
             "required": ["reminder_id"],
         },
         "kind": "reminder",
+        "writes": True,
     },
 ]
 
@@ -471,6 +504,7 @@ SCHEDULED_ACTION_TOOLS = [
             "required": ["name", "prompt", "schedule_type"],
         },
         "kind": "scheduled_action",
+        "writes": True,
     },
     {
         "name": "list_scheduled_actions",
@@ -481,6 +515,7 @@ SCHEDULED_ACTION_TOOLS = [
             "required": [],
         },
         "kind": "scheduled_action",
+        "writes": False,
     },
     {
         "name": "update_scheduled_action",
@@ -499,6 +534,7 @@ SCHEDULED_ACTION_TOOLS = [
             "required": ["action_id"],
         },
         "kind": "scheduled_action",
+        "writes": True,
     },
     {
         "name": "delete_scheduled_action",
@@ -511,6 +547,7 @@ SCHEDULED_ACTION_TOOLS = [
             "required": ["action_id"],
         },
         "kind": "scheduled_action",
+        "writes": True,
     },
 ]
 
@@ -550,6 +587,18 @@ Guidelines:
 - Set reasonable active hours to avoid running during off-hours
 - Prefer cron expressions for recurring tasks, 'once' for one-time future tasks
 """
+
+
+# ── Helper maps for tool mode ────────────────────────────────────────────────
+
+def build_writes_map(tool_defs: list[dict]) -> dict[str, bool]:
+    """Map tool name → whether it performs write operations."""
+    return {t["name"]: t.get("writes", False) for t in tool_defs}
+
+
+def build_context_memory_map(tool_defs: list[dict]) -> dict[str, bool]:
+    """Map tool name → whether it's a context/memory tool (always allowed)."""
+    return {t["name"]: t.get("context_memory", False) for t in tool_defs}
 
 
 def get_tool_definitions(
