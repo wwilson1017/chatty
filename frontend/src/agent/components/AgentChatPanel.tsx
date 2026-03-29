@@ -132,8 +132,7 @@ export function AgentChatPanel({ messages, isStreaming, onSend, onStop, onApprov
 
   // Click on messages area refocuses input (unless clicking interactive elements)
   function handleMessagesClick(e: MouseEvent) {
-    const tag = (e.target as HTMLElement).tagName;
-    if (['BUTTON', 'A', 'INPUT', 'TEXTAREA', 'PRE', 'CODE'].includes(tag)) return;
+    if ((e.target as HTMLElement).closest?.('button, a, input, textarea, pre, code')) return;
     textareaRef.current?.focus();
   }
 

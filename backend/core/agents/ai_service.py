@@ -277,6 +277,10 @@ async def chat(
         tool_mode: 'read-only', 'normal', or 'power'
         approved_tool: Previously confirmed tool execution result to reconstruct
     """
+    # Validate tool_mode
+    if tool_mode not in ("read-only", "normal", "power"):
+        tool_mode = "normal"
+
     # Training mode forces power (no confirmations needed during onboarding)
     if training_mode:
         tool_mode = "power"
@@ -390,7 +394,9 @@ async def chat(
 
         # Remove the "[Approved]" user message (last in the list) since the
         # provider needs tool_use/tool_result blocks instead
-        if current_messages and current_messages[-1].get("role") == "user":
+        if (current_messages
+            and current_messages[-1].get("role") == "user"
+            and str(current_messages[-1].get("content", "")).startswith("[Approved]")):
             current_messages = current_messages[:-1]
 
         # Reconstruct via provider abstraction
