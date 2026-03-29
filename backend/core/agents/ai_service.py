@@ -31,7 +31,7 @@ from core.providers.base import AIProvider, _sse
 from .config import AgentConfig
 from .context_manager import ContextManager
 from .tool_registry import ToolRegistry
-from .tool_definitions import get_tool_definitions, get_report_instructions, get_scheduling_instructions
+from .tool_definitions import get_tool_definitions, get_report_instructions, get_scheduling_instructions, build_writes_map, build_context_memory_map
 from .tools.real_tools import load_all_real_tools
 
 logger = logging.getLogger(__name__)
@@ -256,6 +256,8 @@ async def chat(
     chat_service=None,
     anthropic_api_key: str = "",
     integration_tool_defs: list[dict] | None = None,
+    tool_mode: str = "normal",
+    approved_tool: dict | None = None,
 ) -> AsyncGenerator[str, None]:
     """Stream a chat response as SSE events.
 
@@ -272,7 +274,12 @@ async def chat(
         chat_service: Optional ChatHistoryService for persistence
         anthropic_api_key: For smart title generation (uses haiku, optional)
         integration_tool_defs: Extra tool definitions from enabled integrations
+        tool_mode: 'read-only', 'normal', or 'power'
+        approved_tool: Previously confirmed tool execution result to reconstruct
     """
+    # Training mode forces power (no confirmations needed during onboarding)
+    if training_mode:
+        tool_mode = "power"
     persist = not training_mode and chat_service is not None
 
     # ── Get tool definitions ──────────────────────────────────────────
@@ -287,9 +294,19 @@ async def chat(
         dynamic_real_tools=dynamic_real_tools or None,
     )
     kind_map = _build_kind_map(tool_defs)
+    writes_map = build_writes_map(tool_defs)
+    cm_map = build_context_memory_map(tool_defs)
 
-    # Strip internal 'kind' field before sending to provider
-    provider_tools = [{k: v for k, v in t.items() if k != "kind"} for t in tool_defs]
+    # ── Read-only mode: filter out write tools (except context_memory) ──
+    if tool_mode == "read-only":
+        tool_defs = [
+            t for t in tool_defs
+            if not t.get("writes", False) or t.get("context_memory", False)
+        ]
+
+    # Strip internal fields before sending to provider
+    _internal_fields = {"kind", "writes", "context_memory"}
+    provider_tools = [{k: v for k, v in t.items() if k not in _internal_fields} for t in tool_defs]
 
     # ── Chat history persistence ──────────────────────────────────────
     if persist:
@@ -355,6 +372,29 @@ async def chat(
             )
 
     accumulated_text = ""
+
+    # ── Reconstruct approved tool in message history ──────────────────
+    if approved_tool:
+        at_tool = approved_tool.get("tool", "")
+        at_args = approved_tool.get("args", {})
+        at_id = approved_tool.get("toolUseId", str(uuid.uuid4()))
+        at_result = approved_tool.get("result", {})
+
+        # Build fake tool_calls and results for provider reconstruction
+        fake_tc = [{"name": at_tool, "id": at_id, "args": at_args}]
+        fake_results = [{
+            "tool_use_id": at_id,
+            "tool_name": at_tool,
+            "content": json.dumps(at_result),
+        }]
+
+        # Remove the "[Approved]" user message (last in the list) since the
+        # provider needs tool_use/tool_result blocks instead
+        if current_messages and current_messages[-1].get("role") == "user":
+            current_messages = current_messages[:-1]
+
+        # Reconstruct via provider abstraction
+        current_messages = provider.add_tool_results(current_messages, fake_tc, fake_results)
 
     # ── Tool execution loop ───────────────────────────────────────────
     max_iterations = 20
@@ -429,11 +469,42 @@ async def chat(
             return
 
         results = []
+        has_pending_confirmation = False
+
         for tc in tool_calls_this_turn:
             tool_name = tc.get("name", "")
             tool_use_id = tc.get("id", "")
             tool_args = tc.get("args", {})
             kind = kind_map.get(tool_name, "context")
+
+            # ── Normal mode: intercept write tools (not context_memory) ──
+            is_write = writes_map.get(tool_name, False)
+            is_cm = cm_map.get(tool_name, False)
+
+            if tool_mode == "normal" and is_write and not is_cm:
+                # Get human-readable description
+                tool_desc = next(
+                    (t.get("description", tool_name) for t in tool_defs if t["name"] == tool_name),
+                    tool_name,
+                )
+                yield _sse({
+                    "type": "confirm",
+                    "tool": tool_name,
+                    "args": tool_args,
+                    "tool_use_id": tool_use_id,
+                    "description": tool_desc,
+                })
+
+                # Feed pending result to provider so it can describe the action
+                result = {"status": "pending_user_approval", "message": f"Waiting for user to approve: {tool_name}"}
+                result_str = json.dumps(result)
+                results.append({
+                    "tool_use_id": tool_use_id,
+                    "tool_name": tool_name,
+                    "content": result_str,
+                })
+                has_pending_confirmation = True
+                continue
 
             t_start = time.time()
             result = await registry.execute_tool(tool_name, tool_args, kind)
@@ -459,6 +530,19 @@ async def chat(
 
         # Append tool results to messages for next turn
         current_messages = provider.add_tool_results(current_messages, tool_calls_this_turn, results)
+
+        # If we have a pending confirmation, do one more streaming turn
+        # to let the AI describe the pending action, then stop
+        if has_pending_confirmation:
+            async for event in provider.stream_turn(current_messages, provider_tools, system_prompt):
+                etype = event.get("type")
+                if etype == "text":
+                    accumulated_text += event["text"]
+                    yield _sse({"type": "text", "text": event["text"]})
+                elif etype == "_turn_complete":
+                    break
+            yield _sse({"type": "done"})
+            return
 
     # Exceeded max iterations
     yield _sse({"type": "error", "error": "Tool loop exceeded maximum iterations"})

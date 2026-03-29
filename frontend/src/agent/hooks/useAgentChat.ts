@@ -2,13 +2,15 @@
  * Chatty — useAgentChat hook.
  *
  * Streams chat responses via SSE. Handles text, tool_start, tool_args,
- * tool_end, title_update, done, error events.
+ * tool_end, confirm, title_update, done, error events.
  *
- * Adapted from CAKE OS — voice tab, confirm flow, and DIMM/report events removed.
+ * Supports 3-tier tool mode (read-only / normal / power) with confirmation flow.
  */
 
 import { useState, useCallback, useRef, useEffect } from 'react';
 import { getToken } from '../../core/auth/AuthContext';
+
+export type ToolMode = 'read-only' | 'normal' | 'power';
 
 export interface ToolCallInfo {
   tool: string;
@@ -20,6 +22,14 @@ export interface ToolCallInfo {
   startedAt: number;
 }
 
+export interface PendingConfirmation {
+  tool: string;
+  args: Record<string, unknown>;
+  toolUseId: string;
+  status: 'pending' | 'approved' | 'denied';
+  description?: string;
+}
+
 export interface ChatMessage {
   id: string;
   role: 'user' | 'assistant';
@@ -28,6 +38,7 @@ export interface ChatMessage {
   toolCalls?: ToolCallInfo[];
   isStreaming?: boolean;
   attachments?: { name: string; size: number }[];
+  pendingConfirm?: PendingConfirmation;
 }
 
 interface Options {
@@ -39,10 +50,16 @@ export function useAgentChat(apiPrefix: string, options?: Options) {
   const [isStreaming, setIsStreaming] = useState(false);
   const [conversationId, setConversationId] = useState<string | null>(null);
   const [trainingMode, setTrainingModeState] = useState(false);
+  const [toolMode, setToolMode] = useState<ToolMode>('normal');
   const abortRef = useRef<AbortController | null>(null);
   const trainingKickoffRef = useRef(false);
 
-  const sendMessage = useCallback(async (text: string, files?: File[]) => {
+  const sendMessage = useCallback(async (text: string, files?: File[], approvedTool?: {
+    tool: string;
+    args: Record<string, unknown>;
+    toolUseId: string;
+    result: unknown;
+  }) => {
     const userMsg: ChatMessage = {
       id: crypto.randomUUID(),
       role: 'user',
@@ -64,20 +81,27 @@ export function useAgentChat(apiPrefix: string, options?: Options) {
 
     const history = [...messages, userMsg].map(m => ({ role: m.role, content: m.content }));
 
+    // Effective tool mode: training forces power
+    const effectiveMode = trainingMode ? 'power' : toolMode;
+
     abortRef.current = new AbortController();
 
     try {
       const token = getToken();
       const hasFiles = files && files.length > 0;
 
+      const payload: Record<string, unknown> = {
+        messages: history,
+        training_mode: trainingMode,
+        conversation_id: conversationId,
+        tool_mode: effectiveMode,
+      };
+      if (approvedTool) payload.approved_tool = approvedTool;
+
       let res: Response;
       if (hasFiles) {
         const formData = new FormData();
-        formData.append('payload', JSON.stringify({
-          messages: history,
-          training_mode: trainingMode,
-          conversation_id: conversationId,
-        }));
+        formData.append('payload', JSON.stringify(payload));
         for (const f of files) {
           formData.append('files', f);
         }
@@ -96,11 +120,7 @@ export function useAgentChat(apiPrefix: string, options?: Options) {
             'Content-Type': 'application/json',
             ...(token ? { Authorization: `Bearer ${token}` } : {}),
           },
-          body: JSON.stringify({
-            messages: history,
-            training_mode: trainingMode,
-            conversation_id: conversationId,
-          }),
+          body: JSON.stringify(payload),
           signal: abortRef.current.signal,
         });
       }
@@ -191,6 +211,24 @@ export function useAgentChat(apiPrefix: string, options?: Options) {
                 }
                 return updated;
               });
+            } else if (event.type === 'confirm' && event.tool) {
+              setMessages(prev => {
+                const updated = [...prev];
+                const last = updated[updated.length - 1];
+                if (last?.role === 'assistant') {
+                  updated[updated.length - 1] = {
+                    ...last,
+                    pendingConfirm: {
+                      tool: event.tool,
+                      args: event.args || {},
+                      toolUseId: event.tool_use_id || '',
+                      status: 'pending',
+                      description: event.description,
+                    },
+                  };
+                }
+                return updated;
+              });
             } else if (event.type === 'conversation_id' && event.id) {
               setConversationId(event.id);
             } else if (event.type === 'title_update' && event.title && event.conversation_id) {
@@ -202,7 +240,7 @@ export function useAgentChat(apiPrefix: string, options?: Options) {
                 if (last?.role === 'assistant') {
                   updated[updated.length - 1] = {
                     ...last,
-                    content: last.content + `\n\n⚠️ ${event.error}`,
+                    content: last.content + `\n\n**Error:** ${event.error}`,
                   };
                 }
                 return updated;
@@ -226,7 +264,55 @@ export function useAgentChat(apiPrefix: string, options?: Options) {
       setMessages(prev => prev.map(m => m.isStreaming ? { ...m, isStreaming: false } : m));
       abortRef.current = null;
     }
-  }, [messages, trainingMode, conversationId, apiPrefix, options]);
+  }, [messages, trainingMode, toolMode, conversationId, apiPrefix, options]);
+
+  // ── Approve a pending confirmation ──
+  const approveAction = useCallback(async (msgId: string) => {
+    // Find the message with the pending confirm
+    const msg = messages.find(m => m.id === msgId);
+    if (!msg?.pendingConfirm || msg.pendingConfirm.status !== 'pending') return;
+
+    const { tool, args, toolUseId } = msg.pendingConfirm;
+
+    // Mark as approved
+    setMessages(prev => prev.map(m =>
+      m.id === msgId && m.pendingConfirm
+        ? { ...m, pendingConfirm: { ...m.pendingConfirm, status: 'approved' as const } }
+        : m
+    ));
+
+    try {
+      const token = getToken();
+      const res = await fetch(`${apiPrefix}/tool/execute`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({ tool, args }),
+      });
+
+      if (!res.ok) throw new Error(`Execute failed: ${res.status}`);
+      const result = await res.json();
+
+      // Send follow-up message with approved_tool metadata
+      sendMessage(`[Approved] ${tool}`, undefined, { tool, args, toolUseId, result });
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : 'Unknown error';
+      sendMessage(`[Action failed] ${tool}: ${errMsg}`, undefined, {
+        tool, args, toolUseId, result: { error: errMsg },
+      });
+    }
+  }, [messages, apiPrefix, sendMessage]);
+
+  // ── Deny a pending confirmation ──
+  const denyAction = useCallback((msgId: string) => {
+    setMessages(prev => prev.map(m =>
+      m.id === msgId && m.pendingConfirm
+        ? { ...m, pendingConfirm: { ...m.pendingConfirm, status: 'denied' as const } }
+        : m
+    ));
+  }, []);
 
   const setTrainingMode = useCallback((on: boolean) => {
     if (on) {
@@ -265,8 +351,12 @@ export function useAgentChat(apiPrefix: string, options?: Options) {
     isStreaming,
     conversationId,
     trainingMode,
+    toolMode,
+    setToolMode,
     setTrainingMode,
     sendMessage,
+    approveAction,
+    denyAction,
     stop,
     clear,
     loadMessages,

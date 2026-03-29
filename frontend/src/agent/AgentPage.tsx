@@ -1,13 +1,15 @@
 /**
  * Chatty — AgentPage.
- * Chat + Knowledge tabs with collapsible sidebar.
+ * Immersive chat with auto-hiding top bar, tool mode selector,
+ * collapsible sidebar, and Chat/Knowledge/Reports tabs.
  */
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { api } from '../core/api/client';
-import { useAgentChat } from './hooks/useAgentChat';
+import { useAgentChat, type ToolMode } from './hooks/useAgentChat';
 import { useConversations } from './hooks/useConversations';
+import { useScrollDirection } from './hooks/useScrollDirection';
 import { AgentChatPanel } from './components/AgentChatPanel';
 import { AgentContextEditor } from './components/AgentContextEditor';
 import ReportsPanel from './reports/ReportsPanel';
@@ -25,6 +27,12 @@ interface AgentRow {
 }
 
 type Tab = 'chat' | 'knowledge' | 'reports';
+
+const TOOL_MODES: { key: ToolMode; label: string; activeClass: string }[] = [
+  { key: 'read-only', label: 'Read Only', activeClass: 'bg-gray-600' },
+  { key: 'normal', label: 'Normal', activeClass: 'bg-indigo-600' },
+  { key: 'power', label: 'Power', activeClass: 'bg-amber-600' },
+];
 
 export function AgentPage() {
   const { id: agentId } = useParams<{ id: string }>();
@@ -46,6 +54,10 @@ export function AgentPage() {
   }, [convs]);
 
   const chat = useAgentChat(apiPrefix, { onTitleUpdate: handleTitleUpdate });
+
+  // Scroll direction for auto-hiding top bar
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const topBarVisible = useScrollDirection(scrollRef);
 
   // Load agent details
   useEffect(() => {
@@ -100,9 +112,15 @@ export function AgentPage() {
     chat.setTrainingMode(true);
   }
 
+  function handleToolModeChange(mode: ToolMode) {
+    if (mode === 'power') {
+      if (!window.confirm(`Enable Power mode? ${agent?.agent_name || 'This agent'} will be able to read and write without asking for confirmation.`)) return;
+    }
+    chat.setToolMode(mode);
+  }
+
   function handleAvatarComplete() {
     setShowAvatarPicker(false);
-    // Reload agent to get updated avatar_url
     if (agentId) {
       api<AgentRow>(`/api/agents/${agentId}`).then(setAgent).catch(() => {});
     }
@@ -123,10 +141,15 @@ export function AgentPage() {
     .toUpperCase()
     .slice(0, 2);
 
+  // Only auto-hide on chat tab; always visible on other tabs
+  const showTopBar = activeTab !== 'chat' || topBarVisible;
+
   return (
     <div className="flex flex-col h-screen bg-gray-950 text-white overflow-hidden">
-      {/* Top bar */}
-      <div className="flex items-center gap-3 px-4 py-3 border-b border-gray-800 bg-gray-950 flex-shrink-0">
+      {/* Top bar — auto-hides on scroll in chat tab */}
+      <div className={`flex items-center gap-3 px-4 py-3 border-b border-gray-800 bg-gray-950/95 backdrop-blur-sm flex-shrink-0 z-30 transition-all duration-300 ${
+        showTopBar ? 'translate-y-0 opacity-100' : '-translate-y-full opacity-0 pointer-events-none'
+      }`}>
         <button
           onClick={() => navigate('/')}
           className="text-gray-400 hover:text-white transition p-1.5 rounded-lg hover:bg-gray-800 text-sm"
@@ -169,6 +192,25 @@ export function AgentPage() {
           </span>
         )}
 
+        {/* Tool mode selector — hidden on mobile, hidden during training */}
+        {!chat.trainingMode && (
+          <div className="hidden sm:flex items-center bg-gray-800 rounded-full p-0.5 gap-0.5">
+            {TOOL_MODES.map(m => (
+              <button
+                key={m.key}
+                onClick={() => handleToolModeChange(m.key)}
+                className={`px-2 py-0.5 text-xs font-medium rounded-full transition-all ${
+                  chat.toolMode === m.key
+                    ? `${m.activeClass} text-white`
+                    : 'text-gray-400 hover:text-white'
+                }`}
+              >
+                {m.label}
+              </button>
+            ))}
+          </div>
+        )}
+
         {/* Tab switcher */}
         <div className="ml-auto flex items-center bg-gray-800 rounded-lg p-0.5 gap-0.5">
           {(['chat', 'knowledge', 'reports'] as Tab[]).map(tab => (
@@ -186,6 +228,14 @@ export function AgentPage() {
           ))}
         </div>
       </div>
+
+      {/* Power mode warning banner */}
+      {chat.toolMode === 'power' && !chat.trainingMode && (
+        <div className="px-3 py-1.5 bg-amber-900/30 border-b border-amber-700/40 flex items-center gap-2 flex-shrink-0">
+          <span className="text-amber-400 text-xs font-semibold">POWER MODE</span>
+          <span className="text-xs text-amber-300">{agent.agent_name} can read and write without confirmation.</span>
+        </div>
+      )}
 
       {/* Body */}
       <div className="flex flex-1 overflow-hidden">
@@ -210,6 +260,9 @@ export function AgentPage() {
               isStreaming={chat.isStreaming}
               onSend={chat.sendMessage}
               onStop={chat.stop}
+              onApprove={chat.approveAction}
+              onDeny={chat.denyAction}
+              scrollRef={scrollRef}
             />
           </>
         ) : activeTab === 'knowledge' ? (
