@@ -52,9 +52,11 @@ export function DashboardPage() {
       {/* Header */}
       <header className="border-b border-gray-800 px-6 py-4 flex items-center justify-between">
         <div className="flex items-center gap-3">
-          {branding?.has_logo && (
-            <img src="/api/branding/logo" alt="Logo" className="h-8 w-auto" />
-          )}
+          <img
+            src={branding?.has_logo ? '/api/branding/logo' : '/chatty-logo.png'}
+            alt="Logo"
+            className="h-8 w-auto rounded-lg"
+          />
           <span className="text-white font-semibold text-lg">
             {branding?.company_name || 'Chatty'}
           </span>
