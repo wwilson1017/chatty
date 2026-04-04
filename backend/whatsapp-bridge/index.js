@@ -23,6 +23,7 @@ import QRCode from 'qrcode';
 import pino from 'pino';
 import fs from 'fs';
 import path from 'path';
+import crypto from 'crypto';
 
 const logger = pino({ level: process.env.LOG_LEVEL || 'info' });
 
@@ -226,7 +227,10 @@ app.use(express.json());
 app.use((req, res, next) => {
   if (!API_KEY) return next();
   const provided = req.headers['x-api-key'] || '';
-  if (provided !== API_KEY) {
+  // Timing-safe comparison to prevent side-channel attacks
+  const a = Buffer.from(provided);
+  const b = Buffer.from(API_KEY);
+  if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) {
     return res.status(401).json({ error: 'Invalid API key' });
   }
   next();

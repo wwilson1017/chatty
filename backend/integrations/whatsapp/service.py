@@ -12,6 +12,7 @@ CAKE OS's run_sync + load_agent_components.
 
 import importlib
 import logging
+import threading
 import uuid
 
 from agents.db import get_agent_by_slug
@@ -39,6 +40,18 @@ logger = logging.getLogger(__name__)
 
 # Maximum recent messages to include for context
 MAX_CONTEXT_MESSAGES = 20
+
+# Per-agent lock to prevent concurrent AI turns from corrupting context files
+_agent_locks: dict[str, threading.Lock] = {}
+_agent_locks_guard = threading.Lock()
+
+
+def _get_agent_lock(agent_slug: str) -> threading.Lock:
+    """Get or create a lock for a specific agent."""
+    with _agent_locks_guard:
+        if agent_slug not in _agent_locks:
+            _agent_locks[agent_slug] = threading.Lock()
+        return _agent_locks[agent_slug]
 
 # Integration module registry (same as agents/router.py)
 _INTEGRATION_MODULES = {
@@ -84,6 +97,9 @@ def process_message(
 ) -> str:
     """Route an inbound WhatsApp message to the agent and return the response.
 
+    Uses a per-agent lock to prevent concurrent AI turns from corrupting
+    context files when multiple messages arrive simultaneously.
+
     Args:
         agent_slug: The agent's slug identifier
         phone: Sender's phone number
@@ -93,6 +109,18 @@ def process_message(
     Returns:
         The agent's response text.
     """
+    lock = _get_agent_lock(agent_slug)
+    with lock:
+        return _process_message_locked(agent_slug, phone, sender_name, message_text)
+
+
+def _process_message_locked(
+    agent_slug: str,
+    phone: str,
+    sender_name: str,
+    message_text: str,
+) -> str:
+    """Internal: process message with agent lock held."""
     # 1. Load agent
     agent = get_agent_by_slug(agent_slug)
     if not agent:

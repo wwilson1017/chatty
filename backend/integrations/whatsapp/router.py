@@ -35,14 +35,18 @@ _wa_token_warned = False
 
 
 def _verify_webhook(request: Request) -> None:
-    """Verify the webhook secret from the sidecar's X-Api-Key header."""
+    """Verify the webhook secret from the sidecar's X-Api-Key header.
+
+    Checks WHATSAPP_WEBHOOK_SECRET first; falls back to WHATSAPP_BRIDGE_API_KEY
+    so a single shared secret works for both sidecar auth and webhook verification.
+    """
     global _wa_token_warned
-    expected = settings.whatsapp.webhook_secret
+    expected = settings.whatsapp.webhook_secret or settings.whatsapp.bridge_api_key
     if not expected:
         if not _wa_token_warned:
             logger.warning(
-                "WHATSAPP_WEBHOOK_SECRET is not set — WhatsApp webhook is open. "
-                "Set the secret in production."
+                "No webhook secret configured — WhatsApp webhook is open. "
+                "Set WHATSAPP_BRIDGE_API_KEY or WHATSAPP_WEBHOOK_SECRET in production."
             )
             _wa_token_warned = True
         return
