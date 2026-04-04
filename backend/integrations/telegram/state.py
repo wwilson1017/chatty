@@ -5,6 +5,7 @@ and conversation state for multi-turn context.
 """
 
 import logging
+import secrets
 import sqlite3
 import threading
 import uuid
@@ -50,6 +51,11 @@ def init_db() -> None:
             opened_at   TEXT NOT NULL,
             expires_at  TEXT NOT NULL,
             registered_user_id TEXT
+        )
+
+        CREATE TABLE IF NOT EXISTS webhook_secrets (
+            agent_id TEXT PRIMARY KEY,
+            secret TEXT NOT NULL
         )
     """)
 
@@ -118,10 +124,16 @@ def create_mapping(
                 (mapping_id, platform, platform_user_id, agent_id, sender_name, now),
             )
             conn.commit()
+            # Re-query to get the actual row ID (may differ on upsert)
+            row = conn.execute(
+                "SELECT id FROM user_mappings WHERE platform = ? AND platform_user_id = ?",
+                (platform, platform_user_id),
+            ).fetchone()
+            actual_id = row["id"] if row else mapping_id
         finally:
             conn.close()
     return {
-        "id": mapping_id, "platform": platform,
+        "id": actual_id, "platform": platform,
         "platform_user_id": platform_user_id,
         "agent_id": agent_id, "sender_name": sender_name,
     }
@@ -263,3 +275,58 @@ def is_registration_open(agent_id: str) -> bool:
         return False
     now = datetime.now(timezone.utc).isoformat()
     return now < window["expires_at"]
+
+
+# ---------------------------------------------------------------------------
+# Webhook secrets (per-agent)
+# ---------------------------------------------------------------------------
+
+def get_or_create_webhook_secret(agent_id: str) -> str:
+    """Get the webhook secret for an agent, creating one if it doesn't exist."""
+    conn = _get_conn()
+    try:
+        row = conn.execute(
+            "SELECT secret FROM webhook_secrets WHERE agent_id = ?", (agent_id,),
+        ).fetchone()
+        if row:
+            return row["secret"]
+    finally:
+        conn.close()
+
+    # Generate and store a new secret
+    secret = secrets.token_urlsafe(32)
+    with _write_lock:
+        conn = _get_conn()
+        try:
+            conn.execute(
+                """INSERT INTO webhook_secrets (agent_id, secret) VALUES (?, ?)
+                   ON CONFLICT(agent_id) DO UPDATE SET secret = excluded.secret""",
+                (agent_id, secret),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+    return secret
+
+
+def get_webhook_secret(agent_id: str) -> str | None:
+    """Get the webhook secret for an agent, or None if not set."""
+    conn = _get_conn()
+    try:
+        row = conn.execute(
+            "SELECT secret FROM webhook_secrets WHERE agent_id = ?", (agent_id,),
+        ).fetchone()
+        return row["secret"] if row else None
+    finally:
+        conn.close()
+
+
+def delete_webhook_secret(agent_id: str) -> None:
+    """Delete the webhook secret for an agent."""
+    with _write_lock:
+        conn = _get_conn()
+        try:
+            conn.execute("DELETE FROM webhook_secrets WHERE agent_id = ?", (agent_id,))
+            conn.commit()
+        finally:
+            conn.close()

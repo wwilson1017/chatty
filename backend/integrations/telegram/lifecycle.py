@@ -53,10 +53,11 @@ def validate_and_save_token(agent_id: str, bot_token: str) -> dict:
     # Save token + username
     update_agent(agent_id, telegram_bot_token=bot_token, telegram_bot_username=bot_username)
 
-    # Register webhook
+    # Generate webhook secret and register webhook
+    secret = state.get_or_create_webhook_secret(agent_id)
     slug = existing["slug"]
     webhook_url = f"{settings.backend_url}/api/telegram/webhook/{slug}"
-    webhook_result = set_webhook(webhook_url, bot_token)
+    webhook_result = set_webhook(webhook_url, bot_token, secret_token=secret)
 
     if not webhook_result.get("ok"):
         logger.warning(
@@ -94,6 +95,7 @@ def remove_token(agent_id: str) -> None:
         delete_webhook(token)
 
     update_agent(agent_id, telegram_bot_token="", telegram_bot_username="", telegram_enabled=0)
+    state.delete_webhook_secret(agent_id)
 
 
 def reset_registration_window(agent_id: str) -> dict:
@@ -123,9 +125,10 @@ def register_all_webhooks() -> None:
 
         slug = agent["slug"]
         webhook_url = f"{settings.backend_url}/api/telegram/webhook/{slug}"
+        secret = state.get_or_create_webhook_secret(agent["id"])
 
         try:
-            result = set_webhook(webhook_url, token)
+            result = set_webhook(webhook_url, token, secret_token=secret)
             if result.get("ok"):
                 count += 1
             else:

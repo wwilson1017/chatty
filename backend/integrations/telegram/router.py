@@ -5,6 +5,7 @@ and JWT-protected admin endpoints for bot token management and registration.
 """
 
 import asyncio
+import hmac
 import logging
 from concurrent.futures import ThreadPoolExecutor
 
@@ -33,7 +34,18 @@ async def telegram_webhook(agent_slug: str, request: Request):
     """Receive inbound Telegram messages for an agent's bot.
 
     Returns 200 immediately; processes message and sends reply in background.
+    Verifies the X-Telegram-Bot-Api-Secret-Token header against the stored secret.
     """
+    # Verify webhook secret token
+    agent = agent_db.get_agent_by_slug(agent_slug)
+    if agent:
+        expected_secret = state.get_webhook_secret(agent["id"])
+        if expected_secret:
+            received_secret = request.headers.get("X-Telegram-Bot-Api-Secret-Token", "")
+            if not hmac.compare_digest(received_secret, expected_secret):
+                logger.warning("Telegram webhook (%s): invalid secret token", agent_slug)
+                return {"status": "ok"}  # Return 200 to avoid Telegram retries
+
     try:
         raw = await request.json()
     except Exception:
@@ -85,6 +97,10 @@ def _safe_process_telegram(
 
         bot_token = agent.get("telegram_bot_token", "")
         if not bot_token:
+            return
+
+        # Check Telegram is enabled before any processing
+        if not agent.get("telegram_enabled"):
             return
 
         # Check if sender has a mapping
