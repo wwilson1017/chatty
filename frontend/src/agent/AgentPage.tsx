@@ -15,6 +15,7 @@ import { AgentContextEditor } from './components/AgentContextEditor';
 import ReportsPanel from './reports/ReportsPanel';
 import { ConversationSidebar } from './components/ConversationSidebar';
 import { AvatarPicker } from './components/AvatarPicker';
+import { TelegramSettings } from './components/TelegramSettings';
 
 interface AgentRow {
   id: string;
@@ -24,9 +25,12 @@ interface AgentRow {
   onboarding_complete: boolean;
   gmail_enabled: boolean;
   calendar_enabled: boolean;
+  telegram_enabled: boolean;
+  telegram_bot_token: string;
+  telegram_bot_username: string;
 }
 
-type Tab = 'chat' | 'knowledge' | 'reports';
+type Tab = 'chat' | 'knowledge' | 'reports' | 'telegram';
 
 const TOOL_MODES: { key: ToolMode; label: string; activeClass: string }[] = [
   { key: 'read-only', label: 'Read Only', activeClass: 'bg-gray-600' },
@@ -213,7 +217,7 @@ export function AgentPage() {
 
         {/* Tab switcher */}
         <div className="ml-auto flex items-center bg-gray-800 rounded-lg p-0.5 gap-0.5">
-          {(['chat', 'knowledge', 'reports'] as Tab[]).map(tab => (
+          {(['chat', 'knowledge', 'reports', 'telegram'] as Tab[]).map(tab => (
             <button
               key={tab}
               onClick={() => setActiveTab(tab)}
@@ -223,7 +227,7 @@ export function AgentPage() {
                   : 'text-gray-400 hover:text-white'
               }`}
             >
-              {tab === 'chat' ? 'Chat' : tab === 'knowledge' ? 'Knowledge' : 'Reports'}
+              {tab === 'chat' ? 'Chat' : tab === 'knowledge' ? 'Knowledge' : tab === 'reports' ? 'Reports' : 'Telegram'}
             </button>
           ))}
         </div>
@@ -267,8 +271,21 @@ export function AgentPage() {
           </>
         ) : activeTab === 'knowledge' ? (
           <AgentContextEditor agentId={agentId!} />
-        ) : (
+        ) : activeTab === 'reports' ? (
           <ReportsPanel apiPrefix={apiPrefix} />
+        ) : (
+          <div className="flex-1 overflow-y-auto">
+            <TelegramSettings
+              agentId={agentId!}
+              agentName={agent.agent_name}
+              botToken={agent.telegram_bot_token || ''}
+              botUsername={agent.telegram_bot_username || ''}
+              telegramEnabled={agent.telegram_enabled}
+              onUpdate={() => {
+                api<AgentRow>(`/api/agents/${agentId}`).then(setAgent).catch(() => {});
+              }}
+            />
+          </div>
         )}
       </div>
 

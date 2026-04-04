@@ -47,6 +47,12 @@ AVAILABLE_INTEGRATIONS = {
         "icon": "📋",
         "auth_type": "none",
     },
+    "telegram": {
+        "name": "Telegram",
+        "description": "Telegram Bot — connect your agent to a Telegram bot",
+        "icon": "✈️",
+        "auth_type": "per_agent",
+    },
     "whatsapp": {
         "name": "WhatsApp",
         "description": "WhatsApp Business — send/receive messages (coming soon)",

@@ -58,10 +58,25 @@ def init_db() -> None:
             model_override      TEXT NOT NULL DEFAULT '',
             gmail_enabled       INTEGER NOT NULL DEFAULT 0,
             calendar_enabled    INTEGER NOT NULL DEFAULT 0,
+            telegram_enabled    INTEGER NOT NULL DEFAULT 0,
+            telegram_bot_token  TEXT NOT NULL DEFAULT '',
+            telegram_bot_username TEXT NOT NULL DEFAULT '',
             created_at          TEXT NOT NULL DEFAULT (datetime('now')),
             updated_at          TEXT NOT NULL DEFAULT (datetime('now'))
         );
     """)
+
+    # Migrations for existing databases
+    for col, typedef in [
+        ("telegram_enabled", "INTEGER NOT NULL DEFAULT 0"),
+        ("telegram_bot_token", "TEXT NOT NULL DEFAULT ''"),
+        ("telegram_bot_username", "TEXT NOT NULL DEFAULT ''"),
+    ]:
+        try:
+            _connection.execute(f"ALTER TABLE agents ADD COLUMN {col} {typedef}")
+        except sqlite3.OperationalError:
+            pass  # Column already exists
+
     _connection.commit()
     logger.info("Agent registry DB initialized at %s", DB_PATH)
 
@@ -126,7 +141,8 @@ def list_agents() -> list[dict]:
 UPDATABLE_FIELDS = {
     "agent_name", "avatar_url", "personality",
     "onboarding_complete", "provider_override", "model_override",
-    "gmail_enabled", "calendar_enabled",
+    "gmail_enabled", "calendar_enabled", "telegram_enabled",
+    "telegram_bot_token", "telegram_bot_username",
 }
 
 

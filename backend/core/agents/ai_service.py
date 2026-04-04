@@ -552,3 +552,140 @@ async def chat(
 
     # Exceeded max iterations
     yield _sse({"type": "error", "error": "Tool loop exceeded maximum iterations"})
+
+
+# ── Non-streaming sync execution (for Telegram / messaging channels) ──────────
+
+async def run_sync(
+    config: AgentConfig,
+    provider: AIProvider,
+    registry: ToolRegistry,
+    ctx_manager: ContextManager,
+    messages: list[dict],
+    chat_service=None,
+    conversation_id: str | None = None,
+    integration_tool_defs: list[dict] | None = None,
+) -> str:
+    """Run an agent synchronously, returning the final text response.
+
+    This is the non-streaming counterpart to ``chat()``.  Used by inbound
+    messaging integrations (Telegram) where the caller needs a single text
+    response rather than an SSE stream.
+
+    Works with any AIProvider (Anthropic, OpenAI, Google Gemini).
+    Supports full multi-turn tool execution loop.
+    """
+    # Build tool definitions (same as streaming path)
+    real_tools_dir = str(Path(config.context_dir).parent / "real_tools")
+    dynamic_real_tools = load_all_real_tools(real_tools_dir)
+
+    tool_defs = get_tool_definitions(
+        gmail_enabled=config.gmail_enabled,
+        calendar_enabled=config.calendar_enabled,
+        integration_tools=integration_tool_defs,
+        dynamic_real_tools=dynamic_real_tools or None,
+    )
+    kind_map = _build_kind_map(tool_defs)
+
+    # Strip internal fields before sending to provider
+    _internal_fields = {"kind", "writes", "context_memory"}
+    provider_tools = [{k: v for k, v in t.items() if k not in _internal_fields} for t in tool_defs]
+
+    # Build system prompt
+    system_prompt = _build_system_prompt(config, ctx_manager)
+
+    # Append integration-specific instructions (same as chat())
+    if integration_tool_defs:
+        odoo_tools = [t for t in integration_tool_defs if t.get("name", "").startswith("odoo_")]
+        if odoo_tools:
+            system_prompt += (
+                "\n\n# Odoo ERP Tools Available\n\n"
+                "You have Odoo tools for CRM, helpdesk, sales, purchasing, contacts, projects, "
+                "and timesheets. Use them when the user asks about business operations."
+            )
+
+    # Chat history — save user message
+    persist = chat_service is not None
+    if persist:
+        try:
+            if not conversation_id:
+                conv = chat_service.create_conversation()
+                conversation_id = conv["id"]
+
+            last_user = next((m for m in reversed(messages) if m.get("role") == "user"), None)
+            if last_user:
+                chat_service.save_message(
+                    conversation_id=conversation_id,
+                    msg_id=str(uuid.uuid4()),
+                    role="user",
+                    content=last_user.get("content", ""),
+                )
+        except Exception as e:
+            logger.warning("run_sync: chat history save (user msg) failed: %s", e)
+
+    current_messages = list(messages)
+    accumulated_text = ""
+    max_iterations = 20
+
+    for iteration in range(max_iterations):
+        tool_calls_this_turn: list[dict] = []
+        turn_text = ""
+        stop_reason = "stop"
+
+        # Stream one turn, collecting all events
+        async for event in provider.stream_turn(current_messages, provider_tools, system_prompt):
+            etype = event.get("type")
+
+            if etype == "text":
+                turn_text += event["text"]
+                accumulated_text += event["text"]
+
+            elif etype == "_turn_complete":
+                tool_calls_this_turn = event.get("tool_calls", [])
+                stop_reason = event.get("stop_reason", "stop")
+
+            elif etype == "error":
+                logger.error("run_sync: provider error: %s", event.get("error"))
+                return accumulated_text or "I encountered an error. Please try again."
+
+        # Save assistant turn to history
+        if persist and turn_text and conversation_id:
+            try:
+                chat_service.save_message(
+                    conversation_id=conversation_id,
+                    msg_id=str(uuid.uuid4()),
+                    role="assistant",
+                    content=turn_text,
+                )
+            except Exception as e:
+                logger.warning("run_sync: chat history save (assistant) failed: %s", e)
+
+        # If no tool calls, we're done
+        if stop_reason != "tool_use" or not tool_calls_this_turn:
+            break
+
+        # Execute tool calls (power mode — no confirmation flow for messaging)
+        results = []
+        for tc in tool_calls_this_turn:
+            tool_name = tc.get("name", "")
+            tool_args = tc.get("args", {})
+            tool_use_id = tc.get("id", "")
+            kind = kind_map.get(tool_name, "context")
+
+            try:
+                result = await registry.execute_tool(tool_name, tool_args, kind)
+                _sync_context_after_tool(tool_name, result, ctx_manager)
+            except Exception as e:
+                logger.error("run_sync: tool %s failed: %s", tool_name, e)
+                result = {"error": str(e)}
+
+            results.append({
+                "tool_use_id": tool_use_id,
+                "tool_name": tool_name,
+                "content": json.dumps(result),
+            })
+
+        # Append tool results for next turn
+        current_messages = provider.add_tool_results(current_messages, tool_calls_this_turn, results)
+
+    return accumulated_text or "I had trouble generating a response. Please try again."

@@ -23,6 +23,7 @@ from webby.router import router as webby_router
 from core.agents.scheduled_actions.router import router as scheduled_actions_router
 from setup.router import router as setup_router
 from backup.router import router as backup_router
+from integrations.telegram.router import router as telegram_router
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
@@ -38,7 +39,7 @@ async def lifespan(app: FastAPI):
 
     # Ensure data directories exist
     data_root = Path(__file__).resolve().parent / "data"
-    for subdir in ("agents", "branding", "integrations", "reminders"):
+    for subdir in ("agents", "branding", "integrations", "reminders", "telegram"):
         (data_root / subdir).mkdir(parents=True, exist_ok=True)
 
     # Initialize agent registry DB
@@ -50,6 +51,13 @@ async def lifespan(app: FastAPI):
     if integration_enabled("crm_lite"):
         from integrations.crm_lite.db import init_db as init_crm_db
         init_crm_db()
+
+    # Initialize Telegram state DB + register webhooks
+    from integrations.telegram.state import init_db as init_telegram_db
+    init_telegram_db()
+
+    from integrations.telegram.lifecycle import register_all_webhooks
+    register_all_webhooks()
 
     # Initialize reminders + scheduled actions DB
     from core.agents.reminders.db import init_db as init_reminders_db
@@ -105,6 +113,7 @@ app.include_router(webby_router, tags=["webby"])
 app.include_router(scheduled_actions_router, prefix="/api/scheduled-actions", tags=["scheduled-actions"])
 app.include_router(setup_router, prefix="/api/setup", tags=["setup"])
 app.include_router(backup_router, prefix="/api/backup", tags=["backup"])
+app.include_router(telegram_router, prefix="/api/telegram", tags=["telegram"])
 
 
 @app.get("/api/health")
