@@ -56,6 +56,7 @@ export interface Integration {
   auth_type: string;
   enabled: boolean;
   configured: boolean;
+  connection_status?: string;
 }
 
 // CRM types
