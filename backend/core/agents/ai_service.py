@@ -375,6 +375,23 @@ async def chat(
                 "Use crm_dashboard when the user asks for an overview or summary of their business."
             )
 
+        qbo_tools = [t for t in integration_tool_defs if t.get("name", "").startswith("qbo_")]
+        if qbo_tools:
+            system_prompt += (
+                "\n\n# QuickBooks Online Tools Available\n\n"
+                "You have QuickBooks tools for invoicing, payments, estimates, customers, vendors, items, "
+                "and financial reports.\n\n"
+                "**Key patterns:**\n"
+                "- Use `qbo_query` to look up IDs first: `SELECT Id, DisplayName FROM Customer WHERE DisplayName LIKE '%Smith%'`\n"
+                "- Use `qbo_get_entity` for full details of any record.\n"
+                "- For invoices: create with `qbo_create_invoice`, then optionally send with `qbo_send_invoice`.\n"
+                "- For estimates: create with `qbo_create_estimate`, then send with `qbo_send_estimate`.\n"
+                "- To record payments: use `qbo_record_payment`, optionally link to invoice IDs.\n"
+                "- For customers, vendors, items, bills: use `qbo_create_entity` / `qbo_update_entity`.\n"
+                "- **Never guess IDs** — always query first to find the correct Customer, Item, or Invoice ID.\n"
+                "- Amounts are in the company's home currency.\n"
+            )
+
     accumulated_text = ""
 
     # ── Reconstruct approved tool in message history ──────────────────
@@ -602,6 +619,23 @@ async def run_sync(
                 "\n\n# Odoo ERP Tools Available\n\n"
                 "You have Odoo tools for CRM, helpdesk, sales, purchasing, contacts, projects, "
                 "and timesheets. Use them when the user asks about business operations."
+            )
+
+        qbo_tools = [t for t in integration_tool_defs if t.get("name", "").startswith("qbo_")]
+        if qbo_tools:
+            system_prompt += (
+                "\n\n# QuickBooks Online Tools Available\n\n"
+                "You have QuickBooks tools for invoicing, payments, estimates, customers, vendors, items, "
+                "and financial reports.\n\n"
+                "**Key patterns:**\n"
+                "- Use `qbo_query` to look up IDs first: `SELECT Id, DisplayName FROM Customer WHERE DisplayName LIKE '%Smith%'`\n"
+                "- Use `qbo_get_entity` for full details of any record.\n"
+                "- For invoices: create with `qbo_create_invoice`, then optionally send with `qbo_send_invoice`.\n"
+                "- For estimates: create with `qbo_create_estimate`, then send with `qbo_send_estimate`.\n"
+                "- To record payments: use `qbo_record_payment`, optionally link to invoice IDs.\n"
+                "- For customers, vendors, items, bills: use `qbo_create_entity` / `qbo_update_entity`.\n"
+                "- **Never guess IDs** — always query first to find the correct Customer, Item, or Invoice ID.\n"
+                "- Amounts are in the company's home currency.\n"
             )
 
     # Chat history — save user message
