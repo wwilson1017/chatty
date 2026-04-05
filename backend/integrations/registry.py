@@ -49,9 +49,9 @@ AVAILABLE_INTEGRATIONS = {
     },
     "whatsapp": {
         "name": "WhatsApp",
-        "description": "WhatsApp Business — send/receive messages (coming soon)",
+        "description": "WhatsApp — connect agents to WhatsApp via QR code scan",
         "icon": "💬",
-        "auth_type": "stub",
+        "auth_type": "qr_session",
     },
 }
 

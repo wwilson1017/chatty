@@ -1,13 +1,8 @@
-"""
-Chatty — WhatsApp Business connector stub.
+"""Chatty — WhatsApp connector availability check."""
 
-TODO: Phase 2 — implement WhatsApp Business API integration.
-"""
+from core.config import settings
 
 
 def is_available() -> bool:
-    return False
-
-
-def send_message(to: str, body: str) -> dict:
-    return {"error": "WhatsApp integration not yet implemented"}
+    """Check if the WhatsApp bridge sidecar is configured."""
+    return settings.whatsapp.is_configured

@@ -46,12 +46,24 @@ class WebbySettings:
     github_repo: str = os.getenv("WEBBY_GITHUB_REPO", "")  # e.g. "owner/repo"
 
 
+class WhatsAppSettings:
+    def __init__(self):
+        self.bridge_url: str = os.getenv("WHATSAPP_BRIDGE_URL", "")
+        self.bridge_api_key: str = os.getenv("WHATSAPP_BRIDGE_API_KEY", "")
+        self.webhook_secret: str = os.getenv("WHATSAPP_WEBHOOK_SECRET", "")
+
+    @property
+    def is_configured(self) -> bool:
+        return bool(self.bridge_url)
+
+
 class Settings:
     auth = AuthSettings()
     jwt = JWTSettings()
     google_oauth = GoogleOAuthSettings()
     openai_oauth = OpenAIOAuthSettings()
     webby = WebbySettings()
+    whatsapp = WhatsAppSettings()
 
     # GCS bucket for Phase 2 cloud deployment (no-ops if empty)
     gcs_bucket: str = os.getenv("CONFIG_BUCKET", "")

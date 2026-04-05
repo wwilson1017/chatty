@@ -62,6 +62,14 @@ def init_db() -> None:
             updated_at          TEXT NOT NULL DEFAULT (datetime('now'))
         );
     """)
+    # Migration: add WhatsApp session ID column if not present
+    try:
+        _connection.execute(
+            "ALTER TABLE agents ADD COLUMN whatsapp_session_id TEXT NOT NULL DEFAULT ''"
+        )
+        _connection.commit()
+    except sqlite3.OperationalError:
+        pass  # Column already exists
     _connection.commit()
     logger.info("Agent registry DB initialized at %s", DB_PATH)
 
@@ -126,7 +134,7 @@ def list_agents() -> list[dict]:
 UPDATABLE_FIELDS = {
     "agent_name", "avatar_url", "personality",
     "onboarding_complete", "provider_override", "model_override",
-    "gmail_enabled", "calendar_enabled",
+    "gmail_enabled", "calendar_enabled", "whatsapp_session_id",
 }
 
 
