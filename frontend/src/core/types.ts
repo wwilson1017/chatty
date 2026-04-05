@@ -11,6 +11,7 @@ export interface Agent {
   model_override: string;
   gmail_enabled: boolean;
   calendar_enabled: boolean;
+  whatsapp_session_id?: string;
   created_at: string;
   updated_at: string;
 }

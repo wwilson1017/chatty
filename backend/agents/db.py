@@ -61,6 +61,7 @@ def init_db() -> None:
             telegram_enabled    INTEGER NOT NULL DEFAULT 0,
             telegram_bot_token  TEXT NOT NULL DEFAULT '',
             telegram_bot_username TEXT NOT NULL DEFAULT '',
+            whatsapp_session_id TEXT NOT NULL DEFAULT '',
             created_at          TEXT NOT NULL DEFAULT (datetime('now')),
             updated_at          TEXT NOT NULL DEFAULT (datetime('now'))
         );
@@ -71,6 +72,7 @@ def init_db() -> None:
         ("telegram_enabled", "INTEGER NOT NULL DEFAULT 0"),
         ("telegram_bot_token", "TEXT NOT NULL DEFAULT ''"),
         ("telegram_bot_username", "TEXT NOT NULL DEFAULT ''"),
+        ("whatsapp_session_id", "TEXT NOT NULL DEFAULT ''"),
     ]:
         try:
             _connection.execute(f"ALTER TABLE agents ADD COLUMN {col} {typedef}")
@@ -141,8 +143,8 @@ def list_agents() -> list[dict]:
 UPDATABLE_FIELDS = {
     "agent_name", "avatar_url", "personality",
     "onboarding_complete", "provider_override", "model_override",
-    "gmail_enabled", "calendar_enabled", "telegram_enabled",
-    "telegram_bot_token", "telegram_bot_username",
+    "gmail_enabled", "calendar_enabled", "whatsapp_session_id",
+    "telegram_enabled", "telegram_bot_token", "telegram_bot_username",
 }
 
 

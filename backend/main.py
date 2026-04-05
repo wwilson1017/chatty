@@ -19,6 +19,7 @@ from agents.router import router as agents_router
 from branding.router import router as branding_router
 from integrations.router import router as integrations_router
 from integrations.crm_lite.router import router as crm_router
+from integrations.whatsapp.router import router as whatsapp_router
 from webby.router import router as webby_router
 from core.agents.scheduled_actions.router import router as scheduled_actions_router
 from setup.router import router as setup_router
@@ -39,7 +40,7 @@ async def lifespan(app: FastAPI):
 
     # Ensure data directories exist
     data_root = Path(__file__).resolve().parent / "data"
-    for subdir in ("agents", "branding", "integrations", "reminders", "telegram"):
+    for subdir in ("agents", "branding", "integrations", "reminders", "telegram", "whatsapp"):
         (data_root / subdir).mkdir(parents=True, exist_ok=True)
 
     # Initialize agent registry DB
@@ -59,6 +60,12 @@ async def lifespan(app: FastAPI):
     from integrations.telegram.lifecycle import register_all_webhooks
     register_all_webhooks()
 
+    # Initialize WhatsApp state DB if bridge is configured
+    if settings.whatsapp.is_configured:
+        from integrations.whatsapp.state import init_db as init_whatsapp_db
+        init_whatsapp_db()
+        logger.info("WhatsApp bridge configured at %s", settings.whatsapp.bridge_url)
+
     # Initialize reminders + scheduled actions DB
     from core.agents.reminders.db import init_db as init_reminders_db
     init_reminders_db()
@@ -74,6 +81,14 @@ async def lifespan(app: FastAPI):
     _scheduler.add_job(process_due_actions, "interval", seconds=60, id="scheduled_actions_processor")
     _scheduler.start()
     logger.info("APScheduler started (reminder heartbeat + scheduled actions processor)")
+
+    # Log WhatsApp session status on startup
+    if settings.whatsapp.is_configured:
+        try:
+            from integrations.whatsapp.lifecycle import reconnect_all_sessions
+            reconnect_all_sessions()
+        except Exception as e:
+            logger.warning("WhatsApp session reconnect check failed: %s", e)
 
     logger.info("Chatty backend started. Data dir: %s", data_root)
     yield
@@ -108,6 +123,7 @@ app.include_router(providers_router, prefix="/api/providers", tags=["providers"]
 app.include_router(agents_router, prefix="/api/agents", tags=["agents"])
 app.include_router(branding_router, prefix="/api/branding", tags=["branding"])
 app.include_router(integrations_router, prefix="/api/integrations", tags=["integrations"])
+app.include_router(whatsapp_router, prefix="/api/messaging", tags=["messaging"])
 app.include_router(crm_router, prefix="/api/crm", tags=["crm"])
 app.include_router(webby_router, tags=["webby"])
 app.include_router(scheduled_actions_router, prefix="/api/scheduled-actions", tags=["scheduled-actions"])

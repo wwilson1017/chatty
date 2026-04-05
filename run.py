@@ -120,6 +120,9 @@ def install_deps():
     (VENV / "deps_installed").touch()
 
 
+WA_BRIDGE = BACKEND / "whatsapp-bridge"
+
+
 def setup_frontend():
     if not (FRONTEND / "node_modules").exists():
         print("  Installing frontend dependencies...")
@@ -131,22 +134,56 @@ def setup_frontend():
     subprocess.run(["npm", "run", "build"], cwd=str(FRONTEND), check=True)
 
 
+def setup_whatsapp_bridge():
+    """Install WhatsApp bridge sidecar dependencies if needed."""
+    if not WA_BRIDGE.exists():
+        return
+    if not (WA_BRIDGE / "node_modules").exists():
+        print("  Installing WhatsApp bridge dependencies...")
+        subprocess.run(["npm", "ci"], cwd=str(WA_BRIDGE), check=True)
+    else:
+        print("  WhatsApp bridge dependencies already installed.")
+
+
+def start_whatsapp_bridge() -> subprocess.Popen | None:
+    """Start the WhatsApp bridge sidecar if configured."""
+    if not WA_BRIDGE.exists() or not (WA_BRIDGE / "node_modules").exists():
+        return None
+    # Only start if WHATSAPP_BRIDGE_URL is configured
+    if not os.environ.get("WHATSAPP_BRIDGE_URL"):
+        return None
+    print("  Starting WhatsApp bridge sidecar on port 3001...")
+    return subprocess.Popen(
+        ["node", "index.js"],
+        cwd=str(WA_BRIDGE),
+        env={**os.environ, "PORT": "3001"},
+    )
+
+
 def start_server():
+    wa_proc = start_whatsapp_bridge()
     print()
     print("=" * 50)
     print("  Chatty is running at http://localhost:8000")
+    if wa_proc:
+        print("  WhatsApp bridge running on port 3001")
     print("  Press Ctrl+C to stop.")
     print("=" * 50)
     print()
-    subprocess.run(
-        [
-            _python(), "-m", "uvicorn",
-            "main:app",
-            "--host", "127.0.0.1",
-            "--port", "8000",
-        ],
-        cwd=str(BACKEND),
-    )
+    try:
+        subprocess.run(
+            [
+                _python(), "-m", "uvicorn",
+                "main:app",
+                "--host", "127.0.0.1",
+                "--port", "8000",
+            ],
+            cwd=str(BACKEND),
+        )
+    finally:
+        if wa_proc:
+            wa_proc.terminate()
+            wa_proc.wait(timeout=5)
 
 
 def main():
@@ -167,6 +204,9 @@ def main():
 
     print("\nSetting up frontend...")
     setup_frontend()
+
+    print("\nSetting up WhatsApp bridge...")
+    setup_whatsapp_bridge()
 
     start_server()
 
