@@ -645,7 +645,7 @@ async def agent_chat_upload(
                             )
                             continue
             except Exception:
-                pass  # Fall through to standard handling
+                logger.debug("QBO CSV detection failed for %s", f.filename, exc_info=True)
 
         file_texts.append(f"[Attached file: {f.filename}]\n{text}\n[End of file]")
 

@@ -276,11 +276,17 @@ def get_financial_summary() -> dict:
     """Compute a financial overview from imported data."""
     db = _get_db()
 
-    # Income: invoices + payments received
+    # Revenue: invoices only (payments are collections against invoices, not new income)
     income_row = db.execute(
-        "SELECT COALESCE(SUM(amount), 0) as total FROM transactions WHERE txn_type IN ('invoice', 'payment')"
+        "SELECT COALESCE(SUM(amount), 0) as total FROM transactions WHERE txn_type = 'invoice'"
     ).fetchone()
     total_income = income_row["total"] if income_row else 0
+
+    # Payments received (separate from revenue to avoid double-counting)
+    payments_row = db.execute(
+        "SELECT COALESCE(SUM(amount), 0) as total FROM transactions WHERE txn_type = 'payment'"
+    ).fetchone()
+    payments_received = payments_row["total"] if payments_row else 0
 
     # Expenses: bills + expenses
     expense_row = db.execute(
@@ -321,11 +327,11 @@ def get_financial_summary() -> dict:
            GROUP BY entity_name ORDER BY total DESC LIMIT 10"""
     ).fetchall()]
 
-    # Monthly income vs expenses
+    # Monthly income vs expenses (invoices only for income, not payments)
     monthly = [dict(r) for r in db.execute(
         """SELECT
              substr(txn_date, 1, 7) as month,
-             SUM(CASE WHEN txn_type IN ('invoice', 'payment') THEN amount ELSE 0 END) as income,
+             SUM(CASE WHEN txn_type = 'invoice' THEN amount ELSE 0 END) as income,
              SUM(CASE WHEN txn_type IN ('bill', 'expense') THEN amount ELSE 0 END) as expenses
            FROM transactions
            WHERE txn_date != ''
@@ -354,6 +360,7 @@ def get_financial_summary() -> dict:
         "total_income": total_income,
         "total_expenses": total_expenses,
         "net_income": total_income - total_expenses,
+        "payments_received": payments_received,
         "accounts_receivable": accounts_receivable,
         "accounts_payable": accounts_payable,
         "top_expense_categories": top_categories,
