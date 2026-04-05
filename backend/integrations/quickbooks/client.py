@@ -159,6 +159,142 @@ class QuickBooksClient:
             logger.error("QBO P&L error: %s", e)
             return {"error": str(e)}
 
+    def get_balance_sheet(self, start_date: str, end_date: str) -> dict:
+        """Fetch Balance Sheet report."""
+        try:
+            resp = httpx.get(
+                f"{QBO_BASE_URL}/{self.company_id}/reports/BalanceSheet",
+                headers=self._headers(),
+                params={"start_date": start_date, "end_date": end_date, "minorversion": "65"},
+                timeout=15,
+            )
+            resp.raise_for_status()
+            return resp.json()
+        except Exception as e:
+            logger.error("QBO Balance Sheet error: %s", e)
+            return {"error": str(e)}
+
+    # ── Entity CRUD methods ──────────────────────────────────────────────────
+
+    def _entity_url(self, entity_type: str, entity_id: str = "") -> str:
+        """Build QBO API URL for an entity type."""
+        path = entity_type.lower()
+        base = f"{QBO_BASE_URL}/{self.company_id}/{path}"
+        if entity_id:
+            base = f"{base}/{entity_id}"
+        return base
+
+    def get_entity(self, entity_type: str, entity_id: str) -> dict:
+        """Fetch a single entity by type and ID."""
+        try:
+            resp = httpx.get(
+                self._entity_url(entity_type, entity_id),
+                headers=self._headers(),
+                params={"minorversion": "65"},
+                timeout=15,
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            # QBO nests the entity under its PascalCase type name
+            return data.get(entity_type, data)
+        except Exception as e:
+            logger.error("QBO get %s/%s error: %s", entity_type, entity_id, e)
+            return {"error": str(e)}
+
+    def create_entity(self, entity_type: str, data: dict) -> dict:
+        """Create a new entity. Returns the created entity dict."""
+        try:
+            resp = httpx.post(
+                self._entity_url(entity_type),
+                headers=self._headers(),
+                params={"minorversion": "65"},
+                json=data,
+                timeout=15,
+            )
+            resp.raise_for_status()
+            result = resp.json()
+            return result.get(entity_type, result)
+        except httpx.HTTPStatusError as e:
+            body = e.response.text
+            logger.error("QBO create %s failed (%s): %s", entity_type, e.response.status_code, body)
+            return {"error": f"QBO API error {e.response.status_code}: {body}"}
+        except Exception as e:
+            logger.error("QBO create %s error: %s", entity_type, e)
+            return {"error": str(e)}
+
+    def update_entity(self, entity_type: str, data: dict) -> dict:
+        """Update an existing entity. data must include Id and SyncToken."""
+        try:
+            resp = httpx.post(
+                self._entity_url(entity_type),
+                headers=self._headers(),
+                params={"minorversion": "65"},
+                json=data,
+                timeout=15,
+            )
+            resp.raise_for_status()
+            result = resp.json()
+            return result.get(entity_type, result)
+        except httpx.HTTPStatusError as e:
+            body = e.response.text
+            logger.error("QBO update %s failed (%s): %s", entity_type, e.response.status_code, body)
+            return {"error": f"QBO API error {e.response.status_code}: {body}"}
+        except Exception as e:
+            logger.error("QBO update %s error: %s", entity_type, e)
+            return {"error": str(e)}
+
+    def void_entity(self, entity_type: str, entity_id: str, sync_token: str) -> dict:
+        """Void an entity (e.g. Invoice). Sets balance to zero without deleting."""
+        try:
+            resp = httpx.post(
+                self._entity_url(entity_type),
+                headers=self._headers(),
+                params={"operation": "void", "minorversion": "65"},
+                json={"Id": entity_id, "SyncToken": sync_token, "sparse": True},
+                timeout=15,
+            )
+            resp.raise_for_status()
+            result = resp.json()
+            return result.get(entity_type, result)
+        except httpx.HTTPStatusError as e:
+            body = e.response.text
+            logger.error("QBO void %s/%s failed (%s): %s", entity_type, entity_id, e.response.status_code, body)
+            return {"error": f"QBO API error {e.response.status_code}: {body}"}
+        except Exception as e:
+            logger.error("QBO void %s/%s error: %s", entity_type, entity_id, e)
+            return {"error": str(e)}
+
+    def send_entity(self, entity_type: str, entity_id: str, email: str | None = None) -> dict:
+        """Email an entity (Invoice or Estimate) to the customer."""
+        try:
+            params: dict[str, str] = {"minorversion": "65"}
+            if email:
+                params["sendTo"] = email
+            resp = httpx.post(
+                f"{self._entity_url(entity_type, entity_id)}/send",
+                headers=self._headers(),
+                params=params,
+                timeout=15,
+            )
+            resp.raise_for_status()
+            result = resp.json()
+            return result.get(entity_type, result)
+        except httpx.HTTPStatusError as e:
+            body = e.response.text
+            logger.error("QBO send %s/%s failed (%s): %s", entity_type, entity_id, e.response.status_code, body)
+            return {"error": f"QBO API error {e.response.status_code}: {body}"}
+        except Exception as e:
+            logger.error("QBO send %s/%s error: %s", entity_type, entity_id, e)
+            return {"error": str(e)}
+
+    def _fetch_sync_token(self, entity_type: str, entity_id: str) -> tuple[dict, str] | None:
+        """Fetch an entity and return (full_entity, sync_token), or None if not found."""
+        entity = self.get_entity(entity_type, entity_id)
+        if not entity or "error" in entity:
+            return None
+        sync_token = entity.get("SyncToken", "0")
+        return entity, sync_token
+
 
 def get_client() -> QuickBooksClient | None:
     """Return a configured QBO client from stored credentials, or None."""

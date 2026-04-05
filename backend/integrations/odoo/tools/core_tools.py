@@ -35,6 +35,7 @@ CORE_TOOL_DEFS = [
                 "domain": {
                     "type": "array",
                     "description": "Odoo domain filter (list of [field, op, value] tuples)",
+                    "items": {"type": "array", "items": {}},
                     "default": [],
                 },
                 "fields": {
@@ -97,6 +98,7 @@ CORE_TOOL_DEFS = [
                 "domain": {
                     "type": "array",
                     "description": "Odoo domain filter",
+                    "items": {"type": "array", "items": {}},
                     "default": [],
                 },
                 "fields": {

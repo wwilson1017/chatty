@@ -152,6 +152,13 @@ async def disconnect_quickbooks(user=Depends(get_current_user)):
     return {"ok": True}
 
 
+@router.post("/qb_csv/setup")
+async def setup_qb_csv(user=Depends(get_current_user)):
+    """Initialize QuickBooks CSV Analysis (no credentials needed)."""
+    from .qb_csv.onboarding import setup
+    return setup()
+
+
 @router.post("/crm_lite/setup")
 async def setup_crm_lite(user=Depends(get_current_user)):
     """Initialize CRM Lite (no credentials needed)."""
@@ -177,5 +184,8 @@ async def get_tool_defs(name: str, user=Depends(get_current_user)):
     elif name == "crm_lite":
         from .crm_lite.tools import CRM_LITE_TOOL_DEFS
         return {"tools": CRM_LITE_TOOL_DEFS}
+    elif name == "qb_csv":
+        from .qb_csv.tools import QB_CSV_TOOL_DEFS
+        return {"tools": QB_CSV_TOOL_DEFS}
     else:
         return {"tools": []}

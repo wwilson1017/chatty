@@ -14,6 +14,22 @@ from core.providers.base import AIProvider
 
 logger = logging.getLogger(__name__)
 
+
+def _ensure_array_items(schema: dict) -> dict:
+    """Recursively ensure all array types have an items field (OpenAI requirement)."""
+    if not isinstance(schema, dict):
+        return schema
+    result = dict(schema)
+    if result.get("type") == "array" and "items" not in result:
+        result["items"] = {}
+    if "properties" in result:
+        result["properties"] = {
+            k: _ensure_array_items(v) for k, v in result["properties"].items()
+        }
+    if "items" in result and isinstance(result["items"], dict):
+        result["items"] = _ensure_array_items(result["items"])
+    return result
+
 OPENAI_MODELS = [
     "gpt-5.4",
     "gpt-5.4-mini",
@@ -51,7 +67,9 @@ class OpenAIProvider(AIProvider):
                 "function": {
                     "name": t["name"],
                     "description": t.get("description", ""),
-                    "parameters": t.get("input_schema", {"type": "object", "properties": {}}),
+                    "parameters": _ensure_array_items(
+                        t.get("input_schema", {"type": "object", "properties": {}})
+                    ),
                 },
             }
             for t in tools
@@ -69,18 +87,35 @@ class OpenAIProvider(AIProvider):
         # Build messages with system prompt prepended
         api_messages = [{"role": "system", "content": system_prompt}]
         for m in messages:
-            if m.get("role") in ("user", "assistant") and m.get("content"):
-                api_messages.append({"role": m["role"], "content": m["content"]})
+            role = m.get("role")
+            if role == "user":
+                api_messages.append({"role": "user", "content": m.get("content", "")})
+            elif role == "assistant":
+                msg: dict = {"role": "assistant"}
+                if m.get("content") is not None:
+                    msg["content"] = m["content"]
+                if m.get("tool_calls"):
+                    msg["tool_calls"] = m["tool_calls"]
+                api_messages.append(msg)
+            elif role == "tool":
+                api_messages.append({
+                    "role": "tool",
+                    "tool_call_id": m.get("tool_call_id", ""),
+                    "content": m.get("content", ""),
+                })
 
         full_text = ""
         tool_calls: list[dict] = []
 
         try:
+            # Newer models (o-series, gpt-5.x) require max_completion_tokens
+            uses_completion_tokens = self.model.startswith(("o1", "o3", "o4", "gpt-5"))
+            token_param = "max_completion_tokens" if uses_completion_tokens else "max_tokens"
             kwargs = {
                 "model": self.model,
                 "messages": api_messages,
                 "stream": True,
-                "max_tokens": 16384,
+                token_param: 16384,
             }
             if openai_tools:
                 kwargs["tools"] = openai_tools

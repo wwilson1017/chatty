@@ -17,6 +17,8 @@ CONTEXT_TOOLS = [
             "required": [],
         },
         "kind": "context",
+        "writes": False,
+        "context_memory": True,
     },
     {
         "name": "read_context_file",
@@ -32,6 +34,8 @@ CONTEXT_TOOLS = [
             "required": ["filename"],
         },
         "kind": "context",
+        "writes": False,
+        "context_memory": True,
     },
     {
         "name": "write_context_file",
@@ -51,6 +55,8 @@ CONTEXT_TOOLS = [
             "required": ["filename", "content"],
         },
         "kind": "context",
+        "writes": True,
+        "context_memory": True,
     },
     {
         "name": "append_to_context_file",
@@ -70,6 +76,8 @@ CONTEXT_TOOLS = [
             "required": ["filename", "content"],
         },
         "kind": "context",
+        "writes": True,
+        "context_memory": True,
     },
     {
         "name": "delete_context_file",
@@ -85,6 +93,8 @@ CONTEXT_TOOLS = [
             "required": ["filename"],
         },
         "kind": "context",
+        "writes": True,
+        "context_memory": True,
     },
 ]
 
@@ -110,6 +120,7 @@ GMAIL_TOOLS = [
             "required": ["query"],
         },
         "kind": "gmail",
+        "writes": False,
     },
     {
         "name": "get_email",
@@ -125,6 +136,7 @@ GMAIL_TOOLS = [
             "required": ["message_id"],
         },
         "kind": "gmail",
+        "writes": False,
     },
     {
         "name": "get_email_thread",
@@ -140,6 +152,7 @@ GMAIL_TOOLS = [
             "required": ["thread_id"],
         },
         "kind": "gmail",
+        "writes": False,
     },
 ]
 
@@ -174,6 +187,7 @@ CALENDAR_TOOLS = [
             "required": [],
         },
         "kind": "calendar",
+        "writes": False,
     },
     {
         "name": "get_calendar_event",
@@ -194,6 +208,7 @@ CALENDAR_TOOLS = [
             "required": ["event_id"],
         },
         "kind": "calendar",
+        "writes": False,
     },
     {
         "name": "search_calendar_events",
@@ -219,6 +234,7 @@ CALENDAR_TOOLS = [
             "required": ["query"],
         },
         "kind": "calendar",
+        "writes": False,
     },
 ]
 
@@ -244,6 +260,7 @@ WEB_TOOLS = [
             "required": ["query"],
         },
         "kind": "web",
+        "writes": False,
     },
     {
         "name": "web_fetch",
@@ -263,6 +280,7 @@ WEB_TOOLS = [
             "required": ["url"],
         },
         "kind": "web",
+        "writes": False,
     },
 ]
 
@@ -282,6 +300,8 @@ REAL_TOOL_DEFS = [
             "required": ["name", "definition"],
         },
         "kind": "real_tool",
+        "writes": True,
+        "context_memory": True,
     },
     {
         "name": "update_real_tool",
@@ -295,6 +315,8 @@ REAL_TOOL_DEFS = [
             "required": ["name", "definition"],
         },
         "kind": "real_tool",
+        "writes": True,
+        "context_memory": True,
     },
     {
         "name": "delete_real_tool",
@@ -307,6 +329,8 @@ REAL_TOOL_DEFS = [
             "required": ["name"],
         },
         "kind": "real_tool",
+        "writes": True,
+        "context_memory": True,
     },
     {
         "name": "list_real_tools",
@@ -317,6 +341,8 @@ REAL_TOOL_DEFS = [
             "required": [],
         },
         "kind": "real_tool",
+        "writes": False,
+        "context_memory": True,
     },
     {
         "name": "test_real_tool",
@@ -330,6 +356,8 @@ REAL_TOOL_DEFS = [
             "required": ["definition"],
         },
         "kind": "real_tool",
+        "writes": False,
+        "context_memory": True,
     },
 ]
 
@@ -361,10 +389,38 @@ REPORT_TOOLS = [
                                 "description": "Data object. For bar/line/area/pie/donut: {labels: [str], datasets: [{name: str, values: [number]}]}. For table: {headers: [str], rows: [[value]]}. For metric: {metrics: [{label: str, value: number, change?: str, unit?: str}]}.",
                                 "properties": {
                                     "labels": {"type": "array", "items": {"type": "string"}, "description": "Category labels (bar/line/pie charts)"},
-                                    "datasets": {"type": "array", "description": "Data series. Each: {name: str, values: [number]}"},
+                                    "datasets": {
+                                        "type": "array",
+                                        "description": "Data series. Each: {name: str, values: [number]}",
+                                        "items": {
+                                            "type": "object",
+                                            "properties": {
+                                                "name": {"type": "string"},
+                                                "values": {"type": "array", "items": {"type": "number"}},
+                                            },
+                                            "required": ["name", "values"],
+                                        },
+                                    },
                                     "headers": {"type": "array", "items": {"type": "string"}, "description": "Column headers (table only)"},
-                                    "rows": {"type": "array", "description": "Table rows, each an array of values"},
-                                    "metrics": {"type": "array", "description": "Metric cards: [{label, value, change?, unit?}]"},
+                                    "rows": {
+                                        "type": "array",
+                                        "description": "Table rows, each an array of values",
+                                        "items": {"type": "array", "items": {}},
+                                    },
+                                    "metrics": {
+                                        "type": "array",
+                                        "description": "Metric cards: [{label, value, change?, unit?}]",
+                                        "items": {
+                                            "type": "object",
+                                            "properties": {
+                                                "label": {"type": "string"},
+                                                "value": {"type": "number"},
+                                                "change": {"type": "string"},
+                                                "unit": {"type": "string"},
+                                            },
+                                            "required": ["label", "value"],
+                                        },
+                                    },
                                 },
                             },
                         },
@@ -375,6 +431,8 @@ REPORT_TOOLS = [
             "required": ["title", "sections"],
         },
         "kind": "report",
+        "writes": True,
+        "context_memory": True,
     },
 ]
 
@@ -394,6 +452,7 @@ REMINDER_TOOLS = [
             "required": ["message", "due_at"],
         },
         "kind": "reminder",
+        "writes": True,
     },
     {
         "name": "list_reminders",
@@ -406,6 +465,7 @@ REMINDER_TOOLS = [
             "required": [],
         },
         "kind": "reminder",
+        "writes": False,
     },
     {
         "name": "cancel_reminder",
@@ -418,6 +478,7 @@ REMINDER_TOOLS = [
             "required": ["reminder_id"],
         },
         "kind": "reminder",
+        "writes": True,
     },
 ]
 
@@ -443,6 +504,7 @@ SCHEDULED_ACTION_TOOLS = [
             "required": ["name", "prompt", "schedule_type"],
         },
         "kind": "scheduled_action",
+        "writes": True,
     },
     {
         "name": "list_scheduled_actions",
@@ -453,6 +515,7 @@ SCHEDULED_ACTION_TOOLS = [
             "required": [],
         },
         "kind": "scheduled_action",
+        "writes": False,
     },
     {
         "name": "update_scheduled_action",
@@ -471,6 +534,7 @@ SCHEDULED_ACTION_TOOLS = [
             "required": ["action_id"],
         },
         "kind": "scheduled_action",
+        "writes": True,
     },
     {
         "name": "delete_scheduled_action",
@@ -483,6 +547,7 @@ SCHEDULED_ACTION_TOOLS = [
             "required": ["action_id"],
         },
         "kind": "scheduled_action",
+        "writes": True,
     },
 ]
 
@@ -522,6 +587,50 @@ Guidelines:
 - Set reasonable active hours to avoid running during off-hours
 - Prefer cron expressions for recurring tasks, 'once' for one-time future tasks
 """
+
+
+def get_qb_csv_instructions() -> str:
+    """Instructions for the AI on how to use QuickBooks CSV analysis tools."""
+    return """## QuickBooks CSV Analysis
+
+You have access to imported QuickBooks financial data. Use the qb_csv_* tools to answer questions about the user's finances.
+
+### Auto-Import Protocol
+When you see `[QuickBooks CSV detected: ...]` in an uploaded file:
+1. Call `qb_csv_import_csv` with the CSV content and filename to persist it
+2. Report what was imported (entity type, row count)
+3. If multiple QBO files are uploaded, import each one
+4. After importing, call `qb_csv_financial_summary` and use `generate_report` to create a visual financial overview
+
+### Query Guidelines
+- Use `qb_csv_financial_summary` for overview questions ("how's my business?", "show me my financials")
+- Use `qb_csv_search_transactions` for filtered lookups ("show me invoices over $5k", "expenses last month")
+- Use `qb_csv_query` with raw SQL for complex analysis (JOINs, GROUP BY, aggregations, date ranges)
+- Use `qb_csv_find_duplicates` and `qb_csv_find_issues` when asked about data cleanup or quality
+- Use `generate_report` to create visual charts from financial data
+
+### Available Tables (for qb_csv_query SQL)
+- accounts (name, type, detail_type, balance)
+- customers (display_name, email, phone, balance)
+- vendors (display_name, email, phone, balance)
+- products (name, sku, type, price, cost, quantity_on_hand)
+- transactions (txn_type, txn_number, txn_date, due_date, entity_name, category, amount, balance, status)
+  - txn_type values: invoice, bill, expense, payment, journal_entry
+- journal_lines (journal_date, account, debit, credit, description)
+- imports (filename, entity_type, row_count, imported_at)
+"""
+
+
+# ── Helper maps for tool mode ────────────────────────────────────────────────
+
+def build_writes_map(tool_defs: list[dict]) -> dict[str, bool]:
+    """Map tool name → whether it performs write operations."""
+    return {t["name"]: t.get("writes", False) for t in tool_defs}
+
+
+def build_context_memory_map(tool_defs: list[dict]) -> dict[str, bool]:
+    """Map tool name → whether it's a context/memory tool (always allowed)."""
+    return {t["name"]: t.get("context_memory", False) for t in tool_defs}
 
 
 def get_tool_definitions(

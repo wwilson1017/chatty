@@ -1,13 +1,17 @@
 /**
  * Chatty — AgentMessageBubble.
- * Expandable tool pills with elapsed timer. No voice, no confirm flow.
+ * Claude-style: flat assistant messages with markdown, branded user bubbles.
+ * Expandable tool pills with elapsed timer. Confirmation cards for write ops.
  */
 
 import { useState, useEffect } from 'react';
-import type { ChatMessage, ToolCallInfo } from '../hooks/useAgentChat';
+import type { ChatMessage, ToolCallInfo, PendingConfirmation } from '../hooks/useAgentChat';
+import MarkdownContent from './MarkdownContent';
 
 interface Props {
   message: ChatMessage;
+  onApprove?: (msgId: string) => void;
+  onDeny?: (msgId: string) => void;
 }
 
 const HUNG_THRESHOLD_SEC = 30;
@@ -86,47 +90,125 @@ function ToolPill({ tc }: { tc: ToolCallInfo }) {
   );
 }
 
-export function AgentMessageBubble({ message }: Props) {
-  const isUser = message.role === 'user';
+function ConfirmationCard({ confirm, onApprove, onDeny }: {
+  confirm: PendingConfirmation;
+  onApprove?: () => void;
+  onDeny?: () => void;
+}) {
+  const borderColor = confirm.status === 'approved'
+    ? 'border-green-700/40 bg-green-900/20'
+    : confirm.status === 'denied'
+    ? 'border-red-700/40 bg-red-900/20'
+    : 'border-amber-700/40 bg-amber-900/20';
+
+  const dotColor = confirm.status === 'approved'
+    ? 'bg-green-500'
+    : confirm.status === 'denied'
+    ? 'bg-red-500'
+    : 'bg-amber-400 animate-pulse';
+
+  const statusLabel = confirm.status === 'approved'
+    ? 'Approved'
+    : confirm.status === 'denied'
+    ? 'Denied'
+    : 'Awaiting approval';
 
   return (
-    <div className={`flex ${isUser ? 'justify-end' : 'justify-start'} mb-4`}>
-      <div className={`max-w-[85%] ${isUser ? 'max-w-[70%]' : ''}`}>
-        {/* Tool pills (assistant only) */}
-        {!isUser && message.toolCalls && message.toolCalls.length > 0 && (
-          <div className="mb-2">
-            {message.toolCalls.map(tc => (
-              <ToolPill key={tc.toolUseId} tc={tc} />
-            ))}
-          </div>
-        )}
-
-        {/* File attachments (user messages) */}
-        {isUser && message.attachments && message.attachments.length > 0 && (
-          <div className="mb-1.5 flex flex-wrap gap-1">
-            {message.attachments.map((att, i) => (
-              <span key={i} className="inline-flex items-center gap-1 px-2 py-0.5 bg-indigo-500/30 border border-indigo-500/40 rounded text-xs text-indigo-200">
-                <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" /></svg>
-                {att.name}
-              </span>
-            ))}
-          </div>
-        )}
-
-        {/* Message bubble */}
-        {(message.content || (isUser)) && (
-          <div className={`rounded-2xl px-4 py-3 text-sm leading-relaxed whitespace-pre-wrap ${
-            isUser
-              ? 'bg-indigo-600 text-white rounded-br-sm'
-              : 'bg-gray-800 text-gray-100 rounded-bl-sm'
-          }`}>
-            {message.content}
-            {message.isStreaming && !message.content && (
-              <span className="inline-block w-2 h-4 bg-gray-400 animate-pulse rounded-sm" />
-            )}
-          </div>
-        )}
+    <div className={`mt-3 rounded-xl border p-3 ${borderColor}`}>
+      <div className="flex items-center gap-2 mb-1">
+        <span className={`w-2 h-2 rounded-full ${dotColor}`} />
+        <span className="text-xs font-semibold text-gray-200">{statusLabel}</span>
       </div>
+      <p className="text-xs text-gray-400 mb-2">
+        {confirm.description || `Execute ${confirm.tool}`}
+      </p>
+      {confirm.status === 'pending' && (
+        <div className="flex gap-2">
+          <button
+            onClick={onApprove}
+            className="px-3 py-1 text-xs font-medium rounded-lg bg-green-700/50 text-green-200 hover:bg-green-700/70 transition"
+          >
+            Approve
+          </button>
+          <button
+            onClick={onDeny}
+            className="px-3 py-1 text-xs font-medium rounded-lg bg-red-700/50 text-red-200 hover:bg-red-700/70 transition"
+          >
+            Deny
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function BouncingDots() {
+  return (
+    <div className="flex items-center gap-1 py-1">
+      {[0, 1, 2].map(i => (
+        <span
+          key={i}
+          className="w-1.5 h-1.5 rounded-full bg-gray-500 animate-bounce"
+          style={{ animationDelay: `${i * 0.15}s` }}
+        />
+      ))}
+    </div>
+  );
+}
+
+export function AgentMessageBubble({ message, onApprove, onDeny }: Props) {
+  const isUser = message.role === 'user';
+
+  // ── User message: branded right-aligned bubble ──
+  if (isUser) {
+    return (
+      <div className="flex justify-end">
+        <div className="max-w-[85%] sm:max-w-[75%]">
+          {message.attachments && message.attachments.length > 0 && (
+            <div className="mb-1.5 flex flex-wrap gap-1 justify-end">
+              {message.attachments.map((att, i) => (
+                <span key={i} className="inline-flex items-center gap-1 px-2 py-0.5 bg-indigo-500/30 border border-indigo-500/40 rounded text-xs text-indigo-200">
+                  <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" /></svg>
+                  {att.name}
+                </span>
+              ))}
+            </div>
+          )}
+          <div className="bg-indigo-600 text-white rounded-2xl rounded-br-sm px-4 py-3 text-sm leading-relaxed whitespace-pre-wrap break-words">
+            {message.content}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ── Assistant message: flat, no bubble, markdown rendered ──
+  return (
+    <div className="w-full">
+      {/* Tool pills */}
+      {message.toolCalls && message.toolCalls.length > 0 && (
+        <div className="mb-2">
+          {message.toolCalls.map(tc => (
+            <ToolPill key={tc.toolUseId} tc={tc} />
+          ))}
+        </div>
+      )}
+
+      {/* Message content */}
+      {message.content ? (
+        <MarkdownContent content={message.content} />
+      ) : message.isStreaming ? (
+        <BouncingDots />
+      ) : null}
+
+      {/* Confirmation card */}
+      {message.pendingConfirm && (
+        <ConfirmationCard
+          confirm={message.pendingConfirm}
+          onApprove={() => onApprove?.(message.id)}
+          onDeny={() => onDeny?.(message.id)}
+        />
+      )}
     </div>
   );
 }

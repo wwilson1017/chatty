@@ -41,17 +41,29 @@ AVAILABLE_INTEGRATIONS = {
         "icon": "👥",
         "auth_type": "api_key",
     },
+    "qb_csv": {
+        "name": "QuickBooks CSV",
+        "description": "Import & analyze QuickBooks CSV exports — no login required",
+        "icon": "📒",
+        "auth_type": "none",
+    },
     "crm_lite": {
         "name": "CRM",
         "description": "Built-in CRM — contacts, deals, tasks, pipeline tracking",
         "icon": "📋",
         "auth_type": "none",
     },
+    "telegram": {
+        "name": "Telegram",
+        "description": "Telegram Bot — connect your agent to a Telegram bot",
+        "icon": "✈️",
+        "auth_type": "per_agent",
+    },
     "whatsapp": {
         "name": "WhatsApp",
-        "description": "WhatsApp Business — send/receive messages (coming soon)",
+        "description": "WhatsApp — connect agents to WhatsApp via QR code scan",
         "icon": "💬",
-        "auth_type": "stub",
+        "auth_type": "qr_session",
     },
 }
 

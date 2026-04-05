@@ -31,7 +31,7 @@ from core.providers.base import AIProvider, _sse
 from .config import AgentConfig
 from .context_manager import ContextManager
 from .tool_registry import ToolRegistry
-from .tool_definitions import get_tool_definitions, get_report_instructions, get_scheduling_instructions
+from .tool_definitions import get_tool_definitions, get_report_instructions, get_scheduling_instructions, get_qb_csv_instructions, build_writes_map, build_context_memory_map
 from .tools.real_tools import load_all_real_tools
 
 logger = logging.getLogger(__name__)
@@ -163,6 +163,11 @@ def _build_system_prompt(
         parts.append(get_report_instructions())
         parts.append(get_scheduling_instructions())
 
+        # QB CSV Analysis instructions (if enabled)
+        from integrations.registry import is_enabled as _integration_enabled
+        if _integration_enabled("qb_csv"):
+            parts.append(get_qb_csv_instructions())
+
     return "\n".join(parts)
 
 
@@ -256,6 +261,8 @@ async def chat(
     chat_service=None,
     anthropic_api_key: str = "",
     integration_tool_defs: list[dict] | None = None,
+    tool_mode: str = "normal",
+    approved_tool: dict | None = None,
 ) -> AsyncGenerator[str, None]:
     """Stream a chat response as SSE events.
 
@@ -272,7 +279,16 @@ async def chat(
         chat_service: Optional ChatHistoryService for persistence
         anthropic_api_key: For smart title generation (uses haiku, optional)
         integration_tool_defs: Extra tool definitions from enabled integrations
+        tool_mode: 'read-only', 'normal', or 'power'
+        approved_tool: Previously confirmed tool execution result to reconstruct
     """
+    # Validate tool_mode
+    if tool_mode not in ("read-only", "normal", "power"):
+        tool_mode = "normal"
+
+    # Training mode forces power (no confirmations needed during onboarding)
+    if training_mode:
+        tool_mode = "power"
     persist = not training_mode and chat_service is not None
 
     # ── Get tool definitions ──────────────────────────────────────────
@@ -287,9 +303,19 @@ async def chat(
         dynamic_real_tools=dynamic_real_tools or None,
     )
     kind_map = _build_kind_map(tool_defs)
+    writes_map = build_writes_map(tool_defs)
+    cm_map = build_context_memory_map(tool_defs)
 
-    # Strip internal 'kind' field before sending to provider
-    provider_tools = [{k: v for k, v in t.items() if k != "kind"} for t in tool_defs]
+    # ── Read-only mode: filter out write tools (except context_memory) ──
+    if tool_mode == "read-only":
+        tool_defs = [
+            t for t in tool_defs
+            if not t.get("writes", False) or t.get("context_memory", False)
+        ]
+
+    # Strip internal fields before sending to provider
+    _internal_fields = {"kind", "writes", "context_memory"}
+    provider_tools = [{k: v for k, v in t.items() if k not in _internal_fields} for t in tool_defs]
 
     # ── Chat history persistence ──────────────────────────────────────
     if persist:
@@ -354,7 +380,49 @@ async def chat(
                 "Use crm_dashboard when the user asks for an overview or summary of their business."
             )
 
+        qbo_tools = [t for t in integration_tool_defs if t.get("name", "").startswith("qbo_")]
+        if qbo_tools:
+            system_prompt += (
+                "\n\n# QuickBooks Online Tools Available\n\n"
+                "You have QuickBooks tools for invoicing, payments, estimates, customers, vendors, items, "
+                "and financial reports.\n\n"
+                "**Key patterns:**\n"
+                "- Use `qbo_query` to look up IDs first: `SELECT Id, DisplayName FROM Customer WHERE DisplayName LIKE '%Smith%'`\n"
+                "- Use `qbo_get_entity` for full details of any record.\n"
+                "- For invoices: create with `qbo_create_invoice`, then optionally send with `qbo_send_invoice`.\n"
+                "- For estimates: create with `qbo_create_estimate`, then send with `qbo_send_estimate`.\n"
+                "- To record payments: use `qbo_record_payment`, optionally link to invoice IDs.\n"
+                "- For customers, vendors, items, bills: use `qbo_create_entity` / `qbo_update_entity`.\n"
+                "- **Never guess IDs** — always query first to find the correct Customer, Item, or Invoice ID.\n"
+                "- Amounts are in the company's home currency.\n"
+            )
+
     accumulated_text = ""
+
+    # ── Reconstruct approved tool in message history ──────────────────
+    if approved_tool:
+        at_tool = approved_tool.get("tool", "")
+        at_args = approved_tool.get("args", {})
+        at_id = approved_tool.get("toolUseId", str(uuid.uuid4()))
+        at_result = approved_tool.get("result", {})
+
+        # Build fake tool_calls and results for provider reconstruction
+        fake_tc = [{"name": at_tool, "id": at_id, "args": at_args}]
+        fake_results = [{
+            "tool_use_id": at_id,
+            "tool_name": at_tool,
+            "content": json.dumps(at_result),
+        }]
+
+        # Remove the "[Approved]" user message (last in the list) since the
+        # provider needs tool_use/tool_result blocks instead
+        if (current_messages
+            and current_messages[-1].get("role") == "user"
+            and str(current_messages[-1].get("content", "")).startswith("[Approved]")):
+            current_messages = current_messages[:-1]
+
+        # Reconstruct via provider abstraction
+        current_messages = provider.add_tool_results(current_messages, fake_tc, fake_results)
 
     # ── Tool execution loop ───────────────────────────────────────────
     max_iterations = 20
@@ -429,11 +497,42 @@ async def chat(
             return
 
         results = []
+        has_pending_confirmation = False
+
         for tc in tool_calls_this_turn:
             tool_name = tc.get("name", "")
             tool_use_id = tc.get("id", "")
             tool_args = tc.get("args", {})
             kind = kind_map.get(tool_name, "context")
+
+            # ── Normal mode: intercept write tools (not context_memory) ──
+            is_write = writes_map.get(tool_name, False)
+            is_cm = cm_map.get(tool_name, False)
+
+            if tool_mode == "normal" and is_write and not is_cm:
+                # Get human-readable description
+                tool_desc = next(
+                    (t.get("description", tool_name) for t in tool_defs if t["name"] == tool_name),
+                    tool_name,
+                )
+                yield _sse({
+                    "type": "confirm",
+                    "tool": tool_name,
+                    "args": tool_args,
+                    "tool_use_id": tool_use_id,
+                    "description": tool_desc,
+                })
+
+                # Feed pending result to provider so it can describe the action
+                result = {"status": "pending_user_approval", "message": f"Waiting for user to approve: {tool_name}"}
+                result_str = json.dumps(result)
+                results.append({
+                    "tool_use_id": tool_use_id,
+                    "tool_name": tool_name,
+                    "content": result_str,
+                })
+                has_pending_confirmation = True
+                continue
 
             t_start = time.time()
             result = await registry.execute_tool(tool_name, tool_args, kind)
@@ -460,5 +559,172 @@ async def chat(
         # Append tool results to messages for next turn
         current_messages = provider.add_tool_results(current_messages, tool_calls_this_turn, results)
 
+        # If we have a pending confirmation, do one more streaming turn
+        # to let the AI describe the pending action, then stop
+        if has_pending_confirmation:
+            async for event in provider.stream_turn(current_messages, provider_tools, system_prompt):
+                etype = event.get("type")
+                if etype == "text":
+                    accumulated_text += event["text"]
+                    yield _sse({"type": "text", "text": event["text"]})
+                elif etype == "_turn_complete":
+                    break
+            yield _sse({"type": "done"})
+            return
+
     # Exceeded max iterations
     yield _sse({"type": "error", "error": "Tool loop exceeded maximum iterations"})
+
+
+# ── Non-streaming sync execution (for Telegram / messaging channels) ──────────
+
+async def run_sync(
+    config: AgentConfig,
+    provider: AIProvider,
+    registry: ToolRegistry,
+    ctx_manager: ContextManager,
+    messages: list[dict],
+    chat_service=None,
+    conversation_id: str | None = None,
+    integration_tool_defs: list[dict] | None = None,
+) -> str:
+    """Run an agent synchronously, returning the final text response.
+
+    This is the non-streaming counterpart to ``chat()``.  Used by inbound
+    messaging integrations (Telegram) where the caller needs a single text
+    response rather than an SSE stream.
+
+    Works with any AIProvider (Anthropic, OpenAI, Google Gemini).
+    Supports full multi-turn tool execution loop.
+    """
+    # Build tool definitions (same as streaming path)
+    real_tools_dir = str(Path(config.context_dir).parent / "real_tools")
+    dynamic_real_tools = load_all_real_tools(real_tools_dir)
+
+    tool_defs = get_tool_definitions(
+        gmail_enabled=config.gmail_enabled,
+        calendar_enabled=config.calendar_enabled,
+        integration_tools=integration_tool_defs,
+        dynamic_real_tools=dynamic_real_tools or None,
+    )
+    kind_map = _build_kind_map(tool_defs)
+
+    # Strip internal fields before sending to provider
+    _internal_fields = {"kind", "writes", "context_memory"}
+    provider_tools = [{k: v for k, v in t.items() if k not in _internal_fields} for t in tool_defs]
+
+    # Build system prompt
+    system_prompt = _build_system_prompt(config, ctx_manager)
+
+    # Append integration-specific instructions (same as chat())
+    if integration_tool_defs:
+        odoo_tools = [t for t in integration_tool_defs if t.get("name", "").startswith("odoo_")]
+        if odoo_tools:
+            system_prompt += (
+                "\n\n# Odoo ERP Tools Available\n\n"
+                "You have Odoo tools for CRM, helpdesk, sales, purchasing, contacts, projects, "
+                "and timesheets. Use them when the user asks about business operations."
+            )
+
+        qbo_tools = [t for t in integration_tool_defs if t.get("name", "").startswith("qbo_")]
+        if qbo_tools:
+            system_prompt += (
+                "\n\n# QuickBooks Online Tools Available\n\n"
+                "You have QuickBooks tools for invoicing, payments, estimates, customers, vendors, items, "
+                "and financial reports.\n\n"
+                "**Key patterns:**\n"
+                "- Use `qbo_query` to look up IDs first: `SELECT Id, DisplayName FROM Customer WHERE DisplayName LIKE '%Smith%'`\n"
+                "- Use `qbo_get_entity` for full details of any record.\n"
+                "- For invoices: create with `qbo_create_invoice`, then optionally send with `qbo_send_invoice`.\n"
+                "- For estimates: create with `qbo_create_estimate`, then send with `qbo_send_estimate`.\n"
+                "- To record payments: use `qbo_record_payment`, optionally link to invoice IDs.\n"
+                "- For customers, vendors, items, bills: use `qbo_create_entity` / `qbo_update_entity`.\n"
+                "- **Never guess IDs** — always query first to find the correct Customer, Item, or Invoice ID.\n"
+                "- Amounts are in the company's home currency.\n"
+            )
+
+    # Chat history — save user message
+    persist = chat_service is not None
+    if persist:
+        try:
+            if not conversation_id:
+                conv = chat_service.create_conversation()
+                conversation_id = conv["id"]
+
+            last_user = next((m for m in reversed(messages) if m.get("role") == "user"), None)
+            if last_user:
+                chat_service.save_message(
+                    conversation_id=conversation_id,
+                    msg_id=str(uuid.uuid4()),
+                    role="user",
+                    content=last_user.get("content", ""),
+                )
+        except Exception as e:
+            logger.warning("run_sync: chat history save (user msg) failed: %s", e)
+
+    current_messages = list(messages)
+    accumulated_text = ""
+    max_iterations = 20
+
+    for iteration in range(max_iterations):
+        tool_calls_this_turn: list[dict] = []
+        turn_text = ""
+        stop_reason = "stop"
+
+        # Stream one turn, collecting all events
+        async for event in provider.stream_turn(current_messages, provider_tools, system_prompt):
+            etype = event.get("type")
+
+            if etype == "text":
+                turn_text += event["text"]
+                accumulated_text += event["text"]
+
+            elif etype == "_turn_complete":
+                tool_calls_this_turn = event.get("tool_calls", [])
+                stop_reason = event.get("stop_reason", "stop")
+
+            elif etype == "error":
+                logger.error("run_sync: provider error: %s", event.get("error"))
+                return accumulated_text or "I encountered an error. Please try again."
+
+        # Save assistant turn to history
+        if persist and turn_text and conversation_id:
+            try:
+                chat_service.save_message(
+                    conversation_id=conversation_id,
+                    msg_id=str(uuid.uuid4()),
+                    role="assistant",
+                    content=turn_text,
+                )
+            except Exception as e:
+                logger.warning("run_sync: chat history save (assistant) failed: %s", e)
+
+        # If no tool calls, we're done
+        if stop_reason != "tool_use" or not tool_calls_this_turn:
+            break
+
+        # Execute tool calls (power mode — no confirmation flow for messaging)
+        results = []
+        for tc in tool_calls_this_turn:
+            tool_name = tc.get("name", "")
+            tool_args = tc.get("args", {})
+            tool_use_id = tc.get("id", "")
+            kind = kind_map.get(tool_name, "context")
+
+            try:
+                result = await registry.execute_tool(tool_name, tool_args, kind)
+                _sync_context_after_tool(tool_name, result, ctx_manager)
+            except Exception as e:
+                logger.error("run_sync: tool %s failed: %s", tool_name, e)
+                result = {"error": str(e)}
+
+            results.append({
+                "tool_use_id": tool_use_id,
+                "tool_name": tool_name,
+                "content": json.dumps(result),
+            })
+
+        # Append tool results for next turn
+        current_messages = provider.add_tool_results(current_messages, tool_calls_this_turn, results)
+
+    return accumulated_text or "I had trouble generating a response. Please try again."
