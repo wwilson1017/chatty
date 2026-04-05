@@ -17,6 +17,7 @@ import makeWASocket, {
   useMultiFileAuthState,
   DisconnectReason,
   fetchLatestBaileysVersion,
+  makeCacheableSignalKeyStore,
 } from '@whiskeysockets/baileys';
 import express from 'express';
 import QRCode from 'qrcode';
@@ -34,11 +35,36 @@ const API_KEY = process.env.API_KEY || '';
 const PORT = parseInt(process.env.PORT || '3001', 10);
 const SESSIONS_DIR = process.env.SESSIONS_DIR || './sessions';
 
-// In-memory session map: sessionId → { sock, status, qr, jid }
+// Message dedup: TTL in ms and max entries
+const DEDUP_TTL_MS = 20 * 60 * 1000; // 20 minutes
+const DEDUP_MAX_ENTRIES = 5000;
+
+// Upsert append-window: only forward "append" messages arriving within
+// this many milliseconds of connection time.
+const APPEND_WINDOW_MS = 60_000;
+
+// Max reconnect attempts before giving up
+const MAX_RECONNECT_ATTEMPTS = 12;
+
+// In-memory session map: sessionId → { sock, status, qr, jid, lidToJid, connectedAtMs }
 const sessions = new Map();
 
-// LID → full JID mapping (WhatsApp multi-device uses LIDs instead of phone JIDs)
-const lidToJid = new Map();
+// Global message dedup cache: messageId → receive timestamp
+const seenMessages = new Map();
+
+function isDuplicate(messageId) {
+  if (!messageId) return false;
+  const now = Date.now();
+  // Lazy eviction when cache exceeds max entries
+  if (seenMessages.size > DEDUP_MAX_ENTRIES) {
+    for (const [id, ts] of seenMessages) {
+      if (now - ts > DEDUP_TTL_MS) seenMessages.delete(id);
+    }
+  }
+  if (seenMessages.has(messageId)) return true;
+  seenMessages.set(messageId, now);
+  return false;
+}
 
 // -----------------------------------------------------------------------
 // Validation & helpers
@@ -58,12 +84,65 @@ const MAX_RECONNECT_DELAY_MS = 60_000;
 
 function getReconnectDelay(sessionId) {
   const attempts = reconnectAttempts.get(sessionId) || 0;
+  if (attempts >= MAX_RECONNECT_ATTEMPTS) return -1; // signal: stop retrying
   reconnectAttempts.set(sessionId, attempts + 1);
-  return Math.min(1000 * 2 ** attempts, MAX_RECONNECT_DELAY_MS);
+  const base = Math.min(1000 * 2 ** attempts, MAX_RECONNECT_DELAY_MS);
+  // Add +/-25% jitter to prevent synchronized reconnects
+  const jitter = base * (0.75 + Math.random() * 0.5);
+  return Math.round(jitter);
 }
 
 function resetReconnectAttempts(sessionId) {
   reconnectAttempts.delete(sessionId);
+}
+
+/**
+ * Strip device suffix (:N) from JIDs for identity comparison.
+ * e.g. "1234567890:3@s.whatsapp.net" -> "1234567890@s.whatsapp.net"
+ */
+function normalizeJid(jid) {
+  return jid ? jid.replace(/:\d+(?=@)/, '') : jid;
+}
+
+/** Regex to identify LID-format JIDs (both @lid and @hosted.lid). */
+const LID_REGEX = /@(lid|hosted\.lid)$/i;
+
+/** JID suffixes we never forward to the webhook. */
+const SKIP_JID_SUFFIXES = ['@g.us', '@broadcast', '@status'];
+
+/**
+ * Extract text content from a Baileys message object.
+ * Covers: conversation, extendedText, image/video/document captions,
+ * ephemeral messages, and view-once messages.
+ */
+function extractTextContent(message) {
+  if (!message) return '';
+
+  // Direct conversation text
+  if (message.conversation) return message.conversation;
+
+  // Extended text
+  if (message.extendedTextMessage?.text) return message.extendedTextMessage.text;
+
+  // Image / video / document captions
+  if (message.imageMessage?.caption) return message.imageMessage.caption;
+  if (message.videoMessage?.caption) return message.videoMessage.caption;
+  if (message.documentMessage?.caption) return message.documentMessage.caption;
+  if (message.documentWithCaptionMessage?.message)
+    return extractTextContent(message.documentWithCaptionMessage.message);
+
+  // Ephemeral wrapper (disappearing messages)
+  const ephemeral = message.ephemeralMessage?.message;
+  if (ephemeral) return extractTextContent(ephemeral);
+
+  // View-once wrappers
+  const viewOnce =
+    message.viewOnceMessage?.message ||
+    message.viewOnceMessageV2?.message ||
+    message.viewOnceMessageV2Extension?.message;
+  if (viewOnce) return extractTextContent(viewOnce);
+
+  return '';
 }
 
 // -----------------------------------------------------------------------
@@ -75,22 +154,76 @@ async function startSession(sessionId) {
   const sessionDir = path.join(SESSIONS_DIR, sessionId);
   fs.mkdirSync(sessionDir, { recursive: true });
 
-  const { state, saveCreds } = await useMultiFileAuthState(sessionDir);
+  // --- Credential backup/restore ---
+  const credsPath = path.join(sessionDir, 'creds.json');
+  const credsBakPath = path.join(sessionDir, 'creds.json.bak');
+
+  // On startup: if creds.json is missing or corrupt, try restoring from backup
+  if (fs.existsSync(credsPath)) {
+    try {
+      JSON.parse(fs.readFileSync(credsPath, 'utf8'));
+    } catch {
+      logger.warn({ sessionId }, 'creds.json is corrupt — attempting restore from backup');
+      if (fs.existsSync(credsBakPath)) {
+        fs.copyFileSync(credsBakPath, credsPath);
+        logger.info({ sessionId }, 'Restored creds.json from backup');
+      }
+    }
+  } else if (fs.existsSync(credsBakPath)) {
+    logger.warn({ sessionId }, 'creds.json missing — restoring from backup');
+    fs.copyFileSync(credsBakPath, credsPath);
+  }
+
+  const { state, saveCreds: _rawSaveCreds } = await useMultiFileAuthState(sessionDir);
   const { version } = await fetchLatestBaileysVersion();
 
-  const entry = { sock: null, status: 'connecting', qr: null, jid: null };
+  // Serialized credential save queue to avoid race conditions
+  let saveCredsChain = Promise.resolve();
+  const saveCreds = () => {
+    saveCredsChain = saveCredsChain.then(async () => {
+      try {
+        // Back up current creds.json before saving (only if it's valid JSON)
+        if (fs.existsSync(credsPath)) {
+          try {
+            JSON.parse(fs.readFileSync(credsPath, 'utf8'));
+            fs.copyFileSync(credsPath, credsBakPath);
+          } catch {
+            // Current creds.json is not valid JSON — skip backup
+          }
+        }
+        await _rawSaveCreds();
+      } catch (err) {
+        logger.error({ err, sessionId }, 'Failed to save credentials');
+      }
+    });
+    return saveCredsChain;
+  };
+
+  const entry = {
+    sock: null,
+    status: 'connecting',
+    qr: null,
+    jid: null,
+    lidToJid: new Map(),   // per-session LID->JID mapping
+    connectedAtMs: 0,      // track connection time for append window
+  };
   sessions.set(sessionId, entry);
 
   // Message cache for retry decryption (required by Baileys multi-device)
   const msgCache = new Map();
 
+  const sockLogger = pino({ level: 'warn' });
   const sock = makeWASocket({
     version,
-    auth: state,
-    logger: pino({ level: 'warn' }),
+    auth: {
+      creds: state.creds,
+      keys: makeCacheableSignalKeyStore(state.keys, sockLogger),
+    },
+    logger: sockLogger,
+    browser: ['Chatty', 'Desktop', '1.0'],
     printQRInTerminal: false,
     syncFullHistory: false,
-    markOnlineOnConnect: true,
+    markOnlineOnConnect: false,
     getMessage: async (key) => {
       const cached = msgCache.get(key.id);
       return cached?.message || undefined;
@@ -99,7 +232,14 @@ async function startSession(sessionId) {
 
   entry.sock = sock;
 
-  // Persist credentials whenever they change
+  // Attach WebSocket error handler to prevent unhandled crashes
+  if (sock.ws) {
+    sock.ws.on('error', (err) => {
+      logger.error({ err, sessionId }, 'WebSocket error');
+    });
+  }
+
+  // Persist credentials whenever they change (serialized)
   sock.ev.on('creds.update', saveCreds);
 
   // Connection lifecycle
@@ -115,6 +255,7 @@ async function startSession(sessionId) {
     if (connection === 'open') {
       entry.status = 'connected';
       entry.qr = null;
+      entry.connectedAtMs = Date.now();
       entry.jid = sock.user?.id || null;
       resetReconnectAttempts(sessionId);
       logger.info({ sessionId, jid: entry.jid }, 'Session connected');
@@ -123,8 +264,11 @@ async function startSession(sessionId) {
     if (connection === 'close') {
       const statusCode =
         lastDisconnect?.error?.output?.statusCode;
-      const shouldReconnect =
-        statusCode !== DisconnectReason.loggedOut;
+
+      // Non-retryable conditions
+      const isLoggedOut = statusCode === DisconnectReason.loggedOut;
+      const isConflict = statusCode === DisconnectReason.connectionReplaced;
+      const shouldReconnect = !isLoggedOut && !isConflict;
 
       logger.info(
         { sessionId, statusCode, shouldReconnect },
@@ -132,63 +276,111 @@ async function startSession(sessionId) {
       );
 
       if (shouldReconnect) {
-        const delay = getReconnectDelay(sessionId);
-        logger.info({ sessionId, delay }, 'Reconnecting after delay');
-        setTimeout(() => {
+        // For restart-required (515), reconnect immediately (but still count attempts)
+        if (statusCode === DisconnectReason.restartRequired) {
+          const attempts = reconnectAttempts.get(sessionId) || 0;
+          if (attempts >= MAX_RECONNECT_ATTEMPTS) {
+            logger.error({ sessionId }, 'Max reconnect attempts reached on restart — giving up');
+            entry.status = 'disconnected';
+            entry.sock = null;
+            return;
+          }
+          reconnectAttempts.set(sessionId, attempts + 1);
+          logger.info({ sessionId }, 'Restart required — reconnecting immediately');
           startSession(sessionId).catch((err) =>
-            logger.error({ err, sessionId }, 'Reconnect failed'),
+            logger.error({ err, sessionId }, 'Restart reconnect failed'),
           );
-        }, delay);
+          return;
+        }
+
+        const delay = getReconnectDelay(sessionId);
+        if (delay < 0) {
+          logger.error({ sessionId }, 'Max reconnect attempts reached — giving up');
+          entry.status = 'disconnected';
+          entry.sock = null;
+        } else {
+          logger.info({ sessionId, delay }, 'Reconnecting after delay');
+          setTimeout(() => {
+            startSession(sessionId).catch((err) =>
+              logger.error({ err, sessionId }, 'Reconnect failed'),
+            );
+          }, delay);
+        }
       } else {
         entry.status = 'disconnected';
         entry.sock = null;
+        if (isConflict) {
+          logger.warn({ sessionId }, 'Session replaced by another device — not retrying');
+        }
       }
     }
   });
 
   // Forward incoming messages to webhook
   sock.ev.on('messages.upsert', async ({ messages: msgs, type }) => {
+    // Only process "notify" events. Allow "append" only within the first
+    // 60 seconds after connection (catches messages missed while offline).
+    if (type !== 'notify') {
+      if (type === 'append' && entry.connectedAtMs &&
+          (Date.now() - entry.connectedAtMs) <= APPEND_WINDOW_MS) {
+        // Allow — these are recent messages that arrived while reconnecting
+      } else {
+        return;
+      }
+    }
+
     logger.info({ sessionId, count: msgs.length, type }, 'messages.upsert event');
+
     for (const msg of msgs) {
       // Cache for getMessage retries
       if (msg.key.id && msg.message) {
         msgCache.set(msg.key.id, msg);
-        // Evict old entries to prevent unbounded growth
         if (msgCache.size > 500) {
           const firstKey = msgCache.keys().next().value;
           msgCache.delete(firstKey);
         }
       }
-      logger.info({ sessionId, fromMe: msg.key.fromMe, remoteJid: msg.key.remoteJid, hasMessage: !!msg.message }, 'Processing message');
+
       if (msg.key.fromMe) continue;
 
       const remoteJid = msg.key.remoteJid || '';
-      // Handle personal chats — both traditional (@s.whatsapp.net) and
-      // linked identity (@lid) formats. Skip groups (@g.us).
-      if (remoteJid.endsWith('@g.us')) continue;
+
+      // Skip groups, broadcast, and status JIDs
+      if (SKIP_JID_SUFFIXES.some((s) => remoteJid.endsWith(s))) continue;
+
+      // Dedup check
+      if (msg.key.id && isDuplicate(msg.key.id)) {
+        logger.debug({ sessionId, messageId: msg.key.id }, 'Duplicate message — skipping');
+        continue;
+      }
+
+      // Normalize JID (strip device suffix)
+      const normalizedJid = normalizeJid(remoteJid);
 
       // Extract phone number or LID as the sender identifier
-      const phone = remoteJid.includes('@')
-        ? remoteJid.split('@')[0]
-        : remoteJid;
+      const phone = normalizedJid.includes('@')
+        ? normalizedJid.split('@')[0]
+        : normalizedJid;
 
-      // Cache the LID→JID mapping so we can reply using the correct JID
-      if (remoteJid.endsWith('@lid')) {
-        lidToJid.set(phone, remoteJid);
-        logger.info({ phone, jid: remoteJid }, 'Cached LID→JID mapping');
+      // Cache LID->JID mapping (handles both @lid and @hosted.lid)
+      if (LID_REGEX.test(remoteJid)) {
+        entry.lidToJid.set(phone, remoteJid);
+        logger.info({ phone, jid: remoteJid }, 'Cached LID->JID mapping');
       }
 
       // Also try to get the real phone from the participant field (for LID messages)
       const senderPhone = msg.key.participant
-        ? msg.key.participant.split('@')[0]
+        ? normalizeJid(msg.key.participant).split('@')[0]
         : phone;
-      const text =
-        msg.message?.conversation ||
-        msg.message?.extendedTextMessage?.text ||
-        '';
+
+      // Extended text extraction (conversation, captions, ephemeral, view-once)
+      const text = extractTextContent(msg.message);
       if (!text) continue;
 
-      logger.info({ sessionId, phone, senderPhone, remoteJid, text: text.substring(0, 50) }, 'Forwarding message to webhook');
+      logger.info(
+        { sessionId, phone, senderPhone, remoteJid, text: text.substring(0, 50) },
+        'Forwarding message to webhook',
+      );
 
       const payload = {
         session: sessionId,
@@ -325,10 +517,10 @@ app.post('/sessions/:id/send', async (req, res) => {
     return res.status(400).json({ error: 'Missing "phone" or "text"' });
   }
 
-  // Try LID format first (if the phone looks like a LID), then fall back to standard JID
+  // Try LID format first (if the phone is cached), then fall back to standard JID
   const cleanPhone = phone.replace(/^\+/, '');
-  const jid = lidToJid.has(cleanPhone)
-    ? lidToJid.get(cleanPhone)
+  const jid = entry.lidToJid.has(cleanPhone)
+    ? entry.lidToJid.get(cleanPhone)
     : `${cleanPhone}@s.whatsapp.net`;
   logger.info({ phone: cleanPhone, jid }, 'Sending message');
   try {
@@ -357,6 +549,7 @@ app.delete('/sessions/:id', async (req, res) => {
     entry.sock = null;
   }
   sessions.delete(sessionId);
+  reconnectAttempts.delete(sessionId);
 
   // Remove auth state from disk
   const sessionDir = path.join(SESSIONS_DIR, sessionId);
@@ -383,7 +576,8 @@ async function reconnectSavedSessions() {
 
   for (const sessionId of dirs) {
     const credsPath = path.join(SESSIONS_DIR, sessionId, 'creds.json');
-    if (!fs.existsSync(credsPath)) continue;
+    const credsBakPath = path.join(SESSIONS_DIR, sessionId, 'creds.json.bak');
+    if (!fs.existsSync(credsPath) && !fs.existsSync(credsBakPath)) continue;
 
     logger.info({ sessionId }, 'Reconnecting saved session');
     try {
@@ -393,6 +587,38 @@ async function reconnectSavedSessions() {
     }
   }
 }
+
+// -----------------------------------------------------------------------
+// Global error handling — crypto rejection recovery
+// -----------------------------------------------------------------------
+
+process.on('unhandledRejection', (err) => {
+  const message = String(err?.message || err || '');
+  const stack = String(err?.stack || '');
+
+  const isCryptoError =
+    message.includes('unsupported state or unable to authenticate data') ||
+    (message.includes('bad mac') &&
+      (stack.includes('baileys') ||
+       stack.includes('noise-handler') ||
+       stack.includes('aesdecryptgcm')));
+
+  if (isCryptoError) {
+    logger.error({ err }, 'Baileys crypto error — forcing reconnect for all sessions');
+    for (const [sessionId, entry] of sessions) {
+      if (entry.sock) {
+        try { entry.sock.end(undefined); } catch { /* ignore */ }
+        entry.sock = null;
+        entry.status = 'reconnecting';
+        startSession(sessionId).catch((reconnectErr) =>
+          logger.error({ err: reconnectErr, sessionId }, 'Crypto recovery reconnect failed'),
+        );
+      }
+    }
+  } else {
+    logger.error({ err }, 'Unhandled rejection');
+  }
+});
 
 // -----------------------------------------------------------------------
 // Boot
