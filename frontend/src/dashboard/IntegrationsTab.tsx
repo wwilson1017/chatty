@@ -187,6 +187,12 @@ export function IntegrationsTab() {
     setIntegrations(data.integrations);
   }
 
+  async function setupQbCsv() {
+    await api('/api/integrations/qb_csv/setup', { method: 'POST' });
+    const data = await api<{ integrations: Integration[] }>('/api/integrations');
+    setIntegrations(data.integrations);
+  }
+
   if (loading) return <div className="flex justify-center py-8"><div className="w-6 h-6 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin" /></div>;
 
   return (
@@ -209,6 +215,7 @@ export function IntegrationsTab() {
                     <button
                       onClick={() => {
                         if (integration.id === 'crm_lite') setupCRMLite();
+                        else if (integration.id === 'qb_csv') setupQbCsv();
                         else { setSetupFor(integration.id); setError(''); }
                       }}
                       className="text-xs px-3 py-1.5 rounded-lg bg-gray-700 text-gray-300 hover:bg-gray-600 transition"
