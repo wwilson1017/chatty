@@ -41,6 +41,11 @@ class OpenAIOAuthSettings:
     client_secret: str = os.getenv("OPENAI_CLIENT_SECRET", "")
 
 
+class QuickBooksOAuthSettings:
+    client_id: str = os.getenv("QUICKBOOKS_CLIENT_ID", "")
+    client_secret: str = os.getenv("QUICKBOOKS_CLIENT_SECRET", "")
+
+
 class WebbySettings:
     github_token: str = os.getenv("WEBBY_GITHUB_TOKEN", "")
     github_repo: str = os.getenv("WEBBY_GITHUB_REPO", "")  # e.g. "owner/repo"
@@ -51,6 +56,7 @@ class Settings:
     jwt = JWTSettings()
     google_oauth = GoogleOAuthSettings()
     openai_oauth = OpenAIOAuthSettings()
+    quickbooks_oauth = QuickBooksOAuthSettings()
     webby = WebbySettings()
 
     # GCS bucket for Phase 2 cloud deployment (no-ops if empty)

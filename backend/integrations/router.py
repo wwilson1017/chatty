@@ -89,6 +89,35 @@ async def setup_bamboohr(body: BambooHRSetupRequest, user=Depends(get_current_us
     return result
 
 
+@router.post("/quickbooks/setup")
+async def setup_quickbooks(user=Depends(get_current_user)):
+    """Start QuickBooks OAuth flow. Opens browser, waits for callback, saves credentials."""
+    from core.providers.oauth import start_oauth_flow
+    from core.config import settings
+
+    try:
+        tokens = await start_oauth_flow("quickbooks")
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    realm_id = tokens.get("realmId", "")
+    if not realm_id:
+        raise HTTPException(status_code=400, detail="QuickBooks did not return a company ID (realmId)")
+
+    from .quickbooks.onboarding import setup_from_oauth
+    result = setup_from_oauth(
+        company_id=realm_id,
+        access_token=tokens["access_token"],
+        refresh_token=tokens["refresh_token"],
+        client_id=settings.quickbooks_oauth.client_id,
+        client_secret=settings.quickbooks_oauth.client_secret,
+        expires_in=tokens.get("expires_in", 3600),
+    )
+    if not result.get("ok"):
+        raise HTTPException(status_code=400, detail=result.get("error", "Setup failed"))
+    return result
+
+
 @router.post("/crm_lite/setup")
 async def setup_crm_lite(user=Depends(get_current_user)):
     """Initialize CRM Lite (no credentials needed)."""
