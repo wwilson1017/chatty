@@ -39,6 +39,9 @@ OAUTH_CONFIG = {
         "client_id": lambda: settings.google_oauth.client_id,
         "client_secret": lambda: settings.google_oauth.client_secret,
         "scopes": settings.google_oauth.scopes,
+        "use_pkce": True,
+        "use_basic_auth": False,
+        "extra_callback_params": [],
     },
     "openai": {
         "auth_url": "https://auth.openai.com/authorize",
@@ -46,6 +49,19 @@ OAUTH_CONFIG = {
         "client_id": lambda: settings.openai_oauth.client_id,
         "client_secret": lambda: settings.openai_oauth.client_secret,
         "scopes": ["openid", "email", "profile", "model.request"],
+        "use_pkce": True,
+        "use_basic_auth": False,
+        "extra_callback_params": [],
+    },
+    "quickbooks": {
+        "auth_url": "https://appcenter.intuit.com/connect/oauth2",
+        "token_url": "https://oauth.platform.intuit.com/oauth2/v1/tokens/bearer",
+        "client_id": lambda: settings.quickbooks_oauth.client_id,
+        "client_secret": lambda: settings.quickbooks_oauth.client_secret,
+        "scopes": ["com.intuit.quickbooks.accounting"],
+        "use_pkce": False,
+        "use_basic_auth": True,
+        "extra_callback_params": ["realmId"],
     },
 }
 
@@ -65,8 +81,8 @@ def _generate_pkce() -> tuple[str, str]:
     return verifier, challenge
 
 
-def _build_auth_url(provider: str, code_challenge: str, state: str) -> str:
-    """Build the OAuth authorization URL with PKCE parameters."""
+def _build_auth_url(provider: str, code_challenge: str | None, state: str) -> str:
+    """Build the OAuth authorization URL, with optional PKCE parameters."""
     cfg = OAUTH_CONFIG[provider]
     client_id = cfg["client_id"]()
     scopes = cfg["scopes"]
@@ -77,11 +93,12 @@ def _build_auth_url(provider: str, code_challenge: str, state: str) -> str:
         "response_type": "code",
         "scope": " ".join(scopes),
         "state": state,
-        "code_challenge": code_challenge,
-        "code_challenge_method": "S256",
-        "access_type": "offline",   # Google: request refresh token
-        "prompt": "consent",        # Google: always show consent to get refresh token
     }
+    if code_challenge:
+        params["code_challenge"] = code_challenge
+        params["code_challenge_method"] = "S256"
+        params["access_type"] = "offline"   # Google: request refresh token
+        params["prompt"] = "consent"        # Google: always show consent to get refresh token
     return f"{cfg['auth_url']}?{urlencode(params)}"
 
 
@@ -97,6 +114,7 @@ class _CallbackHandler(BaseHTTPRequestHandler):
             self.server.auth_code = params.get("code", [None])[0]
             self.server.auth_error = params.get("error", [None])[0]
             self.server.auth_state = params.get("state", [None])[0]
+            self.server.callback_params = {k: v[0] for k, v in params.items()}
 
             self.send_response(200)
             self.send_header("Content-Type", "text/html")
@@ -114,12 +132,16 @@ class _CallbackHandler(BaseHTTPRequestHandler):
         pass  # Suppress access logs
 
 
-async def _wait_for_callback(state: str, timeout: int = 120) -> str | None:
-    """Start local server and wait for the OAuth callback."""
+async def _wait_for_callback(state: str, timeout: int = 120) -> dict | None:
+    """Start local server and wait for the OAuth callback.
+
+    Returns {"code": str, "params": dict} on success, or None on failure.
+    """
     server = HTTPServer(("localhost", CALLBACK_PORT), _CallbackHandler)
     server.auth_code = None
     server.auth_error = None
     server.auth_state = None
+    server.callback_params = {}
     server.timeout = 1
 
     loop = asyncio.get_event_loop()
@@ -138,26 +160,35 @@ async def _wait_for_callback(state: str, timeout: int = 120) -> str | None:
         logger.warning("OAuth state mismatch — possible CSRF")
         return None
 
-    return server.auth_code
+    if not server.auth_code:
+        return None
+
+    return {"code": server.auth_code, "params": server.callback_params}
 
 
 # ── Token exchange ────────────────────────────────────────────────────────────
 
-async def _exchange_code(provider: str, code: str, code_verifier: str) -> dict:
+async def _exchange_code(provider: str, code: str, code_verifier: str | None = None) -> dict:
     """Exchange authorization code for access + refresh tokens."""
     cfg = OAUTH_CONFIG[provider]
+    data = {
+        "grant_type": "authorization_code",
+        "redirect_uri": REDIRECT_URI,
+        "code": code,
+    }
+
+    auth = None
+    if cfg.get("use_basic_auth", False):
+        auth = (cfg["client_id"](), cfg["client_secret"]())
+    else:
+        data["client_id"] = cfg["client_id"]()
+        data["client_secret"] = cfg["client_secret"]()
+
+    if code_verifier:
+        data["code_verifier"] = code_verifier
+
     async with httpx.AsyncClient() as client:
-        resp = await client.post(
-            cfg["token_url"],
-            data={
-                "grant_type": "authorization_code",
-                "client_id": cfg["client_id"](),
-                "client_secret": cfg["client_secret"](),
-                "redirect_uri": REDIRECT_URI,
-                "code": code,
-                "code_verifier": code_verifier,
-            },
-        )
+        resp = await client.post(cfg["token_url"], data=data, auth=auth)
         resp.raise_for_status()
         return resp.json()
 
@@ -183,7 +214,7 @@ async def refresh_google_token(refresh_token: str) -> dict:
 
 async def start_oauth_flow(provider: str) -> dict:
     """
-    Run the full PKCE OAuth flow for a provider.
+    Run the full OAuth flow for a provider (PKCE or standard).
 
     Opens the user's browser, waits for the callback, exchanges the code.
 
@@ -193,6 +224,7 @@ async def start_oauth_flow(provider: str) -> dict:
             "refresh_token": str,  # may be empty for OpenAI
             "expires_in": int,     # seconds
             "token_type": str,
+            ...extra_callback_params  # e.g. "realmId" for QuickBooks
         }
 
     Raises:
@@ -205,25 +237,33 @@ async def start_oauth_flow(provider: str) -> dict:
     if not cfg["client_id"]():
         raise ValueError(f"OAuth not configured for {provider}: missing client_id in .env")
 
-    verifier, challenge = _generate_pkce()
+    use_pkce = cfg.get("use_pkce", True)
+    verifier, challenge = _generate_pkce() if use_pkce else (None, None)
     state = secrets.token_urlsafe(16)
     auth_url = _build_auth_url(provider, challenge, state)
 
     logger.info("Opening browser for %s OAuth: %s", provider, auth_url)
     webbrowser.open(auth_url)
 
-    code = await _wait_for_callback(state, timeout=120)
-    if not code:
+    result = await _wait_for_callback(state, timeout=120)
+    if not result:
         raise ValueError(f"OAuth flow failed or timed out for {provider}")
 
-    tokens = await _exchange_code(provider, code, verifier)
+    tokens = await _exchange_code(provider, result["code"], verifier)
 
-    return {
+    response = {
         "access_token": tokens.get("access_token", ""),
         "refresh_token": tokens.get("refresh_token", ""),
         "expires_in": tokens.get("expires_in", 3600),
         "token_type": tokens.get("token_type", "Bearer"),
     }
+
+    # Pass through extra callback params (e.g. realmId for QuickBooks)
+    for param in cfg.get("extra_callback_params", []):
+        if param in result["params"]:
+            response[param] = result["params"][param]
+
+    return response
 
 
 def build_auth_url_for_frontend(provider: str) -> dict:
@@ -234,7 +274,9 @@ def build_auth_url_for_frontend(provider: str) -> dict:
     if provider not in OAUTH_CONFIG:
         raise ValueError(f"Unknown provider: {provider}")
 
-    verifier, challenge = _generate_pkce()
+    cfg = OAUTH_CONFIG[provider]
+    use_pkce = cfg.get("use_pkce", True)
+    verifier, challenge = _generate_pkce() if use_pkce else (None, None)
     state = secrets.token_urlsafe(16)
     auth_url = _build_auth_url(provider, challenge, state)
 

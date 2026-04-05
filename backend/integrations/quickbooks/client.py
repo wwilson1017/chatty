@@ -6,6 +6,7 @@ Token refresh handled automatically.
 """
 
 import logging
+import os
 import time
 from typing import Any
 
@@ -13,9 +14,12 @@ import httpx
 
 logger = logging.getLogger(__name__)
 
-QBO_BASE_URL = "https://quickbooks.api.intuit.com/v3/company"
+QBO_BASE_URL = os.getenv(
+    "QUICKBOOKS_API_BASE_URL",
+    "https://sandbox-quickbooks.api.intuit.com/v3/company",
+)
 QBO_AUTH_URL = "https://appcenter.intuit.com/connect/oauth2"
-QBO_TOKEN_URL = "https://oauth2.platform.intuit.com/oauth2/v1/tokens/bearer"
+QBO_TOKEN_URL = "https://oauth.platform.intuit.com/oauth2/v1/tokens/bearer"
 QBO_SCOPES = "com.intuit.quickbooks.accounting"
 
 
