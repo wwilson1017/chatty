@@ -276,8 +276,16 @@ async function startSession(sessionId) {
       );
 
       if (shouldReconnect) {
-        // For restart-required (515), reconnect immediately
+        // For restart-required (515), reconnect immediately (but still count attempts)
         if (statusCode === DisconnectReason.restartRequired) {
+          const attempts = reconnectAttempts.get(sessionId) || 0;
+          if (attempts >= MAX_RECONNECT_ATTEMPTS) {
+            logger.error({ sessionId }, 'Max reconnect attempts reached on restart — giving up');
+            entry.status = 'disconnected';
+            entry.sock = null;
+            return;
+          }
+          reconnectAttempts.set(sessionId, attempts + 1);
           logger.info({ sessionId }, 'Restart required — reconnecting immediately');
           startSession(sessionId).catch((err) =>
             logger.error({ err, sessionId }, 'Restart reconnect failed'),
