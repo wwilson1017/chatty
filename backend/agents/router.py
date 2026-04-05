@@ -70,6 +70,7 @@ _INTEGRATION_MODULES = {
     "odoo": ("integrations.odoo.tools", "ODOO_TOOL_DEFS"),
     "bamboohr": ("integrations.bamboohr.tools", "BAMBOOHR_TOOL_DEFS"),
     "quickbooks": ("integrations.quickbooks.tools", "QB_TOOL_DEFS"),
+    "qb_csv": ("integrations.qb_csv.tools", "QB_CSV_TOOL_DEFS"),
 }
 
 
@@ -89,6 +90,12 @@ def _load_integration_tools() -> tuple[list[dict], dict]:
                 from integrations.crm_lite.db import init_db, _connection
                 if _connection is None:
                     init_db()
+
+            # QB CSV needs its DB initialized before tools can run
+            if name == "qb_csv":
+                from integrations.qb_csv.db import init_db as init_qb_csv, _connection as qb_csv_conn
+                if qb_csv_conn is None:
+                    init_qb_csv()
 
             mod = importlib.import_module(module_path)
             defs = getattr(mod, defs_attr, [])
@@ -616,6 +623,29 @@ async def agent_chat_upload(
                     text = content_bytes.decode("latin-1")
                 except UnicodeDecodeError:
                     raise HTTPException(status_code=400, detail=f"Cannot decode '{f.filename}'")
+
+        # Auto-detect QBO CSV exports when the integration is enabled
+        if ext == "csv":
+            try:
+                from integrations.registry import is_enabled as _is_enabled
+                if _is_enabled("qb_csv"):
+                    import csv as _csv_mod
+                    _reader = _csv_mod.reader(io.StringIO(text))
+                    _headers = next(_reader, None)
+                    if _headers:
+                        from integrations.qb_csv.parser import detect_entity_type
+                        _entity = detect_entity_type(
+                            [h.strip().lower() for h in _headers],
+                            filename=f.filename or "",
+                        )
+                        if _entity:
+                            file_texts.append(
+                                f"[Attached file: {f.filename}] [QuickBooks CSV detected: {_entity}]\n"
+                                f"{text}\n[End of file]"
+                            )
+                            continue
+            except Exception:
+                logger.debug("QBO CSV detection failed for %s", f.filename, exc_info=True)
 
         file_texts.append(f"[Attached file: {f.filename}]\n{text}\n[End of file]")
 

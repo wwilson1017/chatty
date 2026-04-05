@@ -31,7 +31,7 @@ from core.providers.base import AIProvider, _sse
 from .config import AgentConfig
 from .context_manager import ContextManager
 from .tool_registry import ToolRegistry
-from .tool_definitions import get_tool_definitions, get_report_instructions, get_scheduling_instructions, build_writes_map, build_context_memory_map
+from .tool_definitions import get_tool_definitions, get_report_instructions, get_scheduling_instructions, get_qb_csv_instructions, build_writes_map, build_context_memory_map
 from .tools.real_tools import load_all_real_tools
 
 logger = logging.getLogger(__name__)
@@ -162,6 +162,11 @@ def _build_system_prompt(
         parts.append(_knowledge_management_instructions())
         parts.append(get_report_instructions())
         parts.append(get_scheduling_instructions())
+
+        # QB CSV Analysis instructions (if enabled)
+        from integrations.registry import is_enabled as _integration_enabled
+        if _integration_enabled("qb_csv"):
+            parts.append(get_qb_csv_instructions())
 
     return "\n".join(parts)
 

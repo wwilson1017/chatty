@@ -589,6 +589,38 @@ Guidelines:
 """
 
 
+def get_qb_csv_instructions() -> str:
+    """Instructions for the AI on how to use QuickBooks CSV analysis tools."""
+    return """## QuickBooks CSV Analysis
+
+You have access to imported QuickBooks financial data. Use the qb_csv_* tools to answer questions about the user's finances.
+
+### Auto-Import Protocol
+When you see `[QuickBooks CSV detected: ...]` in an uploaded file:
+1. Call `qb_csv_import_csv` with the CSV content and filename to persist it
+2. Report what was imported (entity type, row count)
+3. If multiple QBO files are uploaded, import each one
+4. After importing, call `qb_csv_financial_summary` and use `generate_report` to create a visual financial overview
+
+### Query Guidelines
+- Use `qb_csv_financial_summary` for overview questions ("how's my business?", "show me my financials")
+- Use `qb_csv_search_transactions` for filtered lookups ("show me invoices over $5k", "expenses last month")
+- Use `qb_csv_query` with raw SQL for complex analysis (JOINs, GROUP BY, aggregations, date ranges)
+- Use `qb_csv_find_duplicates` and `qb_csv_find_issues` when asked about data cleanup or quality
+- Use `generate_report` to create visual charts from financial data
+
+### Available Tables (for qb_csv_query SQL)
+- accounts (name, type, detail_type, balance)
+- customers (display_name, email, phone, balance)
+- vendors (display_name, email, phone, balance)
+- products (name, sku, type, price, cost, quantity_on_hand)
+- transactions (txn_type, txn_number, txn_date, due_date, entity_name, category, amount, balance, status)
+  - txn_type values: invoice, bill, expense, payment, journal_entry
+- journal_lines (journal_date, account, debit, credit, description)
+- imports (filename, entity_type, row_count, imported_at)
+"""
+
+
 # ── Helper maps for tool mode ────────────────────────────────────────────────
 
 def build_writes_map(tool_defs: list[dict]) -> dict[str, bool]:

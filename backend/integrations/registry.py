@@ -41,6 +41,12 @@ AVAILABLE_INTEGRATIONS = {
         "icon": "👥",
         "auth_type": "api_key",
     },
+    "qb_csv": {
+        "name": "QuickBooks CSV",
+        "description": "Import & analyze QuickBooks CSV exports — no login required",
+        "icon": "📒",
+        "auth_type": "none",
+    },
     "crm_lite": {
         "name": "CRM",
         "description": "Built-in CRM — contacts, deals, tasks, pipeline tracking",

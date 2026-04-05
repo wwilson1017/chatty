@@ -19,6 +19,7 @@ from agents.router import router as agents_router
 from branding.router import router as branding_router
 from integrations.router import router as integrations_router
 from integrations.crm_lite.router import router as crm_router
+from integrations.qb_csv.router import router as qb_csv_router
 from integrations.whatsapp.router import router as whatsapp_router
 from webby.router import router as webby_router
 from core.agents.scheduled_actions.router import router as scheduled_actions_router
@@ -52,6 +53,11 @@ async def lifespan(app: FastAPI):
     if integration_enabled("crm_lite"):
         from integrations.crm_lite.db import init_db as init_crm_db
         init_crm_db()
+
+    # Initialize QB CSV Analysis DB if enabled
+    if integration_enabled("qb_csv"):
+        from integrations.qb_csv.db import init_db as init_qb_csv_db
+        init_qb_csv_db()
 
     # Initialize Telegram state DB + register webhooks
     from integrations.telegram.state import init_db as init_telegram_db
@@ -125,6 +131,7 @@ app.include_router(branding_router, prefix="/api/branding", tags=["branding"])
 app.include_router(integrations_router, prefix="/api/integrations", tags=["integrations"])
 app.include_router(whatsapp_router, prefix="/api/messaging", tags=["messaging"])
 app.include_router(crm_router, prefix="/api/crm", tags=["crm"])
+app.include_router(qb_csv_router, prefix="/api/qb-csv", tags=["qb-csv"])
 app.include_router(webby_router, tags=["webby"])
 app.include_router(scheduled_actions_router, prefix="/api/scheduled-actions", tags=["scheduled-actions"])
 app.include_router(setup_router, prefix="/api/setup", tags=["setup"])
