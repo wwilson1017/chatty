@@ -30,11 +30,11 @@ import shutil
 import logging
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
+from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile, File, Form
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
-from core.auth import get_current_user
+from core.auth import get_current_user, decode_access_token
 from core.providers import get_ai_provider
 from core.providers.credentials import CredentialStore
 from core.agents.tool_registry import ToolRegistry
@@ -252,7 +252,7 @@ async def avatar_availability(agent_id: str, user=Depends(get_current_user)):
     _get_agent_or_404(agent_id)
     store = CredentialStore()
     _, profile = store.get_active_profile(provider_override="openai")
-    openai_connected = bool(profile and profile.get("access"))
+    openai_connected = bool(profile and (profile.get("access") or profile.get("key")))
     return {"generate_available": openai_connected, "upload_available": True}
 
 
@@ -271,13 +271,17 @@ async def avatar_generate(agent_id: str, user=Depends(get_current_user)):
         raise HTTPException(429, f"Please wait {remaining}s before generating again")
 
     ctx_manager = get_context_manager(agent["slug"])
-    identity = ctx_manager.read_context("identity.md")
-    soul = ctx_manager.read_context("soul.md")
+    identity = ctx_manager.read_context("profile.md")
+    soul = ctx_manager.read_context("preferences.md")
+    db_personality = agent.get("personality", "")
+    if db_personality:
+        soul = f"{soul}\n\n{db_personality}" if soul else db_personality
     agent_name = agent.get("agent_name") or "Assistant"
 
     store = CredentialStore()
     _, profile = store.get_active_profile(provider_override="openai")
-    openai_token = (profile or {}).get("access", "")
+    p = profile or {}
+    openai_token = p.get("key") or p.get("access") or ""
 
     try:
         urls = await generate_avatar_options(identity, soul, agent_name, openai_token, count=3)
@@ -352,9 +356,26 @@ async def avatar_upload(
 
 
 @router.get("/{agent_id}/avatar")
-async def get_avatar(agent_id: str, user=Depends(get_current_user)):
-    """Serve the agent's avatar image."""
+async def get_avatar(agent_id: str, request: Request, token: str | None = None):
+    """Serve the agent's avatar image.
+
+    Supports ?token= query param for <img> tags that can't send auth headers.
+    """
     from fastapi.responses import FileResponse
+
+    auth_header = request.headers.get("Authorization")
+    jwt_token = None
+    if auth_header and auth_header.startswith("Bearer "):
+        jwt_token = auth_header.removeprefix("Bearer ").strip()
+    elif token:
+        jwt_token = token
+
+    if not jwt_token:
+        raise HTTPException(401, "Not authenticated")
+    try:
+        decode_access_token(jwt_token)
+    except Exception:
+        raise HTTPException(401, "Invalid or expired token")
 
     agent = _get_agent_or_404(agent_id)
     avatar_path = DATA_DIR / agent["slug"] / "avatar.png"

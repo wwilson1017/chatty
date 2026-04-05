@@ -164,7 +164,7 @@ export function AgentPage() {
 
         <div className="w-8 h-8 rounded-full bg-indigo-600 flex items-center justify-center text-xs font-bold flex-shrink-0 overflow-hidden">
           {agent.avatar_url
-            ? <img src={agent.avatar_url} alt={agent.agent_name} className="w-full h-full object-cover" />
+            ? <img src={`${agent.avatar_url}?token=${localStorage.getItem('chatty_token') || ''}`} alt={agent.agent_name} className="w-full h-full object-cover" />
             : initials}
         </div>
 
