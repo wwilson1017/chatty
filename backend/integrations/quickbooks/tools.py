@@ -19,6 +19,17 @@ _ALLOWED_GET_TYPES = {
 }
 
 
+def _deep_merge(base: dict, updates: dict) -> dict:
+    """Recursively merge updates into base dict, preserving nested sibling keys."""
+    merged = dict(base)
+    for key, value in updates.items():
+        if key in merged and isinstance(merged[key], dict) and isinstance(value, dict):
+            merged[key] = _deep_merge(merged[key], value)
+        else:
+            merged[key] = value
+    return merged
+
+
 def _build_line_items(line_items: list[dict]) -> list[dict]:
     """Convert simplified line items into QBO Line array format.
 
@@ -44,15 +55,16 @@ def _build_line_items(line_items: list[dict]) -> list[dict]:
     return lines
 
 
-def _build_payment_lines(invoice_ids: list[str], total_amount: float) -> list[dict]:
-    """Build QBO Payment Line array linking to invoices."""
-    if not invoice_ids:
-        return []
+def _build_payment_lines(line_items: list[dict]) -> list[dict]:
+    """Build QBO Payment Line array linking to invoices.
+
+    Accepts: [{invoice_id, amount}, ...]
+    """
     lines = []
-    for inv_id in invoice_ids:
+    for item in line_items:
         lines.append({
-            "Amount": total_amount / len(invoice_ids),
-            "LinkedTxn": [{"TxnId": str(inv_id), "TxnType": "Invoice"}],
+            "Amount": item["amount"],
+            "LinkedTxn": [{"TxnId": str(item["invoice_id"]), "TxnType": "Invoice"}],
         })
     return lines
 
@@ -214,19 +226,26 @@ QB_TOOL_DEFS = [
     # ── Payment tools ────────────────────────────────────────────────────
     {
         "name": "qbo_record_payment",
-        "description": "Record a payment received from a customer, optionally linked to specific invoices.",
+        "description": "Record a payment received from a customer, optionally linked to specific invoices with per-invoice amounts.",
         "input_schema": {
             "type": "object",
             "properties": {
                 "customer_id": {"type": "string", "description": "QBO Customer Id"},
                 "total_amount": {"type": "number", "description": "Payment amount"},
                 "payment_date": {"type": "string", "description": "Payment date YYYY-MM-DD (defaults to today)"},
-                "invoice_ids": {
+                "invoice_allocations": {
                     "type": "array",
-                    "items": {"type": "string"},
-                    "description": "Invoice Ids to apply this payment to",
+                    "description": "How to apply payment across invoices. Each entry specifies an invoice and the amount to apply to it.",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "invoice_id": {"type": "string", "description": "QBO Invoice Id"},
+                            "amount": {"type": "number", "description": "Amount to apply to this invoice"},
+                        },
+                        "required": ["invoice_id", "amount"],
+                    },
                 },
-                "payment_method": {"type": "string", "description": "E.g. 'Check', 'Credit Card', 'Cash'"},
+                "payment_method_id": {"type": "string", "description": "QBO PaymentMethod Id (use qbo_query to look up: SELECT Id, Name FROM PaymentMethod)"},
                 "reference_number": {"type": "string", "description": "Check number or payment reference"},
                 "private_note": {"type": "string", "description": "Internal note"},
             },
@@ -495,8 +514,8 @@ def qbo_record_payment(
     customer_id: str,
     total_amount: float,
     payment_date: str = "",
-    invoice_ids: list[str] | None = None,
-    payment_method: str = "",
+    invoice_allocations: list[dict] | None = None,
+    payment_method_id: str = "",
     reference_number: str = "",
     private_note: str = "",
 ) -> dict:
@@ -510,10 +529,10 @@ def qbo_record_payment(
     }
     if payment_date:
         payload["TxnDate"] = payment_date
-    if invoice_ids:
-        payload["Line"] = _build_payment_lines(invoice_ids, total_amount)
-    if payment_method:
-        payload["PaymentMethodRef"] = {"value": payment_method}
+    if invoice_allocations:
+        payload["Line"] = _build_payment_lines(invoice_allocations)
+    if payment_method_id:
+        payload["PaymentMethodRef"] = {"value": payment_method_id}
     if reference_number:
         payload["PaymentRefNum"] = reference_number
     if private_note:
@@ -624,8 +643,8 @@ def qbo_update_entity(entity_type: str, entity_id: str, data: dict) -> dict:
         return {"error": f"{entity_type} {entity_id} not found"}
     current, _ = fetched
 
-    # Merge updates on top of current entity
-    current.update(data)
+    # Deep merge updates on top of current entity (preserves nested sibling keys)
+    current = _deep_merge(current, data)
 
     result = client.update_entity(entity_type, current)
     if "error" in result:
