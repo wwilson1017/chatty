@@ -237,7 +237,7 @@ export function IntegrationsTab() {
               {integration.auth_type !== 'stub' && integration.auth_type !== 'qr_session' && (
                 <>
                   {/* Broken connection — show reconnect */}
-                  {integration.configured && integration.connection_status === 'broken' && (
+                  {integration.configured && integration.connection_status === 'broken' && integration.id === 'quickbooks' && (
                     <>
                       <span className="text-xs text-red-400 bg-red-900/20 px-2 py-1 rounded">Connection lost</span>
                       <button
@@ -275,7 +275,7 @@ export function IntegrationsTab() {
                       >
                         <span className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-all ${integration.enabled ? 'left-5' : 'left-0.5'}`} />
                       </button>
-                      {integration.auth_type === 'oauth2' && (
+                      {integration.auth_type === 'oauth2' && integration.id === 'quickbooks' && (
                         <button
                           onClick={disconnectQuickBooks}
                           disabled={saving}

@@ -98,14 +98,17 @@ class QuickBooksClient:
     def _request(self, method: str, url: str, **kwargs) -> httpx.Response:
         """Execute an HTTP request with intuit_tid logging, rate-limit retry, and 401 detection."""
         kwargs.setdefault("timeout", 15)
-        kwargs.setdefault("headers", self._headers())
 
         for attempt in range(MAX_RETRIES + 1):
+            kwargs["headers"] = self._headers()
             resp = httpx.request(method, url, **kwargs)
             tid = resp.headers.get("intuit_tid", "none")
 
             if resp.status_code == 429 and attempt < MAX_RETRIES:
-                retry_after = int(resp.headers.get("Retry-After", str(2 ** attempt)))
+                try:
+                    retry_after = int(resp.headers.get("Retry-After", str(2 ** attempt)))
+                except (ValueError, TypeError):
+                    retry_after = 2 ** attempt
                 logger.warning("QBO 429 rate limited (intuit_tid=%s), retrying in %ds", tid, retry_after)
                 time.sleep(retry_after)
                 continue
