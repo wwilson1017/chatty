@@ -24,10 +24,9 @@ interface Props {
   onApprove?: (msgId: string) => void;
   onDeny?: (msgId: string) => void;
   scrollRef?: RefObject<HTMLDivElement | null>;
-  agentName?: string;
 }
 
-export function AgentChatPanel({ messages, isStreaming, onSend, onStop, onApprove, onDeny, scrollRef: externalScrollRef, agentName }: Props) {
+export function AgentChatPanel({ messages, isStreaming, onSend, onStop, onApprove, onDeny, scrollRef: externalScrollRef }: Props) {
   const [input, setInput] = useState('');
   const [pendingFiles, setPendingFiles] = useState<File[]>([]);
   const [dragOver, setDragOver] = useState(false);
@@ -138,7 +137,6 @@ export function AgentChatPanel({ messages, isStreaming, onSend, onStop, onApprov
   }
 
   const isEmpty = messages.length === 0;
-  const isMultiLine = input.includes('\n') || (textareaRef.current && textareaRef.current.scrollHeight > 44);
   const showToolCalls = localStorage.getItem('chatty_show_tool_calls') === 'true';
 
   function renderInputBox() {

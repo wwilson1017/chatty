@@ -272,7 +272,6 @@ export function AgentPage() {
               onApprove={chat.approveAction}
               onDeny={chat.denyAction}
               scrollRef={scrollRef}
-              agentName={agent?.agent_name}
             />
           </>
         ) : activeTab === 'knowledge' ? (
