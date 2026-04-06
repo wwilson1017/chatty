@@ -32,7 +32,7 @@ export function AgentCard({ agent, onDelete }: Props) {
       {/* Avatar */}
       <div className="w-14 h-14 rounded-xl bg-brand flex items-center justify-center text-white font-bold text-xl mb-4">
         {agent.avatar_url
-          ? <img src={agent.avatar_url} alt={agent.agent_name} className="w-full h-full object-cover rounded-xl" />
+          ? <img src={`${agent.avatar_url}${agent.avatar_url.includes('?') ? '&' : '?'}token=${localStorage.getItem('chatty_token') || ''}`} alt={agent.agent_name} className="w-full h-full object-cover rounded-xl" />
           : initials
         }
       </div>
