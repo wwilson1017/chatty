@@ -67,7 +67,8 @@ OAUTH_CONFIG = {
 
 CALLBACK_PORT = 9876
 CALLBACK_PATH = "/oauth/callback"
-REDIRECT_URI = f"http://localhost:{CALLBACK_PORT}{CALLBACK_PATH}"
+_default_redirect = f"http://localhost:{CALLBACK_PORT}{CALLBACK_PATH}"
+REDIRECT_URI = os.getenv("OAUTH_REDIRECT_URI", _default_redirect)
 
 
 # ── PKCE helpers ──────────────────────────────────────────────────────────────

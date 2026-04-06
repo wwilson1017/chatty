@@ -187,6 +187,31 @@ export function IntegrationsTab() {
     setIntegrations(data.integrations);
   }
 
+  async function setupQuickBooks() {
+    setSaving(true); setError('');
+    try {
+      await api('/api/integrations/quickbooks/setup', { method: 'POST' });
+      const data = await api<{ integrations: Integration[] }>('/api/integrations');
+      setIntegrations(data.integrations);
+    } catch (err: unknown) { setError(err instanceof Error ? err.message : 'Setup failed'); }
+    finally { setSaving(false); }
+  }
+
+  async function disconnectQuickBooks() {
+    setSaving(true); setError('');
+    try {
+      await api('/api/integrations/quickbooks/disconnect', { method: 'POST' });
+      const data = await api<{ integrations: Integration[] }>('/api/integrations');
+      setIntegrations(data.integrations);
+    } catch (err: unknown) { setError(err instanceof Error ? err.message : 'Disconnect failed'); }
+    finally { setSaving(false); }
+  }
+
+  async function reconnectQuickBooks() {
+    await disconnectQuickBooks();
+    await setupQuickBooks();
+  }
+
   async function setupQbCsv() {
     await api('/api/integrations/qb_csv/setup', { method: 'POST' });
     const data = await api<{ integrations: Integration[] }>('/api/integrations');
@@ -211,25 +236,55 @@ export function IntegrationsTab() {
             <div className="flex items-center gap-2">
               {integration.auth_type !== 'stub' && integration.auth_type !== 'qr_session' && (
                 <>
+                  {/* Broken connection — show reconnect */}
+                  {integration.configured && integration.connection_status === 'broken' && integration.id === 'quickbooks' && (
+                    <>
+                      <span className="text-xs text-red-400 bg-red-900/20 px-2 py-1 rounded">Connection lost</span>
+                      <button
+                        onClick={reconnectQuickBooks}
+                        disabled={saving}
+                        className="text-xs px-3 py-1.5 rounded-lg bg-red-600 text-white hover:bg-red-500 transition disabled:opacity-50"
+                      >
+                        Reconnect
+                      </button>
+                    </>
+                  )}
+
+                  {/* Not configured — show setup */}
                   {!integration.configured && (
                     <button
                       onClick={() => {
                         if (integration.id === 'crm_lite') setupCRMLite();
+                        else if (integration.id === 'quickbooks') setupQuickBooks();
                         else if (integration.id === 'qb_csv') setupQbCsv();
                         else { setSetupFor(integration.id); setError(''); }
                       }}
-                      className="text-xs px-3 py-1.5 rounded-lg bg-gray-700 text-gray-300 hover:bg-gray-600 transition"
+                      disabled={saving}
+                      className="text-xs px-3 py-1.5 rounded-lg bg-gray-700 text-gray-300 hover:bg-gray-600 transition disabled:opacity-50"
                     >
-                      Setup
+                      {saving && integration.id === 'quickbooks' ? 'Connecting...' : 'Setup'}
                     </button>
                   )}
-                  {integration.configured && (
-                    <button
-                      onClick={() => toggleEnable(integration.id, integration.enabled)}
-                      className={`relative w-11 h-6 rounded-full transition ${integration.enabled ? 'bg-brand' : 'bg-gray-600'}`}
-                    >
-                      <span className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-all ${integration.enabled ? 'left-5' : 'left-0.5'}`} />
-                    </button>
+
+                  {/* Configured and healthy — show toggle + disconnect for OAuth */}
+                  {integration.configured && integration.connection_status !== 'broken' && (
+                    <>
+                      <button
+                        onClick={() => toggleEnable(integration.id, integration.enabled)}
+                        className={`relative w-11 h-6 rounded-full transition ${integration.enabled ? 'bg-brand' : 'bg-gray-600'}`}
+                      >
+                        <span className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-all ${integration.enabled ? 'left-5' : 'left-0.5'}`} />
+                      </button>
+                      {integration.auth_type === 'oauth2' && integration.id === 'quickbooks' && (
+                        <button
+                          onClick={disconnectQuickBooks}
+                          disabled={saving}
+                          className="text-xs px-2 py-1.5 rounded-lg text-gray-500 hover:text-red-400 hover:bg-gray-700 transition disabled:opacity-50"
+                        >
+                          Disconnect
+                        </button>
+                      )}
+                    </>
                   )}
                 </>
               )}
@@ -246,6 +301,11 @@ export function IntegrationsTab() {
               )}
             </div>
           </div>
+
+          {/* QuickBooks error display */}
+          {error && integration.id === 'quickbooks' && !setupFor && (
+            <p className="mt-2 text-red-400 text-xs">{error}</p>
+          )}
 
           {/* WhatsApp QR session panel */}
           {integration.auth_type === 'qr_session' && waExpanded && (
