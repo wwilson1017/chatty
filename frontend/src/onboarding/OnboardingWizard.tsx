@@ -3,6 +3,7 @@ import { api } from '../core/api/client';
 import type { ProviderStatus } from '../core/types';
 import { StepIndicator } from './StepIndicator';
 import { ProviderStep } from './steps/ProviderStep';
+import { MessagingPickerStep } from './steps/MessagingPickerStep';
 import { IntegrationPickerStep } from './steps/IntegrationPickerStep';
 import { OdooSetupStep } from './steps/OdooSetupStep';
 import { QuickBooksSetupStep } from './steps/QuickBooksSetupStep';
@@ -14,7 +15,7 @@ interface Props {
   onComplete: () => void;
 }
 
-type Phase = 'provider' | 'pick-integrations' | 'integration-setup' | 'done';
+type Phase = 'provider' | 'pick-messaging' | 'pick-integrations' | 'integration-setup' | 'done';
 
 const INTEGRATION_ORDER = ['odoo', 'quickbooks', 'bamboohr', 'crm_lite'];
 
@@ -27,6 +28,7 @@ const INTEGRATION_TITLES: Record<string, string> = {
 
 export function OnboardingWizard({ onComplete }: Props) {
   const [phase, setPhase] = useState<Phase>('provider');
+  const [selectedMessaging, setSelectedMessaging] = useState<string[]>([]);
   const [selectedIntegrations, setSelectedIntegrations] = useState<string[]>([]);
   const [completedIntegrations, setCompletedIntegrations] = useState<string[]>([]);
   const [currentIntegrationIndex, setCurrentIntegrationIndex] = useState(0);
@@ -37,7 +39,7 @@ export function OnboardingWizard({ onComplete }: Props) {
       setProviderStatus(data);
       // Skip provider step if already configured
       const anyConfigured = Object.values(data.profiles).some(p => p.configured);
-      if (anyConfigured) setPhase('pick-integrations');
+      if (anyConfigured) setPhase('pick-messaging');
     }).catch(console.error);
   }, []);
 
@@ -45,7 +47,8 @@ export function OnboardingWizard({ onComplete }: Props) {
   const steps = useMemo(() => {
     const s = [
       { id: 'provider', title: 'AI Provider' },
-      { id: 'integrations', title: 'Integrations' },
+      { id: 'messaging', title: 'Messaging' },
+      { id: 'integrations', title: 'Business Tools' },
     ];
     for (const id of selectedIntegrations) {
       s.push({ id, title: INTEGRATION_TITLES[id] || id });
@@ -59,8 +62,9 @@ export function OnboardingWizard({ onComplete }: Props) {
   // Current step index for the indicator
   const currentStepIndex = useMemo(() => {
     if (phase === 'provider') return 0;
-    if (phase === 'pick-integrations') return 1;
-    if (phase === 'integration-setup') return 2 + currentIntegrationIndex;
+    if (phase === 'pick-messaging') return 1;
+    if (phase === 'pick-integrations') return 2;
+    if (phase === 'integration-setup') return 3 + currentIntegrationIndex;
     if (phase === 'done') return steps.length - 1;
     return 0;
   }, [phase, currentIntegrationIndex, steps.length]);
@@ -82,6 +86,16 @@ export function OnboardingWizard({ onComplete }: Props) {
       const data = await api<ProviderStatus>('/api/providers');
       setProviderStatus(data);
     } catch { /* proceed anyway */ }
+    setPhase('pick-messaging');
+  }
+
+  function handleMessagingPicked(ids: string[]) {
+    setSelectedMessaging(ids);
+    // Messaging setup is per-agent, so just record the selection and move on
+    setPhase('pick-integrations');
+  }
+
+  function handleMessagingSkipped() {
     setPhase('pick-integrations');
   }
 
@@ -90,7 +104,7 @@ export function OnboardingWizard({ onComplete }: Props) {
     const sorted = INTEGRATION_ORDER.filter(id => ids.includes(id));
     setSelectedIntegrations(sorted);
     if (sorted.length === 0) {
-      // Skip pressed or nothing selected — go straight to dashboard
+      // Skip pressed or nothing selected — go straight to done/dashboard
       onComplete();
       return;
     }
@@ -140,6 +154,13 @@ export function OnboardingWizard({ onComplete }: Props) {
           <ProviderStep onComplete={handleProviderComplete} />
         )}
 
+        {phase === 'pick-messaging' && (
+          <MessagingPickerStep
+            onComplete={handleMessagingPicked}
+            onSkip={handleMessagingSkipped}
+          />
+        )}
+
         {phase === 'pick-integrations' && (
           <IntegrationPickerStep
             onComplete={handleIntegrationsPicked}
@@ -153,7 +174,7 @@ export function OnboardingWizard({ onComplete }: Props) {
           <CompletionStep
             result={{
               provider: activeProvider,
-              integrations: completedIntegrations,
+              integrations: [...selectedMessaging, ...completedIntegrations],
             }}
             onComplete={onComplete}
           />

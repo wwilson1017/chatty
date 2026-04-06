@@ -79,13 +79,29 @@ export function AgentPage() {
       .catch(() => {});
   }, [agentId]);
 
-  // Show avatar picker when onboarding just completed and no avatar set
+  // Auto-start onboarding if not complete
+  const onboardingKickoffRef = useRef(false);
+  useEffect(() => {
+    if (!agent || onboardingKickoffRef.current) return;
+    if (!agent.onboarding_complete) {
+      onboardingKickoffRef.current = true;
+      handleStartOnboarding();
+    }
+  }, [agent]);
+
+  // When onboarding completes, exit training mode and show avatar picker
   useEffect(() => {
     if (!agent) return;
     const wasIncomplete = prevOnboardingComplete.current === false;
     prevOnboardingComplete.current = agent.onboarding_complete;
-    if (wasIncomplete && agent.onboarding_complete && !agent.avatar_url) {
-      setShowAvatarPicker(true);
+    if (wasIncomplete && agent.onboarding_complete) {
+      // Exit training mode now that onboarding is done
+      if (chat.trainingMode) {
+        chat.setTrainingMode(false);
+      }
+      if (!agent.avatar_url) {
+        setShowAvatarPicker(true);
+      }
     }
   }, [agent]);
 
@@ -96,6 +112,9 @@ export function AgentPage() {
   }, [agentId]);
 
   async function handleSelectConversation(id: string) {
+    if (chat.trainingMode) {
+      chat.setTrainingMode(false);
+    }
     const msgs = await convs.selectConversation(id);
     chat.loadMessages(msgs, id);
   }
@@ -108,7 +127,11 @@ export function AgentPage() {
 
   function handleNewChat() {
     convs.startNewChat();
-    chat.clear();
+    if (chat.trainingMode) {
+      chat.setTrainingMode(false);
+    } else {
+      chat.clear();
+    }
   }
 
   function handleStartOnboarding() {
@@ -170,16 +193,6 @@ export function AgentPage() {
 
         <span className="font-semibold text-white">{agent.agent_name}</span>
 
-        {!agent.onboarding_complete && (
-          <button
-            onClick={handleStartOnboarding}
-            className="text-xs bg-yellow-900/40 text-yellow-400 border border-yellow-700/40 rounded-full px-2.5 py-0.5 hover:bg-yellow-900/60 transition"
-            title="Run onboarding interview"
-          >
-            Start Onboarding
-          </button>
-        )}
-
         {agent.onboarding_complete && !agent.avatar_url && (
           <button
             onClick={() => setShowAvatarPicker(true)}
@@ -190,30 +203,22 @@ export function AgentPage() {
           </button>
         )}
 
-        {chat.trainingMode && (
-          <span className="text-xs bg-blue-900/40 text-blue-400 border border-blue-700/40 rounded-full px-2.5 py-0.5 animate-pulse">
-            Training
-          </span>
-        )}
-
-        {/* Tool mode selector — hidden on mobile, hidden during training */}
-        {!chat.trainingMode && (
-          <div className="hidden sm:flex items-center bg-gray-800 rounded-full p-0.5 gap-0.5">
-            {TOOL_MODES.map(m => (
-              <button
-                key={m.key}
-                onClick={() => handleToolModeChange(m.key)}
-                className={`px-2 py-0.5 text-xs font-medium rounded-full transition-all ${
-                  chat.toolMode === m.key
-                    ? `${m.activeClass} text-white`
-                    : 'text-gray-400 hover:text-white'
-                }`}
-              >
-                {m.label}
-              </button>
-            ))}
-          </div>
-        )}
+        {/* Tool mode selector — hidden on mobile */}
+        <div className="hidden sm:flex items-center bg-gray-800 rounded-full p-0.5 gap-0.5">
+          {TOOL_MODES.map(m => (
+            <button
+              key={m.key}
+              onClick={() => handleToolModeChange(m.key)}
+              className={`px-2 py-0.5 text-xs font-medium rounded-full transition-all ${
+                chat.toolMode === m.key
+                  ? `${m.activeClass} text-white`
+                  : 'text-gray-400 hover:text-white'
+              }`}
+            >
+              {m.label}
+            </button>
+          ))}
+        </div>
 
         {/* Tab switcher */}
         <div className="ml-auto flex items-center bg-gray-800 rounded-lg p-0.5 gap-0.5">

@@ -330,7 +330,7 @@ export function useAgentChat(apiPrefix: string, options?: Options) {
   useEffect(() => {
     if (trainingMode && trainingKickoffRef.current && !isStreaming) {
       trainingKickoffRef.current = false;
-      sendMessage('Start onboarding.');
+      sendMessage('Hey!');
     }
   }, [trainingMode, isStreaming, sendMessage]);
 

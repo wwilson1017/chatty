@@ -137,7 +137,83 @@ export function AgentChatPanel({ messages, isStreaming, onSend, onStop, onApprov
   }
 
   const isEmpty = messages.length === 0;
-  const isMultiLine = input.includes('\n') || (textareaRef.current && textareaRef.current.scrollHeight > 44);
+  const showToolCalls = localStorage.getItem('chatty_show_tool_calls') === 'true';
+
+  function renderInputBox() {
+    return (
+      <div>
+        {/* Pending file chips */}
+        {pendingFiles.length > 0 && (
+          <div className="flex flex-wrap gap-1.5 mb-2 px-1">
+            {pendingFiles.map((f, i) => (
+              <span key={i} className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-gray-700 border border-gray-600 rounded-lg text-xs text-gray-300">
+                <svg className="w-3 h-3 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" /></svg>
+                {f.name}
+                <button onClick={() => removeFile(i)} className="text-gray-500 hover:text-gray-300 ml-0.5">&times;</button>
+              </span>
+            ))}
+          </div>
+        )}
+
+        <div className="bg-gray-800/80 border border-gray-700 rounded-2xl shadow-lg focus-within:shadow-xl focus-within:border-indigo-500/60 transition">
+          <textarea
+            ref={textareaRef}
+            value={input}
+            onChange={autoResize}
+            onKeyDown={handleKeyDown}
+            placeholder="How can I help you today?"
+            disabled={isStreaming}
+            rows={1}
+            className="w-full bg-transparent text-white placeholder-gray-500 text-sm px-5 pt-4 pb-1 resize-none focus:outline-none disabled:opacity-50"
+          />
+
+          <div className="flex items-center justify-between px-4 pb-3 pt-1">
+            {/* Paperclip */}
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              disabled={isStreaming}
+              title="Attach files (CSV, XLSX, MD, TXT)"
+              className="text-gray-500 hover:text-gray-300 disabled:opacity-30 transition p-1"
+            >
+              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" /></svg>
+            </button>
+            <input
+              ref={fileInputRef}
+              type="file"
+              multiple
+              accept=".csv,.xlsx,.md,.txt"
+              className="hidden"
+              onChange={e => {
+                if (e.target.files?.length) {
+                  validateAndAddFiles(Array.from(e.target.files));
+                  e.target.value = '';
+                }
+              }}
+            />
+
+            <div className="flex gap-2">
+              {isStreaming ? (
+                <button
+                  onClick={onStop}
+                  className="text-xs text-red-400 border border-red-500/30 rounded-lg px-3 py-1.5 hover:bg-red-500/10 transition"
+                >
+                  Stop
+                </button>
+              ) : (
+                <button
+                  onClick={handleSend}
+                  disabled={!input.trim() && pendingFiles.length === 0}
+                  className="bg-brand text-white text-xs font-semibold px-4 py-1.5 rounded-full hover:opacity-90 transition disabled:opacity-30 disabled:cursor-not-allowed"
+                >
+                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M6 12L3.269 3.126A59.768 59.768 0 0121.485 12 59.77 59.77 0 013.27 20.876L5.999 12zm0 0h7.5" /></svg>
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div
@@ -156,23 +232,30 @@ export function AgentChatPanel({ messages, isStreaming, onSend, onStop, onApprov
       {/* Messages — centered reading column */}
       <div
         ref={scrollContainerRef}
-        className="flex-1 overflow-y-auto pb-40 sm:pb-48"
+        className={`flex-1 overflow-y-auto ${isEmpty && !isStreaming ? '' : 'pb-40 sm:pb-48'}`}
         onClick={handleMessagesClick}
       >
         {isEmpty && !isStreaming ? (
-          <div className="flex flex-col items-center justify-center min-h-[60vh] text-center">
-            <div className="text-5xl mb-4">💬</div>
-            <p className="text-gray-400 text-sm font-medium">Start a conversation</p>
-            <p className="text-gray-600 text-xs mt-1">Type a message below</p>
+          <div className="flex flex-col items-center justify-center min-h-full px-6">
+            {/* Claude-style centered greeting + input */}
+            <div className="w-full max-w-2xl -mt-16">
+              <h2 className="text-3xl sm:text-4xl font-semibold text-gray-300 text-center mb-10">
+                How can I help you today?
+              </h2>
+
+              {/* Inline input for empty state */}
+              {renderInputBox()}
+            </div>
           </div>
         ) : (
-          <div className="max-w-2xl mx-auto px-4 py-6 space-y-6">
+          <div className="max-w-3xl mx-auto px-6 sm:px-10 py-6 space-y-6">
             {messages.map(msg => (
               <AgentMessageBubble
                 key={msg.id}
                 message={msg}
                 onApprove={onApprove}
                 onDeny={onDeny}
+                showToolCalls={showToolCalls}
               />
             ))}
           </div>
@@ -186,87 +269,18 @@ export function AgentChatPanel({ messages, isStreaming, onSend, onStop, onApprov
         </div>
       )}
 
-      {/* Floating input with gradient fade */}
-      <div className="absolute bottom-0 inset-x-0 pointer-events-none z-20">
-        <div className="h-12 bg-gradient-to-t from-gray-950 to-transparent" />
+      {/* Floating input — only when messages exist */}
+      {(!isEmpty || isStreaming) && (
+        <div className="absolute bottom-0 inset-x-0 pointer-events-none z-20">
+          <div className="h-12 bg-gradient-to-t from-gray-950 to-transparent" />
 
-        <div className="bg-gray-950 px-3 sm:px-4 pb-3 sm:pb-4 pointer-events-auto">
-          <div className="mx-auto max-w-2xl">
-            {/* Pending file chips */}
-            {pendingFiles.length > 0 && (
-              <div className="flex flex-wrap gap-1.5 mb-2 px-1">
-                {pendingFiles.map((f, i) => (
-                  <span key={i} className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-gray-700 border border-gray-600 rounded-lg text-xs text-gray-300">
-                    <svg className="w-3 h-3 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" /></svg>
-                    {f.name}
-                    <button onClick={() => removeFile(i)} className="text-gray-500 hover:text-gray-300 ml-0.5">&times;</button>
-                  </span>
-                ))}
-              </div>
-            )}
-
-            <div className={`bg-gray-800 border border-gray-700 ${isMultiLine ? 'rounded-3xl' : 'rounded-full'} shadow-lg focus-within:shadow-xl focus-within:border-indigo-500/60 transition`}>
-              <textarea
-                ref={textareaRef}
-                value={input}
-                onChange={autoResize}
-                onKeyDown={handleKeyDown}
-                placeholder="Message..."
-                disabled={isStreaming}
-                rows={1}
-                className="w-full bg-transparent text-white placeholder-gray-500 text-sm px-4 pt-3 pb-0 resize-none focus:outline-none disabled:opacity-50"
-              />
-
-              <div className="flex items-center justify-between px-3 pb-2 pt-1">
-                {/* Paperclip */}
-                <button
-                  onClick={() => fileInputRef.current?.click()}
-                  disabled={isStreaming}
-                  title="Attach files (CSV, XLSX, MD, TXT)"
-                  className="text-gray-500 hover:text-gray-300 disabled:opacity-30 transition p-1"
-                >
-                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" /></svg>
-                </button>
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  multiple
-                  accept=".csv,.xlsx,.md,.txt"
-                  className="hidden"
-                  onChange={e => {
-                    if (e.target.files?.length) {
-                      validateAndAddFiles(Array.from(e.target.files));
-                      e.target.value = '';
-                    }
-                  }}
-                />
-
-                <div className="flex gap-2">
-                  {isStreaming ? (
-                    <button
-                      onClick={onStop}
-                      className="text-xs text-red-400 border border-red-500/30 rounded-lg px-3 py-1.5 hover:bg-red-500/10 transition"
-                    >
-                      Stop
-                    </button>
-                  ) : (
-                    <button
-                      onClick={handleSend}
-                      disabled={!input.trim() && pendingFiles.length === 0}
-                      className="bg-brand text-white text-xs font-semibold px-4 py-1.5 rounded-lg hover:opacity-90 transition disabled:opacity-30 disabled:cursor-not-allowed"
-                    >
-                      Send
-                    </button>
-                  )}
-                </div>
-              </div>
+          <div className="bg-gray-950 px-3 sm:px-4 pb-3 sm:pb-4 pointer-events-auto">
+            <div className="mx-auto max-w-3xl px-2 sm:px-6">
+              {renderInputBox()}
             </div>
-            <p className="text-center text-gray-700 text-xs mt-2">
-              Enter to send · Shift+Enter for new line · Drop or clip files to attach
-            </p>
           </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }

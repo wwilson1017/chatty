@@ -52,7 +52,9 @@ def init_db() -> None:
             expires_at  TEXT NOT NULL,
             registered_user_id TEXT
         )
+    """)
 
+    conn.execute("""
         CREATE TABLE IF NOT EXISTS webhook_secrets (
             agent_id TEXT PRIMARY KEY,
             secret TEXT NOT NULL

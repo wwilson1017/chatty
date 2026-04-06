@@ -9,7 +9,7 @@ interface Props {
   onSkip: () => void;
 }
 
-export function IntegrationPickerStep({ onComplete, onSkip }: Props) {
+export function MessagingPickerStep({ onComplete, onSkip }: Props) {
   const [integrations, setIntegrations] = useState<Integration[]>([]);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
@@ -17,11 +17,10 @@ export function IntegrationPickerStep({ onComplete, onSkip }: Props) {
   useEffect(() => {
     api<{ integrations: Integration[] }>('/api/integrations')
       .then(data => {
-        // Only show business tool integrations (not messaging, not stubs, not already configured)
-        const available = data.integrations.filter(
-          i => i.auth_type !== 'stub' && !i.configured && !MESSAGING_IDS.includes(i.id)
+        const messaging = data.integrations.filter(
+          i => MESSAGING_IDS.includes(i.id) && !i.configured
         );
-        setIntegrations(available);
+        setIntegrations(messaging);
       })
       .finally(() => setLoading(false));
   }, []);
@@ -45,20 +44,22 @@ export function IntegrationPickerStep({ onComplete, onSkip }: Props) {
 
   return (
     <div>
-      <h2 className="text-xl font-bold text-white mb-2">Connect Business Tools</h2>
+      <h2 className="text-xl font-bold text-white mb-2">Connect a Messaging Platform</h2>
       <p className="text-gray-400 text-sm mb-6">
-        Connect your business tools so your agents can help with accounting, HR, CRM, and more.
-        You can always set these up later in Settings.
+        We strongly encourage you to set up a messaging connection for your agent.
+        Telegram is the recommended choice and by far the easiest. No separate number
+        needed for Telegram. Use your existing telephone number and set up a Telegram
+        bot for your agent easily and quickly.
       </p>
 
       {integrations.length === 0 ? (
         <div className="text-center py-8">
-          <p className="text-gray-400">All integrations are already configured!</p>
+          <p className="text-gray-400">Messaging integrations are already configured!</p>
           <button
             onClick={onSkip}
             className="mt-4 w-full py-3 bg-brand text-white font-semibold rounded-xl hover:opacity-90 transition"
           >
-            Continue to Chatty
+            Continue
           </button>
         </div>
       ) : (
@@ -66,6 +67,7 @@ export function IntegrationPickerStep({ onComplete, onSkip }: Props) {
           <div className="space-y-2 mb-8">
             {integrations.map(integration => {
               const isSelected = selected.has(integration.id);
+              const isRecommended = integration.id === 'telegram';
               return (
                 <button
                   key={integration.id}
@@ -86,8 +88,15 @@ export function IntegrationPickerStep({ onComplete, onSkip }: Props) {
                     )}
                   </div>
                   <span className="text-2xl">{integration.icon}</span>
-                  <div>
-                    <p className="text-white font-medium">{integration.name}</p>
+                  <div className="flex-1">
+                    <div className="flex items-center gap-2">
+                      <p className="text-white font-medium">{integration.name}</p>
+                      {isRecommended && (
+                        <span className="text-xs bg-green-900/40 text-green-400 border border-green-700/40 rounded-full px-2 py-0.5">
+                          Recommended
+                        </span>
+                      )}
+                    </div>
                     <p className="text-gray-400 text-xs mt-0.5">{integration.description}</p>
                   </div>
                 </button>
@@ -95,12 +104,17 @@ export function IntegrationPickerStep({ onComplete, onSkip }: Props) {
             })}
           </div>
 
+          <p className="text-gray-500 text-xs text-center mb-4">
+            If you skip this step, you'll need to be logged in to a browser to chat with your agent.
+            Setting up a messaging platform lets you talk to your agent anytime from your phone.
+          </p>
+
           <div className="flex gap-3">
             <button
               onClick={onSkip}
               className="flex-1 py-3 rounded-xl border border-gray-700 text-gray-400 hover:bg-gray-800 transition font-medium"
             >
-              Skip
+              Skip for Now
             </button>
             <button
               onClick={() => onComplete(Array.from(selected))}

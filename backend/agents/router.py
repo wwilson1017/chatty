@@ -57,6 +57,7 @@ from .engine import (
     invalidate_cache,
     DATA_DIR,
 )
+from .templates import seed_context_files
 from core.agents import ai_service
 
 logger = logging.getLogger(__name__)
@@ -195,10 +196,15 @@ async def list_agents(user=Depends(get_current_user)):
 
 @router.post("")
 async def create_agent(body: CreateAgentRequest, user=Depends(get_current_user)):
-    """Create a new agent."""
+    """Create a new agent and seed default context files."""
     if not body.agent_name.strip():
         raise HTTPException(status_code=400, detail="agent_name is required")
     agent = agent_db.create_agent(body.agent_name.strip(), personality=body.personality)
+
+    # Seed default context files (soul.md, identity.md, user.md, bootstrap, guide)
+    context_dir = DATA_DIR / agent["slug"] / "context"
+    seed_context_files(context_dir, agent["agent_name"])
+
     return agent
 
 
