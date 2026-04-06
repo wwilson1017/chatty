@@ -260,8 +260,17 @@ export function ProviderStep({ onComplete }: Props) {
     <div>
       <h2 className="text-xl font-bold text-white mb-2">Connect an AI Provider</h2>
       <p className="text-gray-400 text-sm mb-6">
-        Your agents need an AI provider to work. Connect at least one to continue.
+        Your agents need at least one AI provider to work. You can connect additional providers later if you'd like.
       </p>
+
+      {anyConnected && (
+        <div className="flex items-center gap-2 mb-6 px-4 py-3 bg-green-500/10 border border-green-500/30 rounded-xl">
+          <span className="w-2 h-2 bg-green-400 rounded-full shrink-0" />
+          <p className="text-green-400 text-sm">
+            You're all set! Your connected provider has been set as the default. Connect more below, or continue to the next step.
+          </p>
+        </div>
+      )}
 
       <div className="space-y-3 mb-8">
         {PROVIDERS.map(p => {
@@ -357,7 +366,7 @@ export function ProviderStep({ onComplete }: Props) {
 
       {!anyConnected && (
         <p className="text-gray-500 text-xs text-center mt-3">
-          Connect at least one provider to continue
+          Connect at least one provider to continue — you only need one!
         </p>
       )}
     </div>

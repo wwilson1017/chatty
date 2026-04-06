@@ -40,9 +40,6 @@ export function AgentCard({ agent, onDelete }: Props) {
       <h3 className="text-white font-semibold text-lg mb-1">{agent.agent_name}</h3>
 
       <div className="flex items-center gap-2 mt-3">
-        <span className={`text-xs px-2 py-0.5 rounded-full ${agent.onboarding_complete ? 'bg-green-900/50 text-green-400' : 'bg-yellow-900/50 text-yellow-400'}`}>
-          {agent.onboarding_complete ? 'Ready' : 'Onboarding'}
-        </span>
         {agent.gmail_enabled && <span className="text-xs text-gray-500">📧</span>}
         {agent.calendar_enabled && <span className="text-xs text-gray-500">📅</span>}
       </div>

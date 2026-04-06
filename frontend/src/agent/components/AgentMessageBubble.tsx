@@ -12,78 +12,104 @@ interface Props {
   message: ChatMessage;
   onApprove?: (msgId: string) => void;
   onDeny?: (msgId: string) => void;
+  showToolCalls?: boolean;
 }
 
 const HUNG_THRESHOLD_SEC = 30;
 
-function ToolPill({ tc }: { tc: ToolCallInfo }) {
+function ToolCallBox({ toolCalls }: { toolCalls: ToolCallInfo[] }) {
   const [expanded, setExpanded] = useState(false);
   const [, setTick] = useState(0);
 
+  // Tick for running timers
+  const anyRunning = toolCalls.some(tc => tc.status === 'running');
   useEffect(() => {
-    if (tc.status !== 'running') return;
+    if (!anyRunning) return;
     const id = setInterval(() => setTick(t => t + 1), 500);
     return () => clearInterval(id);
-  }, [tc.status]);
+  }, [anyRunning]);
 
-  const elapsedRaw = tc.status === 'running'
-    ? (Date.now() - tc.startedAt) / 1000
-    : tc.elapsedMs ? tc.elapsedMs / 1000 : null;
-  const elapsedSec = elapsedRaw !== null ? elapsedRaw.toFixed(1) : null;
-  const isHung = tc.status === 'running' && elapsedRaw !== null && elapsedRaw >= HUNG_THRESHOLD_SEC;
+  // Show the latest tool call in the summary line
+  const latest = toolCalls[toolCalls.length - 1];
+  const doneCount = toolCalls.filter(tc => tc.status === 'done').length;
+  const failedCount = toolCalls.filter(tc => tc.status === 'error').length;
+  const runningCount = toolCalls.filter(tc => tc.status === 'running').length;
 
-  const icon = tc.status === 'running' ? '⏳' : tc.status === 'done' ? '✓' : '✗';
-  const bg = tc.status === 'running'
-    ? isHung
-      ? 'bg-red-900/30 border-red-700/40'
-      : 'bg-yellow-900/30 border-yellow-700/40'
-    : tc.status === 'done'
-    ? 'bg-green-900/20 border-green-700/30'
-    : 'bg-red-900/20 border-red-700/30';
+  const latestElapsed = latest.status === 'running'
+    ? ((Date.now() - latest.startedAt) / 1000).toFixed(1)
+    : latest.elapsedMs ? (latest.elapsedMs / 1000).toFixed(1) : null;
+  const isHung = latest.status === 'running' && latestElapsed !== null && parseFloat(latestElapsed) >= HUNG_THRESHOLD_SEC;
 
-  const textColor = tc.status === 'running'
+  const summaryIcon = runningCount > 0 ? '⏳' : failedCount > 0 ? '✗' : '✓';
+  const summaryBg = runningCount > 0
+    ? isHung ? 'bg-red-900/30 border-red-700/40' : 'bg-yellow-900/30 border-yellow-700/40'
+    : failedCount > 0 ? 'bg-red-900/20 border-red-700/30' : 'bg-green-900/20 border-green-700/30';
+  const summaryColor = runningCount > 0
     ? isHung ? 'text-red-300' : 'text-yellow-300'
-    : tc.status === 'done'
-    ? 'text-green-300'
-    : 'text-red-300';
+    : failedCount > 0 ? 'text-red-300' : 'text-green-300';
 
   return (
-    <div className={`rounded-lg border ${bg} text-xs mb-1`}>
+    <div className={`rounded-lg border ${summaryBg} text-xs`}>
+      {/* Summary line — shows latest tool + counts */}
       <button
         onClick={() => setExpanded(e => !e)}
-        className={`flex items-center gap-2 px-3 py-1.5 w-full text-left ${textColor}`}
+        className={`flex items-center gap-2 px-3 py-1.5 w-full text-left ${summaryColor}`}
       >
-        <span className={tc.status === 'running' ? 'animate-pulse' : ''}>{icon}</span>
-        <span className="font-mono font-medium">{tc.tool}</span>
-        {elapsedSec && (
-          <span className={`ml-auto ${isHung ? 'text-red-400' : 'text-gray-500'}`}>{elapsedSec}s</span>
+        <span className={runningCount > 0 ? 'animate-pulse' : ''}>{summaryIcon}</span>
+        <span className="font-mono font-medium">{latest.tool}</span>
+        {toolCalls.length > 1 && (
+          <span className="text-gray-500">
+            {runningCount > 0
+              ? `(${doneCount + failedCount}/${toolCalls.length})`
+              : `(${toolCalls.length} tools)`}
+          </span>
+        )}
+        {latestElapsed && (
+          <span className={`ml-auto ${isHung ? 'text-red-400' : 'text-gray-500'}`}>{latestElapsed}s</span>
         )}
         <span className={`text-gray-500 transition ${expanded ? 'rotate-180' : ''}`}>▾</span>
       </button>
 
+      {/* Expanded: all tool calls with details */}
       {expanded && (
-        <div className="px-3 pb-2 space-y-1 border-t border-gray-700/50">
-          {tc.args && Object.keys(tc.args).length > 0 && (
-            <div>
-              <p className="text-gray-500 uppercase text-[10px] tracking-wide mt-2 mb-1">Args</p>
-              <pre className="text-gray-300 text-[11px] overflow-auto max-h-32 whitespace-pre-wrap">
-                {JSON.stringify(tc.args, null, 2)}
-              </pre>
-            </div>
-          )}
-          {tc.status === 'running' && (
-            <p className={`mt-2 text-[11px] ${isHung ? 'text-red-400' : 'text-gray-500'}`}>
-              {isHung ? 'Tool may be stuck...' : 'Waiting for result...'}
-            </p>
-          )}
-          {tc.result !== undefined && tc.status === 'done' && (
-            <div>
-              <p className="text-gray-500 uppercase text-[10px] tracking-wide mt-2 mb-1">Result</p>
-              <pre className="text-gray-300 text-[11px] overflow-auto max-h-32 whitespace-pre-wrap">
-                {typeof tc.result === 'string' ? tc.result : JSON.stringify(tc.result, null, 2)}
-              </pre>
-            </div>
-          )}
+        <div className="border-t border-gray-700/50 px-3 pb-2 space-y-3 max-h-80 overflow-y-auto">
+          {toolCalls.map((tc, i) => {
+            const tcIcon = tc.status === 'running' ? '⏳' : tc.status === 'done' ? '✓' : '✗';
+            const tcColor = tc.status === 'running' ? 'text-yellow-300' : tc.status === 'done' ? 'text-green-300' : 'text-red-300';
+            const tcElapsed = tc.status === 'running'
+              ? ((Date.now() - tc.startedAt) / 1000).toFixed(1)
+              : tc.elapsedMs ? (tc.elapsedMs / 1000).toFixed(1) : null;
+
+            return (
+              <div key={tc.toolUseId} className="pt-2">
+                <div className={`flex items-center gap-2 ${tcColor}`}>
+                  <span className={tc.status === 'running' ? 'animate-pulse' : ''}>{tcIcon}</span>
+                  <span className="font-mono font-medium">{tc.tool}</span>
+                  {tcElapsed && <span className="ml-auto text-gray-500">{tcElapsed}s</span>}
+                </div>
+                {tc.args && Object.keys(tc.args).length > 0 && (
+                  <div>
+                    <p className="text-gray-500 uppercase text-[10px] tracking-wide mt-1.5 mb-0.5">Args</p>
+                    <pre className="text-gray-300 text-[11px] overflow-auto max-h-24 whitespace-pre-wrap">
+                      {JSON.stringify(tc.args, null, 2)}
+                    </pre>
+                  </div>
+                )}
+                {tc.result !== undefined && tc.status === 'done' && (
+                  <div>
+                    <p className="text-gray-500 uppercase text-[10px] tracking-wide mt-1.5 mb-0.5">Result</p>
+                    <pre className="text-gray-300 text-[11px] overflow-auto max-h-24 whitespace-pre-wrap">
+                      {typeof tc.result === 'string' ? tc.result : JSON.stringify(tc.result, null, 2)}
+                    </pre>
+                  </div>
+                )}
+                {tc.status === 'running' && (
+                  <p className="mt-1 text-[11px] text-gray-500">Waiting for result...</p>
+                )}
+                {i < toolCalls.length - 1 && <div className="border-b border-gray-700/30 mt-2" />}
+              </div>
+            );
+          })}
         </div>
       )}
     </div>
@@ -156,7 +182,7 @@ function BouncingDots() {
   );
 }
 
-export function AgentMessageBubble({ message, onApprove, onDeny }: Props) {
+export function AgentMessageBubble({ message, onApprove, onDeny, showToolCalls = false }: Props) {
   const isUser = message.role === 'user';
 
   // ── User message: branded right-aligned bubble ──
@@ -174,7 +200,7 @@ export function AgentMessageBubble({ message, onApprove, onDeny }: Props) {
               ))}
             </div>
           )}
-          <div className="bg-indigo-600 text-white rounded-2xl rounded-br-sm px-4 py-3 text-sm leading-relaxed whitespace-pre-wrap break-words">
+          <div className="bg-indigo-600 text-white rounded-2xl rounded-br-sm px-5 py-3.5 text-sm leading-relaxed whitespace-pre-wrap break-words">
             {message.content}
           </div>
         </div>
@@ -185,12 +211,10 @@ export function AgentMessageBubble({ message, onApprove, onDeny }: Props) {
   // ── Assistant message: flat, no bubble, markdown rendered ──
   return (
     <div className="w-full">
-      {/* Tool pills */}
-      {message.toolCalls && message.toolCalls.length > 0 && (
+      {/* Tool calls — single compact box */}
+      {showToolCalls && message.toolCalls && message.toolCalls.length > 0 && (
         <div className="mb-2">
-          {message.toolCalls.map(tc => (
-            <ToolPill key={tc.toolUseId} tc={tc} />
-          ))}
+          <ToolCallBox toolCalls={message.toolCalls} />
         </div>
       )}
 

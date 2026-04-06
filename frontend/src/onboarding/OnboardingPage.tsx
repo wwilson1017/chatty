@@ -8,6 +8,7 @@ export function OnboardingPage() {
     <div className="min-h-screen bg-gray-950 flex items-center justify-center p-6">
       <div className="w-full max-w-2xl">
         <div className="text-center mb-8">
+          <img src="/chatty-logo.png" alt="Chatty" className="h-48 w-48 mx-auto mb-6" />
           <h1 className="text-3xl font-bold text-white">Welcome to Chatty</h1>
           <p className="text-gray-400 mt-2">Let's get you set up in a few quick steps</p>
         </div>

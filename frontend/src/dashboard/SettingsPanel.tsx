@@ -11,13 +11,16 @@ interface Props {
   onClose: () => void;
 }
 
-type Tab = 'providers' | 'branding' | 'integrations' | 'data';
+type Tab = 'providers' | 'branding' | 'integrations' | 'chat' | 'data';
 
 export function SettingsPanel({ branding, onBrandingUpdate, onClose }: Props) {
   const [tab, setTab] = useState<Tab>('providers');
   const [companyName, setCompanyName] = useState(branding?.company_name || '');
   const [accentColor, setAccentColor] = useState(branding?.accent_color || '#393c74');
   const [saving, setSaving] = useState(false);
+  const [showToolCalls, setShowToolCalls] = useState(() =>
+    localStorage.getItem('chatty_show_tool_calls') === 'true'
+  );
 
   async function saveBranding() {
     setSaving(true);
@@ -49,6 +52,7 @@ export function SettingsPanel({ branding, onBrandingUpdate, onClose }: Props) {
     { id: 'providers', label: 'AI Providers' },
     { id: 'branding', label: 'Branding' },
     { id: 'integrations', label: 'Integrations' },
+    { id: 'chat', label: 'Chat' },
     { id: 'data', label: 'Data' },
   ];
 
@@ -135,6 +139,27 @@ export function SettingsPanel({ branding, onBrandingUpdate, onClose }: Props) {
           )}
 
           {tab === 'integrations' && <IntegrationsTab />}
+
+          {tab === 'chat' && (
+            <div className="space-y-6">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-white text-sm font-medium">Show tool calls</p>
+                  <p className="text-gray-500 text-xs mt-0.5">Display tool call details in chat messages</p>
+                </div>
+                <button
+                  onClick={() => {
+                    const next = !showToolCalls;
+                    setShowToolCalls(next);
+                    localStorage.setItem('chatty_show_tool_calls', String(next));
+                  }}
+                  className={`relative w-11 h-6 rounded-full transition ${showToolCalls ? 'bg-indigo-600' : 'bg-gray-600'}`}
+                >
+                  <span className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-all ${showToolCalls ? 'left-5' : 'left-0.5'}`} />
+                </button>
+              </div>
+            </div>
+          )}
 
           {tab === 'data' && <DataTab />}
         </div>

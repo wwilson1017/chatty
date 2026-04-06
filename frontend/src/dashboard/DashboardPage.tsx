@@ -93,7 +93,7 @@ export function DashboardPage() {
           </div>
         ) : agents.length === 0 ? (
           <div className="text-center py-20">
-            <div className="text-6xl mb-4">🤖</div>
+            <img src="/chatty-logo.png" alt="Chatty" className="h-24 w-24 mx-auto mb-4" />
             <p className="text-gray-400 text-lg mb-6">No agents yet. Create your first one!</p>
             <button
               onClick={() => setShowCreate(true)}
