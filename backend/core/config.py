@@ -84,7 +84,7 @@ class Settings:
     # GCS bucket for Phase 2 cloud deployment (no-ops if empty)
     gcs_bucket: str = os.getenv("CONFIG_BUCKET", "")
 
-    # CORS
+    # CORS — parse from env + auto-add Railway domain if detected
     allowed_origins: list[str] = [
         o.strip()
         for o in os.getenv(
@@ -92,10 +92,7 @@ class Settings:
             "http://localhost:5173,http://localhost:3000,http://127.0.0.1:5173,http://127.0.0.1:3000",
         ).split(",")
         if o.strip()
-    ]
-    # Auto-add Railway domain to CORS origins
-    if RAILWAY_PUBLIC_URL:
-        allowed_origins.append(RAILWAY_PUBLIC_URL)
+    ] + ([RAILWAY_PUBLIC_URL] if RAILWAY_PUBLIC_URL else [])
 
     # Feature flags
     multi_user_enabled: bool = os.getenv("MULTI_USER_ENABLED", "false").lower() in ("1", "true", "yes")

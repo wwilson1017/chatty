@@ -83,12 +83,14 @@ Railway charges $0.15/GB/month for volume storage. A typical single-user Chatty 
 
 ### Backups
 
-Chatty has built-in backup and restore. From your browser:
+Chatty has built-in backup and restore. The easiest way is through the Chatty UI:
 
-- **Download backup**: `GET https://your-chatty-url/api/backup/download` (requires login)
-- **Restore backup**: `POST https://your-chatty-url/api/backup/restore` with the backup ZIP file
+1. Log in to your Chatty instance
+2. Go to **Settings** (gear icon) > **Data** tab
+3. Click **Download Backup** to save a ZIP of all your data
+4. Use **Restore Backup** to upload a previously downloaded ZIP
 
-You can also access these from the Settings > Data tab in the Chatty dashboard.
+These use the `/api/backup/download` and `/api/backup/restore` API endpoints under the hood (both require authentication).
 
 ## Custom Domain
 

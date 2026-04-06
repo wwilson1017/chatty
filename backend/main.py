@@ -7,6 +7,7 @@ Mounts all routers, initializes databases, sets up CORS and APScheduler.
 import logging
 import os
 from contextlib import asynccontextmanager
+from datetime import datetime, timezone
 from pathlib import Path
 
 from fastapi import FastAPI
@@ -121,7 +122,7 @@ async def lifespan(app: FastAPI):
     if volume_marker.exists():
         logger.info("Persistent volume verified (marker file present)")
     else:
-        volume_marker.write_text("chatty")
+        volume_marker.write_text(f"chatty:{datetime.now(timezone.utc).isoformat()}")
         if settings.is_railway:
             logger.info(
                 "First boot — wrote volume marker to %s. "
