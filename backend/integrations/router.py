@@ -9,7 +9,9 @@ GET  /api/integrations/{name}/tool-defs         — get tool definitions for an 
 """
 
 import logging
+from pathlib import Path
 
+import httpx
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
@@ -93,7 +95,6 @@ async def setup_bamboohr(body: BambooHRSetupRequest, user=Depends(get_current_us
 async def setup_quickbooks(user=Depends(get_current_user)):
     """Start QuickBooks OAuth flow. Opens browser, waits for callback, saves credentials."""
     from core.providers.oauth import start_oauth_flow
-    from core.config import settings
 
     try:
         tokens = await start_oauth_flow("quickbooks")
@@ -109,13 +110,46 @@ async def setup_quickbooks(user=Depends(get_current_user)):
         company_id=realm_id,
         access_token=tokens["access_token"],
         refresh_token=tokens["refresh_token"],
-        client_id=settings.quickbooks_oauth.client_id,
-        client_secret=settings.quickbooks_oauth.client_secret,
         expires_in=tokens.get("expires_in", 3600),
     )
     if not result.get("ok"):
         raise HTTPException(status_code=400, detail=result.get("error", "Setup failed"))
     return result
+
+
+@router.post("/quickbooks/disconnect")
+async def disconnect_quickbooks(user=Depends(get_current_user)):
+    """Disconnect QuickBooks: revoke tokens with Intuit and remove stored credentials."""
+    from core.config import settings
+    from .registry import get_credentials
+    from .quickbooks.client import QBO_REVOKE_URL
+
+    creds = get_credentials("quickbooks")
+    refresh_token = creds.get("refresh_token", "")
+
+    # Revoke token with Intuit
+    if refresh_token:
+        try:
+            resp = httpx.post(
+                QBO_REVOKE_URL,
+                json={"token": refresh_token},
+                auth=(settings.quickbooks_oauth.client_id, settings.quickbooks_oauth.client_secret),
+                timeout=10,
+            )
+            if resp.status_code == 200:
+                logger.info("QBO tokens revoked successfully")
+            else:
+                logger.warning("QBO token revoke returned %d", resp.status_code)
+        except Exception as e:
+            logger.warning("QBO token revoke failed: %s", e)
+
+    # Remove stored credentials
+    creds_path = Path(__file__).resolve().parent.parent / "data" / "integrations" / "quickbooks.json"
+    if creds_path.exists():
+        creds_path.unlink()
+        logger.info("Removed quickbooks.json credentials")
+
+    return {"ok": True}
 
 
 @router.post("/qb_csv/setup")

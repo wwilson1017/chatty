@@ -10,8 +10,6 @@ def setup_from_oauth(
     company_id: str,
     access_token: str,
     refresh_token: str,
-    client_id: str,
-    client_secret: str,
     expires_in: int = 3600,
 ) -> dict:
     """Save QBO OAuth2 credentials after completing the OAuth flow."""
@@ -20,9 +18,8 @@ def setup_from_oauth(
         "company_id": company_id,
         "access_token": access_token,
         "refresh_token": refresh_token,
-        "client_id": client_id,
-        "client_secret": client_secret,
         "token_expires_at": time.time() + expires_in,
+        "connection_status": "ok",
         "enabled": True,
     })
     return {"ok": True}

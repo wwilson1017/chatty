@@ -136,5 +136,6 @@ def list_integrations() -> list[dict]:
             **meta,
             "enabled": bool(creds.get("enabled", False)),
             "configured": bool(creds),
+            "connection_status": creds.get("connection_status", "ok") if creds else "ok",
         })
     return result
