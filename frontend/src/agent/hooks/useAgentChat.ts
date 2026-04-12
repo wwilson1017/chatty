@@ -2,23 +2,27 @@
  * Chatty — useAgentChat hook.
  *
  * Streams chat responses via SSE. Handles text, tool_start, tool_args,
- * tool_end, confirm, title_update, done, error events.
+ * tool_end, confirm, plan_ready, usage, report, title_update, done, error events.
  *
- * Supports 3-tier tool mode (read-only / normal / power) with confirmation flow.
+ * Supports 3-tier tool mode (read-only / normal / power) with confirmation flow,
+ * plan mode, training/improve modes, and context usage tracking.
  */
 
 import { useState, useCallback, useRef, useEffect } from 'react';
 import { getToken } from '../../core/auth/AuthContext';
 
 export type ToolMode = 'read-only' | 'normal' | 'power';
+export type TrainingType = 'topic' | 'improve' | null;
 
 export interface ToolCallInfo {
   tool: string;
   toolUseId: string;
   status: 'running' | 'done' | 'error';
   args?: Record<string, unknown>;
+  description?: string;
   result?: unknown;
   elapsedMs?: number;
+  durationMs?: number;
   startedAt: number;
 }
 
@@ -30,6 +34,19 @@ export interface PendingConfirmation {
   description?: string;
 }
 
+export interface PendingPlan {
+  plan: string;
+  status: 'pending' | 'approved' | 'iterating';
+}
+
+export interface InlineReport {
+  id: string;
+  title: string;
+  subtitle?: string;
+  sections: unknown[];
+  created_at: string;
+}
+
 export interface ChatMessage {
   id: string;
   role: 'user' | 'assistant';
@@ -39,6 +56,13 @@ export interface ChatMessage {
   isStreaming?: boolean;
   attachments?: { name: string; size: number }[];
   pendingConfirm?: PendingConfirmation;
+  pendingPlan?: PendingPlan;
+  reports?: InlineReport[];
+}
+
+export interface ContextUsage {
+  inputTokens: number;
+  contextWindow: number;
 }
 
 interface Options {
@@ -50,16 +74,22 @@ export function useAgentChat(apiPrefix: string, options?: Options) {
   const [isStreaming, setIsStreaming] = useState(false);
   const [conversationId, setConversationId] = useState<string | null>(null);
   const [trainingMode, setTrainingModeState] = useState(false);
+  const [trainingType, setTrainingType] = useState<TrainingType>('topic');
+  const [planMode, setPlanModeState] = useState(false);
   const [toolMode, setToolMode] = useState<ToolMode>('normal');
+  const [contextUsage, setContextUsage] = useState<ContextUsage | null>(null);
   const abortRef = useRef<AbortController | null>(null);
+  const savedToolModeRef = useRef<ToolMode>('normal');
+  const savedToolModeForPlanRef = useRef<ToolMode>('normal');
   const trainingKickoffRef = useRef(false);
+  const trainingKickoffMessageRef = useRef('Start training mode.');
 
   const sendMessage = useCallback(async (text: string, files?: File[], approvedTool?: {
     tool: string;
     args: Record<string, unknown>;
     toolUseId: string;
     result: unknown;
-  }) => {
+  }, overrides?: { tool_mode?: string; plan_mode?: boolean }) => {
     const userMsg: ChatMessage = {
       id: crypto.randomUUID(),
       role: 'user',
@@ -82,7 +112,7 @@ export function useAgentChat(apiPrefix: string, options?: Options) {
     const history = [...messages, userMsg].map(m => ({ role: m.role, content: m.content }));
 
     // Effective tool mode: training forces power
-    const effectiveMode = trainingMode ? 'power' : toolMode;
+    const effectiveMode = overrides?.tool_mode ?? (trainingMode ? 'power' : toolMode);
 
     abortRef.current = new AbortController();
 
@@ -93,8 +123,10 @@ export function useAgentChat(apiPrefix: string, options?: Options) {
       const payload: Record<string, unknown> = {
         messages: history,
         training_mode: trainingMode,
+        training_type: trainingType,
         conversation_id: conversationId,
         tool_mode: effectiveMode,
+        plan_mode: overrides?.plan_mode ?? planMode,
       };
       if (approvedTool) payload.approved_tool = approvedTool;
 
@@ -172,7 +204,7 @@ export function useAgentChat(apiPrefix: string, options?: Options) {
                     ...last,
                     toolCalls: [
                       ...(last.toolCalls || []),
-                      { tool: event.tool, toolUseId: event.tool_use_id, status: 'running', startedAt: Date.now() },
+                      { tool: event.tool, toolUseId: event.tool_use_id || crypto.randomUUID(), status: 'running', startedAt: Date.now() },
                     ],
                   };
                 }
@@ -186,7 +218,9 @@ export function useAgentChat(apiPrefix: string, options?: Options) {
                   updated[updated.length - 1] = {
                     ...last,
                     toolCalls: (last.toolCalls || []).map(tc =>
-                      tc.toolUseId === event.tool_use_id ? { ...tc, args: event.args } : tc
+                      tc.toolUseId === event.tool_use_id
+                        ? { ...tc, args: event.args, description: event.description }
+                        : tc
                     ),
                   };
                 }
@@ -204,7 +238,7 @@ export function useAgentChat(apiPrefix: string, options?: Options) {
                         ? tc.toolUseId === event.tool_use_id
                         : tc.tool === event.tool && tc.status === 'running';
                       return match
-                        ? { ...tc, status: 'done' as const, result: event.result, elapsedMs: event.elapsed_ms }
+                        ? { ...tc, status: 'done' as const, result: event.result, elapsedMs: event.elapsed_ms, durationMs: event.duration_ms }
                         : tc;
                     }),
                   };
@@ -225,6 +259,38 @@ export function useAgentChat(apiPrefix: string, options?: Options) {
                       status: 'pending',
                       description: event.description,
                     },
+                  };
+                }
+                return updated;
+              });
+            } else if (event.type === 'plan_ready' && event.plan) {
+              setMessages(prev => {
+                const updated = [...prev];
+                const last = updated[updated.length - 1];
+                if (last?.role === 'assistant') {
+                  updated[updated.length - 1] = {
+                    ...last,
+                    pendingPlan: {
+                      plan: event.plan,
+                      status: 'pending',
+                    },
+                  };
+                }
+                return updated;
+              });
+            } else if (event.type === 'usage' && event.input_tokens != null && event.context_window != null) {
+              setContextUsage({
+                inputTokens: event.input_tokens,
+                contextWindow: event.context_window,
+              });
+            } else if (event.type === 'report' && event.report) {
+              setMessages(prev => {
+                const updated = [...prev];
+                const last = updated[updated.length - 1];
+                if (last?.role === 'assistant') {
+                  updated[updated.length - 1] = {
+                    ...last,
+                    reports: [...(last.reports || []), event.report],
                   };
                 }
                 return updated;
@@ -264,17 +330,15 @@ export function useAgentChat(apiPrefix: string, options?: Options) {
       setMessages(prev => prev.map(m => m.isStreaming ? { ...m, isStreaming: false } : m));
       abortRef.current = null;
     }
-  }, [messages, trainingMode, toolMode, conversationId, apiPrefix, options]);
+  }, [messages, trainingMode, trainingType, toolMode, planMode, conversationId, apiPrefix, options]);
 
   // ── Approve a pending confirmation ──
   const approveAction = useCallback(async (msgId: string) => {
-    // Find the message with the pending confirm
     const msg = messages.find(m => m.id === msgId);
     if (!msg?.pendingConfirm || msg.pendingConfirm.status !== 'pending') return;
 
     const { tool, args, toolUseId } = msg.pendingConfirm;
 
-    // Mark as approved
     setMessages(prev => prev.map(m =>
       m.id === msgId && m.pendingConfirm
         ? { ...m, pendingConfirm: { ...m.pendingConfirm, status: 'approved' as const } }
@@ -295,7 +359,6 @@ export function useAgentChat(apiPrefix: string, options?: Options) {
       if (!res.ok) throw new Error(`Execute failed: ${res.status}`);
       const result = await res.json();
 
-      // Send follow-up message with approved_tool metadata
       sendMessage(`[Approved] ${tool}`, undefined, { tool, args, toolUseId, result });
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : 'Unknown error';
@@ -314,31 +377,82 @@ export function useAgentChat(apiPrefix: string, options?: Options) {
     ));
   }, []);
 
-  const setTrainingMode = useCallback((on: boolean) => {
+  // ── Training mode ──
+  const setTrainingMode = useCallback((on: boolean, type?: TrainingType, kickoff?: string) => {
     if (on) {
+      savedToolModeRef.current = toolMode;
       setMessages([]);
       setConversationId(null);
+      setTrainingType(type || 'topic');
+      trainingKickoffMessageRef.current = kickoff || 'Start training mode.';
       trainingKickoffRef.current = true;
       setTrainingModeState(true);
     } else {
+      setToolMode(savedToolModeRef.current);
       setMessages([]);
       setConversationId(null);
+      setTrainingType('topic');
       setTrainingModeState(false);
     }
-  }, []);
+  }, [toolMode]);
 
   useEffect(() => {
     if (trainingMode && trainingKickoffRef.current && !isStreaming) {
       trainingKickoffRef.current = false;
-      sendMessage('Hey!');
+      sendMessage(trainingKickoffMessageRef.current);
     }
   }, [trainingMode, isStreaming, sendMessage]);
+
+  // ── Plan mode ──
+  const setPlanMode = useCallback((on: boolean) => {
+    if (on) {
+      savedToolModeForPlanRef.current = toolMode;
+      setMessages([]);
+      setConversationId(null);
+      setPlanModeState(true);
+    } else {
+      setToolMode(savedToolModeForPlanRef.current);
+      setPlanModeState(false);
+    }
+  }, [toolMode]);
+
+  const approvePlan = useCallback((messageId: string) => {
+    const msg = messages.find(m => m.id === messageId);
+    if (!msg?.pendingPlan || msg.pendingPlan.status !== 'pending') return;
+
+    setMessages(prev =>
+      prev.map(m =>
+        m.id === messageId
+          ? { ...m, pendingPlan: { ...m.pendingPlan!, status: 'approved' as const } }
+          : m
+      )
+    );
+
+    // Exit plan mode and execute with power mode override
+    setPlanModeState(false);
+    sendMessage('[Plan approved] Execute the plan now.', undefined, undefined, {
+      tool_mode: 'power',
+      plan_mode: false,
+    });
+  }, [messages, sendMessage]);
+
+  const iteratePlan = useCallback((messageId: string) => {
+    setMessages(prev =>
+      prev.map(m =>
+        m.id === messageId
+          ? { ...m, pendingPlan: { ...m.pendingPlan!, status: 'iterating' as const } }
+          : m
+      )
+    );
+    // Plan mode stays active -- user types feedback
+  }, []);
 
   const stop = useCallback(() => { abortRef.current?.abort(); }, []);
 
   const clear = useCallback(() => {
     setMessages([]);
     setConversationId(null);
+    setContextUsage(null);
   }, []);
 
   const loadMessages = useCallback((msgs: ChatMessage[], id: string) => {
@@ -350,10 +464,16 @@ export function useAgentChat(apiPrefix: string, options?: Options) {
     messages,
     isStreaming,
     conversationId,
+    contextUsage,
     trainingMode,
+    trainingType,
     toolMode,
     setToolMode,
     setTrainingMode,
+    planMode,
+    setPlanMode,
+    approvePlan,
+    iteratePlan,
     sendMessage,
     approveAction,
     denyAction,

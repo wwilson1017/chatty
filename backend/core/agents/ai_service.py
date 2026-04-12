@@ -8,8 +8,11 @@ SSE event types emitted:
   conversation_id  — new/existing conversation ID
   text             — streamed assistant text
   tool_start       — tool call beginning  {tool, tool_use_id}
-  tool_args        — tool call arguments  {tool, tool_use_id, args}
+  tool_args        — tool call arguments  {tool, tool_use_id, args, description}
   tool_end         — tool result          {tool, tool_use_id, result, elapsed_ms}
+  confirm          — write tool needs approval {tool, args, tool_use_id, description}
+  plan_ready       — plan mode completed  {plan_text, status}
+  usage            — token usage          {input_tokens, output_tokens, context_window}
   title_update     — AI-generated title   {title, conversation_id}
   done             — stream complete
   error            — error message
@@ -66,6 +69,51 @@ When you see a message containing "[KNOWLEDGE CHECKPOINT]", you MUST:
 4. Briefly confirm what you saved (1-2 sentences max), then continue naturally
 
 If there is genuinely nothing new to save, say so in one sentence and move on."""
+
+
+def _improve_instructions(config: AgentConfig) -> str:
+    """Return system prompt for knowledge improvement mode."""
+    return f"""# Instructions — Knowledge Improvement Mode
+
+You are {config.agent_name} in **Improve Mode**. Your goal is to strengthen your knowledge base — not learn from scratch, but fill gaps, fix stale info, and deepen thin coverage.
+
+## Procedure
+
+1. **Read all your context files** — list_context_files, then read each one.
+2. **Identify the weakest spots:**
+   - Thin files (< 3 meaningful lines)
+   - Stale info (hasn't been updated, may be outdated)
+   - Missing topics (things you should know but don't have a file for)
+   - Contradictions or duplicates
+3. **Rank by impact** — which gap, if filled, would help you most in daily work?
+4. **Suggest the highest-impact area** to the user and ask focused questions about it.
+5. **Save incrementally** — after each answer, update the relevant file immediately.
+6. **Repeat** — move to the next gap until the user exits.
+
+## Rules
+- Always save with `write_context_file` or `append_to_context_file` — never narrate without saving.
+- Don't re-ask things you already know. Reference existing knowledge.
+- One topic at a time. Go deep, not wide.
+- If the user wants to talk about something else, go with it — save what you learn."""
+
+
+def _plan_mode_instructions() -> str:
+    """Return system prompt addendum for plan mode."""
+    return """# Plan Mode — Active
+
+You are in Plan Mode. Investigate the user's request thoroughly before proposing changes.
+
+## Rules
+1. **Read before writing.** Use read-only tools to gather information.
+2. **Think step by step.** Understand the full picture before acting.
+3. **Present a structured plan** when you're ready:
+   - What you'll do (numbered steps)
+   - What files/data you'll modify
+   - Any risks or considerations
+4. When your plan is complete, call `exit_plan_mode` with the plan text.
+5. Do NOT execute changes until the user approves the plan.
+
+You are operating in read-only mode — write tools are disabled until the plan is approved."""
 
 
 def _training_instructions(config: AgentConfig) -> str:
@@ -148,13 +196,16 @@ def _build_system_prompt(
     config: AgentConfig,
     ctx_manager: ContextManager,
     training_mode: bool = False,
+    training_type: str | None = None,
+    plan_mode: bool = False,
+    first_user_message: str = "",
 ) -> str:
     """Assemble the full system prompt."""
     now_ct = datetime.now(CT_TZ)
     date_str = now_ct.strftime("%A, %B %d, %Y")
     time_str = now_ct.strftime("%I:%M %p CT")
 
-    context = ctx_manager.load_all_context()
+    context = ctx_manager.load_all_context(agent_name=config.agent_name)
 
     personality = config.personality or (
         f"You are {config.agent_name}, a helpful personal AI assistant."
@@ -170,15 +221,78 @@ def _build_system_prompt(
         "",
         context if context else "(No knowledge files yet. Create them using write_context_file.)",
         "",
+    ]
+
+    # Daily notes — inject today's note if it exists
+    today_note = ctx_manager.today_daily_note_text()
+    if today_note:
+        parts.extend([
+            "# Today's Daily Note",
+            "",
+            today_note,
+            "",
+        ])
+
+    # Daily notes manifest — recent days for reference
+    daily_manifest = ctx_manager.daily_notes_manifest(limit=30)
+    if daily_manifest:
+        parts.extend([
+            "# Recent Daily Notes",
+            "",
+            daily_manifest,
+            "",
+        ])
+
+    # Topic files manifest
+    topic_manifest = ctx_manager.topic_files_manifest()
+    if topic_manifest:
+        parts.extend([
+            "# Topic Files",
+            "",
+            topic_manifest,
+            "",
+        ])
+
+    # Shared context manifest
+    try:
+        from core.agents.shared_context.service import get_shared_manifest
+        shared_manifest = get_shared_manifest()
+        if shared_manifest:
+            parts.extend([
+                "# Shared Knowledge (visible to all agents)",
+                "",
+                shared_manifest,
+                "",
+            ])
+    except Exception:
+        pass
+
+    # Relevance pre-fetch — on first message, inject relevant context
+    if first_user_message:
+        relevant = ctx_manager.relevance_prefetch(first_user_message)
+        if relevant:
+            parts.append("# Likely Relevant Context")
+            parts.append("")
+            for item in relevant:
+                label = f"[{item['kind']}] {item['name']}"
+                parts.append(f"## {label}")
+                parts.append("")
+                parts.append(item["content"])
+                parts.append("")
+
+    parts.extend([
         "# Current Session",
         "",
         f"- Date: {date_str}",
         f"- Time: {time_str}",
         "",
-    ]
+    ])
 
     if training_mode:
-        parts.append(_training_instructions(config))
+        if training_type == "improve":
+            parts.append(_improve_instructions(config))
+        else:
+            parts.append(_training_instructions(config))
     else:
         parts.extend([
             "# Instructions",
@@ -191,6 +305,7 @@ def _build_system_prompt(
             "",
         ])
         parts.append(_knowledge_management_instructions())
+        parts.append(_memory_instructions())
         parts.append(get_report_instructions())
         parts.append(get_scheduling_instructions())
 
@@ -199,7 +314,28 @@ def _build_system_prompt(
         if _integration_enabled("qb_csv"):
             parts.append(get_qb_csv_instructions())
 
+    if plan_mode:
+        parts.append(_plan_mode_instructions())
+
     return "\n".join(parts)
+
+
+def _memory_instructions() -> str:
+    """Instructions for using the memory system (daily notes, MEMORY.md, search)."""
+    return """## Memory System
+
+You have a structured memory system beyond basic context files:
+
+- **Daily Notes** — Use `append_daily_note` to log significant events, decisions, and information as they happen. Each entry is timestamped automatically. Optionally tag entries with a type (decision, person, task, etc.).
+- **MEMORY.md** — Your living snapshot of key facts. Read with `read_memory`, update with `update_memory`. This file is automatically regenerated nightly from your daily notes.
+- **Search** — Use `search_memory` to find information across all your files, daily notes, and facts.
+- **Facts** — Use `add_fact` to record structured entity-relationship facts (e.g. "John Smith works at Acme Corp"). Query with `query_facts`.
+- **Shared Context** — Use `list_shared_context` / `read_shared_context` / `write_shared_context` to access knowledge shared across all agents.
+
+Guidelines:
+- Log important events and decisions to daily notes as they happen
+- Use search_memory before saying "I don't know" — you might have recorded it
+- When you learn structured facts (people, relationships, dates), use add_fact"""
 
 
 # ── Background GCS sync ────────────────────────────────────────────────────────
@@ -288,6 +424,8 @@ async def chat(
     ctx_manager: ContextManager,
     messages: list[dict],
     training_mode: bool = False,
+    training_type: str | None = None,
+    plan_mode: bool = False,
     conversation_id: str | None = None,
     chat_service=None,
     anthropic_api_key: str = "",
@@ -306,6 +444,8 @@ async def chat(
         ctx_manager: Context file manager
         messages: Full conversation history
         training_mode: If True, injects onboarding system prompt
+        training_type: 'topic' (default training) or 'improve' (knowledge refinement)
+        plan_mode: If True, forces read-only mode and injects plan instructions
         conversation_id: Existing conversation ID (None to create new)
         chat_service: Optional ChatHistoryService for persistence
         anthropic_api_key: For smart title generation (uses haiku, optional)
@@ -320,6 +460,11 @@ async def chat(
     # Training mode forces power (no confirmations needed during onboarding)
     if training_mode:
         tool_mode = "power"
+
+    # Plan mode forces read-only
+    if plan_mode:
+        tool_mode = "read-only"
+
     persist = not training_mode and chat_service is not None
 
     # ── Get tool definitions ──────────────────────────────────────────
@@ -383,8 +528,41 @@ async def chat(
                     "content": last.get("content", "") + "\n\n[KNOWLEDGE CHECKPOINT]",
                 }
 
+    # ── Plan mode: add virtual exit_plan_mode tool ──────────────────
+    if plan_mode:
+        exit_plan_tool = {
+            "name": "exit_plan_mode",
+            "description": "Call this when your investigation is complete and you have a structured plan to present. Include the full plan as the 'plan' argument.",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "plan": {
+                        "type": "string",
+                        "description": "The full structured plan in markdown format",
+                    },
+                },
+                "required": ["plan"],
+            },
+            "kind": "plan",
+            "writes": False,
+        }
+        tool_defs.append(exit_plan_tool)
+        kind_map["exit_plan_mode"] = "plan"
+
     # ── Build system prompt ───────────────────────────────────────────
-    system_prompt = _build_system_prompt(config, ctx_manager, training_mode=training_mode)
+    # Determine first user message for relevance pre-fetch
+    first_user_msg = ""
+    user_msgs = [m for m in messages if m.get("role") == "user"]
+    if len(user_msgs) == 1:
+        first_user_msg = user_msgs[0].get("content", "")
+
+    system_prompt = _build_system_prompt(
+        config, ctx_manager,
+        training_mode=training_mode,
+        training_type=training_type,
+        plan_mode=plan_mode,
+        first_user_message=first_user_msg,
+    )
 
     # Append integration-specific instructions
     if integration_tool_defs:
@@ -481,16 +659,32 @@ async def chat(
                 })
 
             elif etype == "tool_args":
+                tool_name_for_desc = event["tool"]
+                tool_desc = next(
+                    (t.get("description", "") for t in tool_defs if t["name"] == tool_name_for_desc),
+                    "",
+                )
                 yield _sse({
                     "type": "tool_args",
                     "tool": event["tool"],
                     "tool_use_id": event["tool_use_id"],
                     "args": event.get("args", {}),
+                    "description": tool_desc,
                 })
 
             elif etype == "_turn_complete":
                 tool_calls_this_turn = event.get("tool_calls", [])
                 stop_reason = event.get("stop_reason", "stop")
+
+                # Emit usage event
+                usage = event.get("usage", {})
+                if usage:
+                    yield _sse({
+                        "type": "usage",
+                        "input_tokens": usage.get("input_tokens", 0),
+                        "output_tokens": usage.get("output_tokens", 0),
+                        "context_window": 200000,  # Default context window
+                    })
 
                 # Save assistant turn to history
                 if persist and turn_text and conversation_id:
@@ -535,6 +729,32 @@ async def chat(
             tool_use_id = tc.get("id", "")
             tool_args = tc.get("args", {})
             kind = kind_map.get(tool_name, "context")
+
+            # ── Plan mode: intercept exit_plan_mode ──
+            if tool_name == "exit_plan_mode" and plan_mode:
+                plan_text = tool_args.get("plan", "")
+                yield _sse({
+                    "type": "plan_ready",
+                    "plan_text": plan_text,
+                    "status": "pending",
+                })
+                # Feed a result back so provider can wrap up
+                results.append({
+                    "tool_use_id": tool_use_id,
+                    "tool_name": tool_name,
+                    "content": json.dumps({"ok": True, "message": "Plan presented to user for approval."}),
+                })
+                # Let the AI do one more turn to narrate, then stop
+                current_messages = provider.add_tool_results(current_messages, tool_calls_this_turn, results)
+                async for event in provider.stream_turn(current_messages, provider_tools, system_prompt):
+                    etype = event.get("type")
+                    if etype == "text":
+                        accumulated_text += event["text"]
+                        yield _sse({"type": "text", "text": event["text"]})
+                    elif etype == "_turn_complete":
+                        break
+                yield _sse({"type": "done"})
+                return
 
             # ── Normal mode: intercept write tools (not context_memory) ──
             is_write = writes_map.get(tool_name, False)

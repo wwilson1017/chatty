@@ -165,6 +165,8 @@ class ChatRequest(BaseModel):
     messages: list[dict]
     conversation_id: str | None = None
     training_mode: bool = False
+    training_type: str | None = None
+    plan_mode: bool = False
     tool_mode: str = "normal"
     approved_tool: dict | None = None
 
@@ -393,6 +395,7 @@ async def get_avatar(agent_id: str, request: Request, token: str | None = None):
 # ── Per-agent: Chat (shared helper) ──────────────────────────────────────────
 
 def _stream_chat(agent: dict, messages: list, training_mode: bool, conversation_id: str | None,
+                  training_type: str | None = None, plan_mode: bool = False,
                   tool_mode: str = "normal", approved_tool: dict | None = None):
     """Build provider, registry, and return a StreamingResponse for agent chat."""
     config = build_agent_config(agent)
@@ -416,9 +419,11 @@ def _stream_chat(agent: dict, messages: list, training_mode: bool, conversation_
     reminder_handlers, sa_handlers = _build_agent_handlers(agent["slug"])
     registry = ToolRegistry(
         context_dir=config.context_dir,
+        gcs_prefix=config.gcs_prefix,
         google_access_token=google_token,
         integration_executors=integration_executors,
         agent_slug=agent["slug"],
+        agent_name=config.agent_name,
         reminder_handlers=reminder_handlers,
         scheduled_action_handlers=sa_handlers,
     )
@@ -434,6 +439,8 @@ def _stream_chat(agent: dict, messages: list, training_mode: bool, conversation_
             ctx_manager=ctx_manager,
             messages=messages,
             training_mode=training_mode,
+            training_type=training_type,
+            plan_mode=plan_mode,
             conversation_id=conversation_id,
             chat_service=chat_service,
             anthropic_api_key=anthropic_api_key,
@@ -459,7 +466,50 @@ async def agent_chat(agent_id: str, req: ChatRequest, user=Depends(get_current_u
     """Stream a chat response for a specific agent."""
     agent = _get_agent_or_404(agent_id)
     return _stream_chat(agent, req.messages, req.training_mode, req.conversation_id,
+                        training_type=req.training_type, plan_mode=req.plan_mode,
                         tool_mode=req.tool_mode, approved_tool=req.approved_tool)
+
+
+# ── Per-agent: Plan mode approve/iterate ──────────────────────────────────────
+
+
+class PlanApproveRequest(BaseModel):
+    messages: list[dict]
+    conversation_id: str | None = None
+    plan_text: str = ""
+
+
+class PlanIterateRequest(BaseModel):
+    messages: list[dict]
+    conversation_id: str | None = None
+    feedback: str = ""
+
+
+@router.post("/{agent_id}/plan/approve")
+async def plan_approve(agent_id: str, req: PlanApproveRequest, user=Depends(get_current_user)):
+    """Approve a plan and execute it in power mode."""
+    agent = _get_agent_or_404(agent_id)
+    # Append the plan + approval as a user message
+    messages = list(req.messages)
+    messages.append({
+        "role": "user",
+        "content": f"[Plan Approved] Execute this plan:\n\n{req.plan_text}",
+    })
+    return _stream_chat(agent, messages, False, req.conversation_id,
+                        tool_mode="power")
+
+
+@router.post("/{agent_id}/plan/iterate")
+async def plan_iterate(agent_id: str, req: PlanIterateRequest, user=Depends(get_current_user)):
+    """Send feedback on a plan and stay in plan mode."""
+    agent = _get_agent_or_404(agent_id)
+    messages = list(req.messages)
+    messages.append({
+        "role": "user",
+        "content": req.feedback or "Please revise the plan.",
+    })
+    return _stream_chat(agent, messages, False, req.conversation_id,
+                        plan_mode=True)
 
 
 # ── Per-agent: Onboarding progress ───────────────────────────────────────────
@@ -684,6 +734,7 @@ async def agent_chat_upload(
 
     return _stream_chat(
         agent, messages, body.get("training_mode", False), body.get("conversation_id"),
+        training_type=body.get("training_type"), plan_mode=body.get("plan_mode", False),
         tool_mode=body.get("tool_mode", "normal"), approved_tool=body.get("approved_tool"),
     )
 

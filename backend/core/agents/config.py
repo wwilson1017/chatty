@@ -30,6 +30,9 @@ class AgentConfig:
     # Context directory (absolute path)
     context_dir: str = ""
 
+    # GCS prefix for this agent's data
+    gcs_prefix: str = ""
+
     # Chat history DB path (absolute path)
     chat_db_path: str = ""
 

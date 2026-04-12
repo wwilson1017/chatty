@@ -70,6 +70,7 @@ def build_agent_config(agent_row: dict) -> AgentConfig:
         gmail_enabled=bool(agent_row.get("gmail_enabled", 0)),
         calendar_enabled=bool(agent_row.get("calendar_enabled", 0)),
         context_dir=str(_context_dir(slug)),
+        gcs_prefix=_gcs_prefix(slug) + "context/",
         chat_db_path=str(_agent_dir(slug) / "chat.db"),
         onboarding_complete=bool(agent_row.get("onboarding_complete", 0)),
         training_topics=topics,

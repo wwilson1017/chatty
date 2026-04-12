@@ -3,7 +3,7 @@
  * Collapsible sidebar with conversation list and search.
  */
 
-import { useState } from 'react';
+import { useState, useRef, useCallback } from 'react';
 import type { Conversation } from '../hooks/useConversations';
 
 interface Props {
@@ -27,6 +27,16 @@ export function ConversationSidebar({
   const [collapsed, setCollapsed] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editTitle, setEditTitle] = useState('');
+  const [localQuery, setLocalQuery] = useState(searchQuery);
+  const debounceRef = useRef<ReturnType<typeof setTimeout>>(undefined);
+
+  const handleSearchChange = useCallback((value: string) => {
+    setLocalQuery(value);
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => {
+      onSearch(value);
+    }, 300);
+  }, [onSearch]);
 
   function startEdit(conv: Conversation, e: React.MouseEvent) {
     e.stopPropagation();
@@ -67,8 +77,8 @@ export function ConversationSidebar({
       {/* Search */}
       <div className="px-3 py-2">
         <input
-          value={searchQuery}
-          onChange={e => onSearch(e.target.value)}
+          value={localQuery}
+          onChange={e => handleSearchChange(e.target.value)}
           placeholder="Search conversations..."
           className="w-full bg-gray-800 border border-gray-700 text-sm text-white rounded-lg px-3 py-2 focus:outline-none focus:border-indigo-500"
         />
