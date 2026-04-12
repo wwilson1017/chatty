@@ -65,7 +65,7 @@ function OnboardingWizard({ agentId, agentName, onUpdate }: {
   const [error, setError] = useState('');
   const [connectedUsername, setConnectedUsername] = useState('');
   const [registrationExpires, setRegistrationExpires] = useState('');
-  const [registrationComplete, setRegistrationComplete] = useState(false);
+  const [, setRegistrationComplete] = useState(false);
 
   const steps: WizardStep[] = ['create-bot', 'paste-token', 'link-account', 'all-set'];
   const currentIndex = steps.indexOf(step);
