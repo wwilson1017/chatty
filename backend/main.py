@@ -5,7 +5,9 @@ Mounts all routers, initializes databases, sets up CORS and APScheduler.
 """
 
 import logging
+import os
 from contextlib import asynccontextmanager
+from datetime import datetime, timezone
 from pathlib import Path
 
 from fastapi import FastAPI
@@ -95,6 +97,39 @@ async def lifespan(app: FastAPI):
             reconnect_all_sessions()
         except Exception as e:
             logger.warning("WhatsApp session reconnect check failed: %s", e)
+
+    # ── Railway environment logging ─────────────────────────────────────────
+    if settings.is_railway:
+        from core.config import RAILWAY_PUBLIC_URL
+        logger.info("Running on Railway: %s", RAILWAY_PUBLIC_URL)
+    else:
+        logger.info("Running locally (no RAILWAY_PUBLIC_DOMAIN detected)")
+
+    if settings.jwt_secret_is_auto:
+        logger.warning(
+            "JWT_SECRET not set — using auto-generated secret. "
+            "Sessions will reset on redeploy. Set JWT_SECRET env var for persistent sessions."
+        )
+
+    if not os.environ.get("ENCRYPTION_KEY"):
+        logger.info(
+            "ENCRYPTION_KEY not set — will auto-generate and store in %s",
+            data_root / ".encryption-key",
+        )
+
+    # ── Volume health check ──────────────────────────────────────────────
+    volume_marker = data_root / ".volume-marker"
+    if volume_marker.exists():
+        logger.info("Persistent volume verified (marker file present)")
+    else:
+        volume_marker.write_text(f"chatty:{datetime.now(timezone.utc).isoformat()}")
+        if settings.is_railway:
+            logger.info(
+                "First boot — wrote volume marker to %s. "
+                "If this message appears on every deploy, your persistent volume may not be configured. "
+                "Mount a volume at /app/backend/data in Railway settings.",
+                volume_marker,
+            )
 
     logger.info("Chatty backend started. Data dir: %s", data_root)
     yield
