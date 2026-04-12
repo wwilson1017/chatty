@@ -1,15 +1,17 @@
 /**
  * Chatty — AgentChatPanel.
  * Centered reading column with floating pill input and gradient fade.
- * File upload via paperclip + drag-and-drop.
+ * File upload via paperclip + drag-and-drop. PDF support.
+ * Context usage indicator. Tool mode selector. Help text.
  */
 
 import { useState, useRef, useEffect, useCallback, type RefObject, type KeyboardEvent, type DragEvent, type MouseEvent } from 'react';
-import type { ChatMessage } from '../hooks/useAgentChat';
+import type { ChatMessage, ContextUsage, ToolMode } from '../hooks/useAgentChat';
 import { AgentMessageBubble } from './AgentMessageBubble';
 
-const ALLOWED_EXTENSIONS = new Set(['csv', 'xlsx', 'md', 'txt']);
-const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10 MB
+const ALLOWED_EXTENSIONS = new Set(['csv', 'xlsx', 'md', 'txt', 'pdf']);
+const MAX_FILE_SIZE = 1 * 1024 * 1024; // 1 MB for non-PDF
+const MAX_PDF_SIZE = 10 * 1024 * 1024; // 10 MB for PDF
 const MAX_FILES = 5;
 
 function getExtension(name: string): string {
@@ -23,10 +25,26 @@ interface Props {
   onStop: () => void;
   onApprove?: (msgId: string) => void;
   onDeny?: (msgId: string) => void;
+  onApprovePlan?: (msgId: string) => void;
+  onIteratePlan?: (msgId: string) => void;
   scrollRef?: RefObject<HTMLDivElement | null>;
+  contextUsage?: ContextUsage | null;
+  toolMode?: ToolMode;
+  onToolModeChange?: (mode: ToolMode) => void;
+  agentName?: string;
 }
 
-export function AgentChatPanel({ messages, isStreaming, onSend, onStop, onApprove, onDeny, scrollRef: externalScrollRef }: Props) {
+const TOOL_MODES: { key: ToolMode; label: string; activeClass: string }[] = [
+  { key: 'read-only', label: 'Read Only', activeClass: 'bg-gray-600' },
+  { key: 'normal', label: 'Normal', activeClass: 'bg-indigo-600' },
+  { key: 'power', label: 'Power', activeClass: 'bg-amber-600' },
+];
+
+export function AgentChatPanel({
+  messages, isStreaming, onSend, onStop, onApprove, onDeny,
+  onApprovePlan, onIteratePlan, scrollRef: externalScrollRef,
+  contextUsage, toolMode, onToolModeChange, agentName,
+}: Props) {
   const [input, setInput] = useState('');
   const [pendingFiles, setPendingFiles] = useState<File[]>([]);
   const [dragOver, setDragOver] = useState(false);
@@ -64,8 +82,10 @@ export function AgentChatPanel({ messages, isStreaming, onSend, onStop, onApprov
         errors.push(`${f.name}: unsupported type (.${ext})`);
         continue;
       }
-      if (f.size > MAX_FILE_SIZE) {
-        errors.push(`${f.name}: exceeds 10 MB`);
+      const maxSize = ext === 'pdf' ? MAX_PDF_SIZE : MAX_FILE_SIZE;
+      const maxLabel = ext === 'pdf' ? '10 MB' : '1 MB';
+      if (f.size > maxSize) {
+        errors.push(`${f.name}: exceeds ${maxLabel}`);
         continue;
       }
       if (f.size === 0) {
@@ -136,8 +156,15 @@ export function AgentChatPanel({ messages, isStreaming, onSend, onStop, onApprov
     textareaRef.current?.focus();
   }
 
+  function handleToolModeClick(mode: ToolMode) {
+    if (!onToolModeChange) return;
+    if (mode === 'power') {
+      if (!window.confirm(`Enable Power mode? ${agentName || 'This agent'} will be able to read and write without asking for confirmation.`)) return;
+    }
+    onToolModeChange(mode);
+  }
+
   const isEmpty = messages.length === 0;
-  const showToolCalls = localStorage.getItem('chatty_show_tool_calls') === 'true';
 
   function renderInputBox() {
     return (
@@ -168,28 +195,50 @@ export function AgentChatPanel({ messages, isStreaming, onSend, onStop, onApprov
           />
 
           <div className="flex items-center justify-between px-4 pb-3 pt-1">
-            {/* Paperclip */}
-            <button
-              onClick={() => fileInputRef.current?.click()}
-              disabled={isStreaming}
-              title="Attach files (CSV, XLSX, MD, TXT)"
-              className="text-gray-500 hover:text-gray-300 disabled:opacity-30 transition p-1"
-            >
-              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" /></svg>
-            </button>
-            <input
-              ref={fileInputRef}
-              type="file"
-              multiple
-              accept=".csv,.xlsx,.md,.txt"
-              className="hidden"
-              onChange={e => {
-                if (e.target.files?.length) {
-                  validateAndAddFiles(Array.from(e.target.files));
-                  e.target.value = '';
-                }
-              }}
-            />
+            {/* Left side: paperclip + tool mode */}
+            <div className="flex items-center gap-2">
+              {/* Paperclip */}
+              <button
+                onClick={() => fileInputRef.current?.click()}
+                disabled={isStreaming}
+                title="Attach files (CSV, XLSX, MD, TXT, PDF)"
+                className="text-gray-500 hover:text-gray-300 disabled:opacity-30 transition p-1"
+              >
+                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" /></svg>
+              </button>
+              <input
+                ref={fileInputRef}
+                type="file"
+                multiple
+                accept=".csv,.xlsx,.md,.txt,.pdf"
+                className="hidden"
+                onChange={e => {
+                  if (e.target.files?.length) {
+                    validateAndAddFiles(Array.from(e.target.files));
+                    e.target.value = '';
+                  }
+                }}
+              />
+
+              {/* Inline tool mode selector (visible on sm+) */}
+              {toolMode && onToolModeChange && (
+                <div className="hidden sm:flex items-center bg-gray-900/60 rounded-full p-0.5 gap-0.5">
+                  {TOOL_MODES.map(m => (
+                    <button
+                      key={m.key}
+                      onClick={() => handleToolModeClick(m.key)}
+                      className={`px-2 py-0.5 text-[10px] font-medium rounded-full transition-all ${
+                        toolMode === m.key
+                          ? `${m.activeClass} text-white`
+                          : 'text-gray-500 hover:text-gray-300'
+                      }`}
+                    >
+                      {m.label}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
 
             <div className="flex gap-2">
               {isStreaming ? (
@@ -211,6 +260,20 @@ export function AgentChatPanel({ messages, isStreaming, onSend, onStop, onApprov
             </div>
           </div>
         </div>
+
+        {/* Help text + context usage */}
+        <p className="text-center text-[10px] text-gray-600 mt-1.5">
+          Enter to send &middot; Shift+Enter for new line
+        </p>
+        {contextUsage && (() => {
+          const pct = Math.round((contextUsage.inputTokens / contextUsage.contextWindow) * 100);
+          const color = pct >= 80 ? 'text-red-400' : pct >= 60 ? 'text-amber-400' : 'text-gray-600';
+          return (
+            <p className={`text-center text-[10px] ${color} mt-0.5`}>
+              {pct}% context used
+            </p>
+          );
+        })()}
       </div>
     );
   }
@@ -229,7 +292,7 @@ export function AgentChatPanel({ messages, isStreaming, onSend, onStop, onApprov
         </div>
       )}
 
-      {/* Messages — centered reading column */}
+      {/* Messages -- centered reading column */}
       <div
         ref={scrollContainerRef}
         className={`flex-1 overflow-y-auto ${isEmpty && !isStreaming ? '' : 'pb-40 sm:pb-48'}`}
@@ -255,7 +318,8 @@ export function AgentChatPanel({ messages, isStreaming, onSend, onStop, onApprov
                 message={msg}
                 onApprove={onApprove}
                 onDeny={onDeny}
-                showToolCalls={showToolCalls}
+                onApprovePlan={onApprovePlan}
+                onIteratePlan={onIteratePlan}
               />
             ))}
           </div>
@@ -269,7 +333,7 @@ export function AgentChatPanel({ messages, isStreaming, onSend, onStop, onApprov
         </div>
       )}
 
-      {/* Floating input — only when messages exist */}
+      {/* Floating input -- only when messages exist */}
       {(!isEmpty || isStreaming) && (
         <div className="absolute bottom-0 inset-x-0 pointer-events-none z-20">
           <div className="h-12 bg-gradient-to-t from-gray-950 to-transparent" />

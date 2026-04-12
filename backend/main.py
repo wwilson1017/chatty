@@ -74,9 +74,17 @@ async def lifespan(app: FastAPI):
         init_whatsapp_db()
         logger.info("WhatsApp bridge configured at %s", settings.whatsapp.bridge_url)
 
-    # Initialize reminders + scheduled actions DB
+    # Initialize reminders + scheduled actions DB (also creates dreaming tables)
     from core.agents.reminders.db import init_db as init_reminders_db
     init_reminders_db()
+
+    # Initialize shared context DB
+    from core.agents.shared_context.db import init_db as init_shared_context_db
+    init_shared_context_db()
+
+    # Initialize tool toggle config DB
+    from core.agents.tool_config_db import init_db as init_tool_config_db
+    init_tool_config_db()
 
     # Start APScheduler for reminders and scheduled actions
     from apscheduler.schedulers.background import BackgroundScheduler
@@ -87,8 +95,14 @@ async def lifespan(app: FastAPI):
 
     _scheduler.add_job(process_due_reminders, "interval", seconds=60, id="reminder_heartbeat")
     _scheduler.add_job(process_due_actions, "interval", seconds=60, id="scheduled_actions_processor")
+
+    # Nightly memory/dreaming jobs (run per-agent)
+    from core.agents.scheduled_actions.nightly import run_nightly_jobs
+    _scheduler.add_job(run_nightly_jobs, "cron", hour=23, minute=0, id="nightly_memory_jobs",
+                       timezone="America/Chicago")
+
     _scheduler.start()
-    logger.info("APScheduler started (reminder heartbeat + scheduled actions processor)")
+    logger.info("APScheduler started (reminder heartbeat + scheduled actions + nightly jobs)")
 
     # Log WhatsApp session status on startup
     if settings.whatsapp.is_configured:
@@ -172,6 +186,9 @@ app.include_router(scheduled_actions_router, prefix="/api/scheduled-actions", ta
 app.include_router(setup_router, prefix="/api/setup", tags=["setup"])
 app.include_router(backup_router, prefix="/api/backup", tags=["backup"])
 app.include_router(telegram_router, prefix="/api/telegram", tags=["telegram"])
+
+from core.agents.shared_context.router import router as shared_context_router
+app.include_router(shared_context_router, tags=["shared-context"])
 
 
 @app.get("/api/health")

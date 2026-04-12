@@ -1,7 +1,8 @@
 /**
  * Chatty — AgentPage.
  * Immersive chat with auto-hiding top bar, tool mode selector,
- * collapsible sidebar, and Chat/Knowledge/Reports tabs.
+ * collapsible sidebar, Chat/Knowledge/Reports/Activity tabs,
+ * plan mode toggle, and Train/Improve smart detection.
  */
 
 import { useState, useEffect, useCallback, useRef } from 'react';
@@ -13,6 +14,7 @@ import { useScrollDirection } from './hooks/useScrollDirection';
 import { AgentChatPanel } from './components/AgentChatPanel';
 import { AgentContextEditor } from './components/AgentContextEditor';
 import ReportsPanel from './reports/ReportsPanel';
+import AgentActivityPanel from './components/AgentActivityPanel';
 import { ConversationSidebar } from './components/ConversationSidebar';
 import { AvatarPicker } from './components/AvatarPicker';
 import { TelegramSettings } from './components/TelegramSettings';
@@ -30,7 +32,7 @@ interface AgentRow {
   telegram_bot_username: string;
 }
 
-type Tab = 'chat' | 'knowledge' | 'reports' | 'telegram';
+type Tab = 'chat' | 'knowledge' | 'reports' | 'activity' | 'telegram';
 
 const TOOL_MODES: { key: ToolMode; label: string; activeClass: string }[] = [
   { key: 'read-only', label: 'Read Only', activeClass: 'bg-gray-600' },
@@ -95,7 +97,6 @@ export function AgentPage() {
     const wasIncomplete = prevOnboardingComplete.current === false;
     prevOnboardingComplete.current = agent.onboarding_complete;
     if (wasIncomplete && agent.onboarding_complete) {
-      // Exit training mode now that onboarding is done
       if (chat.trainingMode) {
         chat.setTrainingMode(false);
       }
@@ -115,6 +116,9 @@ export function AgentPage() {
     if (chat.trainingMode) {
       chat.setTrainingMode(false);
     }
+    if (chat.planMode) {
+      chat.setPlanMode(false);
+    }
     const msgs = await convs.selectConversation(id);
     chat.loadMessages(msgs, id);
   }
@@ -129,6 +133,8 @@ export function AgentPage() {
     convs.startNewChat();
     if (chat.trainingMode) {
       chat.setTrainingMode(false);
+    } else if (chat.planMode) {
+      chat.setPlanMode(false);
     } else {
       chat.clear();
     }
@@ -136,7 +142,12 @@ export function AgentPage() {
 
   function handleStartOnboarding() {
     convs.startNewChat();
-    chat.setTrainingMode(true);
+    chat.setTrainingMode(true, 'topic');
+  }
+
+  function handleStartImprove() {
+    convs.startNewChat();
+    chat.setTrainingMode(true, 'improve', 'Start improve mode. Review my existing knowledge and help me fill gaps.');
   }
 
   function handleToolModeChange(mode: ToolMode) {
@@ -144,6 +155,13 @@ export function AgentPage() {
       if (!window.confirm(`Enable Power mode? ${agent?.agent_name || 'This agent'} will be able to read and write without asking for confirmation.`)) return;
     }
     chat.setToolMode(mode);
+  }
+
+  function handleTogglePlanMode() {
+    chat.setPlanMode(!chat.planMode);
+    if (!chat.planMode) {
+      convs.startNewChat();
+    }
   }
 
   function handleAvatarComplete() {
@@ -168,12 +186,15 @@ export function AgentPage() {
     .toUpperCase()
     .slice(0, 2);
 
+  // Smart label: "Train" if not onboarded, "Improve" if already complete
+  const trainLabel = agent.onboarding_complete ? `Improve ${agent.agent_name}` : `Train ${agent.agent_name}`;
+
   // Only auto-hide on chat tab; always visible on other tabs
   const showTopBar = activeTab !== 'chat' || topBarVisible;
 
   return (
     <div className="flex flex-col h-screen bg-gray-950 text-white overflow-hidden">
-      {/* Top bar — auto-hides on scroll in chat tab */}
+      {/* Top bar -- auto-hides on scroll in chat tab */}
       <div className={`flex items-center gap-3 px-4 py-3 border-b border-gray-800 bg-gray-950/95 backdrop-blur-sm flex-shrink-0 z-30 transition-all duration-300 ${
         showTopBar ? 'translate-y-0 opacity-100' : '-translate-y-full opacity-0 pointer-events-none'
       }`}>
@@ -182,7 +203,7 @@ export function AgentPage() {
           className="text-gray-400 hover:text-white transition p-1.5 rounded-lg hover:bg-gray-800 text-sm"
           title="Back to dashboard"
         >
-          ←
+          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" /></svg>
         </button>
 
         <div className="w-8 h-8 rounded-full bg-indigo-600 flex items-center justify-center text-xs font-bold flex-shrink-0 overflow-hidden">
@@ -203,26 +224,53 @@ export function AgentPage() {
           </button>
         )}
 
-        {/* Tool mode selector — hidden on mobile */}
-        <div className="hidden sm:flex items-center bg-gray-800 rounded-full p-0.5 gap-0.5">
-          {TOOL_MODES.map(m => (
-            <button
-              key={m.key}
-              onClick={() => handleToolModeChange(m.key)}
-              className={`px-2 py-0.5 text-xs font-medium rounded-full transition-all ${
-                chat.toolMode === m.key
-                  ? `${m.activeClass} text-white`
-                  : 'text-gray-400 hover:text-white'
-              }`}
-            >
-              {m.label}
-            </button>
-          ))}
-        </div>
+        {/* Tool mode selector -- hidden on mobile, only on chat tab */}
+        {activeTab === 'chat' && (
+          <div className="hidden sm:flex items-center bg-gray-800 rounded-full p-0.5 gap-0.5">
+            {TOOL_MODES.map(m => (
+              <button
+                key={m.key}
+                onClick={() => handleToolModeChange(m.key)}
+                className={`px-2 py-0.5 text-xs font-medium rounded-full transition-all ${
+                  chat.toolMode === m.key
+                    ? `${m.activeClass} text-white`
+                    : 'text-gray-400 hover:text-white'
+                }`}
+              >
+                {m.label}
+              </button>
+            ))}
+          </div>
+        )}
+
+        {/* Plan mode toggle -- only on chat tab */}
+        {activeTab === 'chat' && (
+          <button
+            onClick={handleTogglePlanMode}
+            className={`hidden sm:inline-flex text-xs font-medium rounded-full px-2.5 py-0.5 transition-all ${
+              chat.planMode
+                ? 'bg-teal-700/60 text-teal-200 border border-teal-600/40'
+                : 'bg-gray-800 text-gray-400 hover:text-white border border-gray-700'
+            }`}
+            title={chat.planMode ? 'Exit plan mode' : 'Enter plan mode -- agent proposes a plan before acting'}
+          >
+            {chat.planMode ? 'Plan Mode ON' : 'Plan Mode'}
+          </button>
+        )}
+
+        {/* Train/Improve button -- only on chat tab */}
+        {activeTab === 'chat' && !chat.trainingMode && (
+          <button
+            onClick={agent.onboarding_complete ? handleStartImprove : handleStartOnboarding}
+            className="hidden sm:inline-flex text-xs font-medium rounded-full px-2.5 py-0.5 bg-gray-800 text-gray-400 hover:text-white border border-gray-700 transition"
+          >
+            {trainLabel}
+          </button>
+        )}
 
         {/* Tab switcher */}
         <div className="ml-auto flex items-center bg-gray-800 rounded-lg p-0.5 gap-0.5">
-          {(['chat', 'knowledge', 'reports', 'telegram'] as Tab[]).map(tab => (
+          {(['chat', 'knowledge', 'reports', 'activity', 'telegram'] as Tab[]).map(tab => (
             <button
               key={tab}
               onClick={() => setActiveTab(tab)}
@@ -232,7 +280,7 @@ export function AgentPage() {
                   : 'text-gray-400 hover:text-white'
               }`}
             >
-              {tab === 'chat' ? 'Chat' : tab === 'knowledge' ? 'Knowledge' : tab === 'reports' ? 'Reports' : 'Telegram'}
+              {tab === 'chat' ? 'Chat' : tab === 'knowledge' ? 'Knowledge' : tab === 'reports' ? 'Reports' : tab === 'activity' ? 'Activity' : 'Telegram'}
             </button>
           ))}
         </div>
@@ -243,6 +291,40 @@ export function AgentPage() {
         <div className="px-3 py-1.5 bg-amber-900/30 border-b border-amber-700/40 flex items-center gap-2 flex-shrink-0">
           <span className="text-amber-400 text-xs font-semibold">POWER MODE</span>
           <span className="text-xs text-amber-300">{agent.agent_name} can read and write without confirmation.</span>
+        </div>
+      )}
+
+      {/* Plan mode banner */}
+      {chat.planMode && (
+        <div className="px-3 py-1.5 bg-teal-900/30 border-b border-teal-700/40 flex items-center gap-2 flex-shrink-0">
+          <span className="text-teal-400 text-xs font-semibold">PLAN MODE</span>
+          <span className="text-xs text-teal-300">{agent.agent_name} will propose a plan before taking action.</span>
+          <button
+            onClick={() => chat.setPlanMode(false)}
+            className="ml-auto text-xs text-teal-400 hover:text-teal-200 transition"
+          >
+            Exit
+          </button>
+        </div>
+      )}
+
+      {/* Training mode banner */}
+      {chat.trainingMode && (
+        <div className="px-3 py-1.5 bg-purple-900/30 border-b border-purple-700/40 flex items-center gap-2 flex-shrink-0">
+          <span className="text-purple-400 text-xs font-semibold">
+            {chat.trainingType === 'improve' ? 'IMPROVE MODE' : 'TRAINING MODE'}
+          </span>
+          <span className="text-xs text-purple-300">
+            {chat.trainingType === 'improve'
+              ? `Reviewing and improving ${agent.agent_name}'s knowledge.`
+              : `Teaching ${agent.agent_name} about your business.`}
+          </span>
+          <button
+            onClick={() => chat.setTrainingMode(false)}
+            className="ml-auto text-xs text-purple-400 hover:text-purple-200 transition"
+          >
+            Exit
+          </button>
         </div>
       )}
 
@@ -271,13 +353,23 @@ export function AgentPage() {
               onStop={chat.stop}
               onApprove={chat.approveAction}
               onDeny={chat.denyAction}
+              onApprovePlan={chat.approvePlan}
+              onIteratePlan={chat.iteratePlan}
               scrollRef={scrollRef}
+              contextUsage={chat.contextUsage}
+              toolMode={chat.toolMode}
+              onToolModeChange={handleToolModeChange}
+              agentName={agent.agent_name}
             />
           </>
         ) : activeTab === 'knowledge' ? (
           <AgentContextEditor agentId={agentId!} />
         ) : activeTab === 'reports' ? (
           <ReportsPanel apiPrefix={apiPrefix} />
+        ) : activeTab === 'activity' ? (
+          <div className="flex-1 overflow-y-auto">
+            <AgentActivityPanel apiPrefix={apiPrefix} />
+          </div>
         ) : (
           <div className="flex-1 overflow-y-auto">
             <TelegramSettings

@@ -119,10 +119,19 @@ class AnthropicProvider(AIProvider):
             yield {"type": "_turn_complete", "tool_calls": [], "stop_reason": "error"}
             return
 
+        # Extract usage from the final message
+        usage_info = {}
+        if hasattr(final_message, "usage") and final_message.usage:
+            usage_info = {
+                "input_tokens": getattr(final_message.usage, "input_tokens", 0),
+                "output_tokens": getattr(final_message.usage, "output_tokens", 0),
+            }
+
         yield {
             "type": "_turn_complete",
             "tool_calls": tool_calls,
             "stop_reason": stop_reason,
+            "usage": usage_info,
         }
 
     def add_tool_results(

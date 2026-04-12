@@ -1,8 +1,8 @@
 """
 Chatty — Tool registry and execution dispatcher.
 
-Dispatches tool calls by kind: context, gmail, calendar, web, real_tool,
-report, reminder, scheduled_action, integration.
+Dispatches tool calls by kind: context, memory, shared_context, gmail,
+calendar, web, real_tool, report, reminder, scheduled_action, integration.
 Each agent instance creates its own ToolRegistry with its own context_dir
 and access token.
 """
@@ -45,21 +45,29 @@ class ToolRegistry:
     def __init__(
         self,
         context_dir: str,
+        gcs_prefix: str = "",
         google_access_token: str = "",
         integration_executors: dict | None = None,
         agent_slug: str = "",
+        agent_name: str = "",
         reminder_handlers: dict | None = None,
         scheduled_action_handlers: dict | None = None,
     ):
         self.context_dir = context_dir
+        self.gcs_prefix = gcs_prefix
         self.google_access_token = google_access_token
         self.integration_executors: dict = integration_executors or {}
         self.agent_slug = agent_slug
+        self.agent_name = agent_name
 
         # Derived paths
         agent_data_dir = str(Path(context_dir).parent)
+        self.agent_data_dir = agent_data_dir
         self.real_tools_dir = str(Path(agent_data_dir) / "real_tools")
         self.reports_dir = str(Path(agent_data_dir) / "reports")
+
+        # Shared context data dir
+        self.shared_data_dir = str(Path(agent_data_dir).parent.parent / "shared")
 
         # Injected handlers for reminders and scheduled actions
         self.reminder_handlers: dict = reminder_handlers or {}
@@ -73,6 +81,10 @@ class ToolRegistry:
         try:
             if kind == "context":
                 return self._execute_context(tool_name, tool_args)
+            elif kind == "memory":
+                return self._execute_memory(tool_name, tool_args)
+            elif kind == "shared_context":
+                return self._execute_shared_context(tool_name, tool_args)
             elif kind == "gmail":
                 return self._execute_gmail(tool_name, tool_args)
             elif kind == "calendar":
@@ -107,6 +119,81 @@ class ToolRegistry:
         elif tool_name == "delete_context_file":
             return delete_context_file(self.context_dir, args["filename"])
         return {"error": f"Unknown context tool: {tool_name}"}
+
+    def _execute_memory(self, tool_name: str, args: dict) -> dict:
+        from core.agents.tools.memory_tools import (
+            append_daily_note, read_daily_note, list_daily_notes,
+            read_memory, update_memory,
+        )
+        from core.agents.memory.search_tools import (
+            search_memory, add_fact, query_facts, invalidate_fact,
+        )
+
+        # Memory tools use context_dir (not agent_data_dir) because
+        # ContextManager expects the context directory as data_dir.
+        # Daily notes live at context_dir/daily/, MEMORY.md at context_dir/.
+        ctx_dir = self.context_dir
+        prefix = self.gcs_prefix
+
+        if tool_name == "append_daily_note":
+            return append_daily_note(ctx_dir, prefix, args["content"],
+                                     date=args.get("date"), memory_type=args.get("memory_type"))
+        elif tool_name == "read_daily_note":
+            return read_daily_note(ctx_dir, prefix, args["date"])
+        elif tool_name == "list_daily_notes":
+            return list_daily_notes(ctx_dir, prefix, limit=args.get("limit", 30))
+        elif tool_name == "read_memory":
+            return read_memory(ctx_dir, prefix)
+        elif tool_name == "update_memory":
+            return update_memory(ctx_dir, prefix, args["content"])
+        elif tool_name == "search_memory":
+            return search_memory(
+                ctx_dir, prefix, args["query"],
+                source_type=args.get("source_type"),
+                memory_type=args.get("memory_type"),
+                date_from=args.get("date_from"),
+                date_to=args.get("date_to"),
+                limit=args.get("limit", 20),
+            )
+        elif tool_name == "add_fact":
+            return add_fact(
+                ctx_dir, prefix,
+                subject=args["subject"], predicate=args["predicate"], object=args["object"],
+                memory_type=args.get("memory_type"), confidence=args.get("confidence", 1.0),
+            )
+        elif tool_name == "query_facts":
+            return query_facts(
+                ctx_dir, prefix,
+                subject=args.get("subject"), predicate=args.get("predicate"),
+                as_of=args.get("as_of"), memory_type=args.get("memory_type"),
+                include_expired=args.get("include_expired", False),
+                limit=args.get("limit", 50),
+            )
+        elif tool_name == "invalidate_fact":
+            return invalidate_fact(
+                ctx_dir, prefix,
+                fact_id=args["fact_id"], valid_to=args.get("valid_to"),
+            )
+        return {"error": f"Unknown memory tool: {tool_name}"}
+
+    def _execute_shared_context(self, tool_name: str, args: dict) -> dict:
+        from core.agents.shared_context.tools import (
+            list_shared_context, read_shared_context, write_shared_context,
+        )
+
+        if tool_name == "list_shared_context":
+            return list_shared_context(self.shared_data_dir, category=args.get("category", ""))
+        elif tool_name == "read_shared_context":
+            return read_shared_context(self.shared_data_dir,
+                                       filename=args.get("filename", ""),
+                                       entry_id=args.get("entry_id", ""))
+        elif tool_name == "write_shared_context":
+            return write_shared_context(
+                self.shared_data_dir, self.gcs_prefix, self.agent_name,
+                title=args["title"], content=args["content"],
+                category=args.get("category", ""),
+            )
+        return {"error": f"Unknown shared_context tool: {tool_name}"}
 
     def _execute_gmail(self, tool_name: str, args: dict) -> dict:
         if not self.google_access_token:

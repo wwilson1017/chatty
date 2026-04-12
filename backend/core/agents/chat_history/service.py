@@ -113,6 +113,23 @@ class ChatHistoryService:
             )
             db.commit()
 
+    def get_messages_on_date(self, date: str) -> list[dict]:
+        """Return all messages from a given date (YYYY-MM-DD), ordered by conversation then sequence.
+
+        Each row includes conversation_id, conversation_title, role, content.
+        Used by the daily note summarization job.
+        """
+        db = self._db.get_db()
+        rows = db.execute(
+            """SELECT m.conversation_id, c.title AS conversation_title, m.role, m.content
+               FROM messages m
+               JOIN conversations c ON c.id = m.conversation_id
+               WHERE DATE(m.created_at) = ?
+               ORDER BY m.conversation_id, m.seq""",
+            (date,),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
     def search_conversations(self, query: str, limit: int = 20) -> list[dict]:
         """Search message content (case-insensitive), return matching conversations with snippets."""
         db = self._db.get_db()

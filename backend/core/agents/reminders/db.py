@@ -89,6 +89,29 @@ def init_db() -> None:
         );
         CREATE INDEX IF NOT EXISTS idx_sa_next ON scheduled_actions(enabled, next_run);
         CREATE INDEX IF NOT EXISTS idx_sa_agent ON scheduled_actions(agent);
+
+        -- Context usage tracking for the dreaming system
+        CREATE TABLE IF NOT EXISTS context_usage (
+            agent TEXT NOT NULL,
+            filename TEXT NOT NULL,
+            event_type TEXT NOT NULL,
+            source TEXT DEFAULT 'chat',
+            conversation_id TEXT,
+            created_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+        CREATE INDEX IF NOT EXISTS idx_ctx_usage ON context_usage(agent, created_at);
+
+        -- Dreaming run history
+        CREATE TABLE IF NOT EXISTS dreaming_runs (
+            agent TEXT NOT NULL,
+            files_scored INTEGER,
+            files_archived INTEGER,
+            load_order_changed INTEGER,
+            details TEXT,
+            duration_ms INTEGER,
+            created_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+        CREATE INDEX IF NOT EXISTS idx_dreaming_agent ON dreaming_runs(agent, created_at);
     """)
     logger.info("Reminders DB initialized at %s", DB_PATH)
 

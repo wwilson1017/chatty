@@ -70,6 +70,7 @@ def build_agent_config(agent_row: dict) -> AgentConfig:
         gmail_enabled=bool(agent_row.get("gmail_enabled", 0)),
         calendar_enabled=bool(agent_row.get("calendar_enabled", 0)),
         context_dir=str(_context_dir(slug)),
+        gcs_prefix=_gcs_prefix(slug) + "context/",
         chat_db_path=str(_agent_dir(slug) / "chat.db"),
         onboarding_complete=bool(agent_row.get("onboarding_complete", 0)),
         training_topics=topics,
@@ -82,6 +83,27 @@ def get_context_manager(slug: str) -> ContextManager:
         data_dir=_context_dir(slug),
         gcs_prefix=_gcs_prefix(slug) + "context/",
     )
+
+
+@lru_cache(maxsize=32)
+def _get_initialized_memory_db(slug: str):
+    """Return an initialized MemoryDB for the given agent slug.
+
+    LRU cache ensures we reuse the same DB connection across requests.
+    """
+    from core.agents.memory.db import MemoryDB
+    ctx_dir = _context_dir(slug)
+    db = MemoryDB(ctx_dir, _gcs_prefix(slug) + "context/")
+    db.init_db()
+    # Reindex all files on first init so FTS5 has data
+    ctx_manager = get_context_manager(slug)
+    db.reindex_all(ctx_manager)
+    return db
+
+
+def ensure_memory_db(slug: str):
+    """Ensure the MemoryDB is initialized for this agent. Called lazily."""
+    return _get_initialized_memory_db(slug)
 
 
 def get_chat_service(slug: str) -> ChatHistoryService:

@@ -98,6 +98,234 @@ CONTEXT_TOOLS = [
     },
 ]
 
+# ── Memory tools (daily notes, MEMORY.md, FTS5 search, facts) ────────────────
+
+MEMORY_TOOLS = [
+    {
+        "name": "append_daily_note",
+        "description": "Append a timestamped entry to today's daily note. Use this to record significant events, decisions, and information as they happen during conversation.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "content": {
+                    "type": "string",
+                    "description": "The content to append (will be timestamped automatically)",
+                },
+                "memory_type": {
+                    "type": "string",
+                    "description": "Optional type tag: decision, preference, problem, milestone, insight, person, task, idea, reference, someday-maybe",
+                },
+            },
+            "required": ["content"],
+        },
+        "kind": "memory",
+        "writes": True,
+        "context_memory": True,
+    },
+    {
+        "name": "read_daily_note",
+        "description": "Read the full contents of a daily note for a specific date.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "date": {
+                    "type": "string",
+                    "description": "Date in YYYY-MM-DD format",
+                },
+            },
+            "required": ["date"],
+        },
+        "kind": "memory",
+        "writes": False,
+        "context_memory": True,
+    },
+    {
+        "name": "list_daily_notes",
+        "description": "List recent daily notes with headlines, newest first.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "limit": {
+                    "type": "integer",
+                    "description": "Max notes to return (default 30)",
+                },
+            },
+            "required": [],
+        },
+        "kind": "memory",
+        "writes": False,
+        "context_memory": True,
+    },
+    {
+        "name": "read_memory",
+        "description": "Read the current MEMORY.md — your living snapshot of key facts.",
+        "input_schema": {
+            "type": "object",
+            "properties": {},
+            "required": [],
+        },
+        "kind": "memory",
+        "writes": False,
+        "context_memory": True,
+    },
+    {
+        "name": "update_memory",
+        "description": "Overwrite MEMORY.md with new content. Always read_memory first, then write back the full merged snapshot.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "content": {
+                    "type": "string",
+                    "description": "The full new MEMORY.md content (replaces entire file)",
+                },
+            },
+            "required": ["content"],
+        },
+        "kind": "memory",
+        "writes": True,
+        "context_memory": True,
+    },
+    {
+        "name": "search_memory",
+        "description": "Full-text search across all your knowledge: daily notes, MEMORY.md, topic files, and facts. Use this to find information you've recorded.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "Search query (natural language or keywords)",
+                },
+                "source_type": {
+                    "type": "string",
+                    "description": "Optional filter: 'daily', 'memory', 'topic', or 'fact'",
+                },
+                "memory_type": {
+                    "type": "string",
+                    "description": "Optional filter by memory type (decision, person, etc.)",
+                },
+                "date_from": {
+                    "type": "string",
+                    "description": "Optional start date (YYYY-MM-DD)",
+                },
+                "date_to": {
+                    "type": "string",
+                    "description": "Optional end date (YYYY-MM-DD)",
+                },
+                "limit": {
+                    "type": "integer",
+                    "description": "Max results (default 20, max 100)",
+                },
+            },
+            "required": ["query"],
+        },
+        "kind": "memory",
+        "writes": False,
+        "context_memory": True,
+    },
+    {
+        "name": "add_fact",
+        "description": "Record a temporal fact (entity-relationship triple) in your knowledge base. Facts have validity windows and can be queried later.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "subject": {"type": "string", "description": "The entity (e.g. 'John Smith')"},
+                "predicate": {"type": "string", "description": "The relationship (e.g. 'works at')"},
+                "object": {"type": "string", "description": "The value (e.g. 'Acme Corp')"},
+                "memory_type": {"type": "string", "description": "Optional type: person, decision, etc."},
+                "confidence": {"type": "number", "description": "Confidence 0.0-1.0 (default 1.0)"},
+            },
+            "required": ["subject", "predicate", "object"],
+        },
+        "kind": "memory",
+        "writes": True,
+        "context_memory": True,
+    },
+    {
+        "name": "query_facts",
+        "description": "Query temporal facts by subject, predicate, or point-in-time.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "subject": {"type": "string", "description": "Filter by subject (partial match)"},
+                "predicate": {"type": "string", "description": "Filter by predicate (partial match)"},
+                "as_of": {"type": "string", "description": "Point-in-time view (YYYY-MM-DD)"},
+                "memory_type": {"type": "string", "description": "Filter by memory type"},
+                "include_expired": {"type": "boolean", "description": "Include expired facts (default false)"},
+                "limit": {"type": "integer", "description": "Max results (default 50)"},
+            },
+            "required": [],
+        },
+        "kind": "memory",
+        "writes": False,
+        "context_memory": True,
+    },
+    {
+        "name": "invalidate_fact",
+        "description": "Mark a fact as no longer valid by setting its valid_to date.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "fact_id": {"type": "integer", "description": "The fact ID to invalidate"},
+                "valid_to": {"type": "string", "description": "End date (default: today)"},
+            },
+            "required": ["fact_id"],
+        },
+        "kind": "memory",
+        "writes": True,
+        "context_memory": True,
+    },
+]
+
+# ── Shared context tools ─────────────────────────────────────────────────────
+
+SHARED_CONTEXT_TOOLS = [
+    {
+        "name": "list_shared_context",
+        "description": "List shared knowledge files and entries visible to all agents.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "category": {"type": "string", "description": "Optional category filter"},
+            },
+            "required": [],
+        },
+        "kind": "shared_context",
+        "writes": False,
+        "context_memory": True,
+    },
+    {
+        "name": "read_shared_context",
+        "description": "Read a shared file by name or a shared entry by ID.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "filename": {"type": "string", "description": "Shared file name (e.g. 'policies.md')"},
+                "entry_id": {"type": "string", "description": "Shared entry UUID"},
+            },
+            "required": [],
+        },
+        "kind": "shared_context",
+        "writes": False,
+        "context_memory": True,
+    },
+    {
+        "name": "write_shared_context",
+        "description": "Publish a knowledge entry visible to all agents. Use for cross-agent information sharing.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "title": {"type": "string", "description": "Entry title"},
+                "content": {"type": "string", "description": "Entry content (markdown)"},
+                "category": {"type": "string", "description": "Optional category tag"},
+            },
+            "required": ["title", "content"],
+        },
+        "kind": "shared_context",
+        "writes": True,
+        "context_memory": True,
+    },
+]
+
 # ── Gmail tools ───────────────────────────────────────────────────────────────
 
 GMAIL_TOOLS = [
@@ -641,11 +869,17 @@ def get_tool_definitions(
     reports_enabled: bool = True,
     reminders_enabled: bool = True,
     scheduled_actions_enabled: bool = True,
+    memory_enabled: bool = True,
+    shared_context_enabled: bool = True,
     integration_tools: list[dict] | None = None,
     dynamic_real_tools: list[dict] | None = None,
 ) -> list[dict]:
     """Return the full list of tool definitions for the given feature flags."""
     tools = list(CONTEXT_TOOLS)
+    if memory_enabled:
+        tools.extend(MEMORY_TOOLS)
+    if shared_context_enabled:
+        tools.extend(SHARED_CONTEXT_TOOLS)
     if gmail_enabled:
         tools.extend(GMAIL_TOOLS)
     if calendar_enabled:

@@ -1,0 +1,176 @@
+name: PR Checks
+
+on:
+  pull_request:
+    branches: [master]
+    types: [opened, synchronize]
+
+concurrency:
+  group: pr-checks-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  backend:
+    name: Backend checks
+    runs-on: ubuntu-latest
+    if: github.event.pull_request.draft == false
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+
+      - name: Install dependencies
+        run: pip install -r backend/requirements.txt
+
+      - name: Import check — verify all modules load
+        working-directory: backend
+        run: |
+          python -c "
+          import importlib, sys
+
+          failures = []
+
+          # Core modules
+          core_modules = [
+              'core.config', 'core.auth', 'core.storage',
+              'core.agents.config', 'core.agents.ai_service',
+              'core.agents.tool_registry', 'core.agents.tool_definitions',
+              'core.agents.context_manager',
+              'core.agents.chat_history.db', 'core.agents.chat_history.service',
+              'core.agents.reminders.db',
+              'core.agents.scheduled_actions.service',
+              'core.agents.scheduled_actions.processor',
+              'core.agents.memory.db', 'core.agents.memory.types',
+              'core.agents.memory.search_tools', 'core.agents.memory.processor',
+              'core.agents.dreaming.tracker', 'core.agents.dreaming.scorer',
+              'core.agents.dreaming.processor',
+              'core.agents.shared_context.db', 'core.agents.shared_context.service',
+              'core.agents.shared_context.router', 'core.agents.shared_context.tools',
+              'core.agents.tool_config_db',
+              'core.agents.tools.memory_tools',
+              'core.agents.tools.context_tools',
+              'core.agents.tools.web_tools',
+              'core.agents.tools.real_tools',
+              'core.agents.tools.report_tools',
+              'core.providers.base',
+              'core.providers.anthropic_provider',
+              'core.providers.credentials',
+              'agents.db', 'agents.engine', 'agents.router',
+              'agents.onboarding', 'agents.templates',
+          ]
+
+          for mod in core_modules:
+              try:
+                  importlib.import_module(mod)
+                  print(f'  {mod}: OK')
+              except Exception as e:
+                  failures.append(f'  {mod}: {e}')
+                  print(f'  {mod}: FAIL — {e}')
+
+          if failures:
+              print(f'\nFAIL: {len(failures)} module(s) failed to import')
+              sys.exit(1)
+
+          print(f'\nOK: All {len(core_modules)} modules imported successfully')
+          "
+
+      - name: Startup smoke test — DB schema validation
+        working-directory: backend
+        run: |
+          python -c "
+          import sys, tempfile, shutil
+          from pathlib import Path
+
+          tmp = tempfile.mkdtemp(prefix='chatty_smoke_')
+          try:
+              # 1. Reminders DB (also creates dreaming tables)
+              from core.agents.reminders import db
+              db.DATA_DIR = Path(tmp)
+              db.DB_PATH = Path(tmp) / 'reminders.db'
+              db.init_db()
+              print('  Reminders DB init: OK')
+
+              # Verify dreaming tables exist
+              conn = db.get_db()
+              conn.execute('SELECT COUNT(*) FROM context_usage').fetchone()
+              print('  context_usage table: OK')
+              conn.execute('SELECT COUNT(*) FROM dreaming_runs').fetchone()
+              print('  dreaming_runs table: OK')
+
+              # 2. Shared context DB
+              from core.agents.shared_context import db as sc_db
+              sc_db.DATA_DIR = Path(tmp) / 'shared'
+              sc_db.DB_PATH = Path(tmp) / 'shared' / 'shared_context.db'
+              sc_db.init_db()
+              print('  Shared context DB init: OK')
+
+              # 3. Tool config DB
+              from core.agents import tool_config_db
+              tool_config_db.DATA_DIR = Path(tmp) / 'configs'
+              tool_config_db.DB_PATH = Path(tmp) / 'configs' / 'tool_configs.db'
+              tool_config_db.init_db()
+              print('  Tool config DB init: OK')
+
+              # 4. Memory DB
+              from core.agents.memory.db import MemoryDB
+              mem_dir = Path(tmp) / 'mem'
+              mem_dir.mkdir()
+              mem_db = MemoryDB(mem_dir, 'test/')
+              mem_db.init_db()
+              print('  Memory DB init: OK')
+
+              # Verify FTS5 works
+              mem_db.index_document('topic', 'test.md', 'Test', 'Hello world test content')
+              results = mem_db.search('hello')
+              assert len(results) > 0, 'FTS5 search returned no results'
+              print('  FTS5 search: OK')
+
+              print('\nOK: All startup checks passed')
+          except Exception as e:
+              import traceback
+              traceback.print_exc()
+              sys.exit(1)
+          finally:
+              try:
+                  from core.agents.reminders import db as db_mod
+                  if db_mod._connection:
+                      db_mod._connection.close()
+                      db_mod._connection = None
+              except Exception:
+                  pass
+              shutil.rmtree(tmp, ignore_errors=True)
+          "
+
+  frontend:
+    name: Frontend build
+    runs-on: ubuntu-latest
+    if: github.event.pull_request.draft == false
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Build (tsc + vite)
+        working-directory: frontend
+        run: npm run build
