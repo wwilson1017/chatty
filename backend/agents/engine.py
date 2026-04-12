@@ -85,6 +85,27 @@ def get_context_manager(slug: str) -> ContextManager:
     )
 
 
+@lru_cache(maxsize=32)
+def _get_initialized_memory_db(slug: str):
+    """Return an initialized MemoryDB for the given agent slug.
+
+    LRU cache ensures we reuse the same DB connection across requests.
+    """
+    from core.agents.memory.db import MemoryDB
+    ctx_dir = _context_dir(slug)
+    db = MemoryDB(ctx_dir, _gcs_prefix(slug) + "context/")
+    db.init_db()
+    # Reindex all files on first init so FTS5 has data
+    ctx_manager = get_context_manager(slug)
+    db.reindex_all(ctx_manager)
+    return db
+
+
+def ensure_memory_db(slug: str):
+    """Ensure the MemoryDB is initialized for this agent. Called lazily."""
+    return _get_initialized_memory_db(slug)
+
+
 def get_chat_service(slug: str) -> ChatHistoryService:
     """Return an initialized ChatHistoryService for the given agent slug."""
     db = _get_initialized_db(slug)

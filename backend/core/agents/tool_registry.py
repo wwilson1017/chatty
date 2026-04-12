@@ -129,20 +129,26 @@ class ToolRegistry:
             search_memory, add_fact, query_facts, invalidate_fact,
         )
 
+        # Memory tools use context_dir (not agent_data_dir) because
+        # ContextManager expects the context directory as data_dir.
+        # Daily notes live at context_dir/daily/, MEMORY.md at context_dir/.
+        ctx_dir = self.context_dir
+        prefix = self.gcs_prefix
+
         if tool_name == "append_daily_note":
-            return append_daily_note(self.agent_data_dir, self.gcs_prefix, args["content"],
+            return append_daily_note(ctx_dir, prefix, args["content"],
                                      date=args.get("date"), memory_type=args.get("memory_type"))
         elif tool_name == "read_daily_note":
-            return read_daily_note(self.agent_data_dir, self.gcs_prefix, args["date"])
+            return read_daily_note(ctx_dir, prefix, args["date"])
         elif tool_name == "list_daily_notes":
-            return list_daily_notes(self.agent_data_dir, self.gcs_prefix, limit=args.get("limit", 30))
+            return list_daily_notes(ctx_dir, prefix, limit=args.get("limit", 30))
         elif tool_name == "read_memory":
-            return read_memory(self.agent_data_dir, self.gcs_prefix)
+            return read_memory(ctx_dir, prefix)
         elif tool_name == "update_memory":
-            return update_memory(self.agent_data_dir, self.gcs_prefix, args["content"])
+            return update_memory(ctx_dir, prefix, args["content"])
         elif tool_name == "search_memory":
             return search_memory(
-                self.agent_data_dir, self.gcs_prefix, args["query"],
+                ctx_dir, prefix, args["query"],
                 source_type=args.get("source_type"),
                 memory_type=args.get("memory_type"),
                 date_from=args.get("date_from"),
@@ -151,13 +157,13 @@ class ToolRegistry:
             )
         elif tool_name == "add_fact":
             return add_fact(
-                self.agent_data_dir, self.gcs_prefix,
+                ctx_dir, prefix,
                 subject=args["subject"], predicate=args["predicate"], object=args["object"],
                 memory_type=args.get("memory_type"), confidence=args.get("confidence", 1.0),
             )
         elif tool_name == "query_facts":
             return query_facts(
-                self.agent_data_dir, self.gcs_prefix,
+                ctx_dir, prefix,
                 subject=args.get("subject"), predicate=args.get("predicate"),
                 as_of=args.get("as_of"), memory_type=args.get("memory_type"),
                 include_expired=args.get("include_expired", False),
@@ -165,7 +171,7 @@ class ToolRegistry:
             )
         elif tool_name == "invalidate_fact":
             return invalidate_fact(
-                self.agent_data_dir, self.gcs_prefix,
+                ctx_dir, prefix,
                 fact_id=args["fact_id"], valid_to=args.get("valid_to"),
             )
         return {"error": f"Unknown memory tool: {tool_name}"}

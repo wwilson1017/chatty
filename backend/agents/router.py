@@ -54,6 +54,7 @@ from .engine import (
     build_agent_config,
     get_context_manager,
     get_chat_service,
+    ensure_memory_db,
     invalidate_cache,
     DATA_DIR,
 )
@@ -401,6 +402,12 @@ def _stream_chat(agent: dict, messages: list, training_mode: bool, conversation_
     config = build_agent_config(agent)
     ctx_manager = get_context_manager(agent["slug"])
     chat_service = get_chat_service(agent["slug"])
+
+    # Ensure MemoryDB is initialized (lazy, cached after first call)
+    try:
+        ensure_memory_db(agent["slug"])
+    except Exception:
+        pass  # Non-critical — search will degrade gracefully
 
     store = CredentialStore()
     provider = get_ai_provider(

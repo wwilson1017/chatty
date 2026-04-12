@@ -6,7 +6,7 @@
  */
 
 import { useState, useEffect } from 'react';
-import type { ChatMessage, ToolCallInfo, PendingConfirmation, PendingPlan, InlineReport } from '../hooks/useAgentChat';
+import type { ChatMessage, ToolCallInfo, PendingConfirmation, PendingPlan } from '../hooks/useAgentChat';
 import MarkdownContent from './MarkdownContent';
 import { useCopyToClipboard } from '../hooks/useCopyToClipboard';
 import ReportRenderer from '../reports/ReportRenderer';
@@ -20,6 +20,65 @@ interface Props {
 }
 
 const HUNG_THRESHOLD_SEC = 30;
+
+/* ── Helper functions ────────────────────────────────────────────── */
+
+const TOOL_LABELS: Record<string, string> = {
+  list_context_files: 'Listing files',
+  read_context_file: 'Reading file',
+  write_context_file: 'Writing file',
+  append_to_context_file: 'Appending to file',
+  delete_context_file: 'Deleting file',
+  search_memory: 'Searching memory',
+  append_daily_note: 'Adding daily note',
+  read_daily_note: 'Reading daily note',
+  list_daily_notes: 'Listing daily notes',
+  read_memory: 'Reading MEMORY.md',
+  update_memory: 'Updating MEMORY.md',
+  add_fact: 'Recording fact',
+  query_facts: 'Querying facts',
+  invalidate_fact: 'Invalidating fact',
+  search_emails: 'Searching emails',
+  get_email: 'Reading email',
+  get_email_thread: 'Reading thread',
+  list_calendar_events: 'Listing events',
+  get_calendar_event: 'Reading event',
+  search_calendar_events: 'Searching events',
+  web_search: 'Searching web',
+  web_fetch: 'Fetching page',
+  generate_report: 'Generating report',
+  create_reminder: 'Creating reminder',
+  list_reminders: 'Listing reminders',
+  cancel_reminder: 'Cancelling reminder',
+  create_scheduled_action: 'Creating action',
+  list_scheduled_actions: 'Listing actions',
+  list_shared_context: 'Listing shared context',
+  read_shared_context: 'Reading shared context',
+  write_shared_context: 'Writing shared context',
+};
+
+function _toolLabel(name: string): string {
+  return TOOL_LABELS[name] || name.replace(/_/g, ' ');
+}
+
+function _formatArgs(args: Record<string, unknown> | undefined): string {
+  if (!args || Object.keys(args).length === 0) return '(none)';
+  try {
+    return JSON.stringify(args, null, 2);
+  } catch {
+    return String(args);
+  }
+}
+
+function _formatResult(result: unknown): string {
+  if (result === undefined || result === null) return '(none)';
+  if (typeof result === 'string') return result;
+  try {
+    return JSON.stringify(result, null, 2);
+  } catch {
+    return String(result);
+  }
+}
 
 /* ── Copy Button ─────────────────────────────────────────────────── */
 
