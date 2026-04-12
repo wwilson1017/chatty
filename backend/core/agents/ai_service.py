@@ -267,17 +267,24 @@ def _build_system_prompt(
     except Exception:
         pass
 
-    # Relevance pre-fetch — on first message, inject relevant context
+    # Relevance pre-fetch — on first message, inject relevant context.
+    # Capped at 30K chars to avoid prompt bloat on broad queries.
     if first_user_message:
         relevant = ctx_manager.relevance_prefetch(first_user_message)
         if relevant:
-            parts.append("# Likely Relevant Context")
-            parts.append("")
+            prefetch_parts: list[str] = []
+            prefetch_chars = 0
+            max_prefetch = 30_000
             for item in relevant:
-                label = f"[{item['kind']}] {item['name']}"
-                parts.append(f"## {label}")
+                section = f"## [{item['kind']}] {item['name']}\n\n{item['content']}"
+                if prefetch_chars + len(section) > max_prefetch:
+                    break
+                prefetch_parts.append(section)
+                prefetch_chars += len(section)
+            if prefetch_parts:
+                parts.append("# Likely Relevant Context")
                 parts.append("")
-                parts.append(item["content"])
+                parts.extend(prefetch_parts)
                 parts.append("")
 
     parts.extend([
