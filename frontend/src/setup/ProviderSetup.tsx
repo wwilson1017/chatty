@@ -4,8 +4,10 @@ import type { ProviderStatus } from '../core/types';
 import { ApiKeyEntry } from './ApiKeyEntry';
 import { SetupTokenEntry } from './SetupTokenEntry';
 import { ModelSelector } from './ModelSelector';
+import { OllamaSetup } from './OllamaSetup';
+import { TogetherSetup } from './TogetherSetup';
 
-type AuthTab = 'setup-token' | 'api-key';
+type AuthTab = 'setup-token' | 'api-key' | 'ollama-setup' | 'together-setup';
 
 export function ProviderSetup() {
   const [status, setStatus] = useState<ProviderStatus | null>(null);
@@ -49,6 +51,21 @@ export function ProviderSetup() {
       tabs: [{ id: 'api-key' as AuthTab, label: 'API Key' }],
       defaultTab: 'api-key' as AuthTab,
     },
+    {
+      id: 'together',
+      name: 'Together AI (Open Models)',
+      icon: '\uD83C\uDF10',
+      tabs: [{ id: 'together-setup' as AuthTab, label: 'API Key' }],
+      defaultTab: 'together-setup' as AuthTab,
+    },
+    // Only show Ollama when running locally (not on Railway)
+    ...(!status?.is_railway ? [{
+      id: 'ollama',
+      name: 'Ollama (Local)',
+      icon: '\uD83E\uDD99',
+      tabs: [{ id: 'ollama-setup' as AuthTab, label: 'Local Setup' }],
+      defaultTab: 'ollama-setup' as AuthTab,
+    }] : []),
   ];
 
   function getTab(providerId: string): AuthTab {
@@ -80,6 +97,8 @@ export function ProviderSetup() {
 
         {tab === 'setup-token' && <SetupTokenEntry onConnected={reload} />}
         {tab === 'api-key' && <ApiKeyEntry provider={p.id} onConnected={reload} />}
+        {tab === 'together-setup' && <TogetherSetup onConnected={reload} />}
+        {tab === 'ollama-setup' && <OllamaSetup onConnected={reload} />}
       </div>
     );
   }

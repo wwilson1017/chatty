@@ -69,4 +69,13 @@ def get_ai_provider(agent_provider: str | None = None, agent_model: str | None =
         access_token = profile.get("access", "")
         return GoogleProvider(access_token=access_token, model=model or "gemini-2.0-flash-exp")
 
+    elif profile_name.startswith("ollama:"):
+        from core.providers.ollama_provider import OllamaProvider
+        base_url = profile.get("base_url", "http://localhost:11434")
+        return OllamaProvider(base_url=base_url, model=model or "")
+
+    elif profile_name.startswith("together:"):
+        from core.providers.together_provider import TogetherProvider
+        return TogetherProvider(api_key=profile.get("key", ""), model=model or "Qwen/Qwen3.5-7B")
+
     return None

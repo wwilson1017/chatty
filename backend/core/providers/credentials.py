@@ -33,6 +33,8 @@ PROVIDER_DEFAULTS = {
     "anthropic": "claude-opus-4-6",
     "openai": "gpt-5.4",
     "google": "gemini-2.0-flash-exp",
+    "ollama": "",
+    "together": "Qwen/Qwen3.5-7B",
 }
 
 
@@ -86,6 +88,8 @@ class CredentialStore:
             if p.get("type") == "setup_token" and p.get("token"):
                 return True
             if p.get("type") == "chatgpt_oauth" and p.get("access"):
+                return True
+            if p.get("type") == "ollama_local" and p.get("base_url"):
                 return True
         return False
 
@@ -176,6 +180,18 @@ class CredentialStore:
             self.data["active_model"] = ""
         self._save()
 
+    def set_ollama(self, base_url: str, model: str | None = None):
+        """Store Ollama connection info and set as active."""
+        if "profiles" not in self.data:
+            self.data["profiles"] = {}
+        self.data["profiles"]["ollama:default"] = {
+            "type": "ollama_local",
+            "base_url": base_url,
+        }
+        self.data["active_provider"] = "ollama"
+        self.data["active_model"] = model or ""
+        self._save()
+
     def is_token_expired(self, provider: str) -> bool:
         """Return True if the OAuth token is expired (or within 60s of expiry)."""
         profile = self.data.get("profiles", {}).get(f"{provider}:default", {})
@@ -210,6 +226,12 @@ class CredentialStore:
                     "type": "chatgpt_oauth",
                     "configured": bool(p.get("access")),
                     "expired": self.is_token_expired(provider),
+                }
+            elif p.get("type") == "ollama_local":
+                profiles[provider] = {
+                    "type": "ollama_local",
+                    "configured": True,
+                    "base_url": p.get("base_url", "http://localhost:11434"),
                 }
 
         return {
