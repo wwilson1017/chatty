@@ -86,11 +86,11 @@ class TogetherProvider(AIProvider):
     async def validate(self) -> bool:
         """Validate the API key with a minimal completion."""
         try:
-            client = openai.OpenAI(
+            client = openai.AsyncOpenAI(
                 api_key=self.api_key,
                 base_url=TOGETHER_BASE_URL,
             )
-            client.chat.completions.create(
+            await client.chat.completions.create(
                 model=TOGETHER_DEFAULT_MODEL,
                 messages=[{"role": "user", "content": "hi"}],
                 max_tokens=1,

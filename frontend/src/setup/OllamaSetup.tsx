@@ -50,7 +50,7 @@ export function OllamaSetup({ onConnected }: Props) {
     try {
       await api('/api/providers/ollama/connect', {
         method: 'POST',
-        body: JSON.stringify({ base_url: customUrl }),
+        body: JSON.stringify({ base_url: customUrl, model: selectedModel }),
       });
       onConnected();
     } catch (err: unknown) {

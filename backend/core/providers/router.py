@@ -160,6 +160,7 @@ async def connect_openai(user=Depends(get_current_user)):
 
 class OllamaConnectRequest(BaseModel):
     base_url: str = "http://localhost:11434"
+    model: str = ""
 
 
 @router.post("/ollama/connect")
@@ -173,9 +174,15 @@ async def connect_ollama(body: OllamaConnectRequest, user=Depends(get_current_us
             detail="Cannot connect to Ollama. Make sure it's running (ollama serve).",
         )
     models = await provider.list_models()
+    if not models:
+        raise HTTPException(
+            status_code=400,
+            detail="Ollama is running but no models are installed. Run: ollama pull qwen3.5:4b",
+        )
+    selected = body.model if body.model in models else models[0]
     store = CredentialStore()
-    store.set_ollama(base_url=body.base_url, model=models[0] if models else "")
-    return {"ok": True, "provider": "ollama", "models": models}
+    store.set_ollama(base_url=body.base_url, model=selected)
+    return {"ok": True, "provider": "ollama", "models": models, "model": selected}
 
 
 @router.get("/ollama/status")
