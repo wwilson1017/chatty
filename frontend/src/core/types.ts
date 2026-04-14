@@ -138,11 +138,13 @@ export interface CrmDashboard {
 export interface ProviderStatus {
   active_provider: string;
   active_model: string;
+  is_railway?: boolean;
   profiles: Record<string, {
     type: string;
     configured: boolean;
     key_preview?: string;
     expired?: boolean;
+    base_url?: string;
   }>;
 }
 

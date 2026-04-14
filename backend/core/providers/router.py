@@ -30,8 +30,11 @@ router = APIRouter()
 @router.get("")
 async def get_providers(user=Depends(get_current_user)):
     """Return current provider configuration (no raw keys)."""
+    from core.config import Settings
     store = CredentialStore()
-    return store.to_dict()
+    result = store.to_dict()
+    result["is_railway"] = Settings().is_railway
+    return result
 
 
 # ── Connect Anthropic (API key) ───────────────────────────────────────────────
@@ -153,12 +156,74 @@ async def connect_openai(user=Depends(get_current_user)):
     return {"ok": True, "provider": "openai"}
 
 
+# ── Connect Ollama (local) ────────────────────────────────────────────────────
+
+class OllamaConnectRequest(BaseModel):
+    base_url: str = "http://localhost:11434"
+    model: str = ""
+
+
+@router.post("/ollama/connect")
+async def connect_ollama(body: OllamaConnectRequest, user=Depends(get_current_user)):
+    """Validate Ollama is reachable and store the connection."""
+    from core.providers.ollama_provider import OllamaProvider
+    provider = OllamaProvider(base_url=body.base_url)
+    if not await provider.validate():
+        raise HTTPException(
+            status_code=400,
+            detail="Cannot connect to Ollama. Make sure it's running (ollama serve).",
+        )
+    models = await provider.list_models()
+    if not models:
+        raise HTTPException(
+            status_code=400,
+            detail="Ollama is running but no models are installed. Run: ollama pull qwen3.5:4b",
+        )
+    selected = body.model if body.model in models else models[0]
+    store = CredentialStore()
+    store.set_ollama(base_url=body.base_url, model=selected)
+    return {"ok": True, "provider": "ollama", "models": models, "model": selected}
+
+
+@router.get("/ollama/status")
+async def ollama_status(user=Depends(get_current_user)):
+    """Check if Ollama is running locally (auto-detect for frontend)."""
+    from core.providers.ollama_provider import OllamaProvider
+    provider = OllamaProvider()
+    try:
+        reachable = await provider.validate()
+        models = await provider.list_models() if reachable else []
+    except Exception:
+        reachable, models = False, []
+    return {"reachable": reachable, "models": models}
+
+
+# ── Connect Together AI (API key) ────────────────────────────────────────────
+
+class TogetherConnectRequest(BaseModel):
+    api_key: str
+    model: str = "Qwen/Qwen3.5-7B"
+
+
+@router.post("/together/connect")
+async def connect_together(body: TogetherConnectRequest, user=Depends(get_current_user)):
+    """Validate and store a Together AI API key."""
+    from core.providers.together_provider import TogetherProvider
+    provider = TogetherProvider(api_key=body.api_key, model=body.model)
+    if not await provider.validate():
+        raise HTTPException(status_code=400, detail="Invalid Together AI API key")
+
+    store = CredentialStore()
+    store.set_api_key("together", body.api_key, model=body.model)
+    return {"ok": True, "provider": "together", "model": body.model}
+
+
 # ── Disconnect ────────────────────────────────────────────────────────────────
 
 @router.post("/{provider}/disconnect")
 async def disconnect_provider(provider: str, user=Depends(get_current_user)):
     """Remove credentials for a provider."""
-    if provider not in ("anthropic", "openai", "google"):
+    if provider not in ("anthropic", "openai", "google", "ollama", "together"):
         raise HTTPException(status_code=404, detail="Unknown provider")
 
     store = CredentialStore()
