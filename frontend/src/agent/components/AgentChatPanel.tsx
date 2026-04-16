@@ -153,6 +153,11 @@ export function AgentChatPanel({
   // Click on messages area refocuses input (unless clicking interactive elements)
   function handleMessagesClick(e: MouseEvent) {
     if ((e.target as HTMLElement).closest?.('button, a, input, textarea, pre, code')) return;
+
+    // Don't steal focus if the user just highlighted text (they probably want to copy it)
+    const selection = window.getSelection();
+    if (selection && !selection.isCollapsed && selection.toString().length > 0) return;
+
     textareaRef.current?.focus();
   }
 
