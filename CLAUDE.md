@@ -3,81 +3,83 @@
 ## What This Is
 
 **Chatty** — a free, open-source personal AI agent platform built for small business owners.
-- **Free and open source** — no paid tiers, no vendor lock-in, no SaaS fees. Users only pay for their own AI provider API usage (Anthropic, OpenAI, or Google)
+- **Free and open source** — no paid tiers, no vendor lock-in, no SaaS fees. Users only pay for their own AI provider API usage
 - **Target audience**: small business owners who want a powerful AI chatbot without enterprise pricing or technical complexity
 - Single user (password login), multiple agents
-- User creates agents from a dashboard; each has name/personality/knowledge via onboarding
+- User creates agents from a dashboard; each has name/personality/knowledge via onboarding wizard
 - Optional branding: logo, company name, accent color
-- Multi-provider AI: Anthropic (API key), OpenAI (OAuth), Google Gemini (OAuth)
-- Toggleable integrations: Odoo, QuickBooks Online, BambooHR
-- One-click cloud deployment via Railway for mobile + desktop access anywhere
+- Multi-provider AI: Anthropic, OpenAI, Google Gemini — all via API key paste (no OAuth for AI providers)
+- Integrations: QuickBooks Online (OAuth), QuickBooks CSV import, Gmail, Google Calendar, WhatsApp (Baileys bridge), Telegram, CRM Lite, HubSpot, Salesforce, Odoo, BambooHR
+- Agent features: memory system, dreaming/reflection, shared context across agents, scheduled actions, reminders
+- One-click cloud deployment via Railway
 
 ## Deployment
 
 - **Primary deploy target**: Railway (one-click "Deploy on Railway" button in README)
+- **Railway template**: `https://railway.com/deploy/PN575H`
 - Users get a cloud URL accessible from phone or desktop — no local setup required
 - SQLite-based, no external database needed — persistent volume on Railway handles storage
-- Deployment requires only env vars: `AUTH_PASSWORD`, `JWT_SECRET`, and AI provider credentials
+- Only required env var: `AUTH_PASSWORD` — `JWT_SECRET` and `ENCRYPTION_KEY` auto-generate
+- AI provider API keys are entered in-app via setup wizard, not as env vars
 - Keep deployment simple — avoid requiring Postgres, Redis, or any external services
+- See `DEPLOY.md` for full Railway setup guide
 
-**Full plan**: `PLAN.md` in this directory — read this before starting any work.
+## Local Development
+
+```bash
+git clone https://github.com/WWilson1017/chatty.git
+cd chatty
+python run.py
+```
+
+Requires Python 3.10+ and Node.js 18+. The launcher handles venv, deps, `.env`, frontend build, and starts the server.
+
+For dev mode with hot reload, run backend and frontend separately:
+- Backend: `cd backend && ../.venv/bin/python -m uvicorn main:app --host 127.0.0.1 --port 8000 --reload`
+- Frontend: `cd frontend && npm run dev` (Vite dev server on port 5173, proxies `/api` to backend)
+
+## Key Architecture
+
+- **Provider-agnostic engine** — `ai_service.py` calls an `AIProvider` ABC, never Anthropic/OpenAI directly
+- **Per-agent isolation** — each agent has its own context files, chat.db, and slug dir under `data/agents/{slug}/`
+- **Global credentials** — provider auth lives in `data/auth-profiles.json`, shared across all agents
+- **Encryption at rest** — API keys and OAuth tokens encrypted via Fernet; key stored in OS keychain (local) or env var (Railway)
+- **No voice tab** — explicitly removed from scope
+- **Single user only** — multi-user roughed in behind `MULTI_USER_ENABLED=false` flag for Phase 2
+
+## Project Structure
+
+```
+backend/
+├── main.py                          # FastAPI entry point
+├── agents/                          # Multi-agent management (db, engine, router, onboarding, templates)
+├── core/
+│   ├── config.py                    # Settings from env vars
+│   ├── auth.py                      # Password login + JWT
+│   ├── encryption.py                # Fernet encryption for credentials
+│   ├── providers/                   # AI provider abstraction (Anthropic, OpenAI, Gemini)
+│   └── agents/                      # Agent engine (ai_service, tool_registry, context_manager, chat_history, memory, dreaming, shared_context, reminders, scheduled_actions)
+├── integrations/                    # QuickBooks, QB CSV, Telegram, WhatsApp, CRM, HubSpot, Salesforce, Odoo, BambooHR
+├── branding/                        # Logo/name/color
+└── whatsapp-bridge/                 # Node.js Baileys sidecar
+
+frontend/src/
+├── agent/                           # Agent chat page + components
+├── dashboard/                       # Agent grid, settings, integrations
+├── onboarding/                      # Agent creation wizard
+├── setup/                           # First-run provider setup
+├── login/                           # Login page
+├── core/                            # API client, auth context, types
+└── crm/                             # CRM interface
+```
+
+## Worktrees
+
+Worktrees live in `.claude/worktrees/` within the repo. Use `/wt <feature name>` to create one, `/dwt` to clean up. Branch from `master`, PR back to `master`.
 
 ## Blueprints
 
 | Blueprint | Location | What to use it for |
 |---|---|---|
-| **CAKE OS** | `C:\ai\cake_os` | Agent engine, frontend AgentPage, Gmail/Calendar tools, onboarding |
-| **OpenClaw** | `C:\ai\openclaw` | Multi-provider OAuth (PKCE flows, credential store pattern) |
-
-## Key Architecture Rules
-
-- **Provider-agnostic engine** — `ai_service.py` calls an `AIProvider` ABC, never Anthropic/OpenAI directly
-- **Per-agent isolation** — each agent has its own context files, chat.db, and slug dir under `data/agents/{slug}/`
-- **Global credentials** — provider auth lives in `data/auth-profiles.json`, shared across all agents
-- **CAKE OS weekend upgrades** — all commits from March 21–23, 2026 must be incorporated (see PLAN.md for full list)
-- **No voice tab** — explicitly removed from scope
-- **Single user only** — multi-user roughed in behind `MULTI_USER_ENABLED=false` flag for Phase 2
-
-## Anthropic Auth Note
-
-Anthropic **bans OAuth tokens** in third-party apps (only allowed for claude.ai and Claude Code per ToS). Use API key entry only — user creates key at `platform.claude.com` and pastes it in. OpenAI and Google use PKCE OAuth like OpenClaw.
-
-## Build Order (14 Steps)
-
-1. Repo setup — `git init`, `.gitignore`, `CLAUDE.md`, `.env.example`, GitHub `WWilson1017/chatty`
-2. Backend core — `config.py`, `auth.py` (password + JWT), `gmail_client.py`, `calendar_client.py`
-3. Provider abstraction — `AIProvider` ABC + Anthropic/OpenAI/Gemini + PKCE OAuth + credential store
-4. Agent engine — `ai_service.py`, `tool_registry.py`, `context_manager.py`, `chat_history/` (all adapted from CAKE OS)
-5. Multi-agent management — `agents/db.py`, `agents/engine.py` (LRU factory), `agents/router.py`, `agents/onboarding.py`
-6. Branding backend — logo/name/color upload + serve
-7. `main.py`
-8. Integrations — Odoo (from CAKE OS), QuickBooks (new), BambooHR (from CAKE OS Alex), WhatsApp stub
-9. Frontend scaffold — Vite + React + TypeScript + Tailwind
-10. Frontend core — auth context, API client
-11. Dashboard UI — agent grid, New Agent modal, Settings, Integrations tab
-12. Provider setup UI — OAuth cards (OpenAI/Google), API key entry (Anthropic), model selector
-13. Agent UI — full CAKE OS AgentPage + all weekend upgrades, no voice
-14. App shell routing — `/login` → `/` dashboard → `/agent/:id`
-
-## Worktrees
-
-Use `C:\ai\chatty-worktrees\` for feature branches. See global CLAUDE.md for worktree conventions.
-
-## Key CAKE OS Files to Copy/Adapt
-
-**Copy verbatim** (update imports only):
-- `backend/core/agents/context_manager.py`
-- `backend/core/agents/tools/context_tools.py`
-- `backend/core/agents/chat_history/db.py` + `service.py`
-- `backend/core/storage.py`, `gmail_client.py`, `calendar_client.py`
-- `backend/apps/jordan/tools/gmail_tools.py`
-- Frontend `shared/agent/` components (remove voice tab)
-- Frontend `core/api/client.ts`, `core/auth/*`
-
-**Adapt significantly**:
-- `core/agents/ai_service.py` — make provider-agnostic, remove Odoo/DIMM/reports
-- `core/agents/tool_registry.py` — remove Odoo/DIMM, add integration kind
-- `apps/personal_agent/engine.py` → `agents/engine.py` — multi-agent factory
-- `apps/personal_agent/onboarding.py` → `agents/onboarding.py` — generic (not TNC-specific)
-
-**Note**: The expandable tool pills + chunked training saves are on the `feature/ai-tool-call-details` branch (commit `ee588b6`), not master. Pull from that branch for `ai_service.py` and `AgentMessageBubble.tsx`.
+| **CAKE OS** | `~/ai/cake_os` | Agent engine, frontend AgentPage, Gmail/Calendar tools, onboarding |
+| **OpenClaw** | `~/ai/openclaw` | Multi-provider OAuth (PKCE flows, credential store pattern) |
