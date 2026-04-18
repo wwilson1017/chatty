@@ -54,10 +54,21 @@ export function AgentChatPanel({
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Auto-scroll to bottom on new messages
+  // Auto-scroll to bottom on new messages (rAF-throttled)
+  const scrollRafRef = useRef<number | null>(null);
   useEffect(() => {
-    const el = scrollContainerRef.current;
-    if (el) el.scrollTop = el.scrollHeight;
+    if (scrollRafRef.current !== null) return;
+    scrollRafRef.current = requestAnimationFrame(() => {
+      scrollRafRef.current = null;
+      const el = scrollContainerRef.current;
+      if (el) el.scrollTop = el.scrollHeight;
+    });
+    return () => {
+      if (scrollRafRef.current !== null) {
+        cancelAnimationFrame(scrollRafRef.current);
+        scrollRafRef.current = null;
+      }
+    };
   }, [messages, scrollContainerRef]);
 
   // Auto-focus textarea on mount and after streaming stops
@@ -266,19 +277,21 @@ export function AgentChatPanel({
           </div>
         </div>
 
-        {/* Help text + context usage */}
-        <p className="text-center text-[10px] text-gray-600 mt-1.5">
-          Enter to send &middot; Shift+Enter for new line
-        </p>
-        {contextUsage && (() => {
-          const pct = Math.round((contextUsage.inputTokens / contextUsage.contextWindow) * 100);
-          const color = pct >= 80 ? 'text-red-400' : pct >= 60 ? 'text-amber-400' : 'text-gray-600';
-          return (
-            <p className={`text-center text-[10px] ${color} mt-0.5`}>
-              {pct}% context used
-            </p>
-          );
-        })()}
+        {/* Help text + context usage bar */}
+        <div className="flex items-center justify-center gap-3 mt-1.5">
+          <p className="text-[10px] text-gray-600">
+            Enter to send &middot; Shift+Enter for new line
+          </p>
+          {contextUsage && (() => {
+            const pct = Math.round((contextUsage.inputTokens / contextUsage.contextWindow) * 100);
+            const barColor = pct >= 80 ? 'bg-red-400' : pct >= 60 ? 'bg-amber-400' : 'bg-emerald-400';
+            return (
+              <div className="w-16 h-[3px] rounded-full bg-gray-700 overflow-hidden" title={`${pct}% context used`}>
+                <div className={`h-full rounded-full transition-all ${barColor}`} style={{ width: `${Math.min(pct, 100)}%` }} />
+              </div>
+            );
+          })()}
+        </div>
       </div>
     );
   }

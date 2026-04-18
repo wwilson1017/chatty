@@ -6,6 +6,9 @@
  *
  * Supports 3-tier tool mode (read-only / normal / power) with confirmation flow,
  * plan mode, training/improve modes, and context usage tracking.
+ *
+ * Performance: rAF-batched text deltas, tail-update pattern for message state,
+ * messagesRef for stable closures.
  */
 
 import { useState, useCallback, useRef, useEffect } from 'react';
@@ -85,6 +88,45 @@ export function useAgentChat(apiPrefix: string, options?: Options) {
   const trainingKickoffRef = useRef(false);
   const trainingKickoffMessageRef = useRef('Hey there!');
 
+  // Stable ref for messages — avoids stale closures in sendMessage
+  const messagesRef = useRef<ChatMessage[]>([]);
+  useEffect(() => { messagesRef.current = messages; }, [messages]);
+
+  // ── rAF text batching ─────────────────────────────────────────────
+  const pendingTextRef = useRef('');
+  const rafIdRef = useRef<number | null>(null);
+
+  const flushPendingText = useCallback(() => {
+    rafIdRef.current = null;
+    const chunk = pendingTextRef.current;
+    if (!chunk) return;
+    pendingTextRef.current = '';
+    setMessages(prev => {
+      if (!prev.length) return prev;
+      const last = prev[prev.length - 1];
+      if (last.role !== 'assistant') return prev;
+      return [...prev.slice(0, -1), { ...last, content: last.content + chunk }];
+    });
+  }, []);
+
+  const scheduleFlush = useCallback(() => {
+    if (rafIdRef.current !== null) return;
+    rafIdRef.current = requestAnimationFrame(flushPendingText);
+  }, [flushPendingText]);
+
+  // ── Tail-update helper ────────────────────────────────────────────
+  const updateLastAssistant = useCallback(
+    (updater: (msg: ChatMessage) => ChatMessage) => {
+      setMessages(prev => {
+        if (!prev.length) return prev;
+        const last = prev[prev.length - 1];
+        if (last.role !== 'assistant') return prev;
+        return [...prev.slice(0, -1), updater(last)];
+      });
+    },
+    []
+  );
+
   const sendMessage = useCallback(async (text: string, files?: File[], approvedTool?: {
     tool: string;
     args: Record<string, unknown>;
@@ -111,7 +153,8 @@ export function useAgentChat(apiPrefix: string, options?: Options) {
     setMessages(prev => [...prev, userMsg, assistantMsg]);
     setIsStreaming(true);
 
-    const history = [...messages, userMsg].map(m => ({ role: m.role, content: m.content }));
+    // Use messagesRef for fresh snapshot (avoids stale closure)
+    const history = [...messagesRef.current, userMsg].map(m => ({ role: m.role, content: m.content }));
 
     // Effective tool mode: training forces power
     const effectiveMode = overrides?.tool_mode ?? (trainingMode ? 'power' : toolMode);
@@ -160,7 +203,7 @@ export function useAgentChat(apiPrefix: string, options?: Options) {
       }
 
       if (res.status === 401) {
-        localStorage.removeItem('chatty_token');
+        sessionStorage.removeItem('chatty_token');
         window.location.href = '/login';
         return;
       }
@@ -189,154 +232,117 @@ export function useAgentChat(apiPrefix: string, options?: Options) {
             const event = JSON.parse(jsonStr);
 
             if (event.type === 'text' && event.text) {
-              setMessages(prev => {
-                const updated = [...prev];
-                const last = updated[updated.length - 1];
-                if (last?.role === 'assistant') {
-                  updated[updated.length - 1] = { ...last, content: last.content + event.text };
-                }
-                return updated;
-              });
+              // rAF batching — accumulate text, flush once per frame
+              pendingTextRef.current += event.text;
+              scheduleFlush();
             } else if (event.type === 'tool_start') {
-              setMessages(prev => {
-                const updated = [...prev];
-                const last = updated[updated.length - 1];
-                if (last?.role === 'assistant') {
-                  updated[updated.length - 1] = {
-                    ...last,
-                    toolCalls: [
-                      ...(last.toolCalls || []),
-                      { tool: event.tool, toolUseId: event.tool_use_id || crypto.randomUUID(), status: 'running', startedAt: Date.now() },
-                    ],
-                  };
-                }
-                return updated;
-              });
+              // Flush pending text before tool events
+              flushPendingText();
+              updateLastAssistant(last => ({
+                ...last,
+                toolCalls: [
+                  ...(last.toolCalls || []),
+                  { tool: event.tool, toolUseId: event.tool_use_id || crypto.randomUUID(), status: 'running', startedAt: Date.now() },
+                ],
+              }));
             } else if (event.type === 'tool_args' && event.tool_use_id) {
-              setMessages(prev => {
-                const updated = [...prev];
-                const last = updated[updated.length - 1];
-                if (last?.role === 'assistant') {
-                  updated[updated.length - 1] = {
-                    ...last,
-                    toolCalls: (last.toolCalls || []).map(tc =>
-                      tc.toolUseId === event.tool_use_id
-                        ? { ...tc, args: event.args, description: event.description }
-                        : tc
-                    ),
-                  };
-                }
-                return updated;
-              });
+              updateLastAssistant(last => ({
+                ...last,
+                toolCalls: (last.toolCalls || []).map(tc =>
+                  tc.toolUseId === event.tool_use_id
+                    ? { ...tc, args: event.args, description: event.description }
+                    : tc
+                ),
+              }));
             } else if (event.type === 'tool_end') {
-              setMessages(prev => {
-                const updated = [...prev];
-                const last = updated[updated.length - 1];
-                if (last?.role === 'assistant') {
-                  updated[updated.length - 1] = {
-                    ...last,
-                    toolCalls: (last.toolCalls || []).map(tc => {
-                      const match = event.tool_use_id
-                        ? tc.toolUseId === event.tool_use_id
-                        : tc.tool === event.tool && tc.status === 'running';
-                      return match
-                        ? { ...tc, status: 'done' as const, result: event.result, elapsedMs: event.elapsed_ms, durationMs: event.duration_ms }
-                        : tc;
-                    }),
-                  };
-                }
-                return updated;
-              });
+              updateLastAssistant(last => ({
+                ...last,
+                toolCalls: (last.toolCalls || []).map(tc => {
+                  const match = event.tool_use_id
+                    ? tc.toolUseId === event.tool_use_id
+                    : tc.tool === event.tool && tc.status === 'running';
+                  return match
+                    ? { ...tc, status: 'done' as const, result: event.result, elapsedMs: event.elapsed_ms, durationMs: event.duration_ms }
+                    : tc;
+                }),
+              }));
             } else if (event.type === 'confirm' && event.tool) {
-              setMessages(prev => {
-                const updated = [...prev];
-                const last = updated[updated.length - 1];
-                if (last?.role === 'assistant') {
-                  updated[updated.length - 1] = {
-                    ...last,
-                    pendingConfirm: {
-                      tool: event.tool,
-                      args: event.args || {},
-                      toolUseId: event.tool_use_id || '',
-                      status: 'pending',
-                      description: event.description,
-                    },
-                  };
-                }
-                return updated;
-              });
-            } else if (event.type === 'plan_ready' && event.plan) {
-              setMessages(prev => {
-                const updated = [...prev];
-                const last = updated[updated.length - 1];
-                if (last?.role === 'assistant') {
-                  updated[updated.length - 1] = {
-                    ...last,
-                    pendingPlan: {
-                      plan: event.plan,
-                      status: 'pending',
-                    },
-                  };
-                }
-                return updated;
-              });
+              flushPendingText();
+              updateLastAssistant(last => ({
+                ...last,
+                pendingConfirm: {
+                  tool: event.tool,
+                  args: event.args || {},
+                  toolUseId: event.tool_use_id || '',
+                  status: 'pending',
+                  description: event.description,
+                },
+              }));
+            } else if (event.type === 'plan_ready' && (event.plan_text || event.plan)) {
+              flushPendingText();
+              updateLastAssistant(last => ({
+                ...last,
+                pendingPlan: {
+                  plan: event.plan_text || event.plan,
+                  status: 'pending',
+                },
+              }));
             } else if (event.type === 'usage' && event.input_tokens != null && event.context_window != null) {
               setContextUsage({
                 inputTokens: event.input_tokens,
                 contextWindow: event.context_window,
               });
             } else if (event.type === 'report' && event.report) {
-              setMessages(prev => {
-                const updated = [...prev];
-                const last = updated[updated.length - 1];
-                if (last?.role === 'assistant') {
-                  updated[updated.length - 1] = {
-                    ...last,
-                    reports: [...(last.reports || []), event.report],
-                  };
-                }
-                return updated;
-              });
+              updateLastAssistant(last => ({
+                ...last,
+                reports: [...(last.reports || []), event.report],
+              }));
             } else if (event.type === 'conversation_id' && event.id) {
               setConversationId(event.id);
             } else if (event.type === 'title_update' && event.title && event.conversation_id) {
               options?.onTitleUpdate?.(event.conversation_id, event.title);
             } else if (event.type === 'error') {
-              setMessages(prev => {
-                const updated = [...prev];
-                const last = updated[updated.length - 1];
-                if (last?.role === 'assistant') {
-                  updated[updated.length - 1] = {
-                    ...last,
-                    content: last.content + `\n\n**Error:** ${event.error}`,
-                  };
-                }
-                return updated;
-              });
+              flushPendingText();
+              updateLastAssistant(last => ({
+                ...last,
+                content: last.content + `\n\n**Error:** ${event.error}`,
+              }));
             }
           } catch { /* skip malformed */ }
         }
       }
     } catch (err: unknown) {
       if (err instanceof Error && err.name === 'AbortError') return;
-      setMessages(prev => {
-        const updated = [...prev];
-        const last = updated[updated.length - 1];
-        if (last?.role === 'assistant' && !last.content) {
-          updated[updated.length - 1] = { ...last, content: 'Failed to get a response. Please try again.' };
-        }
-        return updated;
-      });
+      updateLastAssistant(last => ({
+        ...last,
+        content: last.content || 'Failed to get a response. Please try again.',
+      }));
     } finally {
+      // Flush any remaining text
+      if (rafIdRef.current !== null) {
+        cancelAnimationFrame(rafIdRef.current);
+        rafIdRef.current = null;
+      }
+      const remaining = pendingTextRef.current;
+      if (remaining) {
+        pendingTextRef.current = '';
+        setMessages(prev => {
+          if (!prev.length) return prev;
+          const last = prev[prev.length - 1];
+          if (last.role !== 'assistant') return prev;
+          return [...prev.slice(0, -1), { ...last, content: last.content + remaining }];
+        });
+      }
+
       setIsStreaming(false);
       setMessages(prev => prev.map(m => m.isStreaming ? { ...m, isStreaming: false } : m));
       abortRef.current = null;
     }
-  }, [messages, trainingMode, trainingType, toolMode, planMode, conversationId, apiPrefix, options]);
+  }, [trainingMode, trainingType, toolMode, planMode, conversationId, apiPrefix, options, scheduleFlush, flushPendingText, updateLastAssistant]);
 
   // ── Approve a pending confirmation ──
   const approveAction = useCallback(async (msgId: string) => {
-    const msg = messages.find(m => m.id === msgId);
+    const msg = messagesRef.current.find(m => m.id === msgId);
     if (!msg?.pendingConfirm || msg.pendingConfirm.status !== 'pending') return;
 
     const { tool, args, toolUseId } = msg.pendingConfirm;
@@ -368,7 +374,7 @@ export function useAgentChat(apiPrefix: string, options?: Options) {
         tool, args, toolUseId, result: { error: errMsg },
       });
     }
-  }, [messages, apiPrefix, sendMessage]);
+  }, [apiPrefix, sendMessage]);
 
   // ── Deny a pending confirmation ──
   const denyAction = useCallback((msgId: string) => {
@@ -419,7 +425,7 @@ export function useAgentChat(apiPrefix: string, options?: Options) {
   }, [toolMode]);
 
   const approvePlan = useCallback((messageId: string) => {
-    const msg = messages.find(m => m.id === messageId);
+    const msg = messagesRef.current.find(m => m.id === messageId);
     if (!msg?.pendingPlan || msg.pendingPlan.status !== 'pending') return;
 
     setMessages(prev =>
@@ -436,7 +442,7 @@ export function useAgentChat(apiPrefix: string, options?: Options) {
       tool_mode: 'power',
       plan_mode: false,
     });
-  }, [messages, sendMessage]);
+  }, [sendMessage]);
 
   const iteratePlan = useCallback((messageId: string) => {
     setMessages(prev =>

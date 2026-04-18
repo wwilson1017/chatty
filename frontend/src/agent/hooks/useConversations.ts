@@ -5,7 +5,7 @@
 
 import { useState, useCallback, useRef } from 'react';
 import { api } from '../../core/api/client';
-import type { ChatMessage } from './useAgentChat';
+import type { ChatMessage, ToolCallInfo } from './useAgentChat';
 
 export interface Conversation {
   id: string;
@@ -38,15 +38,31 @@ export function useConversations(apiPrefix: string) {
     try {
       const data = await api<{
         id: string; title: string;
-        messages: { id: string; role: string; content: string; seq: number }[];
+        messages: { id: string; role: string; content: string; seq: number; tool_calls?: string }[];
       }>(`${apiPrefix}/conversations/${id}`);
       setActiveId(id);
-      return data.messages.map(m => ({
-        id: m.id,
-        role: m.role as 'user' | 'assistant',
-        content: m.content,
-        timestamp: Date.now(),
-      }));
+      return data.messages.map(m => {
+        const msg: ChatMessage = {
+          id: m.id,
+          role: m.role as 'user' | 'assistant',
+          content: m.content,
+          timestamp: Date.now(),
+        };
+        if (m.tool_calls) {
+          try {
+            const parsed = JSON.parse(m.tool_calls) as ToolCallInfo[];
+            if (Array.isArray(parsed) && parsed.length > 0) {
+              msg.toolCalls = parsed.map(tc => ({
+                ...tc,
+                status: 'done' as const,
+                startedAt: 0,
+                durationMs: tc.elapsedMs ?? tc.durationMs,
+              }));
+            }
+          } catch { /* ignore corrupted tool_calls */ }
+        }
+        return msg;
+      });
     } catch {
       return [];
     } finally {

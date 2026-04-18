@@ -72,7 +72,7 @@ export function SetupWizard() {
     form.append('file', file);
     const res = await fetch('/api/branding/logo', {
       method: 'POST',
-      headers: { Authorization: `Bearer ${localStorage.getItem('chatty_token')}` },
+      headers: { Authorization: `Bearer ${sessionStorage.getItem('chatty_token')}` },
       body: form,
     });
     if (res.ok) setLogoUploaded(true);

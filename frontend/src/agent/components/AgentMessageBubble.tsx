@@ -5,7 +5,7 @@
  * Plan mode cards. Copy button per message.
  */
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, memo } from 'react';
 import type { ChatMessage, ToolCallInfo, PendingConfirmation, PendingPlan } from '../hooks/useAgentChat';
 import MarkdownContent from './MarkdownContent';
 import { useCopyToClipboard } from '../hooks/useCopyToClipboard';
@@ -339,7 +339,7 @@ function BouncingDots() {
 
 /* ── Main Component ───────────────────────────────────────────────── */
 
-export function AgentMessageBubble({ message, onApprove, onDeny, onApprovePlan, onIteratePlan }: Props) {
+function AgentMessageBubbleInner({ message, onApprove, onDeny, onApprovePlan, onIteratePlan }: Props) {
   const isUser = message.role === 'user';
   const [expandedTools, setExpandedTools] = useState<Set<string>>(new Set());
   const { copied, copy } = useCopyToClipboard();
@@ -452,3 +452,5 @@ export function AgentMessageBubble({ message, onApprove, onDeny, onApprovePlan, 
     </div>
   );
 }
+
+export const AgentMessageBubble = memo(AgentMessageBubbleInner);

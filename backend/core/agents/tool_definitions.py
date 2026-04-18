@@ -274,6 +274,28 @@ MEMORY_TOOLS = [
         "writes": True,
         "context_memory": True,
     },
+    {
+        "name": "consolidate_memory",
+        "description": (
+            "Regenerate MEMORY.md by synthesizing the last N days of daily notes with the "
+            "current MEMORY.md. Uses Claude Sonnet to produce a tight bulleted snapshot with "
+            "four sections: Key People, Active Projects, Decisions, Lessons Learned. Runs "
+            "automatically weekly; call this on demand if the user asks you to refresh your "
+            "memory now."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "days": {
+                    "type": "integer",
+                    "description": "Number of recent days to synthesize (default 7, max 90).",
+                },
+            },
+        },
+        "kind": "memory",
+        "writes": True,
+        "context_memory": True,
+    },
 ]
 
 # ── Shared context tools ─────────────────────────────────────────────────────

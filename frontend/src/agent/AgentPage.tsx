@@ -208,7 +208,7 @@ export function AgentPage() {
 
         <div className="w-8 h-8 rounded-full bg-indigo-600 flex items-center justify-center text-xs font-bold flex-shrink-0 overflow-hidden">
           {agent.avatar_url
-            ? <img src={`${agent.avatar_url}${agent.avatar_url.includes('?') ? '&' : '?'}token=${localStorage.getItem('chatty_token') || ''}`} alt={agent.agent_name} className="w-full h-full object-cover" />
+            ? <img src={`${agent.avatar_url}${agent.avatar_url.includes('?') ? '&' : '?'}token=${sessionStorage.getItem('chatty_token') || ''}`} alt={agent.agent_name} className="w-full h-full object-cover" />
             : initials}
         </div>
 
@@ -262,7 +262,11 @@ export function AgentPage() {
         {activeTab === 'chat' && !chat.trainingMode && (
           <button
             onClick={agent.onboarding_complete ? handleStartImprove : handleStartOnboarding}
-            className="hidden sm:inline-flex text-xs font-medium rounded-full px-2.5 py-0.5 bg-gray-800 text-gray-400 hover:text-white border border-gray-700 transition"
+            className={`hidden sm:inline-flex text-xs font-medium rounded-full px-2.5 py-0.5 border transition ${
+              agent.onboarding_complete
+                ? 'bg-emerald-900/40 text-emerald-400 hover:text-emerald-200 border-emerald-700/50'
+                : 'bg-gray-800 text-gray-400 hover:text-white border-gray-700'
+            }`}
           >
             {trainLabel}
           </button>

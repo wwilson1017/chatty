@@ -71,7 +71,7 @@ export function AvatarPicker({ agentId, agentName, openaiAvailable, onComplete, 
     try {
       const formData = new FormData();
       formData.append('file', file);
-      const token = localStorage.getItem('chatty_token');
+      const token = sessionStorage.getItem('chatty_token');
       const res = await fetch(`/api/agents/${agentId}/avatar/upload`, {
         method: 'POST',
         headers: token ? { Authorization: `Bearer ${token}` } : {},
