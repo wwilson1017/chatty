@@ -9,12 +9,14 @@ import base64
 import io
 import logging
 import xmlrpc.client
+from pathlib import Path
 
 from ..helpers import safe_get_client
 
 logger = logging.getLogger(__name__)
 
 MAX_FILE_SIZE = 20 * 1024 * 1024  # 20 MB
+_DOWNLOADS_DIR = Path(__file__).resolve().parent.parent.parent.parent / "data" / "downloads"
 
 _TEXT_EXTENSIONS = {
     ".txt", ".eml", ".html", ".htm", ".xml", ".json", ".log",
@@ -226,9 +228,15 @@ def decode_datas(datas) -> bytes:
 # ── Tool handlers ────────────────────────────────────────────────────────
 
 def download_odoo_pdf(document_type: str, record_id: int) -> dict:
-    client = safe_get_client()
+    """Download an Odoo PDF, extract its text, and cache the binary to disk.
+
+    Returns extracted text for the LLM to read. The original PDF is saved to
+    data/downloads/{filename} so it can be attached to emails later via the
+    ``cached_file`` path returned in the result.
+    """
+    client, err = safe_get_client()
     if not client:
-        return {"error": "Odoo not connected"}
+        return err
 
     mapping = _REPORT_MAP.get(document_type)
     if not mapping:
@@ -291,23 +299,37 @@ def download_odoo_pdf(document_type: str, record_id: int) -> dict:
     else:
         return {"error": f"Unexpected PDF data type from Odoo: {type(pdf_data).__name__}"}
 
-    pdf_base64 = base64.b64encode(raw_bytes).decode("ascii")
+    # Cache the raw PDF to disk for later email attachment
+    _DOWNLOADS_DIR.mkdir(parents=True, exist_ok=True)
+    cached_path = _DOWNLOADS_DIR / filename
+    cached_path.write_bytes(raw_bytes)
+    logger.info("Cached PDF %s (%d bytes) to %s", filename, len(raw_bytes), cached_path)
 
-    return {
+    # Extract text so the LLM reads content, not base64
+    text_content, truncated = extract_pdf_text(raw_bytes, 50_000)
+
+    response: dict = {
         "ok": True,
         "document_type": document_type,
         "record_id": record_id,
         "display_name": display_name,
         "filename": filename,
-        "pdf_base64": pdf_base64,
+        "cached_file": str(cached_path),
         "size_bytes": len(raw_bytes),
+        "text_content": text_content if text_content else None,
+        "chars_extracted": len(text_content),
     }
+    if truncated:
+        response["note"] = "Text truncated at 50,000 characters"
+    if not text_content:
+        response["note"] = "PDF has no extractable text (may be scanned/image-based). The file is still cached and can be attached to emails."
+    return response
 
 
 def read_odoo_attachment(attachment_id: int, max_chars: int = 50_000) -> dict:
-    client = safe_get_client()
+    client, err = safe_get_client()
     if not client:
-        return {"error": "Odoo not connected"}
+        return err
 
     records = client.search_read(
         "ir.attachment",
@@ -383,8 +405,10 @@ PDF_TOOL_DEFS = [
     {
         "name": "odoo_download_pdf",
         "description": (
-            "Download a PDF report from Odoo. Renders the document via Odoo's QWeb report "
-            "engine. Supported types: purchase_order, invoice, sale_order, delivery, picking."
+            "Download a PDF report from Odoo and extract its text content. Renders the document "
+            "via Odoo's QWeb report engine, extracts readable text, and caches the original PDF "
+            "to disk so it can be attached to emails later. "
+            "Supported types: purchase_order, invoice, sale_order, delivery, picking."
         ),
         "input_schema": {
             "type": "object",
