@@ -55,6 +55,7 @@ export interface ChatMessage {
   toolCalls?: ToolCallInfo[];
   isStreaming?: boolean;
   attachments?: { name: string; size: number }[];
+  hidden?: boolean;
   pendingConfirm?: PendingConfirmation;
   pendingPlan?: PendingPlan;
   reports?: InlineReport[];
@@ -82,20 +83,21 @@ export function useAgentChat(apiPrefix: string, options?: Options) {
   const savedToolModeRef = useRef<ToolMode>('normal');
   const savedToolModeForPlanRef = useRef<ToolMode>('normal');
   const trainingKickoffRef = useRef(false);
-  const trainingKickoffMessageRef = useRef('Start training mode.');
+  const trainingKickoffMessageRef = useRef('Hey there!');
 
   const sendMessage = useCallback(async (text: string, files?: File[], approvedTool?: {
     tool: string;
     args: Record<string, unknown>;
     toolUseId: string;
     result: unknown;
-  }, overrides?: { tool_mode?: string; plan_mode?: boolean }) => {
+  }, overrides?: { tool_mode?: string; plan_mode?: boolean; hidden?: boolean }) => {
     const userMsg: ChatMessage = {
       id: crypto.randomUUID(),
       role: 'user',
       content: text,
       timestamp: Date.now(),
       attachments: files?.map(f => ({ name: f.name, size: f.size })),
+      hidden: overrides?.hidden,
     };
     const assistantMsg: ChatMessage = {
       id: crypto.randomUUID(),
@@ -384,7 +386,7 @@ export function useAgentChat(apiPrefix: string, options?: Options) {
       setMessages([]);
       setConversationId(null);
       setTrainingType(type || 'topic');
-      trainingKickoffMessageRef.current = kickoff || 'Start training mode.';
+      trainingKickoffMessageRef.current = kickoff || 'Hey there!';
       trainingKickoffRef.current = true;
       setTrainingModeState(true);
     } else {
@@ -399,7 +401,7 @@ export function useAgentChat(apiPrefix: string, options?: Options) {
   useEffect(() => {
     if (trainingMode && trainingKickoffRef.current && !isStreaming) {
       trainingKickoffRef.current = false;
-      sendMessage(trainingKickoffMessageRef.current);
+      sendMessage(trainingKickoffMessageRef.current, undefined, undefined, { hidden: true });
     }
   }, [trainingMode, isStreaming, sendMessage]);
 

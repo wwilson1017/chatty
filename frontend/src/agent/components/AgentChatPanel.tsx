@@ -317,7 +317,7 @@ export function AgentChatPanel({
           </div>
         ) : (
           <div className="max-w-3xl mx-auto px-6 sm:px-10 py-6 space-y-6">
-            {messages.map(msg => (
+            {messages.filter(msg => !msg.hidden).map(msg => (
               <AgentMessageBubble
                 key={msg.id}
                 message={msg}
