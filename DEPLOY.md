@@ -129,10 +129,10 @@ git push origin master
 
 To completely reset your Chatty instance to a fresh state (as if you just deployed for the first time):
 
-1. Go to your chatty service in Railway
-2. Delete the existing **volume**
-3. Add a new volume at the same mount path: `/app/backend/data`
-4. Railway will redeploy with a clean volume — the setup wizard will appear on next login
+1. Go to your Railway project and click on **chatty-volume**
+2. Scroll down and click **Wipe Volume**
+3. Confirm the wipe — Railway will redeploy automatically
+4. The setup wizard will appear on next login as if it's a fresh install
 
 This deletes all agents, chat history, and saved credentials. Your `AUTH_PASSWORD` is preserved since it's an environment variable.
 
