@@ -69,13 +69,16 @@ These auto-generate if not set. You can override them for extra control:
 
 ## Persistent Storage
 
-Chatty uses SQLite for all data storage. On Railway, a **persistent volume** is mounted at `/app/backend/data` so your data survives redeploys. This volume stores:
+Chatty uses SQLite for all data storage. On Railway, a **persistent volume** is automatically mounted at `/app/backend/data` so your data survives redeploys and updates. This volume stores:
 
 - Agent databases (chat history, conversations)
 - Agent knowledge files (context documents)
 - AI provider credentials (encrypted)
 - Branding assets (logo, colors)
 - Integration data (CRM, reminders)
+- Memory, dreaming, and shared context data
+
+The volume is completely separate from the application code. When Chatty is updated, only the code changes — your data stays exactly as it is.
 
 ### Volume Pricing
 
@@ -101,13 +104,37 @@ These use the `/api/backup/download` and `/api/backup/restore` API endpoints und
 
 ## Updating
 
-When you push changes to your GitHub repo, Railway automatically rebuilds and redeploys. Your data on the persistent volume is preserved.
+### Automatic updates (default)
 
-To update from the upstream Chatty repo:
+When you deploy Chatty from the template, Railway keeps a connection to the upstream Chatty repo. When we release updates:
+
+1. You'll see a notification in your Railway project dashboard
+2. Click to apply — Railway creates a pull request with the changes
+3. Merge the pull request
+4. Railway automatically rebuilds and redeploys
+
+Your data is safe — updates only change the application code. Your agents, chat history, API keys, and branding are stored on the persistent volume and are never touched by code updates.
+
+### Manual updates (ejected users)
+
+If you've clicked "Eject" in your service settings (which creates a separate copy of the repo), you won't receive automatic update notifications. To update manually:
+
 ```bash
+git remote add upstream https://github.com/WWilson1017/chatty.git
 git pull upstream master
 git push origin master
 ```
+
+### Factory reset
+
+To completely reset your Chatty instance to a fresh state (as if you just deployed for the first time):
+
+1. Go to your chatty service in Railway
+2. Delete the existing **volume**
+3. Add a new volume at the same mount path: `/app/backend/data`
+4. Railway will redeploy with a clean volume — the setup wizard will appear on next login
+
+This deletes all agents, chat history, and saved credentials. Your `AUTH_PASSWORD` is preserved since it's an environment variable.
 
 ## Cost Breakdown
 
