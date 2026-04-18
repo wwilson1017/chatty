@@ -52,11 +52,15 @@ export function useConversations(apiPrefix: string) {
           try {
             const parsed = JSON.parse(m.tool_calls) as ToolCallInfo[];
             if (Array.isArray(parsed) && parsed.length > 0) {
-              msg.toolCalls = parsed.map(tc => ({
-                ...tc,
+              msg.toolCalls = parsed.map((tc: Record<string, unknown>) => ({
+                tool: (tc.tool as string) || '',
+                toolUseId: (tc.toolUseId as string) || (tc.tool_use_id as string) || '',
+                args: tc.args as Record<string, unknown> | undefined,
+                result: tc.result,
                 status: 'done' as const,
                 startedAt: 0,
-                durationMs: tc.elapsedMs ?? tc.durationMs,
+                elapsedMs: (tc.elapsedMs as number) ?? (tc.elapsed_ms as number),
+                durationMs: (tc.elapsedMs as number) ?? (tc.elapsed_ms as number) ?? (tc.durationMs as number),
               }));
             }
           } catch { /* ignore corrupted tool_calls */ }
