@@ -5,7 +5,7 @@
 
 import { useState, useCallback, useRef } from 'react';
 import { api } from '../../core/api/client';
-import type { ChatMessage, ToolCallInfo } from './useAgentChat';
+import type { ChatMessage } from './useAgentChat';
 
 export interface Conversation {
   id: string;
@@ -50,17 +50,18 @@ export function useConversations(apiPrefix: string) {
         };
         if (m.tool_calls) {
           try {
-            const parsed = JSON.parse(m.tool_calls) as ToolCallInfo[];
+            const parsed = JSON.parse(m.tool_calls);
             if (Array.isArray(parsed) && parsed.length > 0) {
-              msg.toolCalls = parsed.map((tc: Record<string, unknown>) => ({
-                tool: (tc.tool as string) || '',
-                toolUseId: (tc.toolUseId as string) || (tc.tool_use_id as string) || '',
-                args: tc.args as Record<string, unknown> | undefined,
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              msg.toolCalls = parsed.map((tc: any) => ({
+                tool: tc.tool || '',
+                toolUseId: tc.toolUseId || tc.tool_use_id || '',
+                args: tc.args,
                 result: tc.result,
                 status: 'done' as const,
                 startedAt: 0,
-                elapsedMs: (tc.elapsedMs as number) ?? (tc.elapsed_ms as number),
-                durationMs: (tc.elapsedMs as number) ?? (tc.elapsed_ms as number) ?? (tc.durationMs as number),
+                elapsedMs: tc.elapsedMs ?? tc.elapsed_ms,
+                durationMs: tc.elapsedMs ?? tc.elapsed_ms ?? tc.durationMs,
               }));
             }
           } catch { /* ignore corrupted tool_calls */ }
