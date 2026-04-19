@@ -4,7 +4,6 @@ Layered strategy: deterministic parsing for known formats (vCard, standard CSV),
 AI fallback for everything else (Google CSV, JSON, plain text, etc.).
 """
 
-import asyncio
 import csv
 import io
 import json
@@ -61,7 +60,7 @@ class SmartImportResult:
     warnings: list[str] = field(default_factory=list)
 
 
-def parse_contacts(content: str, filename: str) -> SmartImportResult:
+async def parse_contacts(content: str, filename: str) -> SmartImportResult:
     """Parse contacts from any file format. Returns structured contacts for preview."""
     if not content.strip():
         return SmartImportResult(warnings=["File is empty"])
@@ -86,7 +85,7 @@ def parse_contacts(content: str, filename: str) -> SmartImportResult:
                 result.warnings.append("No contacts found in CSV file")
             return result
 
-    return _parse_with_ai(content, filename)
+    return await _parse_with_ai(content, filename)
 
 
 # ── vCard parser ──────────────────────────────────────────────────────────────
@@ -233,7 +232,7 @@ def _try_csv_deterministic(content: str) -> list[dict] | None:
 # ── AI-powered parser ─────────────────────────────────────────────────────────
 
 
-def _parse_with_ai(content: str, filename: str) -> SmartImportResult:
+async def _parse_with_ai(content: str, filename: str) -> SmartImportResult:
     """Use the configured AI provider to parse contacts from arbitrary content."""
     provider = get_ai_provider()
     if not provider:
@@ -251,18 +250,7 @@ def _parse_with_ai(content: str, filename: str) -> SmartImportResult:
     user_message = f"Filename: {filename}\n\nFile content:\n{content}"
     messages = [{"role": "user", "content": user_message}]
 
-    try:
-        loop = asyncio.get_running_loop()
-    except RuntimeError:
-        loop = None
-
-    if loop and loop.is_running():
-        import concurrent.futures
-        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
-            future = pool.submit(asyncio.run, _call_ai(provider, messages))
-            raw_text = future.result(timeout=60)
-    else:
-        raw_text = asyncio.run(_call_ai(provider, messages))
+    raw_text = await _call_ai(provider, messages)
 
     contacts, parse_warnings = _extract_contacts_from_ai_response(raw_text)
 

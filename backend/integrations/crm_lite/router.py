@@ -404,7 +404,7 @@ async def smart_import_parse(file: UploadFile = File(...), user=Depends(_require
     except UnicodeDecodeError:
         text = content.decode("latin-1")
 
-    result = parse_contacts(text, file.filename)
+    result = await parse_contacts(text, file.filename)
     return {
         "contacts": result.contacts,
         "ai_used": result.ai_used,

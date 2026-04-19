@@ -155,7 +155,7 @@ export function SmartImportModal({ onClose, onImported }: Props) {
               <input
                 ref={inputRef}
                 type="file"
-                accept=".csv,.vcf,.json,.txt,.tsv,.xls,.xlsx"
+                accept=".csv,.vcf,.json,.txt,.tsv"
                 className="hidden"
                 onChange={e => setFile(e.target.files?.[0] ?? null)}
               />
