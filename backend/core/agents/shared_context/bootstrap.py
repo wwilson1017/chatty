@@ -161,6 +161,7 @@ async def _extract_shared_knowledge(knowledge_texts: dict[str, str]) -> list[dic
 
 
 def _populate_shared_context(entries: list[dict]) -> int:
+    db.delete_entries_by_agent("system-bootstrap")
     count = 0
     for entry in entries:
         db.add_entry(
