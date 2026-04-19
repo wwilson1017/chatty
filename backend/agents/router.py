@@ -202,11 +202,31 @@ async def create_agent(body: CreateAgentRequest, user=Depends(get_current_user))
     """Create a new agent and seed default context files."""
     if not body.agent_name.strip():
         raise HTTPException(status_code=400, detail="agent_name is required")
+
+    existing_count = len(agent_db.list_agents())
     agent = agent_db.create_agent(body.agent_name.strip(), personality=body.personality)
 
     # Seed default context files (soul.md, identity.md, user.md, bootstrap, guide)
     context_dir = DATA_DIR / agent["slug"] / "context"
     seed_context_files(context_dir, agent["agent_name"])
+
+    # Bootstrap shared knowledge when transitioning from 1 to 2+ agents
+    if existing_count == 1:
+        from core.agents.shared_context.bootstrap import run_bootstrap_sync, should_bootstrap
+        if should_bootstrap():
+            def _bootstrap_thread():
+                try:
+                    run_bootstrap_sync()
+                except Exception:
+                    logger.exception("Shared knowledge bootstrap thread failed")
+
+            import threading
+            threading.Thread(
+                target=_bootstrap_thread,
+                daemon=True,
+                name="shared-knowledge-bootstrap",
+            ).start()
+            logger.info("Shared knowledge bootstrap triggered (2nd agent created)")
 
     return agent
 
