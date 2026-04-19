@@ -266,7 +266,6 @@ export function AgentChatPanel({
           </div>
         </div>
 
-<<<<<<< HEAD
         {/* Context stats */}
         <div style={{
           textAlign: 'center', marginTop: 8,
