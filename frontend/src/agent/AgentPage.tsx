@@ -315,7 +315,7 @@ export function AgentPage() {
                   {tab.label}
                 </div>
               ))}
-              {(
+              {agent.telegram_enabled && (
                 <div
                   onClick={() => setActiveTab('telegram')}
                   style={{
@@ -351,16 +351,18 @@ export function AgentPage() {
                 {tab.label}
               </div>
             ))}
-            <div
-              onClick={() => setActiveTab('telegram')}
-              style={{
-                fontSize: 12, padding: '8px 14px', cursor: 'pointer', whiteSpace: 'nowrap',
-                color: activeTab === 'telegram' ? '#EDF0F4' : 'rgba(237,240,244,0.5)',
-                borderBottom: activeTab === 'telegram' ? '2px solid var(--color-ch-accent, #C8D1D9)' : '2px solid transparent',
-              }}
-            >
-              Telegram
-            </div>
+            {agent.telegram_enabled && (
+              <div
+                onClick={() => setActiveTab('telegram')}
+                style={{
+                  fontSize: 12, padding: '8px 14px', cursor: 'pointer', whiteSpace: 'nowrap',
+                  color: activeTab === 'telegram' ? '#EDF0F4' : 'rgba(237,240,244,0.5)',
+                  borderBottom: activeTab === 'telegram' ? '2px solid var(--color-ch-accent, #C8D1D9)' : '2px solid transparent',
+                }}
+              >
+                Telegram
+              </div>
+            )}
           </div>
         )}
       </div>
