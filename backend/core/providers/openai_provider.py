@@ -44,7 +44,7 @@ CHATGPT_PROXY_URL = "http://127.0.0.1:9877/v1"
 
 
 class OpenAIProvider(AIProvider):
-    def __init__(self, access_token: str, model: str = "gpt-4o", use_chatgpt_api: bool = False):
+    def __init__(self, access_token: str, model: str = "gpt-5.4", use_chatgpt_api: bool = False):
         super().__init__(model=model)
         self.access_token = access_token
         self.use_chatgpt_api = use_chatgpt_api
@@ -224,7 +224,7 @@ class OpenAIProvider(AIProvider):
         try:
             client = openai.OpenAI(**self._build_client_kwargs())
             client.chat.completions.create(
-                model="gpt-4o-mini",
+                model="gpt-5.4-mini",
                 messages=[{"role": "user", "content": "hi"}],
                 max_tokens=1,
             )

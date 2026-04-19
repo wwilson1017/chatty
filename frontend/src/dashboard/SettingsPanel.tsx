@@ -16,7 +16,7 @@ type Tab = 'providers' | 'branding' | 'integrations' | 'chat' | 'data';
 export function SettingsPanel({ branding, onBrandingUpdate, onClose }: Props) {
   const [tab, setTab] = useState<Tab>('providers');
   const [companyName, setCompanyName] = useState(branding?.company_name || '');
-  const [accentColor, setAccentColor] = useState(branding?.accent_color || '#393c74');
+  const [accentColor, setAccentColor] = useState(branding?.accent_color || '#C8D1D9');
   const [saving, setSaving] = useState(false);
   const [showToolCalls, setShowToolCalls] = useState(() =>
     localStorage.getItem('chatty_show_tool_calls') === 'true'
@@ -49,7 +49,7 @@ export function SettingsPanel({ branding, onBrandingUpdate, onClose }: Props) {
   }
 
   const tabs: { id: Tab; label: string }[] = [
-    { id: 'providers', label: 'AI Providers' },
+    { id: 'providers', label: 'Providers' },
     { id: 'branding', label: 'Branding' },
     { id: 'integrations', label: 'Integrations' },
     { id: 'chat', label: 'Chat' },
@@ -57,64 +57,113 @@ export function SettingsPanel({ branding, onBrandingUpdate, onClose }: Props) {
   ];
 
   return (
-    <div className="fixed inset-0 bg-black/60 flex items-start justify-end z-50">
-      <div className="bg-gray-900 border-l border-gray-800 w-full max-w-xl h-full flex flex-col shadow-2xl overflow-hidden">
+    <div style={{
+      position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)',
+      display: 'flex', justifyContent: 'flex-end', zIndex: 50,
+    }}>
+      <div style={{
+        background: '#11141A', borderLeft: '1px solid rgba(230,235,242,0.07)',
+        width: '100%', maxWidth: 520, height: '100%',
+        display: 'flex', flexDirection: 'column',
+        boxShadow: '-8px 0 40px rgba(0,0,0,0.5)',
+      }}>
         {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-800">
-          <h2 className="text-white font-bold text-lg">Settings</h2>
-          <button onClick={onClose} className="text-gray-400 hover:text-white text-2xl leading-none transition">×</button>
+        <div style={{
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+          padding: '0 24px', height: 48,
+          borderBottom: '1px solid rgba(230,235,242,0.07)',
+        }}>
+          <h2 style={{
+            fontFamily: "'Fraunces', Georgia, serif",
+            fontSize: 16, fontWeight: 400, letterSpacing: '-0.01em',
+            color: '#EDF0F4', margin: 0,
+          }}>Settings</h2>
+          <button onClick={onClose} style={{
+            background: 'none', border: 'none', color: 'rgba(237,240,244,0.62)',
+            fontSize: 20, cursor: 'pointer', padding: 4,
+          }}>×</button>
         </div>
 
         {/* Tabs */}
-        <div className="flex border-b border-gray-800">
-          {tabs.map(t => (
-            <button
-              key={t.id}
-              onClick={() => setTab(t.id)}
-              className={`flex-1 py-3 text-sm font-medium transition ${
-                tab === t.id
-                  ? 'text-white border-b-2 border-brand'
-                  : 'text-gray-400 hover:text-gray-200'
-              }`}
-            >
-              {t.label}
-            </button>
-          ))}
+        <div style={{ display: 'flex', gap: 0 }}>
+          {tabs.map(t => {
+            const active = tab === t.id;
+            return (
+              <div
+                key={t.id}
+                onClick={() => setTab(t.id)}
+                style={{
+                  flex: 1, padding: '10px 0', textAlign: 'center',
+                  fontSize: 12,
+                  fontFamily: "'Inter Tight', system-ui, sans-serif",
+                  color: active ? '#EDF0F4' : 'rgba(237,240,244,0.62)',
+                  borderBottom: active ? '1px solid #D4A85A' : '1px solid rgba(230,235,242,0.07)',
+                  cursor: 'pointer',
+                }}
+              >
+                {t.label}
+              </div>
+            );
+          })}
         </div>
 
-        {/* Tab content */}
-        <div className="flex-1 overflow-y-auto p-6">
+        {/* Content */}
+        <div style={{ flex: 1, overflowY: 'auto', padding: 24 }}>
           {tab === 'providers' && <ProviderSetup />}
 
           {tab === 'branding' && (
-            <div className="space-y-6">
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
               <div>
-                <label className="block text-sm text-gray-400 mb-2">Company / Platform name</label>
+                <label style={{
+                  display: 'block',
+                  fontFamily: "'JetBrains Mono', ui-monospace, monospace",
+                  fontSize: 9, letterSpacing: '0.16em', textTransform: 'uppercase',
+                  color: 'rgba(237,240,244,0.38)', marginBottom: 6,
+                }}>Company name</label>
                 <input
                   value={companyName}
                   onChange={e => setCompanyName(e.target.value)}
-                  className="w-full bg-gray-800 border border-gray-700 text-white rounded-lg px-4 py-3 focus:outline-none focus:border-indigo-500"
+                  style={{
+                    width: '100%', boxSizing: 'border-box',
+                    background: 'rgba(20,24,30,0.78)',
+                    border: '1px solid rgba(230,235,242,0.14)',
+                    color: '#EDF0F4', borderRadius: 4,
+                    padding: '10px 14px', fontSize: 14, outline: 'none',
+                  }}
                 />
               </div>
 
               <div>
-                <label className="block text-sm text-gray-400 mb-2">Accent color</label>
-                <div className="flex items-center gap-3">
+                <label style={{
+                  display: 'block',
+                  fontFamily: "'JetBrains Mono', ui-monospace, monospace",
+                  fontSize: 9, letterSpacing: '0.16em', textTransform: 'uppercase',
+                  color: 'rgba(237,240,244,0.38)', marginBottom: 6,
+                }}>Accent color</label>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
                   <input
                     type="color"
                     value={accentColor}
                     onChange={e => setAccentColor(e.target.value)}
-                    className="w-12 h-12 rounded-lg border-0 cursor-pointer bg-transparent"
+                    style={{ width: 48, height: 48, borderRadius: 4, border: 'none', cursor: 'pointer', background: 'transparent' }}
                   />
-                  <span className="text-gray-300 font-mono text-sm">{accentColor}</span>
+                  <span style={{
+                    fontFamily: "'JetBrains Mono', ui-monospace, monospace",
+                    fontSize: 13, color: 'rgba(237,240,244,0.62)',
+                  }}>{accentColor}</span>
                 </div>
               </div>
 
               <div>
-                <label className="block text-sm text-gray-400 mb-2">Logo</label>
+                <label style={{
+                  display: 'block',
+                  fontFamily: "'JetBrains Mono', ui-monospace, monospace",
+                  fontSize: 9, letterSpacing: '0.16em', textTransform: 'uppercase',
+                  color: 'rgba(237,240,244,0.38)', marginBottom: 6,
+                }}>Logo</label>
                 {branding?.has_logo && (
-                  <div className="mb-3">
-                    <img src="/api/branding/logo" alt="Logo" className="h-12 rounded-lg" />
+                  <div style={{ marginBottom: 12 }}>
+                    <img src="/api/branding/logo" alt="Logo" style={{ height: 48, borderRadius: 4 }} />
                   </div>
                 )}
                 <input
@@ -124,14 +173,19 @@ export function SettingsPanel({ branding, onBrandingUpdate, onClose }: Props) {
                     const file = e.target.files?.[0];
                     if (file) uploadLogo(file).catch(console.error);
                   }}
-                  className="text-sm text-gray-400"
+                  style={{ fontSize: 13, color: 'rgba(237,240,244,0.62)' }}
                 />
               </div>
 
               <button
                 onClick={saveBranding}
                 disabled={saving}
-                className="w-full py-3 bg-brand text-white font-semibold rounded-xl hover:opacity-90 transition disabled:opacity-50"
+                style={{
+                  width: '100%', padding: '10px 16px',
+                  background: 'var(--color-ch-accent, #C8D1D9)', color: '#0E1013',
+                  border: 'none', borderRadius: 4, fontSize: 14, fontWeight: 500,
+                  cursor: 'pointer', opacity: saving ? 0.5 : 1,
+                }}
               >
                 {saving ? 'Saving...' : 'Save Branding'}
               </button>
@@ -141,11 +195,11 @@ export function SettingsPanel({ branding, onBrandingUpdate, onClose }: Props) {
           {tab === 'integrations' && <IntegrationsTab />}
 
           {tab === 'chat' && (
-            <div className="space-y-6">
-              <div className="flex items-center justify-between">
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                 <div>
-                  <p className="text-white text-sm font-medium">Show tool calls</p>
-                  <p className="text-gray-500 text-xs mt-0.5">Display tool call details in chat messages</p>
+                  <p style={{ fontSize: 14, color: '#EDF0F4', margin: 0 }}>Show tool calls</p>
+                  <p style={{ fontSize: 12, color: 'rgba(237,240,244,0.38)', marginTop: 2 }}>Display tool call details in chat</p>
                 </div>
                 <button
                   onClick={() => {
@@ -153,9 +207,19 @@ export function SettingsPanel({ branding, onBrandingUpdate, onClose }: Props) {
                     setShowToolCalls(next);
                     localStorage.setItem('chatty_show_tool_calls', String(next));
                   }}
-                  className={`relative w-11 h-6 rounded-full transition ${showToolCalls ? 'bg-indigo-600' : 'bg-gray-600'}`}
+                  style={{
+                    position: 'relative', width: 44, height: 24, borderRadius: 12,
+                    background: showToolCalls ? 'var(--color-ch-accent, #C8D1D9)' : 'rgba(230,235,242,0.14)',
+                    border: 'none', cursor: 'pointer', transition: 'background 0.2s',
+                  }}
                 >
-                  <span className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-all ${showToolCalls ? 'left-5' : 'left-0.5'}`} />
+                  <span style={{
+                    position: 'absolute', top: 2, width: 20, height: 20,
+                    borderRadius: '50%', background: '#fff',
+                    boxShadow: '0 1px 3px rgba(0,0,0,0.3)',
+                    transition: 'left 0.2s',
+                    left: showToolCalls ? 22 : 2,
+                  }} />
                 </button>
               </div>
             </div>

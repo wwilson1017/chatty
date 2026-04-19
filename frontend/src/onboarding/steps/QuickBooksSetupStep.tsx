@@ -46,7 +46,7 @@ export function QuickBooksSetupStep({ onComplete, onSkip }: Props) {
       </div>
 
       {status === 'waiting' && (
-        <div className="flex items-center gap-3 text-sm text-indigo-300 bg-indigo-900/20 rounded-lg px-4 py-3 mb-4">
+        <div className="flex items-center gap-3 text-sm text-ch-gold bg-indigo-900/20 rounded-lg px-4 py-3 mb-4">
           <div className="w-4 h-4 border-2 border-indigo-400 border-t-transparent rounded-full animate-spin flex-shrink-0" />
           <span>Browser opened — complete authorization to continue...</span>
         </div>

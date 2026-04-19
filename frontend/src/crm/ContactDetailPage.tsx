@@ -6,11 +6,13 @@ import { ContactForm } from './components/ContactForm';
 import { DealForm } from './components/DealForm';
 import { TaskForm } from './components/TaskForm';
 import { ActivityTimeline } from './components/ActivityTimeline';
+import { IconArrowLeft, IconCheck } from '../shared/icons';
 
-const STAGE_COLORS: Record<string, string> = {
-  lead: 'bg-gray-600', qualified: 'bg-blue-600', proposal: 'bg-yellow-600',
-  negotiation: 'bg-orange-600', won: 'bg-green-600', lost: 'bg-red-600',
-};
+const mono = (size: number, color = 'rgba(237,240,244,0.38)') => ({
+  fontFamily: "'JetBrains Mono', ui-monospace, monospace",
+  fontSize: size, letterSpacing: '0.16em',
+  textTransform: 'uppercase' as const, color,
+});
 
 export function ContactDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -29,9 +31,7 @@ export function ContactDetailPage() {
     try {
       const data = await api<CrmContact>(`/api/crm/contacts/${id}`);
       setContact(data);
-    } catch {
-      setContact(null);
-    }
+    } catch { setContact(null); }
     setLoading(false);
   }
 
@@ -58,140 +58,198 @@ export function ContactDetailPage() {
 
   if (loading) {
     return (
-      <div className="flex justify-center py-20">
-        <div className="w-8 h-8 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin" />
+      <div style={{ display: 'flex', justifyContent: 'center', padding: '80px 0' }}>
+        <div className="w-8 h-8 border-2 border-ch-accent border-t-transparent rounded-full animate-spin" />
       </div>
     );
   }
 
-  if (!contact) {
-    return <p className="text-gray-400 p-8">Contact not found.</p>;
-  }
+  if (!contact) return <p style={{ color: 'rgba(237,240,244,0.62)', padding: 32 }}>Contact not found.</p>;
 
   return (
-    <div className="p-8 max-w-4xl">
-      {/* Header */}
-      <button onClick={() => navigate('/crm/contacts')} className="text-gray-500 text-sm hover:text-gray-300 mb-4 block">
-        &larr; Back to Contacts
+    <div style={{ padding: '32px 44px', maxWidth: 900 }}>
+      {/* Back link */}
+      <button onClick={() => navigate('/crm/contacts')} style={{
+        background: 'none', border: 'none', color: 'rgba(237,240,244,0.38)',
+        fontSize: 13, cursor: 'pointer', marginBottom: 16,
+        display: 'flex', alignItems: 'center', gap: 6,
+      }}>
+        <IconArrowLeft size={14} strokeWidth={1.85} /> Contacts
       </button>
 
-      <div className="flex items-start justify-between mb-8">
+      {/* Header */}
+      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 32 }}>
         <div>
-          <h1 className="text-2xl font-bold text-white">{contact.name}</h1>
-          {contact.title && <p className="text-gray-400 mt-0.5">{contact.title}{contact.company ? ` at ${contact.company}` : ''}</p>}
-          {!contact.title && contact.company && <p className="text-gray-400 mt-0.5">{contact.company}</p>}
-          <div className="flex gap-3 mt-2 text-sm text-gray-400">
+          <h1 style={{
+            fontFamily: "'Fraunces', Georgia, serif",
+            fontSize: 32, fontWeight: 400, letterSpacing: '-0.02em',
+            color: '#EDF0F4', margin: 0,
+          }}>{contact.name}</h1>
+          {contact.title && (
+            <p style={{ fontSize: 14, color: 'rgba(237,240,244,0.62)', marginTop: 4 }}>
+              {contact.title}{contact.company ? ` at ${contact.company}` : ''}
+            </p>
+          )}
+          {!contact.title && contact.company && (
+            <p style={{ fontSize: 14, color: 'rgba(237,240,244,0.62)', marginTop: 4 }}>{contact.company}</p>
+          )}
+          <div style={{ display: 'flex', gap: 16, marginTop: 8, fontSize: 13, color: 'rgba(237,240,244,0.62)' }}>
             {contact.email && <span>{contact.email}</span>}
             {contact.phone && <span>{contact.phone}</span>}
           </div>
           {contact.tags && (
-            <div className="flex gap-1.5 mt-2">
+            <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
               {contact.tags.split(',').map(t => t.trim()).filter(Boolean).map(tag => (
-                <span key={tag} className="text-xs bg-gray-800 text-gray-300 px-2 py-0.5 rounded">{tag}</span>
+                <span key={tag} style={{
+                  fontSize: 10, padding: '2px 8px', borderRadius: 3,
+                  background: 'rgba(245,239,227,0.06)', color: 'rgba(237,240,244,0.62)',
+                  fontFamily: "'JetBrains Mono', ui-monospace, monospace",
+                  letterSpacing: '0.1em',
+                }}>{tag}</span>
               ))}
             </div>
           )}
         </div>
-        <div className="flex gap-2">
-          <button onClick={() => setShowEdit(true)} className="bg-gray-800 text-gray-300 px-3 py-1.5 rounded-lg text-sm hover:bg-gray-700 transition">Edit</button>
-          <button onClick={handleDelete} className="bg-gray-800 text-red-400 px-3 py-1.5 rounded-lg text-sm hover:bg-gray-700 transition">Delete</button>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button onClick={() => setShowEdit(true)} style={{
+            background: 'transparent', color: 'rgba(237,240,244,0.62)',
+            border: '1px solid rgba(230,235,242,0.14)',
+            padding: '6px 12px', borderRadius: 4, fontSize: 12, cursor: 'pointer',
+          }}>Edit</button>
+          <button onClick={handleDelete} style={{
+            background: 'transparent', color: '#D97757',
+            border: '1px solid rgba(217,119,87,0.2)',
+            padding: '6px 12px', borderRadius: 4, fontSize: 12, cursor: 'pointer',
+          }}>Delete</button>
         </div>
       </div>
 
+      {/* Notes */}
       {contact.notes && (
-        <div className="bg-gray-900 rounded-xl border border-gray-800 p-4 mb-6">
-          <p className="text-gray-500 text-xs uppercase mb-1">Notes</p>
-          <p className="text-gray-300 text-sm whitespace-pre-wrap">{contact.notes}</p>
+        <div style={{
+          background: 'rgba(20,24,30,0.78)', border: '1px solid rgba(230,235,242,0.07)',
+          borderRadius: 6, padding: 16, marginBottom: 24,
+        }}>
+          <p style={{ ...mono(9), marginBottom: 6 }}>Notes</p>
+          <p style={{ fontSize: 13, color: 'rgba(237,240,244,0.62)', whiteSpace: 'pre-wrap', lineHeight: 1.5, margin: 0 }}>{contact.notes}</p>
         </div>
       )}
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 24 }}>
         {/* Deals */}
-        <div className="bg-gray-900 rounded-2xl border border-gray-800 p-5">
-          <div className="flex items-center justify-between mb-3">
-            <h2 className="text-white font-semibold text-sm">Deals</h2>
-            <button onClick={() => setShowAddDeal(true)} className="text-indigo-400 text-xs hover:text-indigo-300">+ Add</button>
+        <div>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+            <span style={mono(10, 'rgba(237,240,244,0.38)')}>Deals</span>
+            <button onClick={() => setShowAddDeal(true)} style={{
+              background: 'none', border: 'none', color: 'var(--color-ch-accent, #C8D1D9)',
+              fontSize: 12, cursor: 'pointer',
+            }}>+ Add</button>
           </div>
-          {!contact.deals?.length ? (
-            <p className="text-gray-500 text-xs">No deals yet.</p>
-          ) : (
-            <div className="space-y-2">
-              {contact.deals.map(d => (
-                <div key={d.id} className="flex items-center justify-between bg-gray-800/50 rounded-lg px-3 py-2">
+          <div style={{ borderTop: '1px solid rgba(230,235,242,0.07)' }}>
+            {!contact.deals?.length ? (
+              <p style={{ color: 'rgba(237,240,244,0.38)', fontSize: 12, padding: '16px 0' }}>No deals yet.</p>
+            ) : (
+              contact.deals.map(d => (
+                <div key={d.id} style={{
+                  padding: '12px 0', borderBottom: '1px solid rgba(230,235,242,0.07)',
+                  display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                }}>
                   <div>
-                    <p className="text-white text-sm">{d.title}</p>
-                    <span className={`text-xs px-1.5 py-0.5 rounded capitalize text-white ${STAGE_COLORS[d.stage] || 'bg-gray-700'}`}>{d.stage}</span>
+                    <p style={{ fontSize: 14, color: '#EDF0F4', margin: 0 }}>{d.title}</p>
+                    <span style={{ ...mono(9), textTransform: 'capitalize', marginTop: 2, display: 'inline-block' }}>{d.stage}</span>
                   </div>
-                  <span className="text-white text-sm font-medium">${d.value.toLocaleString()}</span>
+                  <span style={{
+                    fontFamily: "'Fraunces', Georgia, serif",
+                    fontSize: 16, color: '#EDF0F4',
+                  }}>${d.value.toLocaleString()}</span>
                 </div>
-              ))}
-            </div>
-          )}
+              ))
+            )}
+          </div>
         </div>
 
         {/* Tasks */}
-        <div className="bg-gray-900 rounded-2xl border border-gray-800 p-5">
-          <div className="flex items-center justify-between mb-3">
-            <h2 className="text-white font-semibold text-sm">Tasks</h2>
-            <button onClick={() => setShowAddTask(true)} className="text-indigo-400 text-xs hover:text-indigo-300">+ Add</button>
+        <div>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+            <span style={mono(10, 'rgba(237,240,244,0.38)')}>Tasks</span>
+            <button onClick={() => setShowAddTask(true)} style={{
+              background: 'none', border: 'none', color: 'var(--color-ch-accent, #C8D1D9)',
+              fontSize: 12, cursor: 'pointer',
+            }}>+ Add</button>
           </div>
-          {!contact.tasks?.length ? (
-            <p className="text-gray-500 text-xs">No tasks yet.</p>
-          ) : (
-            <div className="space-y-2">
-              {contact.tasks.map(t => (
-                <div key={t.id} className={`flex items-center gap-2 bg-gray-800/50 rounded-lg px-3 py-2 ${t.completed ? 'opacity-50' : ''}`}>
-                  <span className={`w-2 h-2 rounded-full shrink-0 ${t.completed ? 'bg-green-500' : isOverdue(t.due_date) ? 'bg-red-500' : 'bg-gray-500'}`} />
-                  <div className="flex-1 min-w-0">
-                    <p className={`text-sm truncate ${t.completed ? 'text-gray-500 line-through' : 'text-white'}`}>{t.title}</p>
-                    {t.due_date && <p className={`text-xs ${isOverdue(t.due_date) && !t.completed ? 'text-red-400' : 'text-gray-500'}`}>{t.due_date}</p>}
+          <div style={{ borderTop: '1px solid rgba(230,235,242,0.07)' }}>
+            {!contact.tasks?.length ? (
+              <p style={{ color: 'rgba(237,240,244,0.38)', fontSize: 12, padding: '16px 0' }}>No tasks yet.</p>
+            ) : (
+              contact.tasks.map(t => (
+                <div key={t.id} style={{
+                  padding: '10px 0', borderBottom: '1px solid rgba(230,235,242,0.07)',
+                  display: 'flex', alignItems: 'center', gap: 10,
+                  opacity: t.completed ? 0.5 : 1,
+                }}>
+                  <span style={{
+                    width: 6, height: 6, borderRadius: '50%', flexShrink: 0,
+                    background: t.completed ? '#8EA589' : isOverdue(t.due_date) ? '#D97757' : 'rgba(237,240,244,0.38)',
+                  }} />
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <p style={{
+                      fontSize: 13, margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                      color: t.completed ? 'rgba(237,240,244,0.38)' : '#EDF0F4',
+                      textDecoration: t.completed ? 'line-through' : 'none',
+                    }}>{t.title}</p>
+                    {t.due_date && (
+                      <p style={{
+                        fontSize: 11, marginTop: 2,
+                        color: isOverdue(t.due_date) && !t.completed ? '#D97757' : 'rgba(237,240,244,0.38)',
+                      }}>{t.due_date}</p>
+                    )}
                   </div>
                   <PriorityBadge priority={t.priority} />
                 </div>
-              ))}
-            </div>
-          )}
+              ))
+            )}
+          </div>
         </div>
       </div>
 
       {/* Log activity */}
-      <div className="bg-gray-900 rounded-2xl border border-gray-800 p-5 mt-6">
-        <h2 className="text-white font-semibold text-sm mb-3">Log Activity</h2>
-        <div className="flex gap-2 mb-2">
+      <div style={{
+        marginTop: 24, borderTop: '1px solid rgba(230,235,242,0.07)', paddingTop: 24,
+      }}>
+        <span style={{ ...mono(10, 'rgba(237,240,244,0.38)'), display: 'block', marginBottom: 12 }}>Log Activity</span>
+        <div style={{ display: 'flex', gap: 8, marginBottom: logActivity ? 8 : 0 }}>
           {['call', 'email', 'meeting', 'note'].map(type => (
-            <button
-              key={type}
-              onClick={() => setLogActivity(type)}
-              className={`px-3 py-1 rounded-lg text-xs capitalize transition ${
-                logActivity === type ? 'bg-indigo-600 text-white' : 'bg-gray-800 text-gray-400 hover:bg-gray-700'
-              }`}
-            >
-              {type}
-            </button>
+            <button key={type} onClick={() => setLogActivity(type)} style={{
+              padding: '5px 12px', borderRadius: 4, fontSize: 12, textTransform: 'capitalize',
+              background: logActivity === type ? 'var(--color-ch-accent, #C8D1D9)' : 'transparent',
+              color: logActivity === type ? '#0E1013' : 'rgba(237,240,244,0.62)',
+              border: logActivity === type ? 'none' : '1px solid rgba(230,235,242,0.14)',
+              cursor: 'pointer',
+            }}>{type}</button>
           ))}
         </div>
         {logActivity && (
-          <div className="flex gap-2 mt-2">
-            <input
-              placeholder="Add a note..."
-              value={logNote}
-              onChange={e => setLogNote(e.target.value)}
-              className="flex-1 bg-gray-800 border border-gray-700 text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-indigo-500"
+          <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+            <input placeholder="Add a note..." value={logNote} onChange={e => setLogNote(e.target.value)}
+              style={{
+                flex: 1, background: 'rgba(34,40,48,0.55)',
+                border: '1px solid rgba(230,235,242,0.14)',
+                color: '#EDF0F4', borderRadius: 4, padding: '8px 12px', fontSize: 13, outline: 'none',
+              }}
             />
-            <button
-              onClick={handleLogActivity}
-              disabled={logging}
-              className="bg-brand text-white px-4 py-2 rounded-lg text-sm font-medium disabled:opacity-50"
-            >
-              {logging ? 'Saving...' : 'Log'}
-            </button>
+            <button onClick={handleLogActivity} disabled={logging} style={{
+              background: 'var(--color-ch-accent, #C8D1D9)', color: '#0E1013',
+              border: 'none', padding: '8px 16px', borderRadius: 4,
+              fontSize: 13, fontWeight: 500, cursor: 'pointer',
+              opacity: logging ? 0.5 : 1,
+            }}>{logging ? 'Saving...' : 'Log'}</button>
           </div>
         )}
       </div>
 
-      {/* Activity timeline */}
-      <div className="bg-gray-900 rounded-2xl border border-gray-800 p-5 mt-6">
-        <h2 className="text-white font-semibold text-sm mb-3">Activity History</h2>
+      {/* Activity history */}
+      <div style={{ marginTop: 24, borderTop: '1px solid rgba(230,235,242,0.07)', paddingTop: 24 }}>
+        <span style={{ ...mono(10, 'rgba(237,240,244,0.38)'), display: 'block', marginBottom: 12 }}>Activity History</span>
         <ActivityTimeline activities={contact.activity || []} />
       </div>
 
@@ -204,9 +262,9 @@ export function ContactDetailPage() {
 
 function PriorityBadge({ priority }: { priority: string }) {
   const colors: Record<string, string> = {
-    high: 'text-red-400', medium: 'text-yellow-400', low: 'text-gray-500',
+    high: '#D97757', medium: '#D4A85A', low: 'rgba(237,240,244,0.38)',
   };
-  return <span className={`text-xs ${colors[priority] || 'text-gray-500'}`}>{priority}</span>;
+  return <span style={{ fontSize: 11, color: colors[priority] || 'rgba(237,240,244,0.38)' }}>{priority}</span>;
 }
 
 function isOverdue(date: string): boolean {

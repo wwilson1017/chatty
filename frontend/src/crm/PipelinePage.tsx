@@ -2,17 +2,15 @@ import { useState, useEffect } from 'react';
 import { api } from '../core/api/client';
 import type { CrmDeal } from '../core/types';
 import { DealForm } from './components/DealForm';
+import { IconPlus } from '../shared/icons';
 
 const STAGES = ['lead', 'qualified', 'proposal', 'negotiation', 'won', 'lost'];
 
-const STAGE_COLORS: Record<string, string> = {
-  lead: 'bg-gray-600 text-gray-200',
-  qualified: 'bg-blue-600 text-blue-100',
-  proposal: 'bg-yellow-600 text-yellow-100',
-  negotiation: 'bg-orange-600 text-orange-100',
-  won: 'bg-green-600 text-green-100',
-  lost: 'bg-red-600 text-red-100',
-};
+const mono = (size: number, color = 'rgba(237,240,244,0.38)') => ({
+  fontFamily: "'JetBrains Mono', ui-monospace, monospace",
+  fontSize: size, letterSpacing: '0.16em',
+  textTransform: 'uppercase' as const, color,
+});
 
 interface PipelineData {
   deals: CrmDeal[];
@@ -38,8 +36,8 @@ export function PipelinePage() {
 
   if (loading) {
     return (
-      <div className="flex justify-center py-20">
-        <div className="w-6 h-6 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin" />
+      <div style={{ display: 'flex', justifyContent: 'center', padding: '80px 0' }}>
+        <div className="w-6 h-6 border-2 border-ch-accent border-t-transparent rounded-full animate-spin" />
       </div>
     );
   }
@@ -53,94 +51,107 @@ export function PipelinePage() {
   const filteredStages = stageFilter ? [stageFilter] : STAGES;
 
   return (
-    <div className="p-8 max-w-5xl">
-      <div className="flex items-center justify-between mb-6">
+    <div style={{ padding: '32px 44px', maxWidth: 1000 }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 24 }}>
         <div>
-          <h1 className="text-2xl font-bold text-white">Pipeline</h1>
+          <h1 style={{
+            fontFamily: "'Fraunces', Georgia, serif",
+            fontSize: 32, fontWeight: 400, letterSpacing: '-0.02em',
+            color: '#EDF0F4', margin: 0,
+          }}>Pipeline</h1>
           {data && (
-            <p className="text-gray-400 text-sm mt-1">
-              ${formatNumber(data.total_pipeline_value)} total &middot; {deals.filter(d => !['won', 'lost'].includes(d.stage)).length} open deals
+            <p style={{ fontSize: 13, color: 'rgba(237,240,244,0.62)', marginTop: 4 }}>
+              ${formatNumber(data.total_pipeline_value)} total · {deals.filter(d => !['won', 'lost'].includes(d.stage)).length} open deals
             </p>
           )}
         </div>
-        <button
-          onClick={() => setShowCreate(true)}
-          className="bg-brand text-white font-medium px-4 py-2 rounded-lg text-sm hover:opacity-90 transition"
-        >
-          + Add Deal
+        <button onClick={() => setShowCreate(true)} style={{
+          background: 'var(--color-ch-accent, #C8D1D9)', color: '#0E1013',
+          border: 'none', padding: '7px 14px', borderRadius: 4,
+          fontSize: 13, fontWeight: 500, cursor: 'pointer',
+          display: 'flex', alignItems: 'center', gap: 6,
+        }}>
+          <IconPlus size={13} strokeWidth={2.25} /> Add Deal
         </button>
       </div>
 
       {/* Stage filter */}
-      <div className="flex gap-1 mb-6 bg-gray-800 rounded-lg border border-gray-700 p-1 inline-flex">
-        <button
-          onClick={() => setStageFilter('')}
-          className={`px-3 py-1.5 rounded text-xs font-medium transition ${!stageFilter ? 'bg-gray-700 text-white' : 'text-gray-400 hover:text-white'}`}
-        >
-          All
-        </button>
+      <div style={{
+        display: 'inline-flex', border: '1px solid rgba(230,235,242,0.07)',
+        borderRadius: 4, overflow: 'hidden', marginBottom: 24,
+      }}>
+        <button onClick={() => setStageFilter('')} style={{
+          padding: '6px 14px', fontSize: 11, fontWeight: 500,
+          color: !stageFilter ? '#0E1013' : 'rgba(237,240,244,0.62)',
+          background: !stageFilter ? 'var(--color-ch-accent, #C8D1D9)' : 'transparent',
+          border: 'none', cursor: 'pointer',
+        }}>All</button>
         {STAGES.map(stage => (
-          <button
-            key={stage}
-            onClick={() => setStageFilter(stage === stageFilter ? '' : stage)}
-            className={`px-3 py-1.5 rounded text-xs font-medium capitalize transition ${stageFilter === stage ? 'bg-gray-700 text-white' : 'text-gray-400 hover:text-white'}`}
-          >
+          <button key={stage} onClick={() => setStageFilter(stage === stageFilter ? '' : stage)} style={{
+            padding: '6px 14px', fontSize: 11, fontWeight: 500, textTransform: 'capitalize',
+            color: stageFilter === stage ? '#0E1013' : 'rgba(237,240,244,0.62)',
+            background: stageFilter === stage ? 'var(--color-ch-accent, #C8D1D9)' : 'transparent',
+            border: 'none', cursor: 'pointer',
+          }}>
             {stage} ({grouped[stage]?.length || 0})
           </button>
         ))}
       </div>
 
-      {/* Grouped deal table */}
+      {/* Grouped deals */}
       {filteredStages.map(stage => {
         const stageDeals = grouped[stage] || [];
         if (stageDeals.length === 0 && stageFilter) return null;
 
         return (
-          <div key={stage} className="mb-6">
-            <div className="flex items-center gap-2 mb-2">
-              <span className={`text-xs px-2 py-0.5 rounded capitalize font-medium ${STAGE_COLORS[stage]}`}>
-                {stage}
-              </span>
-              <span className="text-gray-500 text-xs">
-                {stageDeals.length} deal{stageDeals.length !== 1 ? 's' : ''} &middot;
-                ${formatNumber(stageDeals.reduce((s, d) => s + d.value, 0))}
+          <div key={stage} style={{ marginBottom: 24 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
+              <span style={{
+                fontFamily: "'Fraunces', Georgia, serif",
+                fontSize: 18, letterSpacing: '-0.01em', textTransform: 'capitalize',
+                color: '#EDF0F4',
+              }}>{stage}</span>
+              <span style={{ ...mono(9, 'rgba(237,240,244,0.38)') }}>
+                {stageDeals.length} deal{stageDeals.length !== 1 ? 's' : ''} · ${formatNumber(stageDeals.reduce((s, d) => s + d.value, 0))}
               </span>
             </div>
 
             {stageDeals.length === 0 ? (
-              <p className="text-gray-600 text-xs ml-2 mb-4">No deals</p>
+              <p style={{ color: 'rgba(237,240,244,0.38)', fontSize: 12, marginLeft: 8, marginBottom: 16 }}>No deals</p>
             ) : (
-              <div className="bg-gray-900 rounded-xl border border-gray-800 overflow-hidden mb-2">
-                <table className="w-full">
-                  <thead>
-                    <tr className="text-xs text-gray-500 uppercase tracking-wide border-b border-gray-800">
-                      <th className="text-left px-4 py-2">Deal</th>
-                      <th className="text-left px-4 py-2">Contact</th>
-                      <th className="text-right px-4 py-2">Value</th>
-                      <th className="text-right px-4 py-2">Probability</th>
-                      <th className="text-left px-4 py-2">Close Date</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {stageDeals.map(deal => (
-                      <tr
-                        key={deal.id}
-                        onClick={() => setEditDeal(deal)}
-                        className="border-b border-gray-800/50 hover:bg-gray-800/50 cursor-pointer transition"
-                      >
-                        <td className="px-4 py-2.5 text-white text-sm">{deal.title}</td>
-                        <td className="px-4 py-2.5 text-gray-400 text-sm">{deal.contact_name || '—'}</td>
-                        <td className="px-4 py-2.5 text-white text-sm text-right font-medium">
-                          ${deal.value.toLocaleString()}
-                        </td>
-                        <td className="px-4 py-2.5 text-gray-400 text-sm text-right">
-                          {deal.probability > 0 ? `${deal.probability}%` : '—'}
-                        </td>
-                        <td className="px-4 py-2.5 text-gray-400 text-sm">{deal.expected_close_date || '—'}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+              <div style={{ borderTop: '1px solid rgba(230,235,242,0.07)', marginBottom: 8 }}>
+                {/* Header */}
+                <div style={{
+                  display: 'grid', gridTemplateColumns: '2fr 1.5fr 1fr 80px 1fr',
+                  gap: 16, padding: '8px 16px',
+                  borderBottom: '1px solid rgba(230,235,242,0.07)',
+                  ...mono(9),
+                }}>
+                  <span>Deal</span><span>Contact</span><span style={{ textAlign: 'right' }}>Value</span>
+                  <span style={{ textAlign: 'right' }}>Prob.</span><span>Close Date</span>
+                </div>
+                {stageDeals.map(deal => (
+                  <div key={deal.id} onClick={() => setEditDeal(deal)}
+                    style={{
+                      display: 'grid', gridTemplateColumns: '2fr 1.5fr 1fr 80px 1fr',
+                      gap: 16, padding: '10px 16px', cursor: 'pointer',
+                      borderBottom: '1px solid rgba(230,235,242,0.07)',
+                    }}
+                    onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = 'rgba(200,209,217,0.04)'; }}
+                    onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = 'transparent'; }}
+                  >
+                    <span style={{ fontSize: 14, color: '#EDF0F4' }}>{deal.title}</span>
+                    <span style={{ fontSize: 13, color: 'rgba(237,240,244,0.62)' }}>{deal.contact_name || '—'}</span>
+                    <span style={{
+                      fontFamily: "'Fraunces', Georgia, serif",
+                      fontSize: 15, color: '#EDF0F4', textAlign: 'right',
+                    }}>${deal.value.toLocaleString()}</span>
+                    <span style={{ fontSize: 13, color: 'rgba(237,240,244,0.38)', textAlign: 'right' }}>
+                      {deal.probability > 0 ? `${deal.probability}%` : '—'}
+                    </span>
+                    <span style={{ fontSize: 13, color: 'rgba(237,240,244,0.38)' }}>{deal.expected_close_date || '—'}</span>
+                  </div>
+                ))}
               </div>
             )}
           </div>

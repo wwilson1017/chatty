@@ -1,11 +1,7 @@
-/**
- * Chatty — App shell.
- * Routes: /login → / (dashboard) → /agent/:id → /crm/*
- */
-
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider } from './core/auth/AuthContext';
 import { ProtectedRoute } from './core/auth/ProtectedRoute';
+import { AppShell } from './shared/AppShell';
 import { LoginPage } from './login/LoginPage';
 import { DashboardPage } from './dashboard/DashboardPage';
 import { OnboardingPage } from './onboarding/OnboardingPage';
@@ -34,49 +30,19 @@ export default function App() {
             }
           />
 
-          <Route
-            path="/"
-            element={
-              <ProtectedRoute>
-                <DashboardPage />
-              </ProtectedRoute>
-            }
-          />
-
-          <Route
-            path="/agent/:id"
-            element={
-              <ProtectedRoute>
-                <AgentPage />
-              </ProtectedRoute>
-            }
-          />
-
-          <Route
-            path="/crm"
-            element={
-              <ProtectedRoute>
-                <CrmLayout />
-              </ProtectedRoute>
-            }
-          >
-            <Route index element={<CrmDashboardPage />} />
-            <Route path="contacts" element={<ContactsPage />} />
-            <Route path="contacts/:id" element={<ContactDetailPage />} />
-            <Route path="pipeline" element={<PipelinePage />} />
-            <Route path="tasks" element={<TasksPage />} />
+          <Route element={<ProtectedRoute><AppShell /></ProtectedRoute>}>
+            <Route path="/" element={<DashboardPage />} />
+            <Route path="/agent/:id" element={<AgentPage />} />
+            <Route path="/crm" element={<CrmLayout />}>
+              <Route index element={<CrmDashboardPage />} />
+              <Route path="contacts" element={<ContactsPage />} />
+              <Route path="contacts/:id" element={<ContactDetailPage />} />
+              <Route path="pipeline" element={<PipelinePage />} />
+              <Route path="tasks" element={<TasksPage />} />
+            </Route>
+            <Route path="/webby" element={<WebbyPage />} />
           </Route>
 
-          <Route
-            path="/webby"
-            element={
-              <ProtectedRoute>
-                <WebbyPage />
-              </ProtectedRoute>
-            }
-          />
-
-          {/* Catch-all → dashboard */}
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </BrowserRouter>

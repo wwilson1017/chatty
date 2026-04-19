@@ -46,7 +46,7 @@ export function BambooHRSetupStep({ onComplete, onSkip }: Props) {
               value={subdomain}
               onChange={e => setSubdomain(e.target.value)}
               placeholder="your-company"
-              className="flex-1 bg-gray-800 border border-gray-700 text-white rounded-l-lg px-4 py-3 text-sm focus:outline-none focus:border-indigo-500"
+              className="flex-1 bg-gray-800 border border-gray-700 text-white rounded-l-lg px-4 py-3 text-sm focus:outline-none focus:border-amber-500"
             />
             <span className="bg-gray-700 border border-l-0 border-gray-700 text-gray-400 rounded-r-lg px-3 py-3 text-sm">
               .bamboohr.com
@@ -65,7 +65,7 @@ export function BambooHRSetupStep({ onComplete, onSkip }: Props) {
             value={apiKey}
             onChange={e => setApiKey(e.target.value)}
             placeholder="Your BambooHR API key"
-            className="w-full bg-gray-800 border border-gray-700 text-white rounded-lg px-4 py-3 text-sm focus:outline-none focus:border-indigo-500"
+            className="w-full bg-gray-800 border border-gray-700 text-white rounded-lg px-4 py-3 text-sm focus:outline-none focus:border-amber-500"
           />
           <div className="bg-gray-900 border border-dashed border-gray-700 rounded-lg p-3 mt-2 text-center">
             <p className="text-gray-500 text-xs">Screenshot: BambooHR Account &rarr; API Keys &rarr; Add New Key (coming soon)</p>

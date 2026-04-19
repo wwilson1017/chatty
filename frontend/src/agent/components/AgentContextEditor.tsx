@@ -1,8 +1,3 @@
-/**
- * Chatty — AgentContextEditor.
- * View and edit agent knowledge files.
- */
-
 import { useState, useEffect } from 'react';
 import { api } from '../../core/api/client';
 
@@ -15,6 +10,12 @@ interface ContextFile {
 interface Props {
   agentId: string;
 }
+
+const mono = (size: number, color = 'rgba(237,240,244,0.38)') => ({
+  fontFamily: "'JetBrains Mono', ui-monospace, monospace",
+  fontSize: size, letterSpacing: '0.16em',
+  textTransform: 'uppercase' as const, color,
+});
 
 export function AgentContextEditor({ agentId }: Props) {
   const [files, setFiles] = useState<ContextFile[]>([]);
@@ -54,7 +55,6 @@ export function AgentContextEditor({ agentId }: Props) {
         body: JSON.stringify({ content }),
       });
       setDirty(false);
-      // Refresh file list
       const data = await api<{ files: ContextFile[] }>(`${apiBase}/context`);
       setFiles(data.files);
     } finally {
@@ -75,31 +75,55 @@ export function AgentContextEditor({ agentId }: Props) {
   }
 
   return (
-    <div className="flex h-full">
+    <div style={{ display: 'flex', flex: 1, height: '100%', width: '100%', overflow: 'hidden' }}>
       {/* File list */}
-      <div className="w-56 border-r border-gray-800 flex flex-col">
-        <div className="px-4 py-3 border-b border-gray-800">
-          <p className="text-sm font-medium text-gray-300">Knowledge Files</p>
+      <div style={{
+        width: 224, flexShrink: 0,
+        borderRight: '1px solid rgba(230,235,242,0.07)',
+        display: 'flex', flexDirection: 'column',
+      }}>
+        <div style={{
+          padding: '12px 16px',
+          borderBottom: '1px solid rgba(230,235,242,0.07)',
+        }}>
+          <p style={{ ...mono(10, 'rgba(237,240,244,0.62)'), margin: 0 }}>Knowledge Files</p>
         </div>
-        <div className="flex-1 overflow-y-auto py-2">
+        <div style={{ flex: 1, overflowY: 'auto', padding: '8px 0' }}>
           {files.length === 0 ? (
-            <p className="text-gray-600 text-xs text-center py-4 px-3">No knowledge files yet</p>
+            <p style={{ color: 'rgba(237,240,244,0.38)', fontSize: 12, textAlign: 'center', padding: '16px 12px' }}>
+              No knowledge files yet
+            </p>
           ) : (
             files.map(f => (
               <div
                 key={f.name}
                 onClick={() => selectFile(f.name)}
-                className={`group flex items-center justify-between px-3 py-2 cursor-pointer transition ${
-                  selectedFile === f.name ? 'bg-indigo-900/30 text-indigo-300' : 'hover:bg-gray-800/50 text-gray-300'
-                }`}
+                className="group"
+                style={{
+                  display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                  padding: '8px 12px', cursor: 'pointer',
+                  background: selectedFile === f.name ? 'rgba(200,209,217,0.12)' : 'transparent',
+                  borderLeft: selectedFile === f.name ? '2px solid var(--color-ch-accent, #C8D1D9)' : '2px solid transparent',
+                }}
               >
-                <div className="min-w-0">
-                  <p className="text-xs font-mono truncate">{f.name}</p>
-                  <p className="text-xs text-gray-600">{formatSize(f.size_bytes)}</p>
+                <div style={{ minWidth: 0 }}>
+                  <p style={{
+                    fontFamily: "'JetBrains Mono', ui-monospace, monospace",
+                    fontSize: 12, color: selectedFile === f.name ? '#EDF0F4' : 'rgba(237,240,244,0.62)',
+                    margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                  }}>{f.name}</p>
+                  <p style={{ fontSize: 11, color: 'rgba(237,240,244,0.38)', margin: '2px 0 0' }}>
+                    {formatSize(f.size_bytes)}
+                  </p>
                 </div>
                 <button
                   onClick={e => { e.stopPropagation(); deleteFile(f.name); }}
-                  className="opacity-0 group-hover:opacity-100 text-gray-600 hover:text-red-400 transition text-sm ml-1"
+                  className="opacity-0 group-hover:opacity-100 transition"
+                  style={{
+                    background: 'none', border: 'none',
+                    color: 'rgba(237,240,244,0.38)', fontSize: 14,
+                    cursor: 'pointer', marginLeft: 4, padding: '2px 4px',
+                  }}
                 >×</button>
               </div>
             ))
@@ -108,36 +132,58 @@ export function AgentContextEditor({ agentId }: Props) {
       </div>
 
       {/* Editor */}
-      <div className="flex-1 flex flex-col">
+      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
         {selectedFile ? (
           <>
-            <div className="flex items-center justify-between px-4 py-3 border-b border-gray-800">
-              <span className="text-sm font-mono text-gray-300">{selectedFile}</span>
+            <div style={{
+              display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+              padding: '10px 20px',
+              borderBottom: '1px solid rgba(230,235,242,0.07)',
+            }}>
+              <span style={{
+                fontFamily: "'JetBrains Mono', ui-monospace, monospace",
+                fontSize: 13, color: 'rgba(237,240,244,0.62)',
+              }}>{selectedFile}</span>
               {dirty && (
                 <button
                   onClick={saveFile}
                   disabled={saving}
-                  className="text-xs bg-brand text-white px-3 py-1.5 rounded-lg hover:opacity-90 transition disabled:opacity-50"
+                  style={{
+                    fontSize: 12, fontWeight: 500,
+                    background: 'var(--color-ch-accent, #C8D1D9)', color: '#0E1013',
+                    border: 'none', borderRadius: 4,
+                    padding: '5px 14px', cursor: 'pointer',
+                    opacity: saving ? 0.5 : 1,
+                  }}
                 >
                   {saving ? 'Saving...' : 'Save'}
                 </button>
               )}
             </div>
             {loading ? (
-              <div className="flex-1 flex items-center justify-center">
-                <div className="w-5 h-5 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin" />
+              <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <div className="w-5 h-5 border-2 border-ch-accent border-t-transparent rounded-full animate-spin" />
               </div>
             ) : (
               <textarea
                 value={content}
                 onChange={e => { setContent(e.target.value); setDirty(true); }}
-                className="flex-1 bg-transparent text-gray-200 text-sm font-mono p-4 resize-none focus:outline-none"
                 spellCheck={false}
+                style={{
+                  flex: 1, width: '100%', boxSizing: 'border-box',
+                  background: 'transparent', color: '#EDF0F4',
+                  fontSize: 13, lineHeight: 1.6,
+                  fontFamily: "'JetBrains Mono', ui-monospace, monospace",
+                  padding: 20, resize: 'none', border: 'none', outline: 'none',
+                }}
               />
             )}
           </>
         ) : (
-          <div className="flex-1 flex items-center justify-center text-gray-600 text-sm">
+          <div style={{
+            flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center',
+            color: 'rgba(237,240,244,0.38)', fontSize: 14,
+          }}>
             Select a file to edit
           </div>
         )}

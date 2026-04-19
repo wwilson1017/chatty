@@ -1,4 +1,4 @@
-import { NavLink, Outlet, useNavigate } from 'react-router-dom';
+import { NavLink, Outlet } from 'react-router-dom';
 
 const NAV_ITEMS = [
   { to: '/crm', label: 'Dashboard', end: true },
@@ -8,46 +8,45 @@ const NAV_ITEMS = [
 ];
 
 export function CrmLayout() {
-  const navigate = useNavigate();
-
   return (
-    <div className="min-h-screen bg-gray-950 flex">
-      {/* Sidebar */}
-      <aside className="w-56 border-r border-gray-800 flex flex-col">
-        <div className="px-4 py-5 border-b border-gray-800">
-          <button
-            onClick={() => navigate('/')}
-            className="text-gray-400 hover:text-white text-sm flex items-center gap-1.5 transition"
-          >
-            <span>&larr;</span> Back to Dashboard
-          </button>
-          <h2 className="text-white font-bold text-lg mt-3">CRM</h2>
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
+      <div style={{
+        height: 48, borderBottom: '1px solid rgba(230,235,242,0.07)',
+        padding: '0 28px', display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+      }}>
+        <div style={{ display: 'flex', alignItems: 'baseline', gap: 14 }}>
+          <div style={{
+            fontFamily: "'Fraunces', Georgia, serif",
+            fontSize: 16, letterSpacing: '-0.01em', color: '#EDF0F4',
+          }}>CRM</div>
+          <div style={{
+            fontFamily: "'JetBrains Mono', ui-monospace, monospace",
+            fontSize: 10, letterSpacing: '0.16em', textTransform: 'uppercase' as const,
+            color: 'rgba(237,240,244,0.38)',
+          }}>/ Pipeline</div>
         </div>
-
-        <nav className="flex-1 px-3 py-4 space-y-1">
+        <div style={{ display: 'flex', gap: 2 }}>
           {NAV_ITEMS.map(item => (
             <NavLink
               key={item.to}
               to={item.to}
               end={item.end}
-              className={({ isActive }) =>
-                `block px-3 py-2 rounded-lg text-sm font-medium transition ${
-                  isActive
-                    ? 'bg-gray-800 text-white'
-                    : 'text-gray-400 hover:text-white hover:bg-gray-800/50'
-                }`
-              }
+              style={({ isActive }) => ({
+                fontSize: 12, padding: '4px 12px',
+                color: isActive ? '#EDF0F4' : 'rgba(237,240,244,0.62)',
+                borderBottom: isActive ? '1px solid var(--color-ch-accent, #C8D1D9)' : '1px solid transparent',
+                cursor: 'pointer', textDecoration: 'none',
+              })}
             >
               {item.label}
             </NavLink>
           ))}
-        </nav>
-      </aside>
+        </div>
+      </div>
 
-      {/* Main content */}
-      <main className="flex-1 overflow-auto">
+      <div style={{ flex: 1, overflow: 'auto' }}>
         <Outlet />
-      </main>
+      </div>
     </div>
   );
 }

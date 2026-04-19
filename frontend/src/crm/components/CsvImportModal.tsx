@@ -15,83 +15,82 @@ export function CsvImportModal({ onClose, onImported }: Props) {
   async function handleUpload() {
     if (!file) return;
     setUploading(true); setError(''); setResult(null);
-
     try {
       const formData = new FormData();
       formData.append('file', file);
-
       const token = localStorage.getItem('chatty_token');
       const resp = await fetch('/api/crm/import', {
         method: 'POST',
         headers: token ? { Authorization: `Bearer ${token}` } : {},
         body: formData,
       });
-
       if (!resp.ok) {
         const data = await resp.json().catch(() => ({}));
         throw new Error(data.detail || `Import failed (${resp.status})`);
       }
-
       const data = await resp.json();
       setResult(data);
-
-      if (data.imported > 0) {
-        setTimeout(onImported, 1500);
-      }
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Import failed');
-    }
+      if (data.imported > 0) setTimeout(onImported, 1500);
+    } catch (err: unknown) { setError(err instanceof Error ? err.message : 'Import failed'); }
     setUploading(false);
   }
 
   return (
-    <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50" onClick={onClose}>
-      <div onClick={e => e.stopPropagation()} className="bg-gray-900 rounded-2xl border border-gray-700 p-6 w-full max-w-md">
-        <h2 className="text-white font-bold text-lg mb-2">Import Contacts</h2>
-        <p className="text-gray-400 text-xs mb-4">
-          Upload a CSV with columns: name, email, phone, company, title, source, tags, notes.
-          Only "name" is required.
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50 }} onClick={onClose}>
+      <div onClick={e => e.stopPropagation()} style={{
+        background: '#11141A', borderRadius: 6, border: '1px solid rgba(230,235,242,0.14)',
+        padding: 24, width: '100%', maxWidth: 420, boxShadow: '0 8px 40px rgba(0,0,0,0.5)',
+      }}>
+        <h2 style={{ fontFamily: "'Fraunces', Georgia, serif", fontSize: 20, fontWeight: 400, letterSpacing: '-0.02em', color: '#EDF0F4', marginBottom: 8 }}>
+          Import Contacts
+        </h2>
+        <p style={{ fontSize: 12, color: 'rgba(237,240,244,0.38)', marginBottom: 16, lineHeight: 1.5 }}>
+          Upload a CSV with columns: name, email, phone, company, title, source, tags, notes. Only "name" is required.
         </p>
 
-        {error && <p className="text-red-400 text-xs mb-3">{error}</p>}
+        {error && <p style={{ color: '#D97757', fontSize: 12, marginBottom: 12 }}>{error}</p>}
 
         {result ? (
-          <div className="bg-gray-800 rounded-xl p-4 mb-4">
-            <p className="text-green-400 text-sm font-medium">{result.imported} contacts imported</p>
-            {result.skipped > 0 && <p className="text-gray-400 text-xs mt-1">{result.skipped} rows skipped (no name)</p>}
+          <div style={{ background: 'rgba(34,40,48,0.55)', borderRadius: 6, padding: 16, marginBottom: 16 }}>
+            <p style={{ color: '#8EA589', fontSize: 14, fontWeight: 500 }}>{result.imported} contacts imported</p>
+            {result.skipped > 0 && <p style={{ color: 'rgba(237,240,244,0.38)', fontSize: 12, marginTop: 4 }}>{result.skipped} rows skipped (no name)</p>}
             {result.errors.length > 0 && (
-              <div className="mt-2">
-                <p className="text-red-400 text-xs">{result.errors.length} errors:</p>
-                {result.errors.slice(0, 5).map((e, i) => <p key={i} className="text-gray-500 text-xs">{e}</p>)}
+              <div style={{ marginTop: 8 }}>
+                <p style={{ color: '#D97757', fontSize: 12 }}>{result.errors.length} errors:</p>
+                {result.errors.slice(0, 5).map((e, i) => <p key={i} style={{ color: 'rgba(237,240,244,0.38)', fontSize: 11 }}>{e}</p>)}
               </div>
             )}
           </div>
         ) : (
           <div
             onClick={() => inputRef.current?.click()}
-            className="border-2 border-dashed border-gray-700 rounded-xl p-8 text-center cursor-pointer hover:border-gray-600 transition mb-4"
+            style={{
+              border: '2px dashed rgba(230,235,242,0.14)', borderRadius: 6,
+              padding: 32, textAlign: 'center', cursor: 'pointer', marginBottom: 16,
+            }}
           >
-            <input ref={inputRef} type="file" accept=".csv" className="hidden" onChange={e => setFile(e.target.files?.[0] ?? null)} />
+            <input ref={inputRef} type="file" accept=".csv" style={{ display: 'none' }} onChange={e => setFile(e.target.files?.[0] ?? null)} />
             {file ? (
-              <p className="text-white text-sm">{file.name} ({(file.size / 1024).toFixed(1)} KB)</p>
+              <p style={{ color: '#EDF0F4', fontSize: 13 }}>{file.name} ({(file.size / 1024).toFixed(1)} KB)</p>
             ) : (
-              <p className="text-gray-500 text-sm">Click to select a CSV file</p>
+              <p style={{ color: 'rgba(237,240,244,0.38)', fontSize: 13 }}>Click to select a CSV file</p>
             )}
           </div>
         )}
 
-        <div className="flex gap-2">
-          <button onClick={onClose} className="flex-1 py-2 text-sm rounded-lg border border-gray-600 text-gray-400 hover:bg-gray-800 transition">
-            {result ? 'Close' : 'Cancel'}
-          </button>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button onClick={onClose} style={{
+            flex: 1, padding: '9px 16px', borderRadius: 4,
+            border: '1px solid rgba(230,235,242,0.14)', background: 'transparent',
+            color: 'rgba(237,240,244,0.62)', fontSize: 13, cursor: 'pointer',
+          }}>{result ? 'Close' : 'Cancel'}</button>
           {!result && (
-            <button
-              onClick={handleUpload}
-              disabled={!file || uploading}
-              className="flex-1 py-2 text-sm rounded-lg bg-brand text-white font-medium disabled:opacity-50"
-            >
-              {uploading ? 'Importing...' : 'Import'}
-            </button>
+            <button onClick={handleUpload} disabled={!file || uploading} style={{
+              flex: 1, padding: '9px 16px', borderRadius: 4,
+              background: '#D4A85A', color: '#0E1013',
+              border: 'none', fontWeight: 500, fontSize: 13, cursor: 'pointer',
+              opacity: (!file || uploading) ? 0.5 : 1,
+            }}>{uploading ? 'Importing...' : 'Import'}</button>
           )}
         </div>
       </div>

@@ -105,7 +105,7 @@ export function AvatarPicker({ agentId, agentName, openaiAvailable, onComplete, 
       <h2 className="text-xl font-bold text-white mb-2">
         Give {agentName} a face
       </h2>
-      <p className="text-gray-400 text-sm mb-6">
+      <p className="text-ch-ink-mute text-sm mb-6">
         {openaiAvailable
           ? `We'll generate a few avatar options based on ${agentName}'s personality. Pick your favorite!`
           : `Upload an avatar image for ${agentName}, or skip for now.`}
@@ -131,13 +131,13 @@ export function AvatarPicker({ agentId, agentName, openaiAvailable, onComplete, 
           )}
           <button
             onClick={() => fileInputRef.current?.click()}
-            className="px-6 py-2.5 border border-gray-600 text-white rounded-lg font-semibold hover:bg-gray-800 transition"
+            className="px-6 py-2.5 border border-ch-line-strong text-white rounded-lg font-semibold hover:bg-ch-bg-raised transition"
           >
             Upload your own
           </button>
           <button
             onClick={onSkip}
-            className="px-6 py-2.5 text-gray-400 hover:text-white transition text-sm"
+            className="px-6 py-2.5 text-ch-ink-mute hover:text-white transition text-sm"
           >
             Skip for now
           </button>
@@ -147,7 +147,7 @@ export function AvatarPicker({ agentId, agentName, openaiAvailable, onComplete, 
       {(generating || uploading) && (
         <div className="flex flex-col items-center gap-3 py-8">
           <div className="animate-spin w-8 h-8 border-2 border-brand border-t-transparent rounded-full" />
-          <p className="text-sm text-gray-400">
+          <p className="text-sm text-ch-ink-mute">
             {uploading ? 'Uploading avatar...' : 'Generating avatars... this takes about 30 seconds'}
           </p>
         </div>
@@ -177,7 +177,7 @@ export function AvatarPicker({ agentId, agentName, openaiAvailable, onComplete, 
               <button
                 key={i}
                 onClick={() => handleSelect(i)}
-                className="group relative rounded-xl overflow-hidden border-2 border-transparent hover:border-brand transition-all shadow-sm hover:shadow-md"
+                className="group relative rounded-md overflow-hidden border-2 border-transparent hover:border-brand transition-all shadow-sm hover:shadow-md"
               >
                 <img
                   src={url}
@@ -194,7 +194,7 @@ export function AvatarPicker({ agentId, agentName, openaiAvailable, onComplete, 
           </div>
           <button
             onClick={onSkip}
-            className="text-sm text-gray-400 hover:text-white transition"
+            className="text-sm text-ch-ink-mute hover:text-white transition"
           >
             Skip for now
           </button>
@@ -204,7 +204,7 @@ export function AvatarPicker({ agentId, agentName, openaiAvailable, onComplete, 
       {selecting && (
         <div className="flex flex-col items-center gap-3 py-8">
           <div className="animate-spin w-8 h-8 border-2 border-brand border-t-transparent rounded-full" />
-          <p className="text-sm text-gray-400">Saving avatar...</p>
+          <p className="text-sm text-ch-ink-mute">Saving avatar...</p>
         </div>
       )}
     </div>

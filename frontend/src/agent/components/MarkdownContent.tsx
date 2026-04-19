@@ -13,22 +13,22 @@ export default function MarkdownContent({ content }: Props) {
       rehypePlugins={[rehypeHighlight]}
       components={{
         h1: ({ children }) => (
-          <h1 className="text-xl font-bold text-gray-100 mt-4 mb-2">{children}</h1>
+          <h1 className="text-xl font-bold text-ch-ink mt-4 mb-2">{children}</h1>
         ),
         h2: ({ children }) => (
-          <h2 className="text-lg font-semibold text-gray-100 mt-3 mb-2">{children}</h2>
+          <h2 className="text-lg font-semibold text-ch-ink mt-3 mb-2">{children}</h2>
         ),
         h3: ({ children }) => (
-          <h3 className="text-base font-semibold text-gray-100 mt-3 mb-1">{children}</h3>
+          <h3 className="text-base font-semibold text-ch-ink mt-3 mb-1">{children}</h3>
         ),
         p: ({ children }) => (
-          <p className="text-sm leading-relaxed text-gray-200 mb-3 last:mb-0">{children}</p>
+          <p className="text-sm leading-relaxed text-ch-ink mb-3 last:mb-0">{children}</p>
         ),
         ul: ({ children }) => (
-          <ul className="list-disc ml-4 text-sm text-gray-200 mb-3 space-y-1">{children}</ul>
+          <ul className="list-disc ml-4 text-sm text-ch-ink mb-3 space-y-1">{children}</ul>
         ),
         ol: ({ children }) => (
-          <ol className="list-decimal ml-4 text-sm text-gray-200 mb-3 space-y-1">{children}</ol>
+          <ol className="list-decimal ml-4 text-sm text-ch-ink mb-3 space-y-1">{children}</ol>
         ),
         li: ({ children }) => (
           <li className="leading-relaxed">{children}</li>
@@ -36,7 +36,7 @@ export default function MarkdownContent({ content }: Props) {
         a: ({ href, children }) => (
           <a
             href={href}
-            className="text-indigo-400 underline hover:text-indigo-300 transition-colors"
+            className="text-ch-gold underline hover:text-ch-gold transition-colors"
             target="_blank"
             rel="noopener noreferrer"
           >
@@ -44,7 +44,7 @@ export default function MarkdownContent({ content }: Props) {
           </a>
         ),
         blockquote: ({ children }) => (
-          <blockquote className="border-l-2 border-indigo-500/30 pl-4 italic text-gray-400 my-3">
+          <blockquote className="border-l-2 border-ch-gold/30 pl-4 italic text-ch-ink-mute my-3">
             {children}
           </blockquote>
         ),
@@ -55,36 +55,36 @@ export default function MarkdownContent({ content }: Props) {
             return <code className={className} {...props}>{children}</code>;
           }
           return (
-            <code className="bg-gray-800 px-1.5 py-0.5 rounded text-sm font-mono text-gray-200" {...props}>
+            <code className="bg-ch-bg-raised px-1.5 py-0.5 rounded text-sm font-mono text-ch-ink" {...props}>
               {children}
             </code>
           );
         },
         pre: ({ children }) => (
-          <pre className="bg-gray-900 text-green-200 rounded-xl p-4 overflow-x-auto text-sm my-3 shadow-inner">
+          <pre className="bg-ch-bg-elev text-green-200 rounded-md p-4 overflow-x-auto text-sm my-3 shadow-inner">
             {children}
           </pre>
         ),
         table: ({ children }) => (
           <div className="overflow-x-auto my-3">
-            <table className="min-w-full text-sm border-collapse border border-gray-700 rounded-lg overflow-hidden">
+            <table className="min-w-full text-sm border-collapse border border-ch-line-strong rounded-lg overflow-hidden">
               {children}
             </table>
           </div>
         ),
         thead: ({ children }) => (
-          <thead className="bg-gray-800">{children}</thead>
+          <thead className="bg-ch-bg-raised">{children}</thead>
         ),
         th: ({ children }) => (
-          <th className="px-3 py-2 text-left text-xs font-semibold text-gray-200 border border-gray-700">
+          <th className="px-3 py-2 text-left text-xs font-semibold text-ch-ink border border-ch-line-strong">
             {children}
           </th>
         ),
         td: ({ children }) => (
-          <td className="px-3 py-2 text-sm text-gray-300 border border-gray-700">{children}</td>
+          <td className="px-3 py-2 text-sm text-ch-ink-mute border border-ch-line-strong">{children}</td>
         ),
-        hr: () => <hr className="border-gray-700 my-4" />,
-        strong: ({ children }) => <strong className="font-semibold text-gray-100">{children}</strong>,
+        hr: () => <hr className="border-ch-line-strong my-4" />,
+        strong: ({ children }) => <strong className="font-semibold text-ch-ink">{children}</strong>,
         em: ({ children }) => <em className="italic">{children}</em>,
       }}
     >

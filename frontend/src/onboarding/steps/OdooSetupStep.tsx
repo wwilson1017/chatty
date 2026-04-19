@@ -47,7 +47,7 @@ export function OdooSetupStep({ onComplete, onSkip }: Props) {
             value={url}
             onChange={e => setUrl(e.target.value)}
             placeholder="https://mycompany.odoo.com"
-            className="w-full bg-gray-800 border border-gray-700 text-white rounded-lg px-4 py-3 text-sm focus:outline-none focus:border-indigo-500"
+            className="w-full bg-gray-800 border border-gray-700 text-white rounded-lg px-4 py-3 text-sm focus:outline-none focus:border-amber-500"
           />
           <p className="text-gray-500 text-xs mt-1">Your Odoo instance URL</p>
         </div>
@@ -59,7 +59,7 @@ export function OdooSetupStep({ onComplete, onSkip }: Props) {
             value={database}
             onChange={e => setDatabase(e.target.value)}
             placeholder="mycompany-main"
-            className="w-full bg-gray-800 border border-gray-700 text-white rounded-lg px-4 py-3 text-sm focus:outline-none focus:border-indigo-500"
+            className="w-full bg-gray-800 border border-gray-700 text-white rounded-lg px-4 py-3 text-sm focus:outline-none focus:border-amber-500"
           />
           <div className="bg-gray-900 border border-dashed border-gray-700 rounded-lg p-3 mt-2 text-center">
             <p className="text-gray-500 text-xs">Screenshot: Odoo Settings &rarr; Database Name (coming soon)</p>
@@ -73,7 +73,7 @@ export function OdooSetupStep({ onComplete, onSkip }: Props) {
             value={username}
             onChange={e => setUsername(e.target.value)}
             placeholder="admin@mycompany.com"
-            className="w-full bg-gray-800 border border-gray-700 text-white rounded-lg px-4 py-3 text-sm focus:outline-none focus:border-indigo-500"
+            className="w-full bg-gray-800 border border-gray-700 text-white rounded-lg px-4 py-3 text-sm focus:outline-none focus:border-amber-500"
           />
           <p className="text-gray-500 text-xs mt-1">The email you use to log into Odoo</p>
         </div>
@@ -86,7 +86,7 @@ export function OdooSetupStep({ onComplete, onSkip }: Props) {
             value={apiKey}
             onChange={e => setApiKey(e.target.value)}
             placeholder="Your Odoo API key"
-            className="w-full bg-gray-800 border border-gray-700 text-white rounded-lg px-4 py-3 text-sm focus:outline-none focus:border-indigo-500"
+            className="w-full bg-gray-800 border border-gray-700 text-white rounded-lg px-4 py-3 text-sm focus:outline-none focus:border-amber-500"
           />
           <div className="bg-gray-900 border border-dashed border-gray-700 rounded-lg p-3 mt-2 text-center">
             <p className="text-gray-500 text-xs">Screenshot: Odoo Settings &rarr; Users &rarr; API Keys (coming soon)</p>

@@ -38,12 +38,22 @@ export function ModelSelector({ provider, currentModel, onChanged }: Props) {
 
   return (
     <div>
-      <label className="block text-xs text-gray-400 mb-1.5">Model</label>
+      <label style={{
+        display: 'block',
+        fontFamily: "'JetBrains Mono', ui-monospace, monospace",
+        fontSize: 9, letterSpacing: '0.16em', textTransform: 'uppercase',
+        color: 'rgba(237,240,244,0.38)', marginBottom: 6,
+      }}>Model</label>
       <select
         value={selected}
         onChange={e => save(e.target.value)}
         disabled={saving}
-        className="w-full bg-gray-700 border border-gray-600 text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-indigo-500 disabled:opacity-50"
+        style={{
+          width: '100%', boxSizing: 'border-box',
+          background: 'rgba(34,40,48,0.55)', border: '1px solid rgba(230,235,242,0.14)',
+          color: '#EDF0F4', borderRadius: 4, padding: '8px 12px', fontSize: 13,
+          outline: 'none', opacity: saving ? 0.5 : 1,
+        }}
       >
         {models.map(m => (
           <option key={m} value={m}>{m}</option>

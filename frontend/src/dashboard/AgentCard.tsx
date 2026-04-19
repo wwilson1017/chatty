@@ -1,4 +1,6 @@
 import { useNavigate } from 'react-router-dom';
+import { AgentMark } from '../shared/AgentMark';
+import { StatusDot } from '../shared/StatusDot';
 import type { Agent } from '../core/types';
 
 interface Props {
@@ -8,41 +10,67 @@ interface Props {
 
 export function AgentCard({ agent, onDelete }: Props) {
   const navigate = useNavigate();
+  const letter = agent.agent_name.charAt(0);
+  const avatarUrl = agent.avatar_url
+    ? `${agent.avatar_url}${agent.avatar_url.includes('?') ? '&' : '?'}token=${localStorage.getItem('chatty_token') || ''}`
+    : undefined;
 
-  const initials = agent.agent_name
-    .split(' ')
-    .map(w => w[0])
-    .join('')
-    .toUpperCase()
-    .slice(0, 2);
+  const capabilities = [
+    agent.gmail_enabled && 'Email',
+    agent.calendar_enabled && 'Calendar',
+  ].filter(Boolean);
 
   return (
-    <div className="group relative bg-gray-900 border border-gray-800 rounded-2xl p-6 hover:border-indigo-500/50 hover:bg-gray-800/80 transition cursor-pointer"
+    <div
+      style={{
+        background: 'rgba(20,24,30,0.78)',
+        border: '1px solid rgba(230,235,242,0.07)',
+        borderRadius: 6, padding: '12px 14px',
+        display: 'flex', gap: 12, alignItems: 'center',
+        cursor: 'pointer', position: 'relative',
+      }}
       onClick={() => navigate(`/agent/${agent.id}`)}
+      onMouseEnter={e => { (e.currentTarget as HTMLElement).style.borderColor = 'rgba(230,235,242,0.14)'; }}
+      onMouseLeave={e => { (e.currentTarget as HTMLElement).style.borderColor = 'rgba(230,235,242,0.07)'; }}
     >
-      {/* Delete button */}
+      <AgentMark letter={letter} size={34} avatarUrl={avatarUrl} />
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <div style={{
+            fontFamily: "'Fraunces', Georgia, serif",
+            fontSize: 17, letterSpacing: '-0.015em', lineHeight: 1.1,
+            color: '#EDF0F4',
+          }}>
+            {agent.agent_name}
+          </div>
+          <StatusDot status="idle" showLabel={false} />
+        </div>
+        {capabilities.length > 0 && (
+          <div style={{
+            fontSize: 11, color: 'rgba(237,240,244,0.38)', marginTop: 2,
+            fontFamily: "'JetBrains Mono', ui-monospace, monospace",
+            letterSpacing: '0.1em', textTransform: 'uppercase',
+          }}>
+            {capabilities.join(' · ')}
+          </div>
+        )}
+      </div>
+
       <button
         onClick={e => { e.stopPropagation(); onDelete(agent.id); }}
-        className="absolute top-4 right-4 opacity-0 group-hover:opacity-100 text-gray-500 hover:text-red-400 transition text-xl leading-none"
+        style={{
+          position: 'absolute', top: 6, right: 6,
+          background: 'transparent', border: 'none',
+          color: 'rgba(237,240,244,0.38)', fontSize: 14,
+          cursor: 'pointer', opacity: 0, transition: 'opacity 0.15s',
+          padding: '2px 4px',
+        }}
         title="Delete agent"
+        onMouseEnter={e => { (e.currentTarget as HTMLElement).style.opacity = '1'; }}
+        onMouseLeave={e => { (e.currentTarget as HTMLElement).style.opacity = '0'; }}
       >
         ×
       </button>
-
-      {/* Avatar */}
-      <div className="w-14 h-14 rounded-xl bg-brand flex items-center justify-center text-white font-bold text-xl mb-4">
-        {agent.avatar_url
-          ? <img src={`${agent.avatar_url}${agent.avatar_url.includes('?') ? '&' : '?'}token=${localStorage.getItem('chatty_token') || ''}`} alt={agent.agent_name} className="w-full h-full object-cover rounded-xl" />
-          : initials
-        }
-      </div>
-
-      <h3 className="text-white font-semibold text-lg mb-1">{agent.agent_name}</h3>
-
-      <div className="flex items-center gap-2 mt-3">
-        {agent.gmail_enabled && <span className="text-xs text-gray-500">📧</span>}
-        {agent.calendar_enabled && <span className="text-xs text-gray-500">📅</span>}
-      </div>
     </div>
   );
 }
