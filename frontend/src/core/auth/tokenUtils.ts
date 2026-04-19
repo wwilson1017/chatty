@@ -1,4 +1,4 @@
-const TOKEN_KEY = 'chatty_token';
+export const TOKEN_KEY = 'chatty_token';
 
 export function getToken(): string | null {
   return sessionStorage.getItem(TOKEN_KEY);

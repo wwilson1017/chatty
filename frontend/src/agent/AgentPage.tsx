@@ -13,7 +13,7 @@ import { AvatarPicker } from './components/AvatarPicker';
 import { TelegramSettings } from './components/TelegramSettings';
 import { AgentMark } from '../shared/AgentMark';
 import { useIsMobile } from '../shared/useIsMobile';
-import { IconBot, IconFunnel, IconSettings } from '../shared/icons';
+import { MobileMenuDrawer } from '../shared/MobileMenuDrawer';
 
 interface AgentRow {
   id: string;
@@ -441,51 +441,7 @@ export function AgentPage() {
           <>
             {/* Sidebar — full-screen drawer on mobile */}
             {isMobile && showSidebar && (
-              <div style={{
-                position: 'absolute', inset: 0, zIndex: 20,
-                background: '#0A0C0F',
-                display: 'flex', flexDirection: 'column',
-              }}>
-                {/* Close button */}
-                <div style={{
-                  display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                  padding: '12px 16px', borderBottom: '1px solid rgba(230,235,242,0.07)',
-                }}>
-                  <span style={{
-                    fontFamily: "'Fraunces', Georgia, serif",
-                    fontSize: 16, color: '#EDF0F4',
-                  }}>{agent.agent_name}</span>
-                  <div
-                    onClick={() => setShowSidebar(false)}
-                    style={{ cursor: 'pointer', color: 'rgba(237,240,244,0.62)', fontSize: 22, padding: '0 4px' }}
-                  >&times;</div>
-                </div>
-
-                {/* Navigation links */}
-                <div style={{
-                  display: 'flex', flexDirection: 'column', gap: 2,
-                  padding: '8px 12px', borderBottom: '1px solid rgba(230,235,242,0.07)',
-                }}>
-                  {[
-                    { icon: IconBot, label: 'Agents', action: () => { setShowSidebar(false); navigate('/'); } },
-                    { icon: IconFunnel, label: 'CRM', action: () => { setShowSidebar(false); navigate('/crm'); } },
-                    { icon: IconSettings, label: 'Settings', action: () => { setShowSidebar(false); /* trigger settings from AppShell */ document.dispatchEvent(new CustomEvent('chatty:open-settings')); } },
-                  ].map(item => (
-                    <div
-                      key={item.label}
-                      onClick={item.action}
-                      style={{
-                        display: 'flex', alignItems: 'center', gap: 10,
-                        padding: '10px 8px', borderRadius: 4, cursor: 'pointer',
-                        color: 'rgba(237,240,244,0.7)',
-                      }}
-                    >
-                      <item.icon size={18} strokeWidth={1.85} />
-                      <span style={{ fontSize: 14 }}>{item.label}</span>
-                    </div>
-                  ))}
-                </div>
-
+              <MobileMenuDrawer onClose={() => setShowSidebar(false)} navigate={navigate}>
                 {/* Agent actions */}
                 <div style={{
                   display: 'flex', flexDirection: 'column', gap: 2,
@@ -526,7 +482,7 @@ export function AgentPage() {
                     onRename={convs.renameConversation}
                   />
                 </div>
-              </div>
+              </MobileMenuDrawer>
             )}
             {!isMobile && (
               <ConversationSidebar

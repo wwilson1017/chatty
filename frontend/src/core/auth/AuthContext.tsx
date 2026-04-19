@@ -14,8 +14,8 @@ import {
   useCallback,
   type ReactNode,
 } from 'react';
+import { TOKEN_KEY } from './tokenUtils';
 
-const TOKEN_KEY = 'chatty_token';
 const CHANNEL_NAME = 'chatty_auth';
 
 // One-time migration: move token from localStorage to sessionStorage

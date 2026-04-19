@@ -4,7 +4,8 @@ import { api } from '../core/api/client';
 import { AgentCard } from './AgentCard';
 import { CreateAgentModal } from './CreateAgentModal';
 import { WarmHalo } from '../shared/WarmHalo';
-import { IconSearch, IconPlus, IconBot, IconFunnel, IconSettings } from '../shared/icons';
+import { IconSearch, IconPlus } from '../shared/icons';
+import { MobileMenuDrawer } from '../shared/MobileMenuDrawer';
 import { useIsMobile } from '../shared/useIsMobile';
 import type { Agent, BrandingConfig, ProviderStatus } from '../core/types';
 
@@ -101,47 +102,8 @@ export function DashboardPage() {
         )}
       </div>
 
-      {/* Mobile menu drawer */}
       {isMobile && showMenu && (
-        <div style={{
-          position: 'fixed', inset: 0, zIndex: 50,
-          background: '#0A0C0F',
-          display: 'flex', flexDirection: 'column',
-        }}>
-          <div style={{
-            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-            padding: '12px 16px', borderBottom: '1px solid rgba(230,235,242,0.07)',
-          }}>
-            <span style={{
-              fontFamily: "'Fraunces', Georgia, serif",
-              fontSize: 20, color: '#EDF0F4',
-            }}>Menu</span>
-            <div
-              onClick={() => setShowMenu(false)}
-              style={{ cursor: 'pointer', color: 'rgba(237,240,244,0.62)', fontSize: 22, padding: '0 4px' }}
-            >&times;</div>
-          </div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 2, padding: '12px 16px' }}>
-            {[
-              { icon: IconBot, label: agents.length === 1 ? 'Agent' : 'Agents', action: () => { setShowMenu(false); navigate('/'); } },
-              { icon: IconFunnel, label: 'CRM', action: () => { setShowMenu(false); navigate('/crm'); } },
-              { icon: IconSettings, label: 'Settings', action: () => { setShowMenu(false); document.dispatchEvent(new CustomEvent('chatty:open-settings')); } },
-            ].map(item => (
-              <div
-                key={item.label}
-                onClick={item.action}
-                style={{
-                  display: 'flex', alignItems: 'center', gap: 10,
-                  padding: '12px 8px', borderRadius: 4, cursor: 'pointer',
-                  color: 'rgba(237,240,244,0.7)',
-                }}
-              >
-                <item.icon size={18} strokeWidth={1.85} />
-                <span style={{ fontSize: 14 }}>{item.label}</span>
-              </div>
-            ))}
-          </div>
-        </div>
+        <MobileMenuDrawer onClose={() => setShowMenu(false)} navigate={navigate} />
       )}
 
       {/* Hero */}
