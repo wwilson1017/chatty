@@ -374,6 +374,35 @@ def get_activity_log(contact_id: int | None = None, deal_id: int | None = None, 
     return [dict(r) for r in rows]
 
 
+def update_activity(activity_id: int, activity: str | None = None, note: str | None = None) -> dict:
+    db = _get_db()
+    fields = []
+    params: list = []
+    if activity is not None:
+        fields.append("activity = ?")
+        params.append(activity)
+    if note is not None:
+        fields.append("note = ?")
+        params.append(note)
+    if not fields:
+        row = db.execute("SELECT * FROM activity_log WHERE id = ?", (activity_id,)).fetchone()
+        return dict(row) if row else {}
+    params.append(activity_id)
+    with write_lock():
+        db.execute(f"UPDATE activity_log SET {', '.join(fields)} WHERE id = ?", params)
+        db.commit()
+    row = db.execute("SELECT * FROM activity_log WHERE id = ?", (activity_id,)).fetchone()
+    return dict(row) if row else {}
+
+
+def delete_activity(activity_id: int) -> bool:
+    db = _get_db()
+    with write_lock():
+        cursor = db.execute("DELETE FROM activity_log WHERE id = ?", (activity_id,))
+        db.commit()
+    return cursor.rowcount > 0
+
+
 # ── Analytics ─────────────────────────────────────────────────────────────────
 
 def get_dashboard_stats() -> dict:

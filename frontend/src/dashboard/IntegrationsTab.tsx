@@ -1,8 +1,8 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { api } from '../core/api/client';
-import { getToken } from '../core/auth/AuthContext';
+import { getToken } from '../core/auth/tokenUtils';
 import type { Integration, Agent } from '../core/types';
-import { IconGlobe, IconUsers, IconFile, IconPhone, IconMail, IconChart, IconBook, IconZap } from '../shared/icons';
+import { IconGlobe, IconUsers, IconFunnel, IconFile, IconPhone, IconMail, IconChart, IconBook, IconZap } from '../shared/icons';
 import { TelegramSettings } from '../agent/components/TelegramSettings';
 
 const INTEGRATION_ICONS: Record<string, React.ComponentType<{ size?: number; className?: string; strokeWidth?: number }>> = {
@@ -10,7 +10,7 @@ const INTEGRATION_ICONS: Record<string, React.ComponentType<{ size?: number; cla
   qb_csv: IconFile,
   odoo: IconGlobe,
   bamboohr: IconUsers,
-  crm_lite: IconUsers,
+  crm_lite: IconFunnel,
   hubspot: IconZap,
   salesforce: IconGlobe,
   whatsapp: IconPhone,
@@ -77,7 +77,8 @@ export function IntegrationsTab() {
   }, [waExpanded, telegramExpanded]);
 
   useEffect(() => {
-    return () => { Object.values(pollTimers.current).forEach(clearInterval); };
+    const timers = pollTimers.current;
+    return () => { Object.values(timers).forEach(clearInterval); };
   }, []);
 
   const startQrPolling = useCallback((slug: string) => {

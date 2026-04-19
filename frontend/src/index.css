@@ -75,3 +75,36 @@ input:focus, textarea:focus, select:focus {
 @keyframes blink {
   50% { opacity: 0; }
 }
+
+.agent-mark-tooltip {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 50%;
+  transform: translateX(-50%) translateY(4px);
+  background: #1a1f27;
+  color: #EDF0F4;
+  font-family: 'Inter Tight', system-ui, sans-serif;
+  font-size: 12px;
+  font-weight: 500;
+  padding: 5px 10px;
+  border-radius: 6px;
+  white-space: nowrap;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.15s, transform 0.15s;
+  border: 1px solid rgba(230, 235, 242, 0.1);
+}
+
+.agent-mark-hover:hover .agent-mark-tooltip {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+}
+
+@media (max-width: 767px) {
+  body {
+    font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  }
+  :root {
+    --font-sans: 'Inter', system-ui, sans-serif;
+  }
+}

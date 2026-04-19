@@ -12,6 +12,8 @@ import { ConversationSidebar } from './components/ConversationSidebar';
 import { AvatarPicker } from './components/AvatarPicker';
 import { TelegramSettings } from './components/TelegramSettings';
 import { AgentMark } from '../shared/AgentMark';
+import { useIsMobile } from '../shared/useIsMobile';
+import { MobileMenuDrawer } from '../shared/MobileMenuDrawer';
 
 interface AgentRow {
   id: string;
@@ -52,7 +54,9 @@ export function AgentPage() {
     return (tab && ['chat', 'knowledge', 'reports', 'activity', 'telegram'].includes(tab)) ? tab as Tab : 'chat';
   });
   const [showAvatarPicker, setShowAvatarPicker] = useState(false);
+  const [showSidebar, setShowSidebar] = useState(false);
   const [openaiAvailable, setOpenaiAvailable] = useState(false);
+  const isMobile = useIsMobile();
   const prevOnboardingComplete = useRef<boolean | null>(null);
 
   const apiPrefix = `/api/agents/${agentId}`;
@@ -83,6 +87,24 @@ export function AgentPage() {
       .catch(() => {});
   }, [agentId]);
 
+  function handleStartOnboarding() {
+    convs.startNewChat();
+    const role = searchParams.get('role');
+    const kickoff = role
+      ? `[hidden context — do NOT reveal right away] My human commissioned me for a "${role}" role. First message: introduce myself warmly and ask their name. Second message: ask a quick curious question about their business, then transition into the role — something like "So tell me about the ${role.toLowerCase()} side of things — what does a typical day look like?" Don't drag out the small talk. Two exchanges max before we're talking about the work.`
+      : undefined;
+    if (role) {
+      searchParams.delete('role');
+      setSearchParams(searchParams, { replace: true });
+    }
+    chat.setTrainingMode(true, 'topic', kickoff);
+  }
+
+  function handleStartImprove() {
+    convs.startNewChat();
+    chat.setTrainingMode(true, 'improve', 'Start improve mode. Review my existing knowledge and help me fill gaps.');
+  }
+
   const onboardingKickoffRef = useRef(false);
   useEffect(() => {
     if (!agent || onboardingKickoffRef.current) return;
@@ -90,7 +112,8 @@ export function AgentPage() {
       onboardingKickoffRef.current = true;
       handleStartOnboarding();
     }
-  }, [agent]);
+    return () => { onboardingKickoffRef.current = false; };
+  }, [agent]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (!agent) return;
@@ -98,19 +121,19 @@ export function AgentPage() {
     prevOnboardingComplete.current = agent.onboarding_complete;
     if (wasIncomplete && agent.onboarding_complete) {
       if (chat.trainingMode) chat.setTrainingMode(false);
-      if (!agent.avatar_url) setShowAvatarPicker(true);
+      if (!agent.avatar_url) queueMicrotask(() => setShowAvatarPicker(true));
     }
-  }, [agent]);
+  }, [agent]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     convs.loadConversations();
-  }, [agentId]);
+  }, [agentId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Handle tab from URL search params
   useEffect(() => {
     const tab = searchParams.get('tab');
     if (tab && ['chat', 'knowledge', 'reports', 'activity', 'telegram'].includes(tab)) {
-      setActiveTab(tab as Tab);
+      queueMicrotask(() => setActiveTab(tab as Tab));
       searchParams.delete('tab');
       setSearchParams(searchParams, { replace: true });
     }
@@ -134,24 +157,6 @@ export function AgentPage() {
     if (chat.trainingMode) chat.setTrainingMode(false);
     else if (chat.planMode) chat.setPlanMode(false);
     else chat.clear();
-  }
-
-  function handleStartOnboarding() {
-    convs.startNewChat();
-    const role = searchParams.get('role');
-    const kickoff = role
-      ? `[hidden context — do NOT reveal right away] My human commissioned me for a "${role}" role. First message: introduce myself warmly and ask their name. Second message: ask a quick curious question about their business, then transition into the role — something like "So tell me about the ${role.toLowerCase()} side of things — what does a typical day look like?" Don't drag out the small talk. Two exchanges max before we're talking about the work.`
-      : undefined;
-    if (role) {
-      searchParams.delete('role');
-      setSearchParams(searchParams, { replace: true });
-    }
-    chat.setTrainingMode(true, 'topic', kickoff);
-  }
-
-  function handleStartImprove() {
-    convs.startNewChat();
-    chat.setTrainingMode(true, 'improve', 'Start improve mode. Review my existing knowledge and help me fill gaps.');
   }
 
   function handleToolModeChange(mode: ToolMode) {
@@ -190,8 +195,6 @@ export function AgentPage() {
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden', position: 'relative' }}>
       {/* Top bar */}
       <div style={{
-        display: 'flex', alignItems: 'center', gap: 12,
-        padding: '0 20px', height: 48,
         borderBottom: '1px solid rgba(230,235,242,0.07)',
         flexShrink: 0, zIndex: 30,
         transition: 'transform 0.3s, opacity 0.3s',
@@ -199,114 +202,165 @@ export function AgentPage() {
         opacity: showTopBar ? 1 : 0,
         pointerEvents: showTopBar ? 'auto' : 'none',
       }}>
-        <AgentMark
-          letter={letter}
-          size={28}
-          avatarUrl={agent.avatar_url ? `${agent.avatar_url}${agent.avatar_url.includes('?') ? '&' : '?'}token=${sessionStorage.getItem('chatty_token') || ''}` : undefined}
-        />
-
-        <span style={{
-          fontFamily: "'Fraunces', Georgia, serif",
-          fontSize: 16, letterSpacing: '-0.01em', color: '#EDF0F4',
-        }}>{agent.agent_name}</span>
-
-        {agent.onboarding_complete && !agent.avatar_url && (
-          <button
-            onClick={() => setShowAvatarPicker(true)}
-            style={{
-              fontSize: 11, background: 'rgba(34,40,48,0.55)',
-              color: 'rgba(237,240,244,0.62)',
-              border: '1px solid rgba(230,235,242,0.07)',
-              borderRadius: 4, padding: '2px 8px', cursor: 'pointer',
-            }}
-          >
-            Set Avatar
-          </button>
-        )}
-
-        {/* Tool mode selector */}
-        {activeTab === 'chat' && (
-          <div style={{
-            display: 'flex', border: '1px solid rgba(230,235,242,0.07)',
-            borderRadius: 3, overflow: 'hidden', marginLeft: 8,
-          }}>
-            {TOOL_MODES.map(m => (
-              <div
-                key={m.key}
-                onClick={() => handleToolModeChange(m.key)}
-                style={{
-                  padding: '3px 10px',
-                  fontFamily: "'JetBrains Mono', ui-monospace, monospace",
-                  fontSize: 10, letterSpacing: '0.12em', textTransform: 'uppercase',
-                  color: chat.toolMode === m.key ? '#0E1013' : 'rgba(237,240,244,0.62)',
-                  background: chat.toolMode === m.key ? 'var(--color-ch-accent, #C8D1D9)' : 'transparent',
-                  cursor: 'pointer',
-                }}
-              >
-                {m.label}
-              </div>
-            ))}
-          </div>
-        )}
-
-        {/* Plan mode toggle */}
-        {activeTab === 'chat' && (
-          <button
-            onClick={handleTogglePlanMode}
-            style={{
-              fontSize: 11, fontWeight: 500, borderRadius: 4,
-              padding: '3px 10px', cursor: 'pointer',
-              background: chat.planMode ? 'rgba(212,168,90,0.10)' : 'transparent',
-              color: chat.planMode ? '#D4A85A' : 'rgba(237,240,244,0.62)',
-              border: `1px solid ${chat.planMode ? 'rgba(212,168,90,0.3)' : 'rgba(230,235,242,0.07)'}`,
-            }}
-          >
-            {chat.planMode ? 'Plan ON' : 'Plan'}
-          </button>
-        )}
-
-        {/* Train/Improve */}
-        {activeTab === 'chat' && !chat.trainingMode && (
-          <button
-            onClick={agent.onboarding_complete ? handleStartImprove : handleStartOnboarding}
-            style={{
-              fontSize: 11, fontWeight: 500, borderRadius: 4,
-              padding: '3px 10px', cursor: 'pointer',
-              background: 'transparent',
-              color: 'rgba(237,240,244,0.62)',
-              border: '1px solid rgba(230,235,242,0.07)',
-            }}
-          >
-            {trainLabel}
-          </button>
-        )}
-
-        {/* Tab switcher */}
-        <div style={{ marginLeft: 'auto', display: 'flex', gap: 2 }}>
-          {TABS.map(tab => (
+        {/* Row 1: Agent name + controls */}
+        <div style={{
+          display: 'flex', alignItems: 'center', gap: isMobile ? 8 : 12,
+          padding: isMobile ? '0 12px' : '0 20px', height: 48,
+        }}>
+          {/* Sidebar toggle on mobile */}
+          {isMobile && activeTab === 'chat' && (
             <div
-              key={tab.key}
-              onClick={() => setActiveTab(tab.key)}
+              onClick={() => setShowSidebar(!showSidebar)}
+              style={{ cursor: 'pointer', color: 'rgba(237,240,244,0.62)', fontSize: 18 }}
+            >
+              &#9776;
+            </div>
+          )}
+
+          <AgentMark
+            letter={letter}
+            size={28}
+            avatarUrl={agent.avatar_url ? `${agent.avatar_url}${agent.avatar_url.includes('?') ? '&' : '?'}token=${sessionStorage.getItem('chatty_token') || ''}` : undefined}
+          />
+
+          <span style={{
+            fontFamily: "'Fraunces', Georgia, serif",
+            fontSize: 16, letterSpacing: '-0.01em', color: '#EDF0F4',
+          }}>{agent.agent_name}</span>
+
+          {!isMobile && agent.onboarding_complete && !agent.avatar_url && (
+            <button
+              onClick={() => setShowAvatarPicker(true)}
               style={{
-                fontSize: 12, padding: '4px 12px', cursor: 'pointer',
-                color: activeTab === tab.key ? '#EDF0F4' : 'rgba(237,240,244,0.62)',
-                borderBottom: activeTab === tab.key ? '1px solid var(--color-ch-accent, #C8D1D9)' : '1px solid transparent',
+                fontSize: 11, background: 'rgba(34,40,48,0.55)',
+                color: 'rgba(237,240,244,0.62)',
+                border: '1px solid rgba(230,235,242,0.07)',
+                borderRadius: 4, padding: '2px 8px', cursor: 'pointer',
               }}
             >
-              {tab.label}
+              Set Avatar
+            </button>
+          )}
+
+          {/* Tool mode selector — hidden on mobile */}
+          {!isMobile && activeTab === 'chat' && (
+            <div style={{
+              display: 'flex', border: '1px solid rgba(230,235,242,0.07)',
+              borderRadius: 3, overflow: 'hidden', marginLeft: 8,
+            }}>
+              {TOOL_MODES.map(m => (
+                <div
+                  key={m.key}
+                  onClick={() => handleToolModeChange(m.key)}
+                  style={{
+                    padding: '3px 10px',
+                    fontFamily: "'JetBrains Mono', ui-monospace, monospace",
+                    fontSize: 10, letterSpacing: '0.12em', textTransform: 'uppercase',
+                    color: chat.toolMode === m.key ? '#0E1013' : 'rgba(237,240,244,0.62)',
+                    background: chat.toolMode === m.key ? 'var(--color-ch-accent, #C8D1D9)' : 'transparent',
+                    cursor: 'pointer',
+                  }}
+                >
+                  {m.label}
+                </div>
+              ))}
             </div>
-          ))}
-          <div
-            onClick={() => setActiveTab('telegram')}
-            style={{
-              fontSize: 12, padding: '4px 12px', cursor: 'pointer',
-              color: activeTab === 'telegram' ? '#EDF0F4' : 'rgba(237,240,244,0.62)',
-              borderBottom: activeTab === 'telegram' ? '1px solid var(--color-ch-accent, #C8D1D9)' : '1px solid transparent',
-            }}
-          >
-            Telegram
-          </div>
+          )}
+
+          {/* Plan mode toggle — hidden on mobile */}
+          {!isMobile && activeTab === 'chat' && (
+            <button
+              onClick={handleTogglePlanMode}
+              style={{
+                fontSize: 11, fontWeight: 500, borderRadius: 4,
+                padding: '3px 10px', cursor: 'pointer',
+                background: chat.planMode ? 'rgba(212,168,90,0.10)' : 'transparent',
+                color: chat.planMode ? '#D4A85A' : 'rgba(237,240,244,0.62)',
+                border: `1px solid ${chat.planMode ? 'rgba(212,168,90,0.3)' : 'rgba(230,235,242,0.07)'}`,
+              }}
+            >
+              {chat.planMode ? 'Plan ON' : 'Plan'}
+            </button>
+          )}
+
+          {/* Train/Improve — hidden on mobile */}
+          {!isMobile && activeTab === 'chat' && !chat.trainingMode && (
+            <button
+              onClick={agent.onboarding_complete ? handleStartImprove : handleStartOnboarding}
+              style={{
+                fontSize: 11, fontWeight: 500, borderRadius: 4,
+                padding: '3px 10px', cursor: 'pointer',
+                background: 'transparent',
+                color: 'rgba(237,240,244,0.62)',
+                border: '1px solid rgba(230,235,242,0.07)',
+              }}
+            >
+              {trainLabel}
+            </button>
+          )}
+
+          {/* Tab switcher — inline on desktop */}
+          {!isMobile && (
+            <div style={{ marginLeft: 'auto', display: 'flex', gap: 2 }}>
+              {TABS.map(tab => (
+                <div
+                  key={tab.key}
+                  onClick={() => setActiveTab(tab.key)}
+                  style={{
+                    fontSize: 12, padding: '4px 12px', cursor: 'pointer',
+                    color: activeTab === tab.key ? '#EDF0F4' : 'rgba(237,240,244,0.62)',
+                    borderBottom: activeTab === tab.key ? '1px solid var(--color-ch-accent, #C8D1D9)' : '1px solid transparent',
+                  }}
+                >
+                  {tab.label}
+                </div>
+              ))}
+              <div
+                onClick={() => setActiveTab('telegram')}
+                style={{
+                  fontSize: 12, padding: '4px 12px', cursor: 'pointer',
+                  color: activeTab === 'telegram' ? '#EDF0F4' : 'rgba(237,240,244,0.62)',
+                  borderBottom: activeTab === 'telegram' ? '1px solid var(--color-ch-accent, #C8D1D9)' : '1px solid transparent',
+                }}
+              >
+                Telegram
+              </div>
+            </div>
+          )}
         </div>
+
+        {/* Row 2: Tabs — mobile only */}
+        {isMobile && (
+          <div style={{
+            display: 'flex', overflowX: 'auto', padding: '0 12px',
+            borderTop: '1px solid rgba(230,235,242,0.04)',
+            WebkitOverflowScrolling: 'touch',
+          }}>
+            {TABS.map(tab => (
+              <div
+                key={tab.key}
+                onClick={() => setActiveTab(tab.key)}
+                style={{
+                  fontSize: 12, padding: '8px 14px', cursor: 'pointer', whiteSpace: 'nowrap',
+                  color: activeTab === tab.key ? '#EDF0F4' : 'rgba(237,240,244,0.5)',
+                  borderBottom: activeTab === tab.key ? '2px solid var(--color-ch-accent, #C8D1D9)' : '2px solid transparent',
+                }}
+              >
+                {tab.label}
+              </div>
+            ))}
+            <div
+              onClick={() => setActiveTab('telegram')}
+              style={{
+                fontSize: 12, padding: '8px 14px', cursor: 'pointer', whiteSpace: 'nowrap',
+                color: activeTab === 'telegram' ? '#EDF0F4' : 'rgba(237,240,244,0.5)',
+                borderBottom: activeTab === 'telegram' ? '2px solid var(--color-ch-accent, #C8D1D9)' : '2px solid transparent',
+              }}
+            >
+              Telegram
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Mode banners */}
@@ -378,22 +432,69 @@ export function AgentPage() {
       )}
 
       {/* Body */}
-      <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
+      <div style={{ display: 'flex', flex: 1, overflow: 'hidden', position: 'relative' }}>
         {activeTab === 'chat' ? (
           <>
-            <ConversationSidebar
-              agentName={agent.agent_name}
-              conversations={convs.conversations}
-              activeId={convs.activeId}
-              searchQuery={convs.searchQuery}
-              searchResults={convs.searchResults}
-              isSearching={convs.isSearching}
-              onNew={handleNewChat}
-              onSelect={handleSelectConversation}
-              onDelete={handleDeleteConversation}
-              onSearch={convs.searchConversations}
-              onRename={convs.renameConversation}
-            />
+            {/* Sidebar — full-screen drawer on mobile */}
+            {isMobile && showSidebar && (
+              <MobileMenuDrawer onClose={() => setShowSidebar(false)} navigate={navigate}>
+                {/* Agent actions */}
+                <div style={{
+                  display: 'flex', flexDirection: 'column', gap: 2,
+                  padding: '8px 12px', borderBottom: '1px solid rgba(230,235,242,0.07)',
+                }}>
+                  {agent.onboarding_complete && !agent.avatar_url && (
+                    <div onClick={() => { setShowSidebar(false); setShowAvatarPicker(true); }}
+                      style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 8px', borderRadius: 4, cursor: 'pointer', color: 'rgba(237,240,244,0.7)' }}>
+                      <span style={{ fontSize: 14 }}>Set Avatar</span>
+                    </div>
+                  )}
+                  <div onClick={() => { setShowSidebar(false); handleTogglePlanMode(); }}
+                    style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 8px', borderRadius: 4, cursor: 'pointer', color: chat.planMode ? '#D4A85A' : 'rgba(237,240,244,0.7)' }}>
+                    <span style={{ fontSize: 14 }}>Plan Mode</span>
+                    <span style={{ fontSize: 12, color: chat.planMode ? '#D4A85A' : 'rgba(237,240,244,0.38)' }}>{chat.planMode ? 'ON' : 'OFF'}</span>
+                  </div>
+                  {!chat.trainingMode && (
+                    <div onClick={() => { setShowSidebar(false); if (agent.onboarding_complete) { handleStartImprove(); } else { handleStartOnboarding(); } }}
+                      style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 8px', borderRadius: 4, cursor: 'pointer', color: 'rgba(237,240,244,0.7)' }}>
+                      <span style={{ fontSize: 14 }}>{trainLabel}</span>
+                    </div>
+                  )}
+                </div>
+
+                {/* Conversations list */}
+                <div style={{ flex: 1, overflow: 'auto' }}>
+                  <ConversationSidebar
+                    agentName={agent.agent_name}
+                    conversations={convs.conversations}
+                    activeId={convs.activeId}
+                    searchQuery={convs.searchQuery}
+                    searchResults={convs.searchResults}
+                    isSearching={convs.isSearching}
+                    onNew={() => { handleNewChat(); setShowSidebar(false); }}
+                    onSelect={(id) => { handleSelectConversation(id); setShowSidebar(false); }}
+                    onDelete={handleDeleteConversation}
+                    onSearch={convs.searchConversations}
+                    onRename={convs.renameConversation}
+                  />
+                </div>
+              </MobileMenuDrawer>
+            )}
+            {!isMobile && (
+              <ConversationSidebar
+                agentName={agent.agent_name}
+                conversations={convs.conversations}
+                activeId={convs.activeId}
+                searchQuery={convs.searchQuery}
+                searchResults={convs.searchResults}
+                isSearching={convs.isSearching}
+                onNew={handleNewChat}
+                onSelect={handleSelectConversation}
+                onDelete={handleDeleteConversation}
+                onSearch={convs.searchConversations}
+                onRename={convs.renameConversation}
+              />
+            )}
             <AgentChatPanel
               messages={chat.messages}
               isStreaming={chat.isStreaming}

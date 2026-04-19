@@ -2,6 +2,7 @@ import { useState, useRef, useEffect, useCallback, type RefObject, type Keyboard
 import type { ChatMessage, ContextUsage, ToolMode } from '../hooks/useAgentChat';
 import { AgentMessageBubble } from './AgentMessageBubble';
 import { IconAttach, IconArrowUp } from '../../shared/icons';
+import { useIsMobile } from '../../shared/useIsMobile';
 
 const ALLOWED_EXTENSIONS = new Set(['csv', 'xlsx', 'md', 'txt', 'pdf']);
 const MAX_FILE_SIZE = 1 * 1024 * 1024;
@@ -142,6 +143,7 @@ export function AgentChatPanel({
     onToolModeChange(mode);
   }
 
+  const isMobile = useIsMobile();
   const isEmpty = messages.length === 0;
 
   function renderInputBox() {
@@ -313,12 +315,12 @@ export function AgentChatPanel({
         {isEmpty && !isStreaming ? (
           <div style={{
             display: 'flex', flexDirection: 'column', alignItems: 'center',
-            justifyContent: 'center', minHeight: '100%', padding: 24,
+            justifyContent: 'center', minHeight: '100%', padding: isMobile ? '24px 16px' : 24,
           }}>
             <div style={{ width: '100%', maxWidth: 680, marginTop: -64 }}>
               <h2 style={{
                 fontFamily: "'Fraunces', Georgia, serif",
-                fontSize: 36, fontWeight: 400, letterSpacing: '-0.02em',
+                fontSize: isMobile ? 28 : 36, fontWeight: 400, letterSpacing: '-0.02em',
                 color: 'rgba(237,240,244,0.62)', textAlign: 'center',
                 marginBottom: 40, lineHeight: 1.1,
               }}>
@@ -328,7 +330,7 @@ export function AgentChatPanel({
             </div>
           </div>
         ) : (
-          <div style={{ maxWidth: 680, margin: '0 auto', padding: '30px 40px', display: 'flex', flexDirection: 'column', gap: 22 }}>
+          <div style={{ maxWidth: 680, margin: '0 auto', padding: isMobile ? '20px 16px' : '30px 40px', display: 'flex', flexDirection: 'column', gap: 22 }}>
             {messages.filter(msg => !msg.hidden).map(msg => (
               <AgentMessageBubble
                 key={msg.id}
@@ -360,7 +362,7 @@ export function AgentChatPanel({
       {(!isEmpty || isStreaming) && (
         <div style={{
           position: 'absolute', bottom: 0, left: 0, right: 0,
-          padding: '60px 40px 22px',
+          padding: isMobile ? '40px 12px 12px' : '60px 40px 22px',
           background: 'linear-gradient(to top, #0A0C0F 65%, transparent)',
           pointerEvents: 'none', zIndex: 20,
         }}>

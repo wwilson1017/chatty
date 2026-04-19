@@ -97,7 +97,14 @@ function ToolCallBubble({ tc, isExpanded, onToggle }: {
   onToggle: () => void;
 }) {
   const isRunning = tc.status === 'running';
-  const elapsed = isRunning ? Math.round((Date.now() - tc.startedAt) / 1000) : null;
+  const [elapsed, setElapsed] = useState<number | null>(null);
+  useEffect(() => {
+    if (!isRunning) return;
+    const update = () => setElapsed(Math.round((Date.now() - tc.startedAt) / 1000));
+    update();
+    const id = setInterval(update, 1000);
+    return () => { clearInterval(id); setElapsed(null); };
+  }, [isRunning, tc.startedAt]);
   const isHung = isRunning && elapsed !== null && elapsed >= HUNG_THRESHOLD_SEC;
 
   return (

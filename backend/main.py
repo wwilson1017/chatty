@@ -4,13 +4,15 @@ Chatty — FastAPI entry point.
 Mounts all routers, initializes databases, sets up CORS and APScheduler.
 """
 
+import contextvars
 import logging
 import os
+import uuid as _uuid
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
@@ -35,6 +37,37 @@ logging.basicConfig(level=logging.INFO)
 # APScheduler instance (started in lifespan)
 _scheduler = None
 
+# Request-ID context variable for log tracing
+request_id_ctx: contextvars.ContextVar[str] = contextvars.ContextVar(
+    "request_id", default="",
+)
+
+
+# ---------------------------------------------------------------------------
+# Per-DB safe initialization
+# ---------------------------------------------------------------------------
+
+db_statuses: dict[str, str] = {}
+
+
+def _safe_init(name: str, fn, *, critical: bool = False) -> None:
+    """Initialize a database with error isolation and status tracking."""
+    try:
+        result = fn()
+        status = result.get("status", "ok") if isinstance(result, dict) else "ok"
+        db_statuses[name] = status
+        if status not in ("ok", "fresh"):
+            logger.warning("DB %s initialized with status: %s", name, status)
+    except Exception:
+        logger.exception("DB init failed: %s", name)
+        db_statuses[name] = "error"
+        if critical:
+            raise
+        return
+
+    if critical and db_statuses[name] not in ("ok", "fresh"):
+        raise RuntimeError(f"Critical DB {name} init returned: {db_statuses[name]}")
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -46,47 +79,43 @@ async def lifespan(app: FastAPI):
     for subdir in ("agents", "branding", "integrations", "reminders", "telegram", "whatsapp"):
         (data_root / subdir).mkdir(parents=True, exist_ok=True)
 
-    # Initialize agent registry DB
+    # ── Database initialization (per-DB error isolation) ───────────────────
     from agents.db import init_db as init_agents_db
-    init_agents_db()
+    _safe_init("agents", init_agents_db, critical=True)
 
-    # Initialize CRM Lite DB if enabled
     from integrations.registry import is_enabled as integration_enabled
     if integration_enabled("crm_lite"):
         from integrations.crm_lite.db import init_db as init_crm_db
-        init_crm_db()
+        _safe_init("crm_lite", init_crm_db)
 
-    # Initialize QB CSV Analysis DB if enabled
     if integration_enabled("qb_csv"):
         from integrations.qb_csv.db import init_db as init_qb_csv_db
-        init_qb_csv_db()
+        _safe_init("qb_csv", init_qb_csv_db)
 
-    # Initialize Telegram state DB + register webhooks
     from integrations.telegram.state import init_db as init_telegram_db
-    init_telegram_db()
+    _safe_init("telegram", init_telegram_db)
 
     from integrations.telegram.lifecycle import register_all_webhooks
     register_all_webhooks()
 
-    # Initialize WhatsApp state DB if bridge is configured
     if settings.whatsapp.is_configured:
         from integrations.whatsapp.state import init_db as init_whatsapp_db
-        init_whatsapp_db()
+        _safe_init("whatsapp", init_whatsapp_db)
         logger.info("WhatsApp bridge configured at %s", settings.whatsapp.bridge_url)
 
-    # Initialize reminders + scheduled actions DB (also creates dreaming tables)
     from core.agents.reminders.db import init_db as init_reminders_db
-    init_reminders_db()
+    _safe_init("reminders", init_reminders_db)
 
-    # Initialize shared context DB
     from core.agents.shared_context.db import init_db as init_shared_context_db
-    init_shared_context_db()
+    _safe_init("shared_context", init_shared_context_db)
 
-    # Initialize tool toggle config DB
     from core.agents.tool_config_db import init_db as init_tool_config_db
-    init_tool_config_db()
+    _safe_init("tool_configs", init_tool_config_db)
 
-    # Start APScheduler for reminders and scheduled actions
+    # Store statuses on app.state for health endpoint
+    app.state.db_statuses = db_statuses
+
+    # ── APScheduler ────────────────────────────────────────────────────────
     from apscheduler.schedulers.background import BackgroundScheduler
     _scheduler = BackgroundScheduler()
 
@@ -96,7 +125,6 @@ async def lifespan(app: FastAPI):
     _scheduler.add_job(process_due_reminders, "interval", seconds=60, id="reminder_heartbeat")
     _scheduler.add_job(process_due_actions, "interval", seconds=60, id="scheduled_actions_processor")
 
-    # Nightly memory/dreaming jobs (run per-agent)
     from core.agents.scheduled_actions.nightly import run_nightly_jobs
     _scheduler.add_job(run_nightly_jobs, "cron", hour=23, minute=0, id="nightly_memory_jobs",
                        timezone="America/Chicago")
@@ -161,6 +189,18 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+
+# ── Request-ID middleware ────────────────────────────────────────────────────
+
+@app.middleware("http")
+async def request_id_middleware(request: Request, call_next):
+    rid = _uuid.uuid4().hex[:12]
+    request_id_ctx.set(rid)
+    response = await call_next(request)
+    response.headers["X-Request-ID"] = rid
+    return response
+
+
 # ── CORS ──────────────────────────────────────────────────────────────────────
 
 app.add_middleware(
@@ -191,9 +231,18 @@ from core.agents.shared_context.router import router as shared_context_router
 app.include_router(shared_context_router, tags=["shared-context"])
 
 
+# ── Health endpoints ──────────────────────────────────────────────────────────
+
 @app.get("/api/health")
-async def health():
-    return {"status": "ok", "version": "0.1.0"}
+async def health(request: Request):
+    statuses = getattr(request.app.state, "db_statuses", {})
+    degraded = any(v not in ("ok", "fresh") for v in statuses.values())
+    return {"status": "degraded" if degraded else "ok", "version": "0.1.0", "databases": statuses}
+
+
+@app.get("/api/health/live")
+async def health_live():
+    return {"status": "ok"}
 
 
 # ── Static files (production frontend build) ──────────────────────────────────

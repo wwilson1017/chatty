@@ -5,6 +5,8 @@ import { AgentCard } from './AgentCard';
 import { CreateAgentModal } from './CreateAgentModal';
 import { WarmHalo } from '../shared/WarmHalo';
 import { IconSearch, IconPlus } from '../shared/icons';
+import { MobileMenuDrawer } from '../shared/MobileMenuDrawer';
+import { useIsMobile } from '../shared/useIsMobile';
 import type { Agent, BrandingConfig, ProviderStatus } from '../core/types';
 
 const SUGGESTED_ROLES = [
@@ -59,6 +61,8 @@ export function DashboardPage() {
     setAgents(prev => prev.filter(a => a.id !== id));
   }
 
+  const isMobile = useIsMobile();
+  const [showMenu, setShowMenu] = useState(false);
   const companyName = branding?.company_name || 'Chatty';
   const hour = new Date().getHours();
   const greeting = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening';
@@ -70,32 +74,46 @@ export function DashboardPage() {
       {/* Top bar */}
       <div style={{
         height: 48, display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-        padding: '0 24px', borderBottom: '1px solid rgba(230,235,242,0.07)',
+        padding: isMobile ? '0 16px' : '0 24px', borderBottom: '1px solid rgba(230,235,242,0.07)',
         position: 'relative', zIndex: 2,
       }}>
-        <div style={mono(10, 'rgba(237,240,244,0.62)')}>
-          {companyName} · {new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          {isMobile && (
+            <div
+              onClick={() => setShowMenu(true)}
+              style={{ cursor: 'pointer', color: 'rgba(237,240,244,0.62)', fontSize: 18 }}
+            >&#9776;</div>
+          )}
+          <div style={mono(10, 'rgba(237,240,244,0.62)')}>
+            {companyName} · {new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}
+          </div>
         </div>
-        <div style={{
-          padding: '5px 12px', borderRadius: 4,
-          background: 'rgba(245,239,227,0.04)', border: '1px solid rgba(230,235,242,0.07)',
-          fontFamily: "'JetBrains Mono', ui-monospace, monospace",
-          fontSize: 11, color: 'rgba(237,240,244,0.62)',
-          display: 'flex', gap: 8, alignItems: 'center', cursor: 'pointer',
-        }}>
-          <IconSearch size={13} strokeWidth={1.85} /> Ask Chatty, or jump to…
-          <span style={{ color: 'rgba(237,240,244,0.38)', marginLeft: 20, letterSpacing: '0.1em' }}>⌘K</span>
-        </div>
+        {!isMobile && (
+          <div style={{
+            padding: '5px 12px', borderRadius: 4,
+            background: 'rgba(245,239,227,0.04)', border: '1px solid rgba(230,235,242,0.07)',
+            fontFamily: "'JetBrains Mono', ui-monospace, monospace",
+            fontSize: 11, color: 'rgba(237,240,244,0.62)',
+            display: 'flex', gap: 8, alignItems: 'center', cursor: 'pointer',
+          }}>
+            <IconSearch size={13} strokeWidth={1.85} /> Ask Chatty, or jump to…
+            <span style={{ color: 'rgba(237,240,244,0.38)', marginLeft: 20, letterSpacing: '0.1em' }}>⌘K</span>
+          </div>
+        )}
       </div>
+
+      {isMobile && showMenu && (
+        <MobileMenuDrawer onClose={() => setShowMenu(false)} navigate={navigate} />
+      )}
 
       {/* Hero */}
       <div style={{
-        padding: '44px 44px 28px', borderBottom: '1px solid rgba(230,235,242,0.07)',
+        padding: isMobile ? '28px 20px 20px' : '44px 44px 28px', borderBottom: '1px solid rgba(230,235,242,0.07)',
         position: 'relative', zIndex: 2,
       }}>
         <h1 style={{
           fontFamily: "'Fraunces', Georgia, serif",
-          fontSize: 54, fontWeight: 400, letterSpacing: '-0.028em',
+          fontSize: isMobile ? 36 : 54, fontWeight: 400, letterSpacing: '-0.028em',
           lineHeight: 1.02, margin: 0, color: '#EDF0F4',
         }}>
           {greeting}.
@@ -137,7 +155,7 @@ export function DashboardPage() {
       </div>
 
       {/* Agents */}
-      <div style={{ padding: '22px 44px 40px', position: 'relative', zIndex: 2 }}>
+      <div style={{ padding: isMobile ? '16px 20px 32px' : '22px 44px 40px', position: 'relative', zIndex: 2 }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
           <div style={mono(10, 'rgba(237,240,244,0.38)')}>
             Your agents · {agents.length}
@@ -169,7 +187,7 @@ export function DashboardPage() {
             }}>
               Build your team
             </div>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'repeat(3, 1fr)', gap: 8 }}>
               {SUGGESTED_ROLES.map(s => (
                 <div
                   key={s.role}
@@ -177,16 +195,20 @@ export function DashboardPage() {
                   style={{
                     background: 'rgba(20,24,30,0.78)',
                     border: '1px dashed rgba(230,235,242,0.14)',
-                    borderRadius: 6, padding: '14px 16px',
+                    borderRadius: 6, padding: isMobile ? '12px 16px' : '14px 16px',
                     cursor: 'pointer',
+                    display: isMobile ? 'flex' : 'block',
+                    alignItems: 'baseline',
+                    gap: isMobile ? 10 : undefined,
                   }}
                   onMouseEnter={e => { (e.currentTarget as HTMLElement).style.borderColor = 'rgba(212,168,90,0.4)'; (e.currentTarget as HTMLElement).style.borderStyle = 'solid'; }}
                   onMouseLeave={e => { (e.currentTarget as HTMLElement).style.borderColor = 'rgba(230,235,242,0.14)'; (e.currentTarget as HTMLElement).style.borderStyle = 'dashed'; }}
                 >
                   <div style={{
                     fontFamily: "'Fraunces', Georgia, serif",
-                    fontSize: 17, letterSpacing: '-0.01em', color: '#EDF0F4',
-                    marginBottom: 4,
+                    fontSize: isMobile ? 15 : 17, letterSpacing: '-0.01em', color: '#EDF0F4',
+                    marginBottom: isMobile ? 0 : 4,
+                    flexShrink: 0,
                   }}>{s.role}</div>
                   <div style={{
                     fontSize: 12, color: 'rgba(237,240,244,0.38)', lineHeight: 1.4,
@@ -196,7 +218,7 @@ export function DashboardPage() {
             </div>
           </div>
         ) : (
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'repeat(3, 1fr)', gap: 8 }}>
             {agents.map(agent => (
               <AgentCard key={agent.id} agent={agent} onDelete={handleDelete} />
             ))}
@@ -213,7 +235,7 @@ export function DashboardPage() {
             }}>
               Ideas for your team
             </div>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'repeat(4, 1fr)', gap: 8 }}>
               {SUGGESTED_ROLES.map(s => (
                 <div
                   key={s.role}

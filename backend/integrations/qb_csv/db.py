@@ -10,10 +10,13 @@ import sqlite3
 import threading
 from pathlib import Path
 
+from core.storage import safe_init_sqlite
+
 logger = logging.getLogger(__name__)
 
 DATA_DIR = Path(__file__).resolve().parent.parent.parent / "data" / "integrations"
 DB_PATH = DATA_DIR / "qb_csv.db"
+GCS_KEY = "integrations/qb_csv.db"
 
 _connection: sqlite3.Connection | None = None
 _write_lock = threading.Lock()
@@ -36,11 +39,9 @@ def _apply_migrations(conn: sqlite3.Connection) -> None:
     conn.commit()
 
 
-def init_db() -> None:
-    """Initialize the QB CSV Analysis DB."""
+def _setup_connection() -> None:
+    """Open connection, set PRAGMAs, create schema, run migrations."""
     global _connection
-    DATA_DIR.mkdir(parents=True, exist_ok=True)
-
     _connection = sqlite3.connect(str(DB_PATH), check_same_thread=False)
     _connection.row_factory = sqlite3.Row
     _connection.execute("PRAGMA journal_mode=WAL")
@@ -48,7 +49,6 @@ def init_db() -> None:
     _connection.execute("PRAGMA busy_timeout=5000")
 
     _connection.executescript("""
-        -- Import tracking
         CREATE TABLE IF NOT EXISTS imports (
             id           INTEGER PRIMARY KEY AUTOINCREMENT,
             filename     TEXT NOT NULL,
@@ -58,7 +58,6 @@ def init_db() -> None:
             status       TEXT NOT NULL DEFAULT 'complete'
         );
 
-        -- Chart of Accounts
         CREATE TABLE IF NOT EXISTS accounts (
             id            INTEGER PRIMARY KEY AUTOINCREMENT,
             import_id     INTEGER REFERENCES imports(id) ON DELETE CASCADE,
@@ -73,7 +72,6 @@ def init_db() -> None:
         CREATE INDEX IF NOT EXISTS idx_accounts_name ON accounts(name);
         CREATE INDEX IF NOT EXISTS idx_accounts_type ON accounts(type);
 
-        -- Customers
         CREATE TABLE IF NOT EXISTS customers (
             id            INTEGER PRIMARY KEY AUTOINCREMENT,
             import_id     INTEGER REFERENCES imports(id) ON DELETE CASCADE,
@@ -86,7 +84,6 @@ def init_db() -> None:
         );
         CREATE INDEX IF NOT EXISTS idx_customers_name ON customers(display_name);
 
-        -- Vendors
         CREATE TABLE IF NOT EXISTS vendors (
             id            INTEGER PRIMARY KEY AUTOINCREMENT,
             import_id     INTEGER REFERENCES imports(id) ON DELETE CASCADE,
@@ -99,7 +96,6 @@ def init_db() -> None:
         );
         CREATE INDEX IF NOT EXISTS idx_vendors_name ON vendors(display_name);
 
-        -- Products & Services
         CREATE TABLE IF NOT EXISTS products (
             id                INTEGER PRIMARY KEY AUTOINCREMENT,
             import_id         INTEGER REFERENCES imports(id) ON DELETE CASCADE,
@@ -114,7 +110,6 @@ def init_db() -> None:
         );
         CREATE INDEX IF NOT EXISTS idx_products_name ON products(name);
 
-        -- Unified transactions (invoices, bills, expenses, payments)
         CREATE TABLE IF NOT EXISTS transactions (
             id                INTEGER PRIMARY KEY AUTOINCREMENT,
             import_id         INTEGER REFERENCES imports(id) ON DELETE CASCADE,
@@ -139,7 +134,6 @@ def init_db() -> None:
         CREATE INDEX IF NOT EXISTS idx_txn_category ON transactions(category);
         CREATE INDEX IF NOT EXISTS idx_txn_account ON transactions(account);
 
-        -- Journal entry line items
         CREATE TABLE IF NOT EXISTS journal_lines (
             id                INTEGER PRIMARY KEY AUTOINCREMENT,
             import_id         INTEGER REFERENCES imports(id) ON DELETE CASCADE,
@@ -156,9 +150,13 @@ def init_db() -> None:
         CREATE INDEX IF NOT EXISTS idx_jl_date ON journal_lines(journal_date);
     """)
     _connection.commit()
-
     _apply_migrations(_connection)
     logger.info("QB CSV Analysis DB initialized at %s", DB_PATH)
+
+
+def init_db() -> dict:
+    """Initialize with integrity check."""
+    return safe_init_sqlite(DB_PATH, GCS_KEY, init_fn=_setup_connection)
 
 
 def close_db() -> None:

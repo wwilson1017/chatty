@@ -15,7 +15,7 @@ from datetime import date, datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-from core.storage import download_file, upload_file
+from core.storage import safe_backup_sqlite, safe_init_sqlite
 
 from .types import validate_memory_type
 
@@ -136,6 +136,7 @@ class MemoryDB:
         self.gcs_key = gcs_prefix + db_filename
         self._connection: sqlite3.Connection | None = None
         self._write_lock = threading.Lock()
+        self._backup_mutex = threading.Lock()
 
     def get_db(self) -> sqlite3.Connection:
         if self._connection is None:
@@ -150,21 +151,16 @@ class MemoryDB:
     # Lifecycle
     # ------------------------------------------------------------------
 
-    def init_db(self) -> None:
-        """Download from GCS if absent, open connection, create schema."""
-        self.data_dir.mkdir(parents=True, exist_ok=True)
-
-        if not self.db_path.exists():
-            download_file(self.db_path, self.gcs_key)
-
+    def _setup_connection(self) -> None:
+        """Open connection, set PRAGMAs, create schema."""
         self._connection = sqlite3.connect(str(self.db_path), check_same_thread=False)
         self._connection.row_factory = sqlite3.Row
         self._connection.execute("PRAGMA journal_mode=WAL")
+        self._connection.execute("PRAGMA foreign_keys=ON")
         self._connection.execute("PRAGMA busy_timeout=5000")
 
         self._connection.executescript(_SCHEMA)
 
-        # FTS5 availability check + setup
         try:
             self._connection.executescript(_FTS5_SETUP)
         except sqlite3.OperationalError as e:
@@ -176,18 +172,22 @@ class MemoryDB:
             else:
                 raise
 
-        # Cache this instance
         _instances[str(self.data_dir)] = self
         logger.info("MemoryDB initialized at %s", self.db_path)
 
+    def init_db(self) -> dict:
+        """Initialize with integrity check and GCS restore."""
+        self.data_dir.mkdir(parents=True, exist_ok=True)
+        return safe_init_sqlite(
+            self.db_path, self.gcs_key, init_fn=self._setup_connection,
+        )
+
     def backup_to_gcs(self) -> None:
-        """Checkpoint WAL then upload the DB file to GCS."""
-        if self._connection is not None:
-            try:
-                self._connection.execute("PRAGMA wal_checkpoint(TRUNCATE)")
-            except Exception as e:
-                logger.warning("WAL checkpoint before memory backup failed: %s", e)
-        upload_file(self.db_path, self.gcs_key)
+        """Create a consistent snapshot and upload to GCS."""
+        safe_backup_sqlite(
+            self._connection, self.db_path, self.gcs_key,
+            backup_mutex=self._backup_mutex,
+        )
 
     # ------------------------------------------------------------------
     # FTS5 indexing

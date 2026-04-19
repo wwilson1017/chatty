@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { api } from '../core/api/client';
 import type { CrmContact } from '../core/types';
@@ -6,7 +6,9 @@ import { ContactForm } from './components/ContactForm';
 import { DealForm } from './components/DealForm';
 import { TaskForm } from './components/TaskForm';
 import { ActivityTimeline } from './components/ActivityTimeline';
+import { STAGE_COLORS } from './constants';
 import { IconArrowLeft } from '../shared/icons';
+import { useIsMobile } from '../shared/useIsMobile';
 
 const mono = (size: number, color = 'rgba(237,240,244,0.38)') => ({
   fontFamily: "'JetBrains Mono', ui-monospace, monospace",
@@ -17,6 +19,7 @@ const mono = (size: number, color = 'rgba(237,240,244,0.38)') => ({
 export function ContactDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const isMobile = useIsMobile();
   const [contact, setContact] = useState<CrmContact | null>(null);
   const [loading, setLoading] = useState(true);
   const [showEdit, setShowEdit] = useState(false);
@@ -26,16 +29,17 @@ export function ContactDetailPage() {
   const [logNote, setLogNote] = useState('');
   const [logging, setLogging] = useState(false);
 
-  async function load() {
+  const load = useCallback(async () => {
     setLoading(true);
     try {
       const data = await api<CrmContact>(`/api/crm/contacts/${id}`);
       setContact(data);
     } catch { setContact(null); }
     setLoading(false);
-  }
+  }, [id]);
 
-  useEffect(() => { load(); }, [id]);
+  // eslint-disable-next-line react-hooks/set-state-in-effect
+  useEffect(() => { load(); }, [load]);
 
   async function handleLogActivity() {
     if (!logActivity) return;
@@ -67,7 +71,7 @@ export function ContactDetailPage() {
   if (!contact) return <p style={{ color: 'rgba(237,240,244,0.62)', padding: 32 }}>Contact not found.</p>;
 
   return (
-    <div style={{ padding: '32px 44px', maxWidth: 900 }}>
+    <div style={{ padding: isMobile ? '20px 16px' : '32px 44px', maxWidth: 900 }}>
       {/* Back link */}
       <button onClick={() => navigate('/crm/contacts')} style={{
         background: 'none', border: 'none', color: 'rgba(237,240,244,0.38)',
@@ -78,64 +82,65 @@ export function ContactDetailPage() {
       </button>
 
       {/* Header */}
-      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 32 }}>
-        <div>
+      <div style={{ marginBottom: isMobile ? 20 : 32 }}>
+        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }}>
           <h1 style={{
             fontFamily: "'Fraunces', Georgia, serif",
-            fontSize: 32, fontWeight: 400, letterSpacing: '-0.02em',
+            fontSize: isMobile ? 24 : 32, fontWeight: 400, letterSpacing: '-0.02em',
             color: '#EDF0F4', margin: 0,
           }}>{contact.name}</h1>
-          {contact.title && (
-            <p style={{ fontSize: 14, color: 'rgba(237,240,244,0.62)', marginTop: 4 }}>
-              {contact.title}{contact.company ? ` at ${contact.company}` : ''}
-            </p>
-          )}
-          {!contact.title && contact.company && (
-            <p style={{ fontSize: 14, color: 'rgba(237,240,244,0.62)', marginTop: 4 }}>{contact.company}</p>
-          )}
-          <div style={{ display: 'flex', gap: 16, marginTop: 8, fontSize: 13, color: 'rgba(237,240,244,0.62)' }}>
-            {contact.email && <span>{contact.email}</span>}
-            {contact.phone && <span>{contact.phone}</span>}
+          <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
+            <button onClick={() => setShowEdit(true)} style={{
+              background: 'transparent', color: 'rgba(237,240,244,0.62)',
+              border: '1px solid rgba(230,235,242,0.14)',
+              padding: '6px 12px', borderRadius: 4, fontSize: 12, cursor: 'pointer',
+            }}>Edit</button>
+            <button onClick={handleDelete} style={{
+              background: 'transparent', color: '#D97757',
+              border: '1px solid rgba(217,119,87,0.2)',
+              padding: '6px 12px', borderRadius: 4, fontSize: 12, cursor: 'pointer',
+            }}>Delete</button>
           </div>
-          {contact.tags && (
-            <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
-              {contact.tags.split(',').map(t => t.trim()).filter(Boolean).map(tag => (
-                <span key={tag} style={{
-                  fontSize: 10, padding: '2px 8px', borderRadius: 3,
-                  background: 'rgba(245,239,227,0.06)', color: 'rgba(237,240,244,0.62)',
-                  fontFamily: "'JetBrains Mono', ui-monospace, monospace",
-                  letterSpacing: '0.1em',
-                }}>{tag}</span>
-              ))}
-            </div>
-          )}
         </div>
-        <div style={{ display: 'flex', gap: 8 }}>
-          <button onClick={() => setShowEdit(true)} style={{
-            background: 'transparent', color: 'rgba(237,240,244,0.62)',
-            border: '1px solid rgba(230,235,242,0.14)',
-            padding: '6px 12px', borderRadius: 4, fontSize: 12, cursor: 'pointer',
-          }}>Edit</button>
-          <button onClick={handleDelete} style={{
-            background: 'transparent', color: '#D97757',
-            border: '1px solid rgba(217,119,87,0.2)',
-            padding: '6px 12px', borderRadius: 4, fontSize: 12, cursor: 'pointer',
-          }}>Delete</button>
+        {contact.title && (
+          <p style={{ fontSize: 14, color: 'rgba(237,240,244,0.62)', marginTop: 4 }}>
+            {contact.title}{contact.company ? ` at ${contact.company}` : ''}
+          </p>
+        )}
+        {!contact.title && contact.company && (
+          <p style={{ fontSize: 14, color: 'rgba(237,240,244,0.62)', marginTop: 4 }}>{contact.company}</p>
+        )}
+        <div style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', gap: isMobile ? 4 : 16, marginTop: 8, fontSize: 13, color: 'rgba(237,240,244,0.62)' }}>
+          {contact.email && <span>{contact.email}</span>}
+          {contact.phone && <span>{contact.phone}</span>}
         </div>
+        {contact.tags && (
+          <div style={{ display: 'flex', gap: 6, marginTop: 8, flexWrap: 'wrap' }}>
+            {contact.tags.split(',').map(t => t.trim()).filter(Boolean).map(tag => (
+              <span key={tag} style={{
+                fontSize: 10, padding: '2px 8px', borderRadius: 3,
+                background: 'rgba(245,239,227,0.06)', color: 'rgba(237,240,244,0.62)',
+                fontFamily: "'JetBrains Mono', ui-monospace, monospace",
+                letterSpacing: '0.1em',
+              }}>{tag}</span>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* Notes */}
       {contact.notes && (
         <div style={{
           background: 'rgba(20,24,30,0.78)', border: '1px solid rgba(230,235,242,0.07)',
-          borderRadius: 6, padding: 16, marginBottom: 24,
+          borderRadius: 6, padding: isMobile ? 14 : 16, marginBottom: isMobile ? 20 : 24,
         }}>
           <p style={{ ...mono(9), marginBottom: 6 }}>Notes</p>
           <p style={{ fontSize: 13, color: 'rgba(237,240,244,0.62)', whiteSpace: 'pre-wrap', lineHeight: 1.5, margin: 0 }}>{contact.notes}</p>
         </div>
       )}
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 24 }}>
+      {/* Deals + Tasks */}
+      <div style={{ display: isMobile ? 'flex' : 'grid', flexDirection: isMobile ? 'column' : undefined, gridTemplateColumns: isMobile ? undefined : '1fr 1fr', gap: 24 }}>
         {/* Deals */}
         <div>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
@@ -151,16 +156,23 @@ export function ContactDetailPage() {
             ) : (
               contact.deals.map(d => (
                 <div key={d.id} style={{
-                  padding: '12px 0', borderBottom: '1px solid rgba(230,235,242,0.07)',
+                  padding: '12px 14px', marginBottom: 6,
+                  borderRadius: 6,
+                  background: STAGE_COLORS[d.stage]?.bg || 'rgba(20,24,30,0.78)',
+                  border: '1px solid rgba(230,235,242,0.07)',
+                  borderLeft: `3px solid ${STAGE_COLORS[d.stage]?.color || 'rgba(230,235,242,0.14)'}`,
                   display: 'flex', alignItems: 'center', justifyContent: 'space-between',
                 }}>
-                  <div>
+                  <div style={{ minWidth: 0, flex: 1 }}>
                     <p style={{ fontSize: 14, color: '#EDF0F4', margin: 0 }}>{d.title}</p>
-                    <span style={{ ...mono(9), textTransform: 'capitalize', marginTop: 2, display: 'inline-block' }}>{d.stage}</span>
+                    <span style={{
+                      ...mono(9), textTransform: 'capitalize', marginTop: 2, display: 'inline-block',
+                      color: STAGE_COLORS[d.stage]?.color || 'rgba(237,240,244,0.38)',
+                    }}>{d.stage}</span>
                   </div>
                   <span style={{
                     fontFamily: "'Fraunces', Georgia, serif",
-                    fontSize: 16, color: '#EDF0F4',
+                    fontSize: 16, color: '#EDF0F4', flexShrink: 0, marginLeft: 12,
                   }}>${d.value.toLocaleString()}</span>
                 </div>
               ))
@@ -217,7 +229,7 @@ export function ContactDetailPage() {
         marginTop: 24, borderTop: '1px solid rgba(230,235,242,0.07)', paddingTop: 24,
       }}>
         <span style={{ ...mono(10, 'rgba(237,240,244,0.38)'), display: 'block', marginBottom: 12 }}>Log Activity</span>
-        <div style={{ display: 'flex', gap: 8, marginBottom: logActivity ? 8 : 0 }}>
+        <div style={{ display: 'flex', gap: 8, marginBottom: logActivity ? 8 : 0, flexWrap: 'wrap' }}>
           {['call', 'email', 'meeting', 'note'].map(type => (
             <button key={type} onClick={() => setLogActivity(type)} style={{
               padding: '5px 12px', borderRadius: 4, fontSize: 12, textTransform: 'capitalize',
@@ -250,7 +262,7 @@ export function ContactDetailPage() {
       {/* Activity history */}
       <div style={{ marginTop: 24, borderTop: '1px solid rgba(230,235,242,0.07)', paddingTop: 24 }}>
         <span style={{ ...mono(10, 'rgba(237,240,244,0.38)'), display: 'block', marginBottom: 12 }}>Activity History</span>
-        <ActivityTimeline activities={contact.activity || []} />
+        <ActivityTimeline activities={contact.activity || []} onUpdate={load} />
       </div>
 
       {showEdit && <ContactForm contact={contact} onClose={() => setShowEdit(false)} onSaved={() => { setShowEdit(false); load(); }} />}
