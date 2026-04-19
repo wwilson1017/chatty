@@ -162,7 +162,7 @@ async def process_message(
     chatty_conv_id = conv.get("chatty_conversation_id")
     if not chatty_conv_id and chat_service:
         try:
-            new_conv = chat_service.create_conversation()
+            new_conv = chat_service.create_conversation(source="telegram")
             chatty_conv_id = new_conv["id"]
             state.set_chatty_conversation_id(conv["id"], chatty_conv_id)
         except Exception as e:
@@ -170,11 +170,11 @@ async def process_message(
 
     # 7. Load recent messages for context
     messages = _load_recent_messages(chat_service, chatty_conv_id)
+    platform_prefix = f"[via Telegram from {sender_name}] "
     if not messages:
-        messages = [{"role": "user", "content": message_text}]
+        messages = [{"role": "user", "content": platform_prefix + message_text}]
     else:
-        # Append the new user message
-        messages.append({"role": "user", "content": message_text})
+        messages.append({"role": "user", "content": platform_prefix + message_text})
 
     # 8. Run the agent (non-streaming)
     response = await ai_service.run_sync(

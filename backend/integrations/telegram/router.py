@@ -24,6 +24,16 @@ router = APIRouter(tags=["telegram"])
 
 _executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="telegram-webhook")
 
+from pathlib import Path as _Path
+_AGENTS_DIR = _Path(__file__).resolve().parent.parent.parent / "data" / "agents"
+
+
+def _mark_telegram_configured(agent_slug: str) -> None:
+    """Auto-update the agent's _pending-setup.md after first Telegram message."""
+    from integrations.pending_setup import mark_integration_complete
+    context_dir = _AGENTS_DIR / agent_slug / "context"
+    mark_integration_complete(context_dir, "Telegram Bot")
+
 
 # ---------------------------------------------------------------------------
 # Telegram webhook — per-agent, no JWT, routed by slug
@@ -109,6 +119,7 @@ def _safe_process_telegram(
             # Try auto-registration
             if lifecycle.try_auto_register(agent["id"], user_id, sender_name):
                 logger.info("Auto-registered Telegram user %s for agent %s", user_id, agent["agent_name"])
+                _mark_telegram_configured(agent["slug"])
             else:
                 send_message(
                     chat_id,

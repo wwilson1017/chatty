@@ -129,6 +129,29 @@ def validate_token(bot_token: str) -> dict | None:
     return None
 
 
+def get_updates(bot_token: str, offset: int | None = None, timeout: int = 30) -> list[dict]:
+    """Long-poll for new updates from Telegram (alternative to webhooks)."""
+    if not bot_token:
+        return []
+
+    params: dict = {"timeout": timeout, "allowed_updates": ["message"]}
+    if offset is not None:
+        params["offset"] = offset
+
+    try:
+        resp = httpx.get(
+            f"{_base_url(bot_token)}/getUpdates",
+            params=params,
+            timeout=timeout + 10,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        return data.get("result", [])
+    except httpx.HTTPError as e:
+        logger.warning("Telegram getUpdates failed: %s", e)
+        return []
+
+
 def _chunk_text(text: str, max_length: int) -> list[str]:
     """Split text into chunks on paragraph boundaries."""
     if len(text) <= max_length:

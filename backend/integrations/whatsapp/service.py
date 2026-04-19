@@ -138,7 +138,7 @@ def _process_message_locked(
     chatty_conv_id = conv.get("chatty_conversation_id")
     if not chatty_conv_id and chat_service:
         try:
-            new_conv = chat_service.create_conversation()
+            new_conv = chat_service.create_conversation(source="whatsapp")
             chatty_conv_id = new_conv["id"]
             state.set_chatty_conversation_id(conv["id"], chatty_conv_id)
         except Exception as e:
@@ -162,7 +162,7 @@ def _process_message_locked(
     # 7. Load recent messages for context
     messages_for_context = _load_recent_messages(chat_service, chatty_conv_id)
     # If no history, just use the current message
-    user_message = message_text
+    user_message = f"[via WhatsApp from {sender_name}] {message_text}"
     if messages_for_context:
         # background_runner takes a single user_message, not a full messages array.
         # We'll include recent context in the system prompt instead.

@@ -166,6 +166,26 @@ async def setup_crm_lite(user=Depends(get_current_user)):
     return setup()
 
 
+class PendingSetupRequest(BaseModel):
+    messaging: list[str] = []
+    integrations: list[str] = []
+
+
+@router.post("/pending-setup")
+async def save_pending_setup(body: PendingSetupRequest, user=Depends(get_current_user)):
+    """Save onboarding integration selections for the first agent to pick up."""
+    from .pending_setup import save_pending
+    return save_pending(body.messaging, body.integrations)
+
+
+@router.get("/pending-setup")
+async def get_pending_setup(user=Depends(get_current_user)):
+    """Get pending integration setup selections."""
+    from .pending_setup import load_pending
+    data = load_pending()
+    return data or {"messaging": [], "integrations": []}
+
+
 @router.get("/{name}/tool-defs")
 async def get_tool_defs(name: str, user=Depends(get_current_user)):
     """Return tool definitions for an enabled integration."""

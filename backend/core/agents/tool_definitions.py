@@ -871,6 +871,85 @@ When you see `[QuickBooks CSV detected: ...]` in an uploaded file:
 """
 
 
+# ── Integration setup tools ──────────────────────────────────────────────────
+
+SETUP_TOOLS = [
+    {
+        "name": "setup_telegram_bot",
+        "description": "Set up a Telegram bot for this agent. Call after the user gives you their bot token from @BotFather. Validates the token, registers the webhook, and opens a 10-minute registration window.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "bot_token": {"type": "string", "description": "The Telegram bot token from @BotFather (e.g. 123456789:ABCdef...)"},
+            },
+            "required": ["bot_token"],
+        },
+        "kind": "setup",
+        "writes": True,
+    },
+    {
+        "name": "check_telegram_registration",
+        "description": "Check if a Telegram user has linked their account to this agent's bot by messaging it.",
+        "input_schema": {
+            "type": "object",
+            "properties": {},
+        },
+        "kind": "setup",
+        "writes": False,
+    },
+    {
+        "name": "setup_odoo",
+        "description": "Connect Odoo ERP. Validates the credentials via XML-RPC and saves them.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "url": {"type": "string", "description": "Odoo server URL (e.g. https://mycompany.odoo.com)"},
+                "database": {"type": "string", "description": "Odoo database name"},
+                "username": {"type": "string", "description": "Odoo username or email"},
+                "api_key": {"type": "string", "description": "Odoo API key"},
+            },
+            "required": ["url", "database", "username", "api_key"],
+        },
+        "kind": "setup",
+        "writes": True,
+    },
+    {
+        "name": "setup_bamboohr",
+        "description": "Connect BambooHR. Validates the credentials and saves them.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "subdomain": {"type": "string", "description": "BambooHR subdomain (the 'company' in company.bamboohr.com)"},
+                "api_key": {"type": "string", "description": "BambooHR API key"},
+            },
+            "required": ["subdomain", "api_key"],
+        },
+        "kind": "setup",
+        "writes": True,
+    },
+    {
+        "name": "enable_crm",
+        "description": "Enable the built-in CRM for contacts, deals, tasks, and pipeline tracking. No credentials needed.",
+        "input_schema": {
+            "type": "object",
+            "properties": {},
+        },
+        "kind": "setup",
+        "writes": True,
+    },
+    {
+        "name": "check_integrations",
+        "description": "Check which integrations are currently configured and enabled.",
+        "input_schema": {
+            "type": "object",
+            "properties": {},
+        },
+        "kind": "setup",
+        "writes": False,
+    },
+]
+
+
 # ── Helper maps for tool mode ────────────────────────────────────────────────
 
 def build_writes_map(tool_defs: list[dict]) -> dict[str, bool]:
@@ -918,6 +997,7 @@ def get_tool_definitions(
         tools.extend(SCHEDULED_ACTION_TOOLS)
     if integration_tools:
         tools.extend(integration_tools)
+    tools.extend(SETUP_TOOLS)
     # Append agent-created real tools (loaded from filesystem)
     if dynamic_real_tools:
         tools.extend(dynamic_real_tools)

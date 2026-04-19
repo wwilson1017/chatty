@@ -315,18 +315,16 @@ export function AgentPage() {
                   {tab.label}
                 </div>
               ))}
-              {agent.telegram_enabled && (
-                <div
-                  onClick={() => setActiveTab('telegram')}
-                  style={{
-                    fontSize: 12, padding: '4px 12px', cursor: 'pointer',
-                    color: activeTab === 'telegram' ? '#EDF0F4' : 'rgba(237,240,244,0.62)',
-                    borderBottom: activeTab === 'telegram' ? '1px solid var(--color-ch-accent, #C8D1D9)' : '1px solid transparent',
-                  }}
-                >
-                  Telegram
-                </div>
-              )}
+              <div
+                onClick={() => setActiveTab('telegram')}
+                style={{
+                  fontSize: 12, padding: '4px 12px', cursor: 'pointer',
+                  color: activeTab === 'telegram' ? '#EDF0F4' : 'rgba(237,240,244,0.62)',
+                  borderBottom: activeTab === 'telegram' ? '1px solid var(--color-ch-accent, #C8D1D9)' : '1px solid transparent',
+                }}
+              >
+                Telegram
+              </div>
             </div>
           )}
         </div>
@@ -351,18 +349,16 @@ export function AgentPage() {
                 {tab.label}
               </div>
             ))}
-            {agent.telegram_enabled && (
-              <div
-                onClick={() => setActiveTab('telegram')}
-                style={{
-                  fontSize: 12, padding: '8px 14px', cursor: 'pointer', whiteSpace: 'nowrap',
-                  color: activeTab === 'telegram' ? '#EDF0F4' : 'rgba(237,240,244,0.5)',
-                  borderBottom: activeTab === 'telegram' ? '2px solid var(--color-ch-accent, #C8D1D9)' : '2px solid transparent',
-                }}
-              >
-                Telegram
-              </div>
-            )}
+            <div
+              onClick={() => setActiveTab('telegram')}
+              style={{
+                fontSize: 12, padding: '8px 14px', cursor: 'pointer', whiteSpace: 'nowrap',
+                color: activeTab === 'telegram' ? '#EDF0F4' : 'rgba(237,240,244,0.5)',
+                borderBottom: activeTab === 'telegram' ? '2px solid var(--color-ch-accent, #C8D1D9)' : '2px solid transparent',
+              }}
+            >
+              Telegram
+            </div>
           </div>
         )}
       </div>
@@ -513,6 +509,7 @@ export function AgentPage() {
               toolMode={chat.toolMode}
               onToolModeChange={handleToolModeChange}
               agentName={agent.agent_name}
+              conversationSource={convs.conversations.find(c => c.id === convs.activeId)?.source}
             />
           </>
         ) : activeTab === 'knowledge' ? (

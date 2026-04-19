@@ -3,6 +3,7 @@ import { api } from '../core/api/client';
 import { getToken } from '../core/auth/tokenUtils';
 import type { Integration, Agent } from '../core/types';
 import { IconGlobe, IconUsers, IconFunnel, IconFile, IconPhone, IconMail, IconChart, IconBook, IconZap } from '../shared/icons';
+import { TelegramSettings } from '../agent/components/TelegramSettings';
 
 const INTEGRATION_ICONS: Record<string, React.ComponentType<{ size?: number; className?: string; strokeWidth?: number }>> = {
   quickbooks: IconChart,
@@ -45,6 +46,8 @@ export function IntegrationsTab() {
   const [waStatuses, setWaStatuses] = useState<Record<string, string>>({});
   const [waErrors, setWaErrors] = useState<Record<string, string>>({});
   const [waExpanded, setWaExpanded] = useState(false);
+  const [telegramExpanded, setTelegramExpanded] = useState(false);
+  const [tgSelectedAgent, setTgSelectedAgent] = useState<string>('');
   const pollTimers = useRef<Record<string, ReturnType<typeof setInterval>>>({});
 
   useEffect(() => {
@@ -54,22 +57,24 @@ export function IntegrationsTab() {
   }, []);
 
   useEffect(() => {
-    if (waExpanded) {
+    if (waExpanded || telegramExpanded) {
       api<{ agents: Agent[] }>('/api/agents').then(data => {
         setAgents(data.agents);
-        const statuses: Record<string, string> = {};
-        for (const a of data.agents) {
-          if (a.whatsapp_session_id) {
-            statuses[a.slug] = 'checking...';
-            api<{ status: string }>(`/api/messaging/whatsapp/session/status/${a.slug}`)
-              .then(s => setWaStatuses(prev => ({ ...prev, [a.slug]: s.status })))
-              .catch(() => setWaStatuses(prev => ({ ...prev, [a.slug]: 'unknown' })));
+        if (waExpanded) {
+          const statuses: Record<string, string> = {};
+          for (const a of data.agents) {
+            if (a.whatsapp_session_id) {
+              statuses[a.slug] = 'checking...';
+              api<{ status: string }>(`/api/messaging/whatsapp/session/status/${a.slug}`)
+                .then(s => setWaStatuses(prev => ({ ...prev, [a.slug]: s.status })))
+                .catch(() => setWaStatuses(prev => ({ ...prev, [a.slug]: 'unknown' })));
+            }
           }
+          setWaStatuses(statuses);
         }
-        setWaStatuses(statuses);
       });
     }
-  }, [waExpanded]);
+  }, [waExpanded, telegramExpanded]);
 
   useEffect(() => {
     const timers = pollTimers.current;
@@ -233,7 +238,7 @@ export function IntegrationsTab() {
               </div>
 
               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                {integration.auth_type !== 'stub' && integration.auth_type !== 'qr_session' && (() => {
+                {integration.auth_type !== 'stub' && integration.auth_type !== 'qr_session' && integration.auth_type !== 'per_agent' && (() => {
                   const isConfigured = integration.configured;
                   const isBroken = isConfigured && integration.connection_status === 'broken';
                   const isHealthy = isConfigured && !isBroken;
@@ -314,6 +319,13 @@ export function IntegrationsTab() {
                     background: 'rgba(142,165,137,0.1)', color: '#8EA589',
                     border: '1px solid rgba(142,165,137,0.2)', cursor: 'pointer',
                   }}>{waExpanded ? 'Close' : 'Manage'}</button>
+                )}
+                {integration.auth_type === 'per_agent' && (
+                  <button onClick={() => setTelegramExpanded(prev => !prev)} style={{
+                    fontSize: 11, padding: '4px 12px', borderRadius: 4,
+                    background: 'rgba(0,136,204,0.1)', color: '#0088cc',
+                    border: '1px solid rgba(0,136,204,0.2)', cursor: 'pointer',
+                  }}>{telegramExpanded ? 'Close' : 'Manage'}</button>
                 )}
                 {integration.auth_type === 'stub' && (
                   <span style={{ ...mono(9, 'rgba(237,240,244,0.38)') }}>Coming soon</span>
@@ -427,6 +439,43 @@ export function IntegrationsTab() {
                         ))}
                       </div>
                     )}
+                  </>
+                )}
+              </div>
+            )}
+
+            {/* Telegram per-agent panel */}
+            {integration.auth_type === 'per_agent' && telegramExpanded && (
+              <div style={{ marginTop: 16, paddingTop: 16, borderTop: '1px solid rgba(230,235,242,0.07)' }}>
+                {agents.length === 0 ? (
+                  <p style={{ color: 'rgba(237,240,244,0.62)', fontSize: 13 }}>No agents created yet.</p>
+                ) : (
+                  <>
+                    <div style={{ marginBottom: 12 }}>
+                      <label style={{ display: 'block', ...mono(9), marginBottom: 4 }}>Select agent</label>
+                      <select value={tgSelectedAgent} onChange={e => setTgSelectedAgent(e.target.value)} style={{ ...inputStyle }}>
+                        <option value="">Choose an agent...</option>
+                        {agents.map(a => (
+                          <option key={a.id} value={a.id}>
+                            {a.agent_name} {a.telegram_bot_token ? '(connected)' : ''}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    {tgSelectedAgent && (() => {
+                      const agent = agents.find(a => a.id === tgSelectedAgent);
+                      if (!agent) return null;
+                      return (
+                        <TelegramSettings
+                          agentId={agent.id}
+                          agentName={agent.agent_name}
+                          botToken={agent.telegram_bot_token || ''}
+                          botUsername={agent.telegram_bot_username || ''}
+                          telegramEnabled={agent.telegram_enabled}
+                          onUpdate={() => api<{ agents: Agent[] }>('/api/agents').then(data => setAgents(data.agents))}
+                        />
+                      );
+                    })()}
                   </>
                 )}
               </div>

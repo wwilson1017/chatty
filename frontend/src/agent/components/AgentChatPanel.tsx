@@ -27,6 +27,7 @@ interface Props {
   toolMode?: ToolMode;
   onToolModeChange?: (mode: ToolMode) => void;
   agentName?: string;
+  conversationSource?: string | null;
 }
 
 const TOOL_MODES: { key: ToolMode; label: string }[] = [
@@ -38,7 +39,7 @@ const TOOL_MODES: { key: ToolMode; label: string }[] = [
 export function AgentChatPanel({
   messages, isStreaming, onSend, onStop, onApprove, onDeny,
   onApprovePlan, onIteratePlan, scrollRef: externalScrollRef,
-  contextUsage, toolMode, onToolModeChange, agentName,
+  contextUsage, toolMode, onToolModeChange, agentName, conversationSource,
 }: Props) {
   const [input, setInput] = useState('');
   const [pendingFiles, setPendingFiles] = useState<File[]>([]);
@@ -331,17 +332,41 @@ export function AgentChatPanel({
           </div>
         ) : (
           <div style={{ maxWidth: 680, margin: '0 auto', padding: isMobile ? '20px 16px' : '30px 40px', display: 'flex', flexDirection: 'column', gap: 22 }}>
-            {messages.filter(msg => !msg.hidden).map(msg => (
-              <AgentMessageBubble
-                key={msg.id}
-                message={msg}
-                onApprove={onApprove}
-                onDeny={onDeny}
-                onApprovePlan={onApprovePlan}
-                onIteratePlan={onIteratePlan}
-                agentName={agentName}
-              />
-            ))}
+            {conversationSource && (
+              <div style={{
+                display: 'flex', alignItems: 'center', gap: 8,
+                padding: '8px 14px', borderRadius: 8,
+                ...(conversationSource === 'telegram'
+                  ? { background: 'rgba(0,136,204,0.08)', border: '1px solid rgba(0,136,204,0.2)' }
+                  : { background: 'rgba(37,211,102,0.08)', border: '1px solid rgba(37,211,102,0.2)' }),
+              }}>
+                <span style={{
+                  fontSize: 11, fontWeight: 600, letterSpacing: '0.05em',
+                  color: conversationSource === 'telegram' ? '#0088cc' : '#25D366',
+                }}>
+                  {conversationSource === 'telegram' ? 'Telegram' : 'WhatsApp'}
+                </span>
+                <span style={{ fontSize: 11, color: 'rgba(237,240,244,0.4)' }}>
+                  Messages from {conversationSource === 'telegram' ? 'Telegram' : 'WhatsApp'} appear here
+                </span>
+              </div>
+            )}
+            {messages.filter(msg => !msg.hidden).map(msg => {
+              const displayMsg = (msg.role === 'user' && msg.content.match(/^\[via (Telegram|WhatsApp) from [^\]]+\] /))
+                ? { ...msg, content: msg.content.replace(/^\[via (?:Telegram|WhatsApp) from [^\]]+\] /, '') }
+                : msg;
+              return (
+                <AgentMessageBubble
+                  key={msg.id}
+                  message={displayMsg}
+                  onApprove={onApprove}
+                  onDeny={onDeny}
+                  onApprovePlan={onApprovePlan}
+                  onIteratePlan={onIteratePlan}
+                  agentName={agentName}
+                />
+              );
+            })}
           </div>
         )}
       </div>

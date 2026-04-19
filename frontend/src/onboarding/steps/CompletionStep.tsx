@@ -1,6 +1,7 @@
 interface SetupResult {
   provider: string;
-  integrations: string[];
+  pendingMessaging: string[];
+  pendingIntegrations: string[];
 }
 
 interface Props {
@@ -15,15 +16,17 @@ const PROVIDER_NAMES: Record<string, string> = {
 };
 
 const INTEGRATION_NAMES: Record<string, string> = {
+  telegram: 'Telegram',
+  whatsapp: 'WhatsApp',
   odoo: 'Odoo',
   quickbooks: 'QuickBooks',
   bamboohr: 'BambooHR',
   crm_lite: 'CRM',
-  telegram: 'Telegram',
-  whatsapp: 'WhatsApp',
 };
 
 export function CompletionStep({ result, onComplete }: Props) {
+  const allPending = [...result.pendingMessaging, ...result.pendingIntegrations];
+
   return (
     <div className="text-center">
       <div className="w-16 h-16 bg-green-500/20 rounded-full flex items-center justify-center mx-auto mb-6">
@@ -34,12 +37,12 @@ export function CompletionStep({ result, onComplete }: Props) {
 
       <h2 className="text-xl font-bold text-white mb-2">You're all set!</h2>
       <p className="text-gray-400 text-sm mb-8">
-        Here's what we connected:
+        Here's your setup summary:
       </p>
 
       <div className="bg-gray-800 rounded-xl border border-gray-700 p-5 mb-8 text-left">
         <div className="space-y-3">
-          {/* Provider */}
+          {/* Provider — always completed */}
           <div className="flex items-center gap-3">
             <div className="w-5 h-5 bg-green-500 rounded-full flex items-center justify-center flex-shrink-0">
               <svg className="w-3 h-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
@@ -51,27 +54,34 @@ export function CompletionStep({ result, onComplete }: Props) {
             </span>
           </div>
 
-          {/* Integrations */}
-          {result.integrations.map(id => (
+          {/* Pending integrations — agent will help */}
+          {allPending.map(id => (
             <div key={id} className="flex items-center gap-3">
-              <div className="w-5 h-5 bg-green-500 rounded-full flex items-center justify-center flex-shrink-0">
-                <svg className="w-3 h-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+              <div className="w-5 h-5 bg-amber-500/20 border border-amber-500/40 rounded-full flex items-center justify-center flex-shrink-0">
+                <svg className="w-3 h-3 text-amber-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                  <circle cx="12" cy="12" r="1" fill="currentColor" />
+                  <path d="M12 6v4M12 14v.01" />
                 </svg>
               </div>
               <span className="text-gray-300 text-sm">
-                {INTEGRATION_NAMES[id] || id}
+                {INTEGRATION_NAMES[id] || id} <span className="text-amber-400/80 text-xs ml-1">— your agent will help you set this up</span>
               </span>
             </div>
           ))}
 
-          {result.integrations.length === 0 && (
+          {allPending.length === 0 && (
             <p className="text-gray-500 text-xs ml-8">
-              No integrations connected — you can add them anytime from Settings.
+              No integrations selected — you can add them anytime from Settings.
             </p>
           )}
         </div>
       </div>
+
+      {allPending.length > 0 && (
+        <p className="text-gray-500 text-xs mb-6">
+          When you create your first agent, it will walk you through setting these up conversationally.
+        </p>
+      )}
 
       <button
         onClick={onComplete}

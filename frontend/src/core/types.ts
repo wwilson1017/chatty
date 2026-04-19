@@ -12,6 +12,9 @@ export interface Agent {
   gmail_enabled: boolean;
   calendar_enabled: boolean;
   whatsapp_session_id?: string;
+  telegram_enabled: boolean;
+  telegram_bot_token?: string;
+  telegram_bot_username?: string;
   created_at: string;
   updated_at: string;
 }
@@ -20,6 +23,8 @@ export interface Conversation {
   id: string;
   title: string;
   title_edited_by_user: boolean;
+  source?: string | null;
+  pinned?: number;
   created_at: string;
   updated_at: string;
   message_count?: number;
