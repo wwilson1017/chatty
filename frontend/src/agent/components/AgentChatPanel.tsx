@@ -275,7 +275,7 @@ export function AgentChatPanel({
         }}>
           {contextUsage ? (() => {
             const pct = Math.round((contextUsage.inputTokens / contextUsage.contextWindow) * 100);
-            return `${pct}% ctx · ${contextUsage.toolCount ?? 0} tools · ⏎ send`;
+            return `${pct}% ctx · ⏎ send`;
           })() : '⏎ send'}
         </div>
       </div>

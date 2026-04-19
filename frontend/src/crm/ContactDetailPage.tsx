@@ -6,7 +6,7 @@ import { ContactForm } from './components/ContactForm';
 import { DealForm } from './components/DealForm';
 import { TaskForm } from './components/TaskForm';
 import { ActivityTimeline } from './components/ActivityTimeline';
-import { IconArrowLeft, IconCheck } from '../shared/icons';
+import { IconArrowLeft } from '../shared/icons';
 
 const mono = (size: number, color = 'rgba(237,240,244,0.38)') => ({
   fontFamily: "'JetBrains Mono', ui-monospace, monospace",

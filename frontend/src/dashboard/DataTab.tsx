@@ -1,12 +1,6 @@
 import { useState, useRef } from 'react';
 import { IconFile } from '../shared/icons';
 
-const mono = (size: number, color = 'rgba(237,240,244,0.38)') => ({
-  fontFamily: "'JetBrains Mono', ui-monospace, monospace",
-  fontSize: size, letterSpacing: '0.16em',
-  textTransform: 'uppercase' as const, color,
-});
-
 export function DataTab() {
   const [downloading, setDownloading] = useState(false);
   const [restoring, setRestoring] = useState(false);
