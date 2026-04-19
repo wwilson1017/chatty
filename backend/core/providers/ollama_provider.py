@@ -50,7 +50,10 @@ class OllamaProvider(AIProvider):
 
     async def _recommend_tool_models(self) -> str:
         """Build a recommendation string for tool-capable models."""
-        installed = await self.list_models()
+        try:
+            installed = await self.list_models()
+        except Exception:
+            installed = []
         capable = [m for m in installed if _is_tool_capable(m)]
         if capable:
             model_list = ", ".join(f"**{m}**" for m in capable[:5])
