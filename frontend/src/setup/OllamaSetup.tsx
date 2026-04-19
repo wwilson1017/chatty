@@ -13,7 +13,7 @@ interface OllamaStatus {
 const RECOMMENDED_MODELS = [
   { name: 'qwen3.5:4b', desc: 'Lightweight (3.4 GB) — works on any computer' },
   { name: 'qwen3.5:9b', desc: 'Balanced (6 GB) — best quality for the size' },
-  { name: 'gemma3:12b', desc: 'Quality (8 GB) — needs 16 GB RAM' },
+  { name: 'llama3.1:8b', desc: 'Quality (5 GB) — needs 16 GB RAM' },
 ];
 
 export function OllamaSetup({ onConnected }: Props) {
