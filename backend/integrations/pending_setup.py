@@ -42,3 +42,22 @@ def clear_pending() -> None:
     path = DATA_DIR / "pending-setup.json"
     if path.exists():
         path.unlink()
+
+
+def mark_integration_complete(context_dir: str | Path, integration_name: str) -> None:
+    """Check off an integration in _pending-setup.md. Deletes the file when all done."""
+    pending_path = Path(context_dir) / "_pending-setup.md"
+    if not pending_path.exists():
+        return
+    try:
+        content = pending_path.read_text(encoding="utf-8")
+        updated = content.replace(f"- [ ] {integration_name}", f"- [x] {integration_name}")
+        if updated != content:
+            pending_path.write_text(updated, encoding="utf-8")
+            if "- [ ]" not in updated:
+                pending_path.unlink()
+    except Exception:
+        import logging
+        logging.getLogger(__name__).debug(
+            "Failed to update _pending-setup.md for %s", integration_name, exc_info=True
+        )

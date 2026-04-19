@@ -320,19 +320,8 @@ class ToolRegistry:
 
     def _mark_setup_complete(self, integration_name: str) -> None:
         """Auto-update _pending-setup.md to check off a completed integration."""
-        pending_path = Path(self.context_dir) / "_pending-setup.md"
-        if not pending_path.exists():
-            return
-        try:
-            content = pending_path.read_text(encoding="utf-8")
-            updated = content.replace(f"- [ ] {integration_name}", f"- [x] {integration_name}")
-            if updated != content:
-                pending_path.write_text(updated, encoding="utf-8")
-                # If all items are checked, delete the file
-                if "- [ ]" not in updated:
-                    pending_path.unlink()
-        except Exception:
-            logger.debug("Failed to update _pending-setup.md for %s", integration_name, exc_info=True)
+        from integrations.pending_setup import mark_integration_complete
+        mark_integration_complete(self.context_dir, integration_name)
 
     def _setup_telegram(self, bot_token: str) -> dict:
         from agents.db import get_agent_by_slug

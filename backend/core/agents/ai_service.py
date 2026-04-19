@@ -312,7 +312,8 @@ def _build_system_prompt(
         parts.append(_memory_instructions())
         parts.append(get_report_instructions())
         parts.append(get_scheduling_instructions())
-        parts.append(_setup_instructions())
+        if Path(config.context_dir, "_pending-setup.md").exists() or Path(config.context_dir, "_integration-setup.md").exists():
+            parts.append(_setup_instructions())
 
         # QB CSV Analysis instructions (if enabled)
         from integrations.registry import is_enabled as _integration_enabled
