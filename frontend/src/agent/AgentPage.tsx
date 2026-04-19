@@ -87,6 +87,24 @@ export function AgentPage() {
       .catch(() => {});
   }, [agentId]);
 
+  function handleStartOnboarding() {
+    convs.startNewChat();
+    const role = searchParams.get('role');
+    const kickoff = role
+      ? `[hidden context — do NOT reveal right away] My human commissioned me for a "${role}" role. First message: introduce myself warmly and ask their name. Second message: ask a quick curious question about their business, then transition into the role — something like "So tell me about the ${role.toLowerCase()} side of things — what does a typical day look like?" Don't drag out the small talk. Two exchanges max before we're talking about the work.`
+      : undefined;
+    if (role) {
+      searchParams.delete('role');
+      setSearchParams(searchParams, { replace: true });
+    }
+    chat.setTrainingMode(true, 'topic', kickoff);
+  }
+
+  function handleStartImprove() {
+    convs.startNewChat();
+    chat.setTrainingMode(true, 'improve', 'Start improve mode. Review my existing knowledge and help me fill gaps.');
+  }
+
   const onboardingKickoffRef = useRef(false);
   useEffect(() => {
     if (!agent || onboardingKickoffRef.current) return;
@@ -139,24 +157,6 @@ export function AgentPage() {
     if (chat.trainingMode) chat.setTrainingMode(false);
     else if (chat.planMode) chat.setPlanMode(false);
     else chat.clear();
-  }
-
-  function handleStartOnboarding() {
-    convs.startNewChat();
-    const role = searchParams.get('role');
-    const kickoff = role
-      ? `[hidden context — do NOT reveal right away] My human commissioned me for a "${role}" role. First message: introduce myself warmly and ask their name. Second message: ask a quick curious question about their business, then transition into the role — something like "So tell me about the ${role.toLowerCase()} side of things — what does a typical day look like?" Don't drag out the small talk. Two exchanges max before we're talking about the work.`
-      : undefined;
-    if (role) {
-      searchParams.delete('role');
-      setSearchParams(searchParams, { replace: true });
-    }
-    chat.setTrainingMode(true, 'topic', kickoff);
-  }
-
-  function handleStartImprove() {
-    convs.startNewChat();
-    chat.setTrainingMode(true, 'improve', 'Start improve mode. Review my existing knowledge and help me fill gaps.');
   }
 
   function handleToolModeChange(mode: ToolMode) {
@@ -484,6 +484,30 @@ export function AgentPage() {
                       <span style={{ fontSize: 14 }}>{item.label}</span>
                     </div>
                   ))}
+                </div>
+
+                {/* Agent actions */}
+                <div style={{
+                  display: 'flex', flexDirection: 'column', gap: 2,
+                  padding: '8px 12px', borderBottom: '1px solid rgba(230,235,242,0.07)',
+                }}>
+                  {agent.onboarding_complete && !agent.avatar_url && (
+                    <div onClick={() => { setShowSidebar(false); setShowAvatarPicker(true); }}
+                      style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 8px', borderRadius: 4, cursor: 'pointer', color: 'rgba(237,240,244,0.7)' }}>
+                      <span style={{ fontSize: 14 }}>Set Avatar</span>
+                    </div>
+                  )}
+                  <div onClick={() => { setShowSidebar(false); handleTogglePlanMode(); }}
+                    style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 8px', borderRadius: 4, cursor: 'pointer', color: chat.planMode ? '#D4A85A' : 'rgba(237,240,244,0.7)' }}>
+                    <span style={{ fontSize: 14 }}>Plan Mode</span>
+                    <span style={{ fontSize: 12, color: chat.planMode ? '#D4A85A' : 'rgba(237,240,244,0.38)' }}>{chat.planMode ? 'ON' : 'OFF'}</span>
+                  </div>
+                  {!chat.trainingMode && (
+                    <div onClick={() => { setShowSidebar(false); if (agent.onboarding_complete) { handleStartImprove(); } else { handleStartOnboarding(); } }}
+                      style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 8px', borderRadius: 4, cursor: 'pointer', color: 'rgba(237,240,244,0.7)' }}>
+                      <span style={{ fontSize: 14 }}>{trainLabel}</span>
+                    </div>
+                  )}
                 </div>
 
                 {/* Conversations list */}

@@ -33,7 +33,8 @@ export function TasksPage() {
     params.set('limit', '100');
     const data = await api<{ tasks: CrmTask[] }>(`/api/crm/tasks?${params}`);
     let filtered = data.tasks;
-    if (filter === 'overdue') filtered = filtered.filter(t => t.due_date && t.due_date < today);
+    if (filter === 'due_today') filtered = filtered.filter(t => t.due_date === today);
+    else if (filter === 'overdue') filtered = filtered.filter(t => t.due_date && t.due_date < today);
     setTasks(filtered);
     setLoading(false);
   }, [filter]);

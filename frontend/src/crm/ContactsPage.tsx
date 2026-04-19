@@ -52,13 +52,11 @@ export function ContactsPage() {
           color: '#EDF0F4', margin: 0,
         }}>Contacts</h1>
         <div style={{ display: 'flex', gap: 8 }}>
-          {!isMobile && (
-            <button onClick={() => setShowImport(true)} style={{
-              background: 'transparent', color: 'rgba(237,240,244,0.62)',
-              border: '1px solid rgba(230,235,242,0.14)',
-              padding: '7px 14px', borderRadius: 4, fontSize: 13, cursor: 'pointer',
-            }}>Import Contacts</button>
-          )}
+          <button onClick={() => setShowImport(true)} style={{
+            background: 'transparent', color: 'rgba(237,240,244,0.62)',
+            border: '1px solid rgba(230,235,242,0.14)',
+            padding: '7px 14px', borderRadius: 4, fontSize: 13, cursor: 'pointer',
+          }}>{isMobile ? 'Import' : 'Import Contacts'}</button>
           <button onClick={() => setShowCreate(true)} style={{
             background: 'var(--color-ch-accent, #C8D1D9)', color: '#0E1013',
             border: 'none', padding: '7px 14px', borderRadius: 4,
