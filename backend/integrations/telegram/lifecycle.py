@@ -13,7 +13,7 @@ from core.config import settings
 from agents.db import get_agent, list_agents, update_agent
 
 from . import state
-from .client import validate_token, set_webhook, delete_webhook, delete_webhook, get_updates
+from .client import validate_token, set_webhook, delete_webhook, get_updates
 
 logger = logging.getLogger(__name__)
 

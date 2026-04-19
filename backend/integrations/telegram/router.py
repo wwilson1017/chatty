@@ -24,7 +24,8 @@ router = APIRouter(tags=["telegram"])
 
 _executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="telegram-webhook")
 
-DATA_DIR = __import__("pathlib").Path(__file__).resolve().parent.parent.parent / "data" / "agents"
+from pathlib import Path as _Path
+DATA_DIR = _Path(__file__).resolve().parent.parent.parent / "data" / "agents"
 
 
 def _mark_telegram_configured(agent_slug: str) -> None:
