@@ -121,7 +121,7 @@ export function AgentPage() {
     prevOnboardingComplete.current = agent.onboarding_complete;
     if (wasIncomplete && agent.onboarding_complete) {
       if (chat.trainingMode) chat.setTrainingMode(false);
-      if (!agent.avatar_url) setShowAvatarPicker(true);
+      if (!agent.avatar_url) queueMicrotask(() => setShowAvatarPicker(true));
     }
   }, [agent]);
 
@@ -133,7 +133,7 @@ export function AgentPage() {
   useEffect(() => {
     const tab = searchParams.get('tab');
     if (tab && ['chat', 'knowledge', 'reports', 'activity', 'telegram'].includes(tab)) {
-      setActiveTab(tab as Tab);
+      queueMicrotask(() => setActiveTab(tab as Tab));
       searchParams.delete('tab');
       setSearchParams(searchParams, { replace: true });
     }

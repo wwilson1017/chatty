@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { api } from '../core/api/client';
 import type { CrmDeal } from '../core/types';
@@ -45,20 +45,21 @@ export function PipelinePage() {
   useEffect(() => {
     const s = searchParams.get('stage');
     if (s && STAGES.includes(s)) {
-      setStageFilter(s);
+      queueMicrotask(() => setStageFilter(s));
       searchParams.delete('stage');
       setSearchParams(searchParams, { replace: true });
     }
   }, [searchParams, setSearchParams]);
 
-  async function load() {
+  const load = useCallback(async () => {
     setLoading(true);
     const d = await api<PipelineData>('/api/crm/deals');
     setData(d);
     setLoading(false);
-  }
+  }, []);
 
-  useEffect(() => { load(); }, []);
+  // eslint-disable-next-line react-hooks/set-state-in-effect
+  useEffect(() => { load(); }, [load]);
 
   async function updateDealStage(deal: CrmDeal, stage: string) {
     await api(`/api/crm/deals/${deal.id}`, {

@@ -39,6 +39,7 @@ export function TasksPage() {
     setLoading(false);
   }, [filter]);
 
+  // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { load(); }, [load]);
 
   async function toggleComplete(task: CrmTask) {

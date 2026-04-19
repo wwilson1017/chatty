@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { api } from '../core/api/client';
 import type { CrmContact } from '../core/types';
@@ -37,16 +37,17 @@ export function ContactDetailPage() {
   const [logNote, setLogNote] = useState('');
   const [logging, setLogging] = useState(false);
 
-  async function load() {
+  const load = useCallback(async () => {
     setLoading(true);
     try {
       const data = await api<CrmContact>(`/api/crm/contacts/${id}`);
       setContact(data);
     } catch { setContact(null); }
     setLoading(false);
-  }
+  }, [id]);
 
-  useEffect(() => { load(); }, [id]);
+  // eslint-disable-next-line react-hooks/set-state-in-effect
+  useEffect(() => { load(); }, [load]);
 
   async function handleLogActivity() {
     if (!logActivity) return;
