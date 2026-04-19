@@ -95,4 +95,8 @@ class ChatHistoryDB:
             );
             CREATE INDEX IF NOT EXISTS idx_msg_conv ON messages(conversation_id, seq);
         """)
+        # Migration: add tool_calls column (nullable TEXT, JSON-serialized)
+        cols = {r[1] for r in conn.execute("PRAGMA table_info(messages)").fetchall()}
+        if "tool_calls" not in cols:
+            conn.execute("ALTER TABLE messages ADD COLUMN tool_calls TEXT")
         conn.commit()

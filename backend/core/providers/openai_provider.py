@@ -79,10 +79,14 @@ class OpenAIProvider(AIProvider):
         self,
         messages: list[dict],
         tools: list[dict],
-        system_prompt: str,
+        system_prompt: "str | tuple[str, str]",
     ) -> AsyncGenerator[dict, None]:
         client = openai.AsyncOpenAI(**self._build_client_kwargs())
         openai_tools = self._format_tools(tools)
+
+        # Join static+volatile if tuple (caching is Anthropic-only)
+        if isinstance(system_prompt, tuple):
+            system_prompt = "\n".join(system_prompt)
 
         # Build messages with system prompt prepended
         api_messages = [{"role": "system", "content": system_prompt}]

@@ -28,7 +28,7 @@ def run_nightly_jobs() -> None:
     # Get Anthropic API key for Claude calls
     store = CredentialStore()
     _, anthropic_profile = store.get_active_profile(provider_override="anthropic")
-    api_key = (anthropic_profile or {}).get("api_key", "")
+    api_key = (anthropic_profile or {}).get("key", "")
 
     for agent in agents:
         if not agent.get("onboarding_complete"):

@@ -1,10 +1,13 @@
 """
 Chatty — Anthropic (Claude) provider.
 
-Streaming via anthropic.AsyncAnthropic with tool_use.
+Streaming via anthropic.AsyncAnthropic with tool_use and prompt caching.
 """
 
+import hashlib
+import json
 import logging
+import time
 from typing import AsyncGenerator
 
 import anthropic
@@ -18,6 +21,23 @@ ANTHROPIC_MODELS = [
     "claude-sonnet-4-6",
     "claude-haiku-4-5-20251001",
 ]
+
+_CACHE_CONTROL: dict = {"type": "ephemeral"}
+
+# Reuse client instances for connection pool amortization
+_client_cache: dict[str, anthropic.AsyncAnthropic] = {}
+
+
+def _get_client(api_key: str = "", auth_token: str = "") -> anthropic.AsyncAnthropic:
+    cache_key = hashlib.sha256(f"{api_key or ''}:{auth_token or ''}".encode()).hexdigest()
+    client = _client_cache.get(cache_key)
+    if client is None:
+        client = anthropic.AsyncAnthropic(
+            api_key=api_key or None,
+            auth_token=auth_token or None,
+        )
+        _client_cache[cache_key] = client
+    return client
 
 
 class AnthropicProvider(AIProvider):
@@ -41,36 +61,95 @@ class AnthropicProvider(AIProvider):
             for t in tools
         ]
 
+    def _build_system_blocks(self, system_prompt: "str | tuple[str, str]") -> list[dict]:
+        """Build Anthropic system content blocks with cache_control on the static portion."""
+        if isinstance(system_prompt, tuple):
+            static_text, volatile_text = system_prompt
+            blocks = [
+                {
+                    "type": "text",
+                    "text": static_text,
+                    "cache_control": _CACHE_CONTROL,
+                },
+            ]
+            if volatile_text:
+                blocks.append({"type": "text", "text": volatile_text})
+            return blocks
+        return [{"type": "text", "text": system_prompt}]
+
+    def _cached_tools(self, tools: list[dict]) -> list[dict]:
+        """Return tools with cache_control on the last tool for prefix caching."""
+        if not tools:
+            return tools
+        out = [dict(t) for t in tools]
+        out[-1] = {**out[-1], "cache_control": _CACHE_CONTROL}
+        return out
+
+    def _cache_last_user_message(self, api_messages: list[dict]) -> list[dict]:
+        """Add cache_control to the last user message for conversation prefix caching."""
+        if not api_messages:
+            return api_messages
+        out = list(api_messages)
+        last = out[-1]
+        if last.get("role") != "user":
+            return out
+        content = last.get("content")
+        if isinstance(content, str):
+            out[-1] = {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "text",
+                        "text": content,
+                        "cache_control": _CACHE_CONTROL,
+                    }
+                ],
+            }
+        elif isinstance(content, list) and content:
+            new_content = list(content)
+            new_content[-1] = {**new_content[-1], "cache_control": _CACHE_CONTROL}
+            out[-1] = {"role": "user", "content": new_content}
+        return out
+
     async def stream_turn(
         self,
         messages: list[dict],
         tools: list[dict],
-        system_prompt: str,
+        system_prompt: "str | tuple[str, str]",
     ) -> AsyncGenerator[dict, None]:
-        client = anthropic.AsyncAnthropic(
-            api_key=self.api_key or None,
-            auth_token=self.auth_token or None,
-        )
+        client = _get_client(self.api_key, self.auth_token)
         anthropic_tools = self._format_tools(tools)
+
+        # Build system blocks with caching
+        system = self._build_system_blocks(system_prompt)
+
+        # Apply cache_control to tools and conversation prefix
+        cached_tools = self._cached_tools(anthropic_tools) if anthropic_tools else []
 
         # Convert messages: filter to user/assistant only
         api_messages = [
             m for m in messages if m.get("role") in ("user", "assistant")
         ]
+        api_messages = self._cache_last_user_message(api_messages)
 
         full_text = ""
         tool_calls = []
+
+        t_start = time.monotonic()
+        ttft = None
 
         try:
             async with client.messages.stream(
                 model=self.model,
                 max_tokens=16384,
-                system=system_prompt,
+                system=system,
                 messages=api_messages,
-                tools=anthropic_tools if anthropic_tools else anthropic.NOT_GIVEN,
+                tools=cached_tools if cached_tools else anthropic.NOT_GIVEN,
             ) as stream:
                 async for event in stream:
                     if event.type == "content_block_start":
+                        if ttft is None:
+                            ttft = (time.monotonic() - t_start) * 1000
                         if hasattr(event.content_block, "type"):
                             if event.content_block.type == "tool_use":
                                 tool_calls.append({
@@ -93,7 +172,6 @@ class AnthropicProvider(AIProvider):
                             last = tool_calls[-1]
                             if last.get("input_json"):
                                 try:
-                                    import json
                                     args = json.loads(last["input_json"])
                                     yield {
                                         "type": "tool_args",
@@ -119,13 +197,24 @@ class AnthropicProvider(AIProvider):
             yield {"type": "_turn_complete", "tool_calls": [], "stop_reason": "error"}
             return
 
-        # Extract usage from the final message
+        # Extract usage and cache info from the final message
         usage_info = {}
         if hasattr(final_message, "usage") and final_message.usage:
+            usage = final_message.usage
+            cache_creation = getattr(usage, "cache_creation_input_tokens", 0)
+            cache_read = getattr(usage, "cache_read_input_tokens", 0)
             usage_info = {
-                "input_tokens": getattr(final_message.usage, "input_tokens", 0),
-                "output_tokens": getattr(final_message.usage, "output_tokens", 0),
+                "input_tokens": getattr(usage, "input_tokens", 0),
+                "output_tokens": getattr(usage, "output_tokens", 0),
+                "cache_creation_input_tokens": cache_creation,
+                "cache_read_input_tokens": cache_read,
             }
+            if ttft is not None:
+                cache_status = "hit" if cache_read > 0 else ("write" if cache_creation > 0 else "none")
+                logger.info(
+                    "TTFT %.0fms | cache=%s (read=%d, write=%d) | model=%s",
+                    ttft, cache_status, cache_read, cache_creation, self.model,
+                )
 
         yield {
             "type": "_turn_complete",
@@ -174,8 +263,6 @@ class AnthropicProvider(AIProvider):
                 api_key=self.api_key or None,
                 auth_token=self.auth_token or None,
             )
-            # Use messages.create — works with both API keys and OAuth tokens
-            # (models.list rejects OAuth tokens passed as api_key)
             client.messages.create(
                 model="claude-haiku-4-5-20251001",
                 max_tokens=1,

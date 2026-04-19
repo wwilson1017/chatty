@@ -123,7 +123,7 @@ class ToolRegistry:
     def _execute_memory(self, tool_name: str, args: dict) -> dict:
         from core.agents.tools.memory_tools import (
             append_daily_note, read_daily_note, list_daily_notes,
-            read_memory, update_memory,
+            read_memory, update_memory, consolidate_memory,
         )
         from core.agents.memory.search_tools import (
             search_memory, add_fact, query_facts, invalidate_fact,
@@ -173,6 +173,15 @@ class ToolRegistry:
             return invalidate_fact(
                 ctx_dir, prefix,
                 fact_id=args["fact_id"], valid_to=args.get("valid_to"),
+            )
+        elif tool_name == "consolidate_memory":
+            from core.providers.credentials import CredentialStore
+            store = CredentialStore()
+            _, anthropic_profile = store.get_active_profile(provider_override="anthropic")
+            api_key = (anthropic_profile or {}).get("key", "")
+            return consolidate_memory(
+                ctx_dir, prefix, api_key,
+                days=args.get("days", 7),
             )
         return {"error": f"Unknown memory tool: {tool_name}"}
 

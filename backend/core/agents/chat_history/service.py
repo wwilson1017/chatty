@@ -87,11 +87,13 @@ class ChatHistoryService:
         role: str,
         content: str,
         seq: int | None = None,
+        tool_calls: str | None = None,
     ) -> None:
         """Insert or replace a message and bump conversation updated_at.
 
         If seq is None, atomically computes the next sequence number under
         the write lock so concurrent callers never collide.
+        tool_calls is an optional JSON string of tool call data for assistant messages.
         """
         db = self._db.get_db()
         with self._db.write_lock():
@@ -103,9 +105,9 @@ class ChatHistoryService:
                 seq = row["next_seq"]
             db.execute(
                 """INSERT OR REPLACE INTO messages
-                   (id, conversation_id, role, content, seq)
-                   VALUES (?, ?, ?, ?, ?)""",
-                (msg_id, conversation_id, role, content, seq),
+                   (id, conversation_id, role, content, seq, tool_calls)
+                   VALUES (?, ?, ?, ?, ?, ?)""",
+                (msg_id, conversation_id, role, content, seq, tool_calls),
             )
             db.execute(
                 "UPDATE conversations SET updated_at = datetime('now') WHERE id = ?",

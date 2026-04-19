@@ -33,8 +33,10 @@ class OllamaProvider(AIProvider):
         self,
         messages: list[dict],
         tools: list[dict],
-        system_prompt: str,
+        system_prompt: "str | tuple[str, str]",
     ) -> AsyncGenerator[dict, None]:
+        if isinstance(system_prompt, tuple):
+            system_prompt = "\n".join(system_prompt)
         client = openai.AsyncOpenAI(
             api_key="ollama",
             base_url=f"{self.base_url}/v1",

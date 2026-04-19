@@ -436,7 +436,7 @@ def _stream_chat(agent: dict, messages: list, training_mode: bool, conversation_
     )
 
     _, anthropic_profile = store.get_active_profile(provider_override="anthropic")
-    anthropic_api_key = (anthropic_profile or {}).get("api_key", "")
+    anthropic_api_key = (anthropic_profile or {}).get("key", "")
 
     async def event_generator():
         async for event in ai_service.chat(

@@ -10,7 +10,7 @@ export function DataTab() {
     setDownloading(true);
     setMessage(null);
     try {
-      const token = localStorage.getItem('chatty_token');
+      const token = sessionStorage.getItem('chatty_token');
       const res = await fetch('/api/backup/download', {
         headers: { Authorization: `Bearer ${token}` },
       });
@@ -41,7 +41,7 @@ export function DataTab() {
     setRestoring(true);
     setMessage(null);
     try {
-      const token = localStorage.getItem('chatty_token');
+      const token = sessionStorage.getItem('chatty_token');
       const form = new FormData();
       form.append('file', file);
       const res = await fetch('/api/backup/restore', {
