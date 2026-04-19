@@ -10,10 +10,13 @@ import sqlite3
 import threading
 from pathlib import Path
 
+from core.storage import safe_init_sqlite
+
 logger = logging.getLogger(__name__)
 
 DATA_DIR = Path(__file__).resolve().parent.parent.parent / "data" / "integrations"
 DB_PATH = DATA_DIR / "crm_lite.db"
+GCS_KEY = "integrations/crm_lite.db"
 
 _connection: sqlite3.Connection | None = None
 _write_lock = threading.Lock()
@@ -26,18 +29,12 @@ def _get_db() -> sqlite3.Connection:
 
 
 def _apply_migrations(conn: sqlite3.Connection) -> None:
-    """Add columns introduced after the initial schema.
-
-    SQLite doesn't support ALTER TABLE ... ADD COLUMN IF NOT EXISTS,
-    so we wrap each in try/except (duplicate column raises OperationalError).
-    """
+    """Add columns introduced after the initial schema."""
     migrations = [
-        # contacts — new columns
         "ALTER TABLE contacts ADD COLUMN title TEXT NOT NULL DEFAULT ''",
         "ALTER TABLE contacts ADD COLUMN source TEXT NOT NULL DEFAULT ''",
         "ALTER TABLE contacts ADD COLUMN status TEXT NOT NULL DEFAULT 'active'",
         "ALTER TABLE contacts ADD COLUMN tags TEXT NOT NULL DEFAULT ''",
-        # deals — new columns
         "ALTER TABLE deals ADD COLUMN expected_close_date TEXT NOT NULL DEFAULT ''",
         "ALTER TABLE deals ADD COLUMN probability INTEGER NOT NULL DEFAULT 0",
         "ALTER TABLE deals ADD COLUMN currency TEXT NOT NULL DEFAULT 'USD'",
@@ -46,15 +43,13 @@ def _apply_migrations(conn: sqlite3.Connection) -> None:
         try:
             conn.execute(sql)
         except sqlite3.OperationalError:
-            pass  # Column already exists
+            pass
     conn.commit()
 
 
-def init_db() -> None:
-    """Initialize the CRM Lite DB."""
+def _setup_connection() -> None:
+    """Open connection, set PRAGMAs, create schema, run migrations."""
     global _connection
-    DATA_DIR.mkdir(parents=True, exist_ok=True)
-
     _connection = sqlite3.connect(str(DB_PATH), check_same_thread=False)
     _connection.row_factory = sqlite3.Row
     _connection.execute("PRAGMA journal_mode=WAL")
@@ -124,11 +119,13 @@ def init_db() -> None:
         );
     """)
     _connection.commit()
-
-    # Apply migrations for databases created before the schema expansion
     _apply_migrations(_connection)
-
     logger.info("CRM Lite DB initialized at %s", DB_PATH)
+
+
+def init_db() -> dict:
+    """Initialize with integrity check."""
+    return safe_init_sqlite(DB_PATH, GCS_KEY, init_fn=_setup_connection)
 
 
 def close_db() -> None:

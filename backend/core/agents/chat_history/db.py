@@ -15,7 +15,7 @@ import sqlite3
 import threading
 from pathlib import Path
 
-from core.storage import download_file, upload_file
+from core.storage import safe_backup_sqlite, safe_init_sqlite
 
 logger = logging.getLogger(__name__)
 
@@ -29,6 +29,7 @@ class ChatHistoryDB:
         self.gcs_key = gcs_prefix + db_filename
         self._connection: sqlite3.Connection | None = None
         self._write_lock = threading.Lock()
+        self._backup_mutex = threading.Lock()
 
     def get_db(self) -> sqlite3.Connection:
         """Return the singleton SQLite connection."""
@@ -40,14 +41,8 @@ class ChatHistoryDB:
         """Return the write lock for callers that need atomic read-then-write."""
         return self._write_lock
 
-    def init_db(self) -> None:
-        """Initialize the database: restore from GCS if available, create schema."""
-        self.data_dir.mkdir(parents=True, exist_ok=True)
-
-        # Try to restore from GCS (no-op locally if CONFIG_BUCKET not set)
-        if not self.db_path.exists():
-            download_file(self.db_path, self.gcs_key)
-
+    def _setup_connection(self) -> None:
+        """Open connection, set PRAGMAs, create schema, run migrations."""
         self._connection = sqlite3.connect(str(self.db_path), check_same_thread=False)
         self._connection.row_factory = sqlite3.Row
         self._connection.execute("PRAGMA journal_mode=WAL")
@@ -57,14 +52,19 @@ class ChatHistoryDB:
         self._create_schema(self._connection)
         logger.info("Chat history DB initialized at %s", self.db_path)
 
+    def init_db(self) -> dict:
+        """Initialize with integrity check and GCS restore."""
+        self.data_dir.mkdir(parents=True, exist_ok=True)
+        return safe_init_sqlite(
+            self.db_path, self.gcs_key, init_fn=self._setup_connection,
+        )
+
     def backup_to_gcs(self) -> None:
-        """Checkpoint WAL then upload the DB file to GCS."""
-        if self._connection is not None:
-            try:
-                self._connection.execute("PRAGMA wal_checkpoint(TRUNCATE)")
-            except Exception as e:
-                logger.warning("WAL checkpoint before backup failed: %s", e)
-        upload_file(self.db_path, self.gcs_key)
+        """Create a consistent snapshot and upload to GCS."""
+        safe_backup_sqlite(
+            self._connection, self.db_path, self.gcs_key,
+            backup_mutex=self._backup_mutex,
+        )
 
     def close(self) -> None:
         """Close the DB connection (for backup/restore)."""
@@ -95,7 +95,6 @@ class ChatHistoryDB:
             );
             CREATE INDEX IF NOT EXISTS idx_msg_conv ON messages(conversation_id, seq);
         """)
-        # Migration: add tool_calls column (nullable TEXT, JSON-serialized)
         cols = {r[1] for r in conn.execute("PRAGMA table_info(messages)").fetchall()}
         if "tool_calls" not in cols:
             conn.execute("ALTER TABLE messages ADD COLUMN tool_calls TEXT")

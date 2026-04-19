@@ -9,15 +9,17 @@ import sqlite3
 import threading
 from pathlib import Path
 
+from core.storage import safe_init_sqlite
+
 logger = logging.getLogger(__name__)
 
 DATA_DIR = Path(__file__).resolve().parent.parent.parent / "data" / "agent_configs"
 DB_PATH = DATA_DIR / "tool_configs.db"
+GCS_KEY = "agent_configs/tool_configs.db"
 
 _connection: sqlite3.Connection | None = None
 _write_lock = threading.Lock()
 
-# Toggle columns — Chatty-specific (no Odoo/DIMM/CRM/etc.)
 TOGGLE_COLUMNS = [
     "web_enabled",
     "reports_enabled",
@@ -41,15 +43,13 @@ def write_lock() -> threading.Lock:
     return _write_lock
 
 
-def init_db() -> None:
-    """Create schema. All toggles default to 1 (enabled)."""
+def _setup_connection() -> None:
+    """Open connection, set PRAGMAs, create schema."""
     global _connection
-
-    DATA_DIR.mkdir(parents=True, exist_ok=True)
-
     _connection = sqlite3.connect(str(DB_PATH), check_same_thread=False)
     _connection.row_factory = sqlite3.Row
     _connection.execute("PRAGMA journal_mode=WAL")
+    _connection.execute("PRAGMA foreign_keys=ON")
     _connection.execute("PRAGMA busy_timeout=5000")
 
     columns_sql = ", ".join(f"{col} INTEGER NOT NULL DEFAULT 1" for col in TOGGLE_COLUMNS)
@@ -61,6 +61,19 @@ def init_db() -> None:
         );
     """)
     logger.info("Tool config DB initialized at %s", DB_PATH)
+
+
+def init_db() -> dict:
+    """Initialize with integrity check."""
+    return safe_init_sqlite(DB_PATH, GCS_KEY, init_fn=_setup_connection)
+
+
+def close_db() -> None:
+    """Close the connection (for backup/restore)."""
+    global _connection
+    if _connection:
+        _connection.close()
+        _connection = None
 
 
 def get_config(agent_name: str) -> dict | None:

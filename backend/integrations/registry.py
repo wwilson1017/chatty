@@ -17,6 +17,7 @@ import logging
 from pathlib import Path
 
 from core.encryption import decrypt_dict, encrypt_dict, needs_migration
+from core.storage import atomic_write_json
 
 logger = logging.getLogger(__name__)
 
@@ -109,7 +110,7 @@ def save_credentials(name: str, data: dict) -> None:
     """Save integration credentials (sensitive fields encrypted at rest)."""
     ensure_dir()
     encrypted = encrypt_dict(data)
-    _creds_path(name).write_text(json.dumps(encrypted, indent=2), encoding="utf-8")
+    atomic_write_json(_creds_path(name), encrypted)
 
 
 def enable(name: str) -> None:

@@ -70,8 +70,8 @@ def process_dreaming(agent_name: str, ctx_manager: ContextManager) -> dict:
 
     if active_files != old_order:
         try:
-            order_file.write_text(json.dumps(active_files, indent=2), encoding="utf-8")
-            from core.storage import upload_file
+            from core.storage import atomic_write_json, upload_file
+            atomic_write_json(order_file, active_files)
             upload_file(order_file, f"{gcs_prefix}_load-order.json")
             load_order_changed = True
         except Exception as e:

@@ -12,6 +12,7 @@ from fastapi import APIRouter, Depends
 
 from core.auth import get_current_user
 from core.providers.credentials import CredentialStore
+from core.storage import atomic_write_json
 from branding.storage import load_config as load_branding, DEFAULT_CONFIG as BRANDING_DEFAULTS
 
 logger = logging.getLogger(__name__)
@@ -31,8 +32,7 @@ def _load_status() -> dict:
 
 
 def _save_status(data: dict):
-    STATUS_FILE.parent.mkdir(parents=True, exist_ok=True)
-    STATUS_FILE.write_text(json.dumps(data, indent=2), encoding="utf-8")
+    atomic_write_json(STATUS_FILE, data)
 
 
 @router.get("/status")

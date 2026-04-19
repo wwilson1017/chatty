@@ -14,7 +14,7 @@ import threading
 import uuid
 from pathlib import Path
 
-from core.storage import download_file, upload_file
+from core.storage import safe_backup_sqlite, safe_init_sqlite
 
 logger = logging.getLogger(__name__)
 
@@ -24,6 +24,7 @@ GCS_KEY = "agents.db"
 
 _connection: sqlite3.Connection | None = None
 _write_lock = threading.Lock()
+_backup_mutex = threading.Lock()
 
 
 def _get_db() -> sqlite3.Connection:
@@ -32,14 +33,9 @@ def _get_db() -> sqlite3.Connection:
     return _connection
 
 
-def init_db() -> None:
-    """Initialize the registry DB: restore from GCS if available, create schema."""
+def _setup_connection() -> None:
+    """Open connection, set PRAGMAs, create schema, run migrations."""
     global _connection
-    DATA_DIR.mkdir(parents=True, exist_ok=True)
-
-    if not DB_PATH.exists():
-        download_file(DB_PATH, GCS_KEY)
-
     _connection = sqlite3.connect(str(DB_PATH), check_same_thread=False)
     _connection.row_factory = sqlite3.Row
     _connection.execute("PRAGMA journal_mode=WAL")
@@ -67,7 +63,6 @@ def init_db() -> None:
         );
     """)
 
-    # Migrations for existing databases
     for col, typedef in [
         ("telegram_enabled", "INTEGER NOT NULL DEFAULT 0"),
         ("telegram_bot_token", "TEXT NOT NULL DEFAULT ''"),
@@ -77,10 +72,15 @@ def init_db() -> None:
         try:
             _connection.execute(f"ALTER TABLE agents ADD COLUMN {col} {typedef}")
         except sqlite3.OperationalError:
-            pass  # Column already exists
+            pass
 
     _connection.commit()
     logger.info("Agent registry DB initialized at %s", DB_PATH)
+
+
+def init_db() -> dict:
+    """Initialize the registry DB with integrity check and GCS restore."""
+    return safe_init_sqlite(DB_PATH, GCS_KEY, init_fn=_setup_connection)
 
 
 def _slugify(name: str) -> str:
@@ -194,10 +194,5 @@ def close_db() -> None:
 
 
 def backup_to_gcs() -> None:
-    """Checkpoint WAL then upload the registry DB to GCS."""
-    if _connection is not None:
-        try:
-            _connection.execute("PRAGMA wal_checkpoint(TRUNCATE)")
-        except Exception as e:
-            logger.warning("WAL checkpoint before backup failed: %s", e)
-    upload_file(DB_PATH, GCS_KEY)
+    """Create a consistent snapshot and upload to GCS."""
+    safe_backup_sqlite(_connection, DB_PATH, GCS_KEY, backup_mutex=_backup_mutex)
