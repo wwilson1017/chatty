@@ -3,7 +3,7 @@
  * Vite proxies /api → localhost:8000 in development.
  */
 
-import { getToken } from '../auth/AuthContext';
+import { getToken } from '../auth/tokenUtils';
 
 export async function api<T = unknown>(
   path: string,

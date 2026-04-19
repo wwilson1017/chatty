@@ -12,7 +12,7 @@
  */
 
 import { useState, useCallback, useRef, useEffect } from 'react';
-import { getToken } from '../../core/auth/AuthContext';
+import { getToken } from '../../core/auth/tokenUtils';
 
 function uuid(): string {
   if (typeof crypto !== 'undefined' && crypto.randomUUID) return crypto.randomUUID();

@@ -113,7 +113,7 @@ export function AgentPage() {
       handleStartOnboarding();
     }
     return () => { onboardingKickoffRef.current = false; };
-  }, [agent]);
+  }, [agent]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (!agent) return;
@@ -123,11 +123,11 @@ export function AgentPage() {
       if (chat.trainingMode) chat.setTrainingMode(false);
       if (!agent.avatar_url) queueMicrotask(() => setShowAvatarPicker(true));
     }
-  }, [agent]);
+  }, [agent]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     convs.loadConversations();
-  }, [agentId]);
+  }, [agentId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Handle tab from URL search params
   useEffect(() => {

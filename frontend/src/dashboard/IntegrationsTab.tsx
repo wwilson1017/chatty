@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { api } from '../core/api/client';
-import { getToken } from '../core/auth/AuthContext';
+import { getToken } from '../core/auth/tokenUtils';
 import type { Integration, Agent } from '../core/types';
 import { IconGlobe, IconUsers, IconFunnel, IconFile, IconPhone, IconMail, IconChart, IconBook, IconZap } from '../shared/icons';
 
@@ -72,7 +72,8 @@ export function IntegrationsTab() {
   }, [waExpanded]);
 
   useEffect(() => {
-    return () => { Object.values(pollTimers.current).forEach(clearInterval); };
+    const timers = pollTimers.current;
+    return () => { Object.values(timers).forEach(clearInterval); };
   }, []);
 
   const startQrPolling = useCallback((slug: string) => {

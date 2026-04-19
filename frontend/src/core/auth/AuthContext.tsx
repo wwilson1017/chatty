@@ -128,16 +128,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   );
 }
 
+// eslint-disable-next-line react-refresh/only-export-components
 export function useAuth(): AuthContextType {
   const ctx = useContext(AuthContext);
   if (!ctx) throw new Error('useAuth must be used within AuthProvider');
   return ctx;
 }
 
-export function getToken(): string | null {
-  return sessionStorage.getItem(TOKEN_KEY);
-}
-
-export function storeToken(token: string) {
-  sessionStorage.setItem(TOKEN_KEY, token);
-}

@@ -33,7 +33,7 @@ export function AgentContextEditor({ agentId }: Props) {
     api<{ files: ContextFile[] }>(`${apiBase}/context`)
       .then(data => setFiles(data.files))
       .catch(console.error);
-  }, [agentId]);
+  }, [agentId, apiBase]);
 
   async function selectFile(name: string) {
     if (dirty && !confirm('Unsaved changes — discard?')) return;
