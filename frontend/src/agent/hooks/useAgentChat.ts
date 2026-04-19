@@ -14,6 +14,14 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
 import { getToken } from '../../core/auth/AuthContext';
 
+function uuid(): string {
+  if (typeof crypto !== 'undefined' && crypto.randomUUID) return uuid();
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
+    const r = (Math.random() * 16) | 0;
+    return (c === 'x' ? r : (r & 0x3) | 0x8).toString(16);
+  });
+}
+
 export type ToolMode = 'read-only' | 'normal' | 'power';
 export type TrainingType = 'topic' | 'improve' | null;
 
@@ -134,7 +142,7 @@ export function useAgentChat(apiPrefix: string, options?: Options) {
     result: unknown;
   }, overrides?: { tool_mode?: string; plan_mode?: boolean; hidden?: boolean }) => {
     const userMsg: ChatMessage = {
-      id: crypto.randomUUID(),
+      id: uuid(),
       role: 'user',
       content: text,
       timestamp: Date.now(),
@@ -142,7 +150,7 @@ export function useAgentChat(apiPrefix: string, options?: Options) {
       hidden: overrides?.hidden,
     };
     const assistantMsg: ChatMessage = {
-      id: crypto.randomUUID(),
+      id: uuid(),
       role: 'assistant',
       content: '',
       timestamp: Date.now(),
@@ -242,7 +250,7 @@ export function useAgentChat(apiPrefix: string, options?: Options) {
                 ...last,
                 toolCalls: [
                   ...(last.toolCalls || []),
-                  { tool: event.tool, toolUseId: event.tool_use_id || crypto.randomUUID(), status: 'running', startedAt: Date.now() },
+                  { tool: event.tool, toolUseId: event.tool_use_id || uuid(), status: 'running', startedAt: Date.now() },
                 ],
               }));
             } else if (event.type === 'tool_args' && event.tool_use_id) {
@@ -405,10 +413,13 @@ export function useAgentChat(apiPrefix: string, options?: Options) {
   }, [toolMode]);
 
   useEffect(() => {
-    if (trainingMode && trainingKickoffRef.current && !isStreaming) {
-      trainingKickoffRef.current = false;
-      sendMessage(trainingKickoffMessageRef.current, undefined, undefined, { hidden: true });
-    }
+    if (!trainingMode || !trainingKickoffRef.current || isStreaming) return;
+    const msg = trainingKickoffMessageRef.current;
+    trainingKickoffRef.current = false;
+    const timer = setTimeout(() => {
+      sendMessage(msg, undefined, undefined, { hidden: true });
+    }, 50);
+    return () => clearTimeout(timer);
   }, [trainingMode, isStreaming, sendMessage]);
 
   // ── Plan mode ──

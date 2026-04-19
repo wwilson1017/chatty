@@ -10,7 +10,7 @@ for Phase 2.
 
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, Request, HTTPException, status
+from fastapi import APIRouter, Depends, Request, HTTPException, status
 from fastapi.responses import JSONResponse
 from jose import JWTError, jwt
 from pydantic import BaseModel
@@ -82,7 +82,6 @@ async def login(body: LoginRequest):
 
 
 @router.get("/me")
-async def get_me(user: dict = None):
+async def get_me(user: dict = Depends(get_current_user)):
     """Return current user info from token."""
-    # Dependency injected in main.py
     return {"sub": user.get("sub"), "role": user.get("role")}

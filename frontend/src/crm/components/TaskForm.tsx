@@ -1,8 +1,9 @@
 import { useState, useEffect } from 'react';
 import { api } from '../../core/api/client';
-import type { CrmContact } from '../../core/types';
+import type { CrmContact, CrmTask } from '../../core/types';
 
 interface Props {
+  task?: CrmTask;
   contactId?: number;
   dealId?: number;
   onClose: () => void;
@@ -23,12 +24,13 @@ const inputStyle: React.CSSProperties = {
   fontFamily: "'Inter Tight', system-ui, sans-serif",
 };
 
-export function TaskForm({ contactId, dealId, onClose, onSaved }: Props) {
-  const [title, setTitle] = useState('');
-  const [description, setDescription] = useState('');
-  const [dueDate, setDueDate] = useState('');
-  const [priority, setPriority] = useState('medium');
-  const [selectedContact, setSelectedContact] = useState<number | null>(contactId ?? null);
+export function TaskForm({ task, contactId, dealId, onClose, onSaved }: Props) {
+  const isEdit = !!task;
+  const [title, setTitle] = useState(task?.title || '');
+  const [description, setDescription] = useState(task?.description || '');
+  const [dueDate, setDueDate] = useState(task?.due_date || '');
+  const [priority, setPriority] = useState(task?.priority || 'medium');
+  const [selectedContact, setSelectedContact] = useState<number | null>(task?.contact_id ?? contactId ?? null);
   const [contacts, setContacts] = useState<CrmContact[]>([]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
@@ -48,7 +50,12 @@ export function TaskForm({ contactId, dealId, onClose, onSaved }: Props) {
       const body: Record<string, unknown> = { title, description, due_date: dueDate, priority };
       if (selectedContact) body.contact_id = selectedContact;
       if (dealId) body.deal_id = dealId;
-      await api('/api/crm/tasks', { method: 'POST', body: JSON.stringify(body) });
+
+      if (isEdit) {
+        await api(`/api/crm/tasks/${task.id}`, { method: 'PUT', body: JSON.stringify(body) });
+      } else {
+        await api('/api/crm/tasks', { method: 'POST', body: JSON.stringify(body) });
+      }
       onSaved();
     } catch (err: unknown) { setError(err instanceof Error ? err.message : 'Failed to save'); }
     setSaving(false);
@@ -58,9 +65,12 @@ export function TaskForm({ contactId, dealId, onClose, onSaved }: Props) {
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50 }} onClick={onClose}>
       <form onClick={e => e.stopPropagation()} onSubmit={handleSubmit} style={{
         background: '#11141A', borderRadius: 6, border: '1px solid rgba(230,235,242,0.14)',
-        padding: 24, width: '100%', maxWidth: 420, boxShadow: '0 8px 40px rgba(0,0,0,0.5)',
+        padding: 24, width: '100%', maxWidth: 420, margin: '0 16px',
+        boxShadow: '0 8px 40px rgba(0,0,0,0.5)',
       }}>
-        <h2 style={{ fontFamily: "'Fraunces', Georgia, serif", fontSize: 20, fontWeight: 400, letterSpacing: '-0.02em', color: '#EDF0F4', marginBottom: 20 }}>New Task</h2>
+        <h2 style={{ fontFamily: "'Fraunces', Georgia, serif", fontSize: 20, fontWeight: 400, letterSpacing: '-0.02em', color: '#EDF0F4', marginBottom: 20 }}>
+          {isEdit ? 'Edit Task' : 'New Task'}
+        </h2>
         {error && <p style={{ color: '#D97757', fontSize: 12, marginBottom: 12 }}>{error}</p>}
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
@@ -108,7 +118,7 @@ export function TaskForm({ contactId, dealId, onClose, onSaved }: Props) {
             background: '#D4A85A', color: '#0E1013',
             border: 'none', fontWeight: 500, fontSize: 13, cursor: 'pointer',
             opacity: saving ? 0.5 : 1,
-          }}>{saving ? 'Saving...' : 'Create Task'}</button>
+          }}>{saving ? 'Saving...' : isEdit ? 'Save Changes' : 'Create Task'}</button>
         </div>
       </form>
     </div>

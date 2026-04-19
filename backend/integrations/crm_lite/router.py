@@ -289,6 +289,26 @@ async def log_activity(body: ActivityCreate, user=Depends(_require_crm)):
     return crm.log_activity(**body.model_dump())
 
 
+class ActivityUpdate(BaseModel):
+    activity: str | None = None
+    note: str | None = None
+
+
+@router.put("/activity/{activity_id}")
+async def update_activity(activity_id: int, body: ActivityUpdate, user=Depends(_require_crm)):
+    result = crm.update_activity(activity_id, activity=body.activity, note=body.note)
+    if not result:
+        raise HTTPException(status_code=404, detail="Activity not found")
+    return result
+
+
+@router.delete("/activity/{activity_id}")
+async def delete_activity(activity_id: int, user=Depends(_require_crm)):
+    if not crm.delete_activity(activity_id):
+        raise HTTPException(status_code=404, detail="Activity not found")
+    return {"ok": True}
+
+
 # ── Dashboard ─────────────────────────────────────────────────────────────────
 
 @router.get("/dashboard")

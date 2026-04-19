@@ -68,7 +68,7 @@ export function DealForm({ deal, contactId, onClose, onSaved }: Props) {
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50 }} onClick={onClose}>
       <form onClick={e => e.stopPropagation()} onSubmit={handleSubmit} style={{
         background: '#11141A', borderRadius: 6, border: '1px solid rgba(230,235,242,0.14)',
-        padding: 24, width: '100%', maxWidth: 420, boxShadow: '0 8px 40px rgba(0,0,0,0.5)',
+        padding: 24, width: '100%', maxWidth: 420, margin: '0 16px', boxShadow: '0 8px 40px rgba(0,0,0,0.5)',
       }}>
         <h2 style={{ fontFamily: "'Fraunces', Georgia, serif", fontSize: 20, fontWeight: 400, letterSpacing: '-0.02em', color: '#EDF0F4', marginBottom: 20 }}>
           {isEdit ? 'Edit Deal' : 'New Deal'}

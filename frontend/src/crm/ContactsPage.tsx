@@ -5,6 +5,7 @@ import type { CrmContact } from '../core/types';
 import { ContactForm } from './components/ContactForm';
 import { SmartImportModal } from './components/SmartImportModal';
 import { IconPlus, IconSearch } from '../shared/icons';
+import { useIsMobile } from '../shared/useIsMobile';
 
 const STATUS_TABS = ['all', 'active', 'inactive', 'archived'] as const;
 
@@ -23,6 +24,7 @@ export function ContactsPage() {
   const [showCreate, setShowCreate] = useState(false);
   const [showImport, setShowImport] = useState(false);
   const navigate = useNavigate();
+  const isMobile = useIsMobile();
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -42,32 +44,34 @@ export function ContactsPage() {
   }, [load, search]);
 
   return (
-    <div style={{ padding: '32px 44px', maxWidth: 1000 }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 24 }}>
+    <div style={{ padding: isMobile ? '20px 16px' : '32px 44px', maxWidth: 1000 }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: isMobile ? 16 : 24 }}>
         <h1 style={{
           fontFamily: "'Fraunces', Georgia, serif",
-          fontSize: 32, fontWeight: 400, letterSpacing: '-0.02em',
+          fontSize: isMobile ? 24 : 32, fontWeight: 400, letterSpacing: '-0.02em',
           color: '#EDF0F4', margin: 0,
         }}>Contacts</h1>
         <div style={{ display: 'flex', gap: 8 }}>
-          <button onClick={() => setShowImport(true)} style={{
-            background: 'transparent', color: 'rgba(237,240,244,0.62)',
-            border: '1px solid rgba(230,235,242,0.14)',
-            padding: '7px 14px', borderRadius: 4, fontSize: 13, cursor: 'pointer',
-          }}>Import Contacts</button>
+          {!isMobile && (
+            <button onClick={() => setShowImport(true)} style={{
+              background: 'transparent', color: 'rgba(237,240,244,0.62)',
+              border: '1px solid rgba(230,235,242,0.14)',
+              padding: '7px 14px', borderRadius: 4, fontSize: 13, cursor: 'pointer',
+            }}>Import Contacts</button>
+          )}
           <button onClick={() => setShowCreate(true)} style={{
             background: 'var(--color-ch-accent, #C8D1D9)', color: '#0E1013',
             border: 'none', padding: '7px 14px', borderRadius: 4,
             fontSize: 13, fontWeight: 500, cursor: 'pointer',
             display: 'flex', alignItems: 'center', gap: 6,
           }}>
-            <IconPlus size={13} strokeWidth={2.25} /> Add Contact
+            <IconPlus size={13} strokeWidth={2.25} /> {isMobile ? 'Add' : 'Add Contact'}
           </button>
         </div>
       </div>
 
       {/* Search + filter */}
-      <div style={{ display: 'flex', gap: 12, marginBottom: 24 }}>
+      <div style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', gap: 12, marginBottom: isMobile ? 16 : 24 }}>
         <div style={{
           flex: 1, display: 'flex', alignItems: 'center', gap: 8,
           background: 'rgba(34,40,48,0.55)', border: '1px solid rgba(230,235,242,0.07)',
@@ -84,14 +88,14 @@ export function ContactsPage() {
         </div>
         <div style={{
           display: 'flex', border: '1px solid rgba(230,235,242,0.07)',
-          borderRadius: 4, overflow: 'hidden',
+          borderRadius: 4, overflow: 'hidden', flexShrink: 0,
         }}>
           {STATUS_TABS.map(tab => (
             <button key={tab} onClick={() => setStatus(tab)} style={{
-              padding: '8px 14px', fontSize: 11, textTransform: 'capitalize',
+              padding: isMobile ? '8px 10px' : '8px 14px', fontSize: 11, textTransform: 'capitalize',
               color: status === tab ? '#0E1013' : 'rgba(237,240,244,0.62)',
               background: status === tab ? 'var(--color-ch-accent, #C8D1D9)' : 'transparent',
-              border: 'none', cursor: 'pointer',
+              border: 'none', cursor: 'pointer', flex: isMobile ? 1 : undefined,
               fontFamily: "'Inter Tight', system-ui, sans-serif",
             }}>{tab}</button>
           ))}
@@ -111,37 +115,58 @@ export function ContactsPage() {
       ) : (
         <>
           <p style={{ ...mono(9), marginBottom: 12 }}>{total} contact{total !== 1 ? 's' : ''}</p>
-          <div style={{ borderTop: '1px solid rgba(230,235,242,0.07)' }}>
-            {/* Header row */}
-            <div style={{
-              display: 'grid', gridTemplateColumns: '2fr 1.5fr 2fr 1.2fr 80px',
-              gap: 16, padding: '10px 16px',
-              borderBottom: '1px solid rgba(230,235,242,0.07)',
-              ...mono(9),
-            }}>
-              <span>Name</span><span>Company</span><span>Email</span><span>Phone</span><span>Status</span>
-            </div>
-            {contacts.map(c => (
-              <div key={c.id} onClick={() => navigate(`/crm/contacts/${c.id}`)}
-                style={{
-                  display: 'grid', gridTemplateColumns: '2fr 1.5fr 2fr 1.2fr 80px',
-                  gap: 16, padding: '12px 16px', cursor: 'pointer',
-                  borderBottom: '1px solid rgba(230,235,242,0.07)',
-                }}
-                onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = 'rgba(200,209,217,0.04)'; }}
-                onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = 'transparent'; }}
-              >
-                <div>
-                  <p style={{ fontSize: 14, color: '#EDF0F4', margin: 0 }}>{c.name}</p>
-                  {c.title && <p style={{ fontSize: 11, color: 'rgba(237,240,244,0.38)', marginTop: 2 }}>{c.title}</p>}
+          {isMobile ? (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {contacts.map(c => (
+                <div key={c.id} onClick={() => navigate(`/crm/contacts/${c.id}`)}
+                  style={{
+                    padding: '12px 14px', cursor: 'pointer',
+                    background: 'rgba(20,24,30,0.78)',
+                    border: '1px solid rgba(230,235,242,0.07)',
+                    borderRadius: 6,
+                  }}
+                >
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                    <span style={{ fontSize: 14, color: '#EDF0F4' }}>{c.name}</span>
+                    <StatusBadge status={c.status} />
+                  </div>
+                  {c.company && <div style={{ fontSize: 12, color: 'rgba(237,240,244,0.62)', marginBottom: 2 }}>{c.company}</div>}
+                  {c.email && <div style={{ fontSize: 12, color: 'rgba(237,240,244,0.38)' }}>{c.email}</div>}
                 </div>
-                <span style={{ fontSize: 13, color: 'rgba(237,240,244,0.62)', alignSelf: 'center' }}>{c.company || '—'}</span>
-                <span style={{ fontSize: 13, color: 'rgba(237,240,244,0.62)', alignSelf: 'center' }}>{c.email || '—'}</span>
-                <span style={{ fontSize: 13, color: 'rgba(237,240,244,0.62)', alignSelf: 'center' }}>{c.phone || '—'}</span>
-                <span style={{ alignSelf: 'center' }}><StatusBadge status={c.status} /></span>
+              ))}
+            </div>
+          ) : (
+            <div style={{ borderTop: '1px solid rgba(230,235,242,0.07)' }}>
+              <div style={{
+                display: 'grid', gridTemplateColumns: '2fr 1.5fr 2fr 1.2fr 80px',
+                gap: 16, padding: '10px 16px',
+                borderBottom: '1px solid rgba(230,235,242,0.07)',
+                ...mono(9),
+              }}>
+                <span>Name</span><span>Company</span><span>Email</span><span>Phone</span><span>Status</span>
               </div>
-            ))}
-          </div>
+              {contacts.map(c => (
+                <div key={c.id} onClick={() => navigate(`/crm/contacts/${c.id}`)}
+                  style={{
+                    display: 'grid', gridTemplateColumns: '2fr 1.5fr 2fr 1.2fr 80px',
+                    gap: 16, padding: '12px 16px', cursor: 'pointer',
+                    borderBottom: '1px solid rgba(230,235,242,0.07)',
+                  }}
+                  onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = 'rgba(200,209,217,0.04)'; }}
+                  onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = 'transparent'; }}
+                >
+                  <div>
+                    <p style={{ fontSize: 14, color: '#EDF0F4', margin: 0 }}>{c.name}</p>
+                    {c.title && <p style={{ fontSize: 11, color: 'rgba(237,240,244,0.38)', marginTop: 2 }}>{c.title}</p>}
+                  </div>
+                  <span style={{ fontSize: 13, color: 'rgba(237,240,244,0.62)', alignSelf: 'center' }}>{c.company || '—'}</span>
+                  <span style={{ fontSize: 13, color: 'rgba(237,240,244,0.62)', alignSelf: 'center' }}>{c.email || '—'}</span>
+                  <span style={{ fontSize: 13, color: 'rgba(237,240,244,0.62)', alignSelf: 'center' }}>{c.phone || '—'}</span>
+                  <span style={{ alignSelf: 'center' }}><StatusBadge status={c.status} /></span>
+                </div>
+              ))}
+            </div>
+          )}
         </>
       )}
 

@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { api } from '../../core/api/client';
 import type { ProviderStatus } from '../../core/types';
 import { IconCheck, IconCircle, IconArrowRight } from '../../shared/icons';
+import { useIsMobile } from '../../shared/useIsMobile';
 
 interface Props {
   onComplete: () => void;
@@ -65,6 +66,7 @@ export function ProviderStep({ onComplete }: Props) {
 
   useEffect(() => { reload(); }, []);
 
+  const isMobile = useIsMobile();
   const anyConnected = status ? Object.values(status.profiles).some(p => p.configured) : false;
 
   function getMethod(providerId: string): AuthMethod {
@@ -220,7 +222,7 @@ export function ProviderStep({ onComplete }: Props) {
         </div>
       )}
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 8, marginBottom: 28 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'repeat(2, 1fr)', gap: 8, marginBottom: 28 }}>
         {PROVIDERS.map(p => {
           const profile = status?.profiles?.[p.id];
           const isConnected = profile?.configured ?? false;

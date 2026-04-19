@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { api } from '../../core/api/client';
+import { useIsMobile } from '../../shared/useIsMobile';
 
 interface ContextFile {
   name: string;
@@ -24,6 +25,7 @@ export function AgentContextEditor({ agentId }: Props) {
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [dirty, setDirty] = useState(false);
+  const isMobile = useIsMobile();
 
   const apiBase = `/api/agents/${agentId}`;
 
@@ -69,11 +71,130 @@ export function AgentContextEditor({ agentId }: Props) {
     if (selectedFile === name) { setSelectedFile(null); setContent(''); setDirty(false); }
   }
 
+  function handleBack() {
+    if (dirty && !confirm('Unsaved changes — discard?')) return;
+    setSelectedFile(null);
+    setContent('');
+    setDirty(false);
+  }
+
   function formatSize(bytes: number) {
     if (bytes < 1024) return `${bytes}B`;
     return `${(bytes / 1024).toFixed(1)}KB`;
   }
 
+  // Mobile: show file list OR editor, not both
+  if (isMobile) {
+    if (selectedFile) {
+      return (
+        <div style={{ display: 'flex', flexDirection: 'column', flex: 1, height: '100%', overflow: 'hidden' }}>
+          <div style={{
+            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+            padding: '10px 16px',
+            borderBottom: '1px solid rgba(230,235,242,0.07)',
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <button onClick={handleBack} style={{
+                background: 'none', border: 'none', color: 'rgba(237,240,244,0.62)',
+                fontSize: 16, cursor: 'pointer', padding: '0 4px',
+              }}>&larr;</button>
+              <span style={{
+                fontFamily: "'JetBrains Mono', ui-monospace, monospace",
+                fontSize: 12, color: '#EDF0F4',
+              }}>{selectedFile}</span>
+            </div>
+            {dirty && (
+              <button
+                onClick={saveFile}
+                disabled={saving}
+                style={{
+                  fontSize: 12, fontWeight: 500,
+                  background: 'var(--color-ch-accent, #C8D1D9)', color: '#0E1013',
+                  border: 'none', borderRadius: 4,
+                  padding: '5px 14px', cursor: 'pointer',
+                  opacity: saving ? 0.5 : 1,
+                }}
+              >
+                {saving ? 'Saving...' : 'Save'}
+              </button>
+            )}
+          </div>
+          {loading ? (
+            <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <div className="w-5 h-5 border-2 border-ch-accent border-t-transparent rounded-full animate-spin" />
+            </div>
+          ) : (
+            <textarea
+              value={content}
+              onChange={e => { setContent(e.target.value); setDirty(true); }}
+              spellCheck={false}
+              style={{
+                flex: 1, width: '100%', boxSizing: 'border-box',
+                background: 'transparent', color: '#EDF0F4',
+                fontSize: 13, lineHeight: 1.6,
+                fontFamily: "'JetBrains Mono', ui-monospace, monospace",
+                padding: 16, resize: 'none', border: 'none', outline: 'none',
+              }}
+            />
+          )}
+        </div>
+      );
+    }
+
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', flex: 1, height: '100%', overflow: 'hidden' }}>
+        <div style={{
+          padding: '12px 16px',
+          borderBottom: '1px solid rgba(230,235,242,0.07)',
+        }}>
+          <p style={{ ...mono(10, 'rgba(237,240,244,0.62)'), margin: 0 }}>Knowledge Files</p>
+        </div>
+        <div style={{ flex: 1, overflowY: 'auto', padding: '8px 0' }}>
+          {files.length === 0 ? (
+            <p style={{ color: 'rgba(237,240,244,0.38)', fontSize: 12, textAlign: 'center', padding: '16px 12px' }}>
+              No knowledge files yet
+            </p>
+          ) : (
+            files.map(f => (
+              <div
+                key={f.name}
+                onClick={() => selectFile(f.name)}
+                style={{
+                  display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                  padding: '12px 16px', cursor: 'pointer',
+                  borderBottom: '1px solid rgba(230,235,242,0.07)',
+                }}
+              >
+                <div style={{ minWidth: 0, flex: 1 }}>
+                  <p style={{
+                    fontFamily: "'JetBrains Mono', ui-monospace, monospace",
+                    fontSize: 13, color: '#EDF0F4',
+                    margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                  }}>{f.name}</p>
+                  <p style={{ fontSize: 11, color: 'rgba(237,240,244,0.38)', margin: '2px 0 0' }}>
+                    {formatSize(f.size_bytes)}
+                  </p>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <button
+                    onClick={e => { e.stopPropagation(); deleteFile(f.name); }}
+                    style={{
+                      background: 'none', border: 'none',
+                      color: 'rgba(237,240,244,0.38)', fontSize: 16,
+                      cursor: 'pointer', padding: '2px 6px',
+                    }}
+                  >&times;</button>
+                  <span style={{ color: 'rgba(237,240,244,0.38)', fontSize: 14 }}>&rsaquo;</span>
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  // Desktop: side-by-side layout
   return (
     <div style={{ display: 'flex', flex: 1, height: '100%', width: '100%', overflow: 'hidden' }}>
       {/* File list */}
@@ -124,7 +245,7 @@ export function AgentContextEditor({ agentId }: Props) {
                     color: 'rgba(237,240,244,0.38)', fontSize: 14,
                     cursor: 'pointer', marginLeft: 4, padding: '2px 4px',
                   }}
-                >×</button>
+                >&times;</button>
               </div>
             ))
           )}
