@@ -16,7 +16,7 @@
 ## Deployment
 
 - **Primary deploy target**: Railway (one-click "Deploy on Railway" button in README)
-- **Railway template**: `https://railway.com/deploy/PN575H`
+- **Railway template**: `https://railway.com/deploy/chatty`
 - Users get a cloud URL accessible from phone or desktop — no local setup required
 - SQLite-based, no external database needed — persistent volume on Railway handles storage
 - Only required env var: `AUTH_PASSWORD` — `JWT_SECRET` and `ENCRYPTION_KEY` auto-generate
