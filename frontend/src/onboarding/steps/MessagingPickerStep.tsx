@@ -121,7 +121,7 @@ export function MessagingPickerStep({ onComplete, onSkip }: Props) {
               disabled={selected.size === 0}
               className="flex-1 py-3 bg-brand text-white font-semibold rounded-xl hover:opacity-90 transition disabled:opacity-30 disabled:cursor-not-allowed"
             >
-              Set Up Selected
+              Continue
             </button>
           </div>
         </>

@@ -64,6 +64,38 @@ from core.agents import ai_service
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
+_PENDING_SETUP_NAMES = {
+    "telegram": "Telegram Bot",
+    "whatsapp": "WhatsApp",
+    "odoo": "Odoo ERP",
+    "quickbooks": "QuickBooks Online",
+    "bamboohr": "BambooHR",
+    "crm_lite": "CRM",
+}
+
+
+def _inject_pending_setup_context(context_dir: Path, pending: dict) -> None:
+    """Write a _pending-setup.md file into the agent's context directory."""
+    parts = [
+        "# Pending Integration Setup\n",
+        "Your human selected these during onboarding but hasn't set them up yet.",
+        "Proactively offer to help set them up early in your first conversation.\n",
+    ]
+    messaging = pending.get("messaging", [])
+    integrations = pending.get("integrations", [])
+    if messaging:
+        parts.append("## Messaging Platforms")
+        for m in messaging:
+            parts.append(f"- [ ] {_PENDING_SETUP_NAMES.get(m, m)}")
+        parts.append("")
+    if integrations:
+        parts.append("## Business Integrations")
+        for i in integrations:
+            parts.append(f"- [ ] {_PENDING_SETUP_NAMES.get(i, i)}")
+        parts.append("")
+    parts.append("Once set up, check off items and delete this file when all are done.")
+    (context_dir / "_pending-setup.md").write_text("\n".join(parts), encoding="utf-8")
+
 
 # ── Integration tool loader ───────────────────────────────────────────────────
 
@@ -206,9 +238,16 @@ async def create_agent(body: CreateAgentRequest, user=Depends(get_current_user))
     existing_count = len(agent_db.list_agents())
     agent = agent_db.create_agent(body.agent_name.strip(), personality=body.personality)
 
-    # Seed default context files (soul.md, identity.md, user.md, bootstrap, guide)
+    # Seed default context files (soul.md, identity.md, user.md, bootstrap, guide, integration-setup)
     context_dir = DATA_DIR / agent["slug"] / "context"
     seed_context_files(context_dir, agent["agent_name"])
+
+    # Inject pending integration setup selections from onboarding (first agent only)
+    from integrations.pending_setup import load_pending, clear_pending
+    pending = load_pending()
+    if pending and (pending.get("messaging") or pending.get("integrations")):
+        _inject_pending_setup_context(context_dir, pending)
+        clear_pending()
 
     # Bootstrap shared knowledge when 2+ agents exist and bootstrap hasn't completed
     if existing_count >= 1:

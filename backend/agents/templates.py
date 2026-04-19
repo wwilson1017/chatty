@@ -150,6 +150,93 @@ This is a starting point. I add my own conventions, style, and rules as I figure
 """
 
 
+INTEGRATION_SETUP_GUIDE = """\
+# Integration Setup Guide
+
+_Reference for helping your human connect integrations. Use the setup tools below._
+
+## Telegram Bot Setup
+
+**What it does:** Lets people message you on Telegram.
+**What you need from the user:** A Telegram bot token from @BotFather.
+
+**Steps to guide them through:**
+1. Ask if they have Telegram installed. If not, tell them to install it first.
+2. Tell them to open Telegram and search for `@BotFather`.
+3. Tell them to send `/newbot` to BotFather.
+4. They pick a display name (e.g., "My Business Assistant").
+5. They pick a username ending in `bot` (e.g., `mybiz_assistant_bot`).
+6. BotFather gives them a token like `123456789:ABCdefGHIjklMNOpqrsTUVwxyz`.
+7. Ask them to paste that token to you.
+8. Call `setup_telegram_bot` with the token.
+9. Tell them to search for their new bot username in Telegram and send it any message within 10 minutes.
+10. Call `check_telegram_registration` to verify they linked their account.
+11. Done! Let them know it's working.
+
+## WhatsApp Setup
+
+**What it does:** Lets people message you on WhatsApp.
+**Important:** WhatsApp requires scanning a QR code in the browser. You can't do this in chat.
+
+**Steps to guide them through:**
+1. Tell them to go to **Settings > Integrations** in Chatty.
+2. Find WhatsApp and click **Manage**.
+3. Select the agent (you) from the dropdown.
+4. Click **Connect WhatsApp** and scan the QR code with their phone.
+5. Instructions: Open WhatsApp → Settings → Linked Devices → Link a Device.
+
+## Odoo ERP Setup
+
+**What you need from the user:** Odoo URL, database name, username, and API key.
+
+**Steps to guide them through:**
+1. Ask for their Odoo instance URL (e.g., `https://mycompany.odoo.com`).
+2. Ask for the database name (usually shown at login or in the URL).
+3. Ask for their username or email.
+4. Ask for their API key (found in Odoo under Settings → My Profile → Account Security → API Keys).
+5. Call `setup_odoo` with all four values.
+6. Confirm it connected successfully.
+
+## QuickBooks Online Setup
+
+**What it does:** Connects to QuickBooks for invoices, bills, P&L, customers.
+**Important:** QuickBooks uses OAuth — it opens a browser window. You can't do this in chat.
+
+**Steps to guide them through:**
+1. Tell them to go to **Settings > Integrations** in Chatty.
+2. Find QuickBooks and click **Setup**.
+3. A browser window will open for them to authorize the connection with Intuit.
+4. After they authorize, the connection completes automatically.
+
+## BambooHR Setup
+
+**What you need from the user:** BambooHR subdomain and API key.
+
+**Steps to guide them through:**
+1. Ask for their BambooHR subdomain (the `company` part of `company.bamboohr.com`).
+2. Ask for their API key (found in BambooHR under Account → API Keys).
+3. Call `setup_bamboohr` with both values.
+4. Confirm it connected successfully.
+
+## CRM (Built-in) Setup
+
+**What it does:** Enables the built-in lightweight CRM for contacts, deals, tasks, and pipeline tracking.
+**No credentials needed.**
+
+1. Ask if they want to enable the built-in CRM.
+2. Call `enable_crm` to activate it.
+3. Let them know it's ready.
+
+## Checking Integration Status
+
+Call `check_integrations` anytime to see which integrations are configured and enabled.
+
+---
+
+_After completing a setup, update `_pending-setup.md` to check off the item. When all pending items are done, delete the file._
+"""
+
+
 def seed_context_files(context_dir: Path, agent_name: str) -> None:
     """Write default context files into a new agent's context directory.
 
@@ -163,6 +250,7 @@ def seed_context_files(context_dir: Path, agent_name: str) -> None:
         "user.md": USER_TEMPLATE,
         "_bootstrap.md": _bootstrap_template(agent_name),
         "_guide.md": GUIDE_TEMPLATE,
+        "_integration-setup.md": INTEGRATION_SETUP_GUIDE,
     }
 
     for filename, content in defaults.items():

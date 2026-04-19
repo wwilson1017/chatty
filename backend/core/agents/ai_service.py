@@ -312,6 +312,7 @@ def _build_system_prompt(
         parts.append(_memory_instructions())
         parts.append(get_report_instructions())
         parts.append(get_scheduling_instructions())
+        parts.append(_setup_instructions())
 
         # QB CSV Analysis instructions (if enabled)
         from integrations.registry import is_enabled as _integration_enabled
@@ -368,6 +369,23 @@ def _build_system_prompt(
 
     volatile_text = "\n".join(volatile_parts)
     return (static_text, volatile_text)
+
+
+def _setup_instructions() -> str:
+    """Instructions for integration setup tools."""
+    return """## Integration Setup
+You have tools to help your human set up integrations:
+
+- `setup_telegram_bot(bot_token)` — Validate and connect a Telegram bot for yourself
+- `check_telegram_registration()` — Check if your human linked their Telegram account
+- `setup_odoo(url, database, username, api_key)` — Connect Odoo ERP
+- `setup_bamboohr(subdomain, api_key)` — Connect BambooHR
+- `enable_crm()` — Enable the built-in CRM (no credentials needed)
+- `check_integrations()` — See which integrations are configured
+
+**WhatsApp** and **QuickBooks** can't be set up in chat (QR code / OAuth browser). Guide your human to Settings > Integrations for those.
+
+If you see a `_pending-setup.md` file in your knowledge, your human wants help setting those up. Offer proactively but don't be pushy — bring it up naturally during your first conversation."""
 
 
 def _memory_instructions() -> str:

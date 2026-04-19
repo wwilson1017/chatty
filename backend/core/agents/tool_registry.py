@@ -101,6 +101,8 @@ class ToolRegistry:
                 return self._execute_scheduled_action(tool_name, tool_args)
             elif kind == "integration":
                 return await self._execute_integration(tool_name, tool_args)
+            elif kind == "setup":
+                return self._execute_setup(tool_name, tool_args)
             else:
                 return {"error": f"Unknown tool kind: {kind}"}
         except Exception as e:
@@ -299,6 +301,69 @@ class ToolRegistry:
         if handler:
             return handler(**args)
         return {"error": f"Scheduled action tool not available: {tool_name}"}
+
+    def _execute_setup(self, tool_name: str, args: dict) -> dict:
+        """Execute integration setup tools using this agent's context."""
+        if tool_name == "setup_telegram_bot":
+            return self._setup_telegram(args["bot_token"])
+        elif tool_name == "check_telegram_registration":
+            return self._check_telegram_registration()
+        elif tool_name == "setup_odoo":
+            return self._setup_odoo(args["url"], args["database"], args["username"], args["api_key"])
+        elif tool_name == "setup_bamboohr":
+            return self._setup_bamboohr(args["subdomain"], args["api_key"])
+        elif tool_name == "enable_crm":
+            return self._enable_crm()
+        elif tool_name == "check_integrations":
+            return self._check_integrations()
+        return {"error": f"Unknown setup tool: {tool_name}"}
+
+    def _setup_telegram(self, bot_token: str) -> dict:
+        from agents.db import get_agent_by_slug
+        agent = get_agent_by_slug(self.agent_slug)
+        if not agent:
+            return {"error": "Agent not found"}
+        from integrations.telegram.lifecycle import validate_and_save_token
+        try:
+            result = validate_and_save_token(agent["id"], bot_token)
+            return result
+        except ValueError as e:
+            return {"error": str(e)}
+
+    def _check_telegram_registration(self) -> dict:
+        from agents.db import get_agent_by_slug
+        from integrations.telegram.state import get_registration_window, is_registration_open
+        agent = get_agent_by_slug(self.agent_slug)
+        if not agent:
+            return {"error": "Agent not found"}
+        window = get_registration_window(agent["id"])
+        if not window:
+            return {"registered": False, "window_open": False, "message": "No registration window. Set up the bot first."}
+        return {
+            "registered": bool(window.get("registered_user_id")),
+            "window_open": is_registration_open(agent["id"]),
+            "expires_at": window.get("expires_at", ""),
+            "registered_user_id": window.get("registered_user_id"),
+        }
+
+    def _setup_odoo(self, url: str, database: str, username: str, api_key: str) -> dict:
+        from integrations.odoo.onboarding import setup
+        return setup(url=url, database=database, username=username, api_key=api_key)
+
+    def _setup_bamboohr(self, subdomain: str, api_key: str) -> dict:
+        from integrations.bamboohr.onboarding import setup
+        return setup(subdomain=subdomain, api_key=api_key)
+
+    def _enable_crm(self) -> dict:
+        from integrations.crm_lite.onboarding import setup
+        return setup()
+
+    def _check_integrations(self) -> dict:
+        from integrations.registry import list_integrations
+        return {"integrations": [
+            {"id": i["id"], "name": i["name"], "configured": i["configured"], "enabled": i["enabled"]}
+            for i in list_integrations()
+        ]}
 
     async def _execute_integration(self, tool_name: str, args: dict) -> dict:
         executor = self.integration_executors.get(tool_name)
