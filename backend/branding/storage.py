@@ -8,6 +8,8 @@ import json
 import logging
 from pathlib import Path
 
+from core.storage import atomic_write_json
+
 logger = logging.getLogger(__name__)
 
 BRANDING_DIR = Path(__file__).resolve().parent.parent / "data" / "branding"
@@ -47,7 +49,7 @@ def save_config(company_name: str | None = None, accent_color: str | None = None
     if accent_color is not None:
         current["accent_color"] = accent_color
     current.pop("has_logo", None)  # derived field, don't persist
-    CONFIG_FILE.write_text(json.dumps(current, indent=2), encoding="utf-8")
+    atomic_write_json(CONFIG_FILE, current)
     return load_config()
 
 

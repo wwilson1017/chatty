@@ -12,7 +12,7 @@ from datetime import datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-from core.storage import download_file, upload_file
+from core.storage import safe_backup_sqlite, safe_init_sqlite
 
 logger = logging.getLogger(__name__)
 
@@ -24,6 +24,7 @@ GCS_KEY = "shared/shared_context.db"
 
 _connection: sqlite3.Connection | None = None
 _write_lock = threading.Lock()
+_backup_mutex = threading.Lock()
 
 
 def get_db() -> sqlite3.Connection:
@@ -36,18 +37,13 @@ def write_lock() -> threading.Lock:
     return _write_lock
 
 
-def init_db() -> None:
-    """Initialize: restore from GCS if available, create schema."""
+def _setup_connection() -> None:
+    """Open connection, set PRAGMAs, create schema."""
     global _connection
-
-    DATA_DIR.mkdir(parents=True, exist_ok=True)
-
-    if not DB_PATH.exists():
-        download_file(DB_PATH, GCS_KEY)
-
     _connection = sqlite3.connect(str(DB_PATH), check_same_thread=False)
     _connection.row_factory = sqlite3.Row
     _connection.execute("PRAGMA journal_mode=WAL")
+    _connection.execute("PRAGMA foreign_keys=ON")
     _connection.execute("PRAGMA busy_timeout=5000")
 
     _connection.executescript("""
@@ -72,13 +68,22 @@ def init_db() -> None:
     logger.info("Shared context DB initialized at %s", DB_PATH)
 
 
+def init_db() -> dict:
+    """Initialize with integrity check and GCS restore."""
+    return safe_init_sqlite(DB_PATH, GCS_KEY, init_fn=_setup_connection)
+
+
+def close_db() -> None:
+    """Close the connection (for backup/restore)."""
+    global _connection
+    if _connection:
+        _connection.close()
+        _connection = None
+
+
 def backup_to_gcs() -> None:
-    if _connection is not None:
-        try:
-            _connection.execute("PRAGMA wal_checkpoint(TRUNCATE)")
-        except Exception as e:
-            logger.warning("WAL checkpoint before shared context backup failed: %s", e)
-    upload_file(DB_PATH, GCS_KEY)
+    """Create a consistent snapshot and upload to GCS."""
+    safe_backup_sqlite(_connection, DB_PATH, GCS_KEY, backup_mutex=_backup_mutex)
 
 
 # ------------------------------------------------------------------

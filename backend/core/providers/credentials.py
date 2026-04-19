@@ -23,6 +23,7 @@ import time
 from pathlib import Path
 
 from core.encryption import decrypt_dict, encrypt_dict, needs_migration
+from core.storage import atomic_write_json
 
 logger = logging.getLogger(__name__)
 
@@ -58,9 +59,8 @@ class CredentialStore:
         return {"active_provider": "", "active_model": "", "profiles": {}}
 
     def _save(self):
-        DATA_DIR.mkdir(parents=True, exist_ok=True)
         encrypted = encrypt_dict(self.data)
-        PROFILES_PATH.write_text(json.dumps(encrypted, indent=2))
+        atomic_write_json(PROFILES_PATH, encrypted)
 
     def get_active_profile(self, provider_override: str | None = None) -> tuple[str, dict | None]:
         """Return (profile_name, profile_dict) for the active (or overridden) provider."""

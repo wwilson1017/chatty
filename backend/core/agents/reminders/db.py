@@ -9,10 +9,13 @@ import sqlite3
 import threading
 from pathlib import Path
 
+from core.storage import safe_init_sqlite
+
 logger = logging.getLogger(__name__)
 
 DATA_DIR = Path(__file__).resolve().parent.parent.parent.parent / "data" / "reminders"
 DB_PATH = DATA_DIR / "reminders.db"
+GCS_KEY = "reminders/reminders.db"
 
 _connection: sqlite3.Connection | None = None
 _write_lock = threading.Lock()
@@ -28,14 +31,13 @@ def write_lock() -> threading.Lock:
     return _write_lock
 
 
-def init_db() -> None:
+def _setup_connection() -> None:
+    """Open connection, set PRAGMAs, create schema."""
     global _connection
-
-    DATA_DIR.mkdir(parents=True, exist_ok=True)
-
     _connection = sqlite3.connect(str(DB_PATH), check_same_thread=False)
     _connection.row_factory = sqlite3.Row
     _connection.execute("PRAGMA journal_mode=WAL")
+    _connection.execute("PRAGMA foreign_keys=ON")
     _connection.execute("PRAGMA busy_timeout=5000")
 
     _connection.executescript("""
@@ -90,7 +92,6 @@ def init_db() -> None:
         CREATE INDEX IF NOT EXISTS idx_sa_next ON scheduled_actions(enabled, next_run);
         CREATE INDEX IF NOT EXISTS idx_sa_agent ON scheduled_actions(agent);
 
-        -- Context usage tracking for the dreaming system
         CREATE TABLE IF NOT EXISTS context_usage (
             agent TEXT NOT NULL,
             filename TEXT NOT NULL,
@@ -101,7 +102,6 @@ def init_db() -> None:
         );
         CREATE INDEX IF NOT EXISTS idx_ctx_usage ON context_usage(agent, created_at);
 
-        -- Dreaming run history
         CREATE TABLE IF NOT EXISTS dreaming_runs (
             agent TEXT NOT NULL,
             files_scored INTEGER,
@@ -114,6 +114,11 @@ def init_db() -> None:
         CREATE INDEX IF NOT EXISTS idx_dreaming_agent ON dreaming_runs(agent, created_at);
     """)
     logger.info("Reminders DB initialized at %s", DB_PATH)
+
+
+def init_db() -> dict:
+    """Initialize with integrity check and GCS restore."""
+    return safe_init_sqlite(DB_PATH, GCS_KEY, init_fn=_setup_connection)
 
 
 def close_db() -> None:
