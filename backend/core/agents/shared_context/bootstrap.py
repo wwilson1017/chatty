@@ -190,8 +190,7 @@ async def run_bootstrap(force: bool = False) -> dict:
 
     knowledge = _gather_all_agent_knowledge()
     if not knowledge:
-        _mark_bootstrap_complete()
-        return {"status": "complete", "entries_added": 0, "agents_analyzed": 0, "reason": "no_content"}
+        return {"status": "skipped", "reason": "no_content"}
 
     entries = await _extract_shared_knowledge(knowledge)
 

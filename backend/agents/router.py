@@ -210,8 +210,8 @@ async def create_agent(body: CreateAgentRequest, user=Depends(get_current_user))
     context_dir = DATA_DIR / agent["slug"] / "context"
     seed_context_files(context_dir, agent["agent_name"])
 
-    # Bootstrap shared knowledge when transitioning from 1 to 2+ agents
-    if existing_count == 1:
+    # Bootstrap shared knowledge when 2+ agents exist and bootstrap hasn't completed
+    if existing_count >= 1:
         from core.agents.shared_context.bootstrap import run_bootstrap_sync, should_bootstrap
         if should_bootstrap():
             def _bootstrap_thread():
