@@ -318,6 +318,22 @@ class ToolRegistry:
             return self._check_integrations()
         return {"error": f"Unknown setup tool: {tool_name}"}
 
+    def _mark_setup_complete(self, integration_name: str) -> None:
+        """Auto-update _pending-setup.md to check off a completed integration."""
+        pending_path = Path(self.context_dir) / "_pending-setup.md"
+        if not pending_path.exists():
+            return
+        try:
+            content = pending_path.read_text(encoding="utf-8")
+            updated = content.replace(f"- [ ] {integration_name}", f"- [x] {integration_name}")
+            if updated != content:
+                pending_path.write_text(updated, encoding="utf-8")
+                # If all items are checked, delete the file
+                if "- [ ]" not in updated:
+                    pending_path.unlink()
+        except Exception:
+            logger.debug("Failed to update _pending-setup.md for %s", integration_name, exc_info=True)
+
     def _setup_telegram(self, bot_token: str) -> dict:
         from agents.db import get_agent_by_slug
         agent = get_agent_by_slug(self.agent_slug)
@@ -326,6 +342,7 @@ class ToolRegistry:
         from integrations.telegram.lifecycle import validate_and_save_token
         try:
             result = validate_and_save_token(agent["id"], bot_token)
+            self._mark_setup_complete("Telegram Bot")
             return result
         except ValueError as e:
             return {"error": str(e)}
@@ -348,22 +365,40 @@ class ToolRegistry:
 
     def _setup_odoo(self, url: str, database: str, username: str, api_key: str) -> dict:
         from integrations.odoo.onboarding import setup
-        return setup(url=url, database=database, username=username, api_key=api_key)
+        result = setup(url=url, database=database, username=username, api_key=api_key)
+        if result.get("ok"):
+            self._mark_setup_complete("Odoo ERP")
+        return result
 
     def _setup_bamboohr(self, subdomain: str, api_key: str) -> dict:
         from integrations.bamboohr.onboarding import setup
-        return setup(subdomain=subdomain, api_key=api_key)
+        result = setup(subdomain=subdomain, api_key=api_key)
+        if result.get("ok"):
+            self._mark_setup_complete("BambooHR")
+        return result
 
     def _enable_crm(self) -> dict:
         from integrations.crm_lite.onboarding import setup
-        return setup()
+        result = setup()
+        if result.get("ok"):
+            self._mark_setup_complete("CRM")
+        return result
 
     def _check_integrations(self) -> dict:
         from integrations.registry import list_integrations
-        return {"integrations": [
-            {"id": i["id"], "name": i["name"], "configured": i["configured"], "enabled": i["enabled"]}
-            for i in list_integrations()
-        ]}
+        from agents.db import get_agent_by_slug
+        agent = get_agent_by_slug(self.agent_slug)
+        results = []
+        for i in list_integrations():
+            entry = {"id": i["id"], "name": i["name"], "configured": i["configured"], "enabled": i["enabled"]}
+            if i["id"] == "telegram" and agent:
+                entry["configured"] = bool(agent.get("telegram_bot_token"))
+                entry["enabled"] = bool(agent.get("telegram_enabled"))
+            elif i["id"] == "whatsapp" and agent:
+                entry["configured"] = bool(agent.get("whatsapp_session_id"))
+                entry["enabled"] = bool(agent.get("whatsapp_session_id"))
+            results.append(entry)
+        return {"integrations": results}
 
     async def _execute_integration(self, tool_name: str, args: dict) -> dict:
         executor = self.integration_executors.get(tool_name)

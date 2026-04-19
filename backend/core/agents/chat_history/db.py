@@ -98,4 +98,11 @@ class ChatHistoryDB:
         cols = {r[1] for r in conn.execute("PRAGMA table_info(messages)").fetchall()}
         if "tool_calls" not in cols:
             conn.execute("ALTER TABLE messages ADD COLUMN tool_calls TEXT")
+
+        conv_cols = {r[1] for r in conn.execute("PRAGMA table_info(conversations)").fetchall()}
+        if "source" not in conv_cols:
+            conn.execute("ALTER TABLE conversations ADD COLUMN source TEXT DEFAULT NULL")
+        if "pinned" not in conv_cols:
+            conn.execute("ALTER TABLE conversations ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0")
+
         conn.commit()

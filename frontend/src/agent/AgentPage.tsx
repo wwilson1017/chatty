@@ -509,6 +509,7 @@ export function AgentPage() {
               toolMode={chat.toolMode}
               onToolModeChange={handleToolModeChange}
               agentName={agent.agent_name}
+              conversationSource={convs.conversations.find(c => c.id === convs.activeId)?.source}
             />
           </>
         ) : activeTab === 'knowledge' ? (

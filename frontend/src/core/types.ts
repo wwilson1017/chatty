@@ -23,6 +23,8 @@ export interface Conversation {
   id: string;
   title: string;
   title_edited_by_user: boolean;
+  source?: string | null;
+  pinned?: number;
   created_at: string;
   updated_at: string;
   message_count?: number;

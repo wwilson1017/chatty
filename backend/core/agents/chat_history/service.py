@@ -22,14 +22,21 @@ class ChatHistoryService:
     def __init__(self, db: ChatHistoryDB):
         self._db = db
 
-    def create_conversation(self) -> dict:
-        """Create a new conversation and return it."""
+    def create_conversation(self, source: str | None = None) -> dict:
+        """Create a new conversation and return it.
+
+        Args:
+            source: Optional platform identifier ('telegram', 'whatsapp').
+                    Messaging conversations are auto-pinned.
+        """
         conv_id = str(uuid.uuid4())
+        pinned = 1 if source else 0
+        title = {"telegram": "Telegram", "whatsapp": "WhatsApp"}.get(source or "", "New conversation")
         db = self._db.get_db()
         with self._db.write_lock():
             db.execute(
-                "INSERT INTO conversations (id) VALUES (?)",
-                (conv_id,),
+                "INSERT INTO conversations (id, title, title_edited_by_user, source, pinned) VALUES (?, ?, ?, ?, ?)",
+                (conv_id, title, 1 if source else 0, source, pinned),
             )
             db.commit()
         row = db.execute("SELECT * FROM conversations WHERE id = ?", (conv_id,)).fetchone()
@@ -48,7 +55,7 @@ class ChatHistoryService:
             FROM conversations c
             LEFT JOIN messages m ON m.conversation_id = c.id
             GROUP BY c.id
-            ORDER BY c.updated_at DESC
+            ORDER BY c.pinned DESC, c.updated_at DESC
             LIMIT ? OFFSET ?
             """,
             (limit, offset),

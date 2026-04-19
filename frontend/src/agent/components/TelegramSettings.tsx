@@ -78,11 +78,16 @@ function OnboardingWizard({ agentId, agentName, onUpdate }: {
       const result = await api<{
         bot_username: string;
         webhook_ok: boolean;
+        error?: string;
         registration_expires_at: string;
       }>('/api/telegram/bot-token', {
         method: 'POST',
         body: JSON.stringify({ agent_id: agentId, bot_token: tokenInput.trim() }),
       });
+      if (!result.webhook_ok) {
+        setError(result.error || 'Webhook registration failed — check that your server is publicly accessible.');
+        return;
+      }
       setConnectedUsername(result.bot_username);
       setRegistrationExpires(result.registration_expires_at);
       onUpdate();

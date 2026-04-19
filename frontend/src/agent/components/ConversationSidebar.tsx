@@ -178,7 +178,25 @@ export function ConversationSidebar({
                         fontSize: 13, lineHeight: 1.3,
                         color: isActive ? '#EDF0F4' : 'rgba(237,240,244,0.62)',
                         overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-                      }}>{title}</div>
+                        display: 'flex', alignItems: 'center', gap: 6,
+                      }}>
+                        {('source' in item && (item as Conversation).source) && (
+                          <span style={{
+                            fontSize: 9, fontWeight: 600, letterSpacing: '0.05em',
+                            textTransform: 'uppercase',
+                            padding: '1px 5px', borderRadius: 3,
+                            flexShrink: 0,
+                            ...((item as Conversation).source === 'telegram'
+                              ? { background: 'rgba(0,136,204,0.15)', color: '#0088cc' }
+                              : { background: 'rgba(37,211,102,0.15)', color: '#25D366' }),
+                          }}>
+                            {(item as Conversation).source === 'telegram' ? 'TG' : 'WA'}
+                          </span>
+                        )}
+                        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          {title}
+                        </span>
+                      </div>
                       {snippet && (
                         <div style={{
                           fontSize: 11, color: 'rgba(237,240,244,0.38)',

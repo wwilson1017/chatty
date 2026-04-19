@@ -24,6 +24,24 @@ router = APIRouter(tags=["telegram"])
 
 _executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="telegram-webhook")
 
+DATA_DIR = __import__("pathlib").Path(__file__).resolve().parent.parent.parent / "data" / "agents"
+
+
+def _mark_telegram_configured(agent_slug: str) -> None:
+    """Auto-update the agent's _pending-setup.md after first Telegram message."""
+    pending = DATA_DIR / agent_slug / "context" / "_pending-setup.md"
+    if not pending.exists():
+        return
+    try:
+        content = pending.read_text(encoding="utf-8")
+        updated = content.replace("- [ ] Telegram Bot", "- [x] Telegram Bot")
+        if updated != content:
+            pending.write_text(updated, encoding="utf-8")
+            if "- [ ]" not in updated:
+                pending.unlink()
+    except Exception:
+        logger.debug("Failed to update pending setup file for %s", agent_slug, exc_info=True)
+
 
 # ---------------------------------------------------------------------------
 # Telegram webhook — per-agent, no JWT, routed by slug
@@ -109,6 +127,7 @@ def _safe_process_telegram(
             # Try auto-registration
             if lifecycle.try_auto_register(agent["id"], user_id, sender_name):
                 logger.info("Auto-registered Telegram user %s for agent %s", user_id, agent["agent_name"])
+                _mark_telegram_configured(agent["slug"])
             else:
                 send_message(
                     chat_id,

@@ -9,6 +9,8 @@ import json
 from datetime import datetime, timezone
 from pathlib import Path
 
+from core.storage import atomic_write_json
+
 DATA_DIR = Path(__file__).resolve().parent.parent / "data"
 
 
@@ -20,9 +22,7 @@ def save_pending(messaging: list[str], integrations: list[str]) -> dict:
         "integrations": integrations,
         "created_at": datetime.now(timezone.utc).isoformat(),
     }
-    (DATA_DIR / "pending-setup.json").write_text(
-        json.dumps(data, indent=2), encoding="utf-8"
-    )
+    atomic_write_json(DATA_DIR / "pending-setup.json", data)
     return data
 
 

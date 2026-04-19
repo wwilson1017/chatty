@@ -52,8 +52,8 @@ export function OnboardingWizard({ onComplete }: Props) {
   const activeProvider = useMemo(() => {
     if (!providerStatus) return '';
     if (providerStatus.active_provider) return providerStatus.active_provider;
-    for (const [, profile] of Object.entries(providerStatus.profiles)) {
-      if (profile.configured) return providerStatus.active_provider;
+    for (const [name, profile] of Object.entries(providerStatus.profiles)) {
+      if (profile.configured) return name;
     }
     return '';
   }, [providerStatus]);
