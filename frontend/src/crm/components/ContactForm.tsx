@@ -8,6 +8,20 @@ interface Props {
   onSaved: () => void;
 }
 
+const labelStyle: React.CSSProperties = {
+  display: 'block',
+  fontFamily: "'JetBrains Mono', ui-monospace, monospace",
+  fontSize: 9, letterSpacing: '0.16em', textTransform: 'uppercase',
+  color: 'rgba(237,240,244,0.38)', marginBottom: 6,
+};
+
+const inputStyle: React.CSSProperties = {
+  width: '100%', boxSizing: 'border-box',
+  background: 'rgba(34,40,48,0.55)', border: '1px solid rgba(230,235,242,0.14)',
+  color: '#EDF0F4', borderRadius: 4, padding: '8px 12px', fontSize: 13, outline: 'none',
+  fontFamily: "'Inter Tight', system-ui, sans-serif",
+};
+
 export function ContactForm({ contact, onClose, onSaved }: Props) {
   const isEdit = !!contact;
   const [name, setName] = useState(contact?.name || '');
@@ -29,47 +43,39 @@ export function ContactForm({ contact, onClose, onSaved }: Props) {
     try {
       if (isEdit) {
         await api(`/api/crm/contacts/${contact.id}`, {
-          method: 'PUT',
-          body: JSON.stringify({ name, email, phone, company, title, source, status, tags, notes }),
+          method: 'PUT', body: JSON.stringify({ name, email, phone, company, title, source, status, tags, notes }),
         });
       } else {
         await api('/api/crm/contacts', {
-          method: 'POST',
-          body: JSON.stringify({ name, email, phone, company, title, source, status, tags, notes }),
+          method: 'POST', body: JSON.stringify({ name, email, phone, company, title, source, status, tags, notes }),
         });
       }
       onSaved();
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Failed to save');
-    }
+    } catch (err: unknown) { setError(err instanceof Error ? err.message : 'Failed to save'); }
     setSaving(false);
   }
 
   return (
-    <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50" onClick={onClose}>
-      <form
-        onClick={e => e.stopPropagation()}
-        onSubmit={handleSubmit}
-        className="bg-gray-900 rounded-2xl border border-gray-700 p-6 w-full max-w-md max-h-[90vh] overflow-y-auto"
-      >
-        <h2 className="text-white font-bold text-lg mb-4">{isEdit ? 'Edit Contact' : 'New Contact'}</h2>
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50 }} onClick={onClose}>
+      <form onClick={e => e.stopPropagation()} onSubmit={handleSubmit} style={{
+        background: '#11141A', borderRadius: 6, border: '1px solid rgba(230,235,242,0.14)',
+        padding: 24, width: '100%', maxWidth: 420, maxHeight: '90vh', overflowY: 'auto',
+        boxShadow: '0 8px 40px rgba(0,0,0,0.5)',
+      }}>
+        <h2 style={{ fontFamily: "'Fraunces', Georgia, serif", fontSize: 20, fontWeight: 400, letterSpacing: '-0.02em', color: '#EDF0F4', marginBottom: 20 }}>
+          {isEdit ? 'Edit Contact' : 'New Contact'}
+        </h2>
+        {error && <p style={{ color: '#D97757', fontSize: 12, marginBottom: 12 }}>{error}</p>}
 
-        {error && <p className="text-red-400 text-xs mb-3">{error}</p>}
-
-        <div className="space-y-3">
-          <Input label="Name *" value={name} onChange={setName} />
-          <Input label="Email" value={email} onChange={setEmail} type="email" />
-          <Input label="Phone" value={phone} onChange={setPhone} type="tel" />
-          <Input label="Company" value={company} onChange={setCompany} />
-          <Input label="Job Title" value={title} onChange={setTitle} />
-
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+          <div><label style={labelStyle}>Name *</label><input value={name} onChange={e => setName(e.target.value)} style={inputStyle} /></div>
+          <div><label style={labelStyle}>Email</label><input type="email" value={email} onChange={e => setEmail(e.target.value)} style={inputStyle} /></div>
+          <div><label style={labelStyle}>Phone</label><input type="tel" value={phone} onChange={e => setPhone(e.target.value)} style={inputStyle} /></div>
+          <div><label style={labelStyle}>Company</label><input value={company} onChange={e => setCompany(e.target.value)} style={inputStyle} /></div>
+          <div><label style={labelStyle}>Job Title</label><input value={title} onChange={e => setTitle(e.target.value)} style={inputStyle} /></div>
           <div>
-            <label className="text-gray-400 text-xs block mb-1">Source</label>
-            <select
-              value={source}
-              onChange={e => setSource(e.target.value)}
-              className="w-full bg-gray-800 border border-gray-700 text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-indigo-500"
-            >
+            <label style={labelStyle}>Source</label>
+            <select value={source} onChange={e => setSource(e.target.value)} style={inputStyle}>
               <option value="">Select...</option>
               <option value="referral">Referral</option>
               <option value="website">Website</option>
@@ -79,54 +85,32 @@ export function ContactForm({ contact, onClose, onSaved }: Props) {
               <option value="other">Other</option>
             </select>
           </div>
-
           <div>
-            <label className="text-gray-400 text-xs block mb-1">Status</label>
-            <select
-              value={status}
-              onChange={e => setStatus(e.target.value)}
-              className="w-full bg-gray-800 border border-gray-700 text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-indigo-500"
-            >
+            <label style={labelStyle}>Status</label>
+            <select value={status} onChange={e => setStatus(e.target.value)} style={inputStyle}>
               <option value="active">Active</option>
               <option value="inactive">Inactive</option>
               <option value="archived">Archived</option>
             </select>
           </div>
-
-          <Input label="Tags (comma-separated)" value={tags} onChange={setTags} />
-
-          <div>
-            <label className="text-gray-400 text-xs block mb-1">Notes</label>
-            <textarea
-              value={notes}
-              onChange={e => setNotes(e.target.value)}
-              rows={3}
-              className="w-full bg-gray-800 border border-gray-700 text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-indigo-500 resize-none"
-            />
-          </div>
+          <div><label style={labelStyle}>Tags (comma-separated)</label><input value={tags} onChange={e => setTags(e.target.value)} style={inputStyle} /></div>
+          <div><label style={labelStyle}>Notes</label><textarea value={notes} onChange={e => setNotes(e.target.value)} rows={3} style={{ ...inputStyle, resize: 'none' }} /></div>
         </div>
 
-        <div className="flex gap-2 mt-5">
-          <button type="button" onClick={onClose} className="flex-1 py-2 text-sm rounded-lg border border-gray-600 text-gray-400 hover:bg-gray-800 transition">Cancel</button>
-          <button type="submit" disabled={saving} className="flex-1 py-2 text-sm rounded-lg bg-brand text-white font-medium disabled:opacity-50">
-            {saving ? 'Saving...' : isEdit ? 'Update' : 'Create'}
-          </button>
+        <div style={{ display: 'flex', gap: 8, marginTop: 20 }}>
+          <button type="button" onClick={onClose} style={{
+            flex: 1, padding: '9px 16px', borderRadius: 4,
+            border: '1px solid rgba(230,235,242,0.14)', background: 'transparent',
+            color: 'rgba(237,240,244,0.62)', fontSize: 13, cursor: 'pointer',
+          }}>Cancel</button>
+          <button type="submit" disabled={saving} style={{
+            flex: 1, padding: '9px 16px', borderRadius: 4,
+            background: '#D4A85A', color: '#0E1013',
+            border: 'none', fontWeight: 500, fontSize: 13, cursor: 'pointer',
+            opacity: saving ? 0.5 : 1,
+          }}>{saving ? 'Saving...' : isEdit ? 'Update' : 'Create'}</button>
         </div>
       </form>
-    </div>
-  );
-}
-
-function Input({ label, value, onChange, type = 'text' }: { label: string; value: string; onChange: (v: string) => void; type?: string }) {
-  return (
-    <div>
-      <label className="text-gray-400 text-xs block mb-1">{label}</label>
-      <input
-        type={type}
-        value={value}
-        onChange={e => onChange(e.target.value)}
-        className="w-full bg-gray-800 border border-gray-700 text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-indigo-500"
-      />
     </div>
   );
 }

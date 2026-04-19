@@ -3,15 +3,13 @@ import { useNavigate } from 'react-router-dom';
 import { api } from '../core/api/client';
 import type { CrmDashboard } from '../core/types';
 import { ActivityTimeline } from './components/ActivityTimeline';
+import { WarmHalo } from '../shared/WarmHalo';
 
-const STAGE_COLORS: Record<string, string> = {
-  lead: 'bg-gray-500',
-  qualified: 'bg-blue-500',
-  proposal: 'bg-yellow-500',
-  negotiation: 'bg-orange-500',
-  won: 'bg-green-500',
-  lost: 'bg-red-500',
-};
+const mono = (size: number, color = 'rgba(237,240,244,0.38)') => ({
+  fontFamily: "'JetBrains Mono', ui-monospace, monospace",
+  fontSize: size, letterSpacing: '0.16em',
+  textTransform: 'uppercase' as const, color,
+});
 
 export function CrmDashboardPage() {
   const [data, setData] = useState<CrmDashboard | null>(null);
@@ -26,147 +24,142 @@ export function CrmDashboardPage() {
 
   if (loading) {
     return (
-      <div className="flex justify-center py-20">
-        <div className="w-8 h-8 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin" />
+      <div style={{ display: 'flex', justifyContent: 'center', padding: '80px 0' }}>
+        <div className="w-8 h-8 border-2 border-ch-accent border-t-transparent rounded-full animate-spin" />
       </div>
     );
   }
 
-  if (!data) return <p className="text-gray-400 p-8">Failed to load CRM dashboard.</p>;
+  if (!data) return <p style={{ color: 'rgba(237,240,244,0.62)', padding: 32 }}>Failed to load CRM dashboard.</p>;
 
   const activePipeline = data.pipeline_by_stage.filter(s => s.stage !== 'won' && s.stage !== 'lost');
+  const totalPipelineValue = `$${formatNumber(data.total_pipeline_value)}`;
+  const totalDeals = activePipeline.reduce((s, p) => s + p.count, 0);
 
   return (
-    <div className="p-8 max-w-5xl">
-      <h1 className="text-2xl font-bold text-white mb-8">CRM Dashboard</h1>
+    <div style={{ position: 'relative', overflow: 'auto', height: '100%' }}>
+      <WarmHalo opacity={0.3} />
 
-      {/* Stat cards */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
-        <StatCard
-          label="Total Contacts"
-          value={data.total_contacts.toString()}
-          sub={`${data.contacts_by_status.active || 0} active`}
-        />
-        <StatCard
-          label="Pipeline Value"
-          value={`$${formatNumber(data.total_pipeline_value)}`}
-          sub={`${activePipeline.reduce((s, p) => s + p.count, 0)} open deals`}
-        />
-        <StatCard
-          label="Pending Tasks"
-          value={data.pending_tasks.toString()}
-          sub={data.overdue_tasks > 0 ? `${data.overdue_tasks} overdue` : 'None overdue'}
-          alert={data.overdue_tasks > 0}
-        />
-        <StatCard
-          label="Won Deals"
-          value={(data.pipeline_by_stage.find(s => s.stage === 'won')?.count || 0).toString()}
-          sub={`$${formatNumber(data.pipeline_by_stage.find(s => s.stage === 'won')?.total_value || 0)}`}
-        />
+      {/* Hero */}
+      <div style={{ padding: '36px 44px 28px', position: 'relative', zIndex: 2 }}>
+        <div style={mono(10, 'rgba(237,240,244,0.38)')}>
+          Week of {new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+        </div>
+        <h1 style={{
+          fontFamily: "'Fraunces', Georgia, serif",
+          fontSize: 48, fontWeight: 400, letterSpacing: '-0.02em',
+          lineHeight: 1.02, margin: '10px 0 0', color: '#EDF0F4',
+        }}>
+          Pipeline is <span style={{ color: '#D4A85A', fontStyle: 'italic' }}>{totalPipelineValue}</span>
+          <br /><span style={{ color: 'rgba(237,240,244,0.62)', fontSize: 26 }}>across {totalDeals} open deals.</span>
+        </h1>
       </div>
 
-      {/* Pipeline breakdown */}
-      <div className="bg-gray-900 rounded-2xl border border-gray-800 p-6 mb-8">
-        <h2 className="text-white font-semibold mb-4">Pipeline by Stage</h2>
-        {activePipeline.length === 0 ? (
-          <p className="text-gray-500 text-sm">No active deals yet.</p>
-        ) : (
-          <div className="space-y-3">
-            {activePipeline.map(stage => {
-              const pct = data.total_pipeline_value > 0
-                ? (stage.total_value / data.total_pipeline_value) * 100
-                : 0;
+      {/* Stage rows */}
+      <div style={{ padding: '0 44px 28px', position: 'relative', zIndex: 2 }}>
+        <div style={{ borderTop: '1px solid rgba(230,235,242,0.07)' }}>
+          {activePipeline.length === 0 ? (
+            <p style={{ color: 'rgba(237,240,244,0.38)', fontSize: 13, padding: '16px 0' }}>No active deals yet.</p>
+          ) : (
+            activePipeline.map(stage => {
+              const pct = data.total_pipeline_value > 0 ? (stage.total_value / data.total_pipeline_value) * 100 : 0;
               return (
-                <div key={stage.stage} className="flex items-center gap-3">
-                  <span className="text-gray-400 text-sm w-24 capitalize">{stage.stage}</span>
-                  <div className="flex-1 bg-gray-800 rounded-full h-5 overflow-hidden">
-                    <div
-                      className={`h-full rounded-full ${STAGE_COLORS[stage.stage] || 'bg-indigo-500'}`}
-                      style={{ width: `${Math.max(pct, 2)}%` }}
-                    />
+                <div key={stage.stage} style={{
+                  padding: '16px 0', borderBottom: '1px solid rgba(230,235,242,0.07)',
+                  display: 'grid', gridTemplateColumns: '150px 1fr 110px 80px',
+                  gap: 20, alignItems: 'center',
+                }}>
+                  <div style={{
+                    fontFamily: "'Fraunces', Georgia, serif",
+                    fontSize: 20, letterSpacing: '-0.01em',
+                    textTransform: 'capitalize', color: '#EDF0F4',
+                  }}>{stage.stage}</div>
+                  <div style={{ height: 2, background: 'rgba(230,235,242,0.07)', position: 'relative' }}>
+                    <div style={{
+                      position: 'absolute', inset: 0,
+                      right: `${100 - Math.max(pct, 2)}%`,
+                      background: 'linear-gradient(90deg, var(--color-ch-accent, #C8D1D9) 0%, #D4A85A 100%)',
+                    }} />
                   </div>
-                  <span className="text-white text-sm w-28 text-right">
-                    {stage.count} &middot; ${formatNumber(stage.total_value)}
-                  </span>
+                  <div style={{
+                    fontFamily: "'Fraunces', Georgia, serif",
+                    fontSize: 18, fontWeight: 400, textAlign: 'right',
+                    letterSpacing: '-0.01em', color: '#EDF0F4',
+                  }}>${formatNumber(stage.total_value)}</div>
+                  <div style={{
+                    ...mono(10, 'rgba(237,240,244,0.62)'),
+                    textAlign: 'right',
+                  }}>{stage.count} deals</div>
                 </div>
               );
-            })}
-          </div>
-        )}
-      </div>
-
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-        {/* Top deals */}
-        <div className="bg-gray-900 rounded-2xl border border-gray-800 p-6">
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-white font-semibold">Top Deals</h2>
-            <button
-              onClick={() => navigate('/crm/pipeline')}
-              className="text-indigo-400 text-xs hover:text-indigo-300"
-            >
-              View all
-            </button>
-          </div>
-          {data.top_deals.length === 0 ? (
-            <p className="text-gray-500 text-sm">No deals yet.</p>
-          ) : (
-            <div className="space-y-3">
-              {data.top_deals.map(deal => (
-                <div key={deal.id} className="flex items-center justify-between">
-                  <div>
-                    <p className="text-white text-sm">{deal.title}</p>
-                    <p className="text-gray-500 text-xs">{deal.contact_name || 'No contact'}</p>
-                  </div>
-                  <div className="text-right">
-                    <p className="text-white text-sm font-medium">${formatNumber(deal.value)}</p>
-                    <span className={`text-xs px-1.5 py-0.5 rounded capitalize ${STAGE_COLORS[deal.stage]?.replace('bg-', 'bg-') || 'bg-gray-700'} text-white`}>
-                      {deal.stage}
-                    </span>
-                  </div>
-                </div>
-              ))}
-            </div>
+            })
           )}
         </div>
+      </div>
 
-        {/* Recent activity */}
-        <div className="bg-gray-900 rounded-2xl border border-gray-800 p-6">
-          <h2 className="text-white font-semibold mb-4">Recent Activity</h2>
-          <ActivityTimeline activities={data.recent_activity} />
+      {/* Top deals + activity */}
+      <div style={{
+        padding: '10px 44px 40px', position: 'relative', zIndex: 2,
+        display: 'grid', gridTemplateColumns: '1.4fr 1fr', gap: 36,
+      }}>
+        <div>
+          <div style={{ ...mono(10, 'rgba(237,240,244,0.38)'), marginBottom: 14 }}>Top deals</div>
+          <div style={{ borderTop: '1px solid rgba(230,235,242,0.07)' }}>
+            {data.top_deals.length === 0 ? (
+              <p style={{ color: 'rgba(237,240,244,0.38)', fontSize: 13, padding: '16px 0' }}>No deals yet.</p>
+            ) : (
+              data.top_deals.map(deal => (
+                <div key={deal.id} style={{
+                  padding: '14px 0', display: 'flex', alignItems: 'center', gap: 14,
+                  borderBottom: '1px solid rgba(230,235,242,0.07)',
+                }}>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontSize: 14, letterSpacing: '-0.005em', color: '#EDF0F4' }}>
+                      {deal.title} <span style={{ color: 'rgba(237,240,244,0.62)' }}>· {deal.contact_name || 'No contact'}</span>
+                    </div>
+                    <div style={{
+                      ...mono(10, 'rgba(237,240,244,0.38)'),
+                      marginTop: 3, textTransform: 'uppercase',
+                    }}>{deal.stage}</div>
+                  </div>
+                  <div style={{
+                    fontFamily: "'Fraunces', Georgia, serif",
+                    fontSize: 17, letterSpacing: '-0.01em', color: '#EDF0F4',
+                  }}>${formatNumber(deal.value)}</div>
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+
+        <div>
+          <div style={{ ...mono(10, 'rgba(237,240,244,0.38)'), marginBottom: 14 }}>Recent activity</div>
+          <div style={{ borderTop: '1px solid rgba(230,235,242,0.07)' }}>
+            <ActivityTimeline activities={data.recent_activity} />
+          </div>
         </div>
       </div>
 
       {/* Quick actions */}
-      <div className="flex gap-3 mt-8">
-        <button
-          onClick={() => navigate('/crm/contacts')}
-          className="bg-gray-800 text-white px-4 py-2 rounded-lg text-sm hover:bg-gray-700 transition"
-        >
-          + Add Contact
-        </button>
-        <button
-          onClick={() => navigate('/crm/pipeline')}
-          className="bg-gray-800 text-white px-4 py-2 rounded-lg text-sm hover:bg-gray-700 transition"
-        >
-          + Add Deal
-        </button>
-        <button
-          onClick={() => navigate('/crm/tasks')}
-          className="bg-gray-800 text-white px-4 py-2 rounded-lg text-sm hover:bg-gray-700 transition"
-        >
-          + Add Task
-        </button>
+      <div style={{ padding: '0 44px 40px', display: 'flex', gap: 8, position: 'relative', zIndex: 2 }}>
+        {[
+          { label: '+ Add Contact', path: '/crm/contacts' },
+          { label: '+ Add Deal', path: '/crm/pipeline' },
+          { label: '+ Add Task', path: '/crm/tasks' },
+        ].map(a => (
+          <button
+            key={a.label}
+            onClick={() => navigate(a.path)}
+            style={{
+              background: 'transparent', color: '#EDF0F4',
+              border: '1px solid rgba(230,235,242,0.14)',
+              padding: '7px 14px', borderRadius: 4,
+              fontSize: 13, cursor: 'pointer',
+              fontFamily: "'Inter Tight', system-ui, sans-serif",
+            }}
+          >{a.label}</button>
+        ))}
       </div>
-    </div>
-  );
-}
-
-function StatCard({ label, value, sub, alert }: { label: string; value: string; sub: string; alert?: boolean }) {
-  return (
-    <div className="bg-gray-900 rounded-2xl border border-gray-800 p-5">
-      <p className="text-gray-400 text-xs uppercase tracking-wide">{label}</p>
-      <p className="text-white text-2xl font-bold mt-1">{value}</p>
-      <p className={`text-xs mt-1 ${alert ? 'text-red-400' : 'text-gray-500'}`}>{sub}</p>
     </div>
   );
 }

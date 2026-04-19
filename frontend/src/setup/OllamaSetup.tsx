@@ -63,8 +63,8 @@ export function OllamaSetup({ onConnected }: Props) {
   if (checking) {
     return (
       <div className="flex items-center gap-2 py-4">
-        <div className="w-4 h-4 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin" />
-        <span className="text-sm text-gray-400">Detecting Ollama...</span>
+        <div className="w-4 h-4 border-2 border-ch-accent border-t-transparent rounded-full animate-spin" />
+        <span className="text-sm text-ch-ink-mute">Detecting Ollama...</span>
       </div>
     );
   }
@@ -79,11 +79,11 @@ export function OllamaSetup({ onConnected }: Props) {
         </div>
 
         <div>
-          <label className="block text-xs text-gray-400 mb-1.5">Select a model</label>
+          <label className="block text-xs text-ch-ink-mute mb-1.5">Select a model</label>
           <select
             value={selectedModel}
             onChange={e => setSelectedModel(e.target.value)}
-            className="w-full bg-gray-700 border border-gray-600 text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-indigo-500"
+            className="w-full bg-ch-bg-raised border border-ch-line-strong text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-amber-500"
           >
             {status.models.map(m => (
               <option key={m} value={m}>{m}</option>
@@ -113,15 +113,15 @@ export function OllamaSetup({ onConnected }: Props) {
           <span className="text-sm text-yellow-400">Ollama is running but no models are installed</span>
         </div>
 
-        <p className="text-xs text-gray-400">
+        <p className="text-xs text-ch-ink-mute">
           Pull a model in your terminal, then click "Refresh":
         </p>
 
         <div className="space-y-2">
           {RECOMMENDED_MODELS.map(m => (
-            <div key={m.name} className="bg-gray-700/50 rounded-lg px-3 py-2">
-              <code className="text-xs text-indigo-400">ollama pull {m.name}</code>
-              <p className="text-xs text-gray-500 mt-0.5">{m.desc}</p>
+            <div key={m.name} className="bg-ch-bg-card rounded-lg px-3 py-2">
+              <code className="text-xs text-ch-gold">ollama pull {m.name}</code>
+              <p className="text-xs text-ch-ink-dim mt-0.5">{m.desc}</p>
             </div>
           ))}
         </div>
@@ -144,30 +144,30 @@ export function OllamaSetup({ onConnected }: Props) {
         <span className="text-sm text-red-400">Ollama not detected</span>
       </div>
 
-      <div className="bg-gray-700/50 rounded-lg px-4 py-3 space-y-2">
-        <p className="text-sm text-gray-300">Run AI models locally for free:</p>
-        <ol className="text-xs text-gray-400 space-y-1 list-decimal list-inside">
+      <div className="bg-ch-bg-card rounded-lg px-4 py-3 space-y-2">
+        <p className="text-sm text-ch-ink-mute">Run AI models locally for free:</p>
+        <ol className="text-xs text-ch-ink-mute space-y-1 list-decimal list-inside">
           <li>
             Install Ollama from{' '}
-            <a href="https://ollama.com" target="_blank" rel="noopener noreferrer" className="text-indigo-400 hover:text-indigo-300">
+            <a href="https://ollama.com" target="_blank" rel="noopener noreferrer" className="text-ch-gold hover:text-ch-gold">
               ollama.com
             </a>
           </li>
-          <li>Run <code className="text-indigo-400">ollama pull qwen3.5:4b</code> in your terminal</li>
+          <li>Run <code className="text-ch-gold">ollama pull qwen3.5:4b</code> in your terminal</li>
           <li>Come back here and click "Refresh"</li>
         </ol>
       </div>
 
       <button
         onClick={checkStatus}
-        className="w-full py-2 text-sm rounded-lg border border-indigo-500/50 text-indigo-400 hover:bg-indigo-500/10 transition"
+        className="w-full py-2 text-sm rounded-lg border border-ch-gold/50 text-ch-gold hover:bg-ch-gold/10 transition"
       >
         Refresh
       </button>
 
       <button
         onClick={() => setShowAdvanced(!showAdvanced)}
-        className="w-full text-xs text-gray-500 hover:text-gray-400 transition"
+        className="w-full text-xs text-ch-ink-dim hover:text-ch-ink-mute transition"
       >
         {showAdvanced ? 'Hide' : 'Advanced'}: Custom Ollama URL
       </button>
@@ -179,7 +179,7 @@ export function OllamaSetup({ onConnected }: Props) {
             value={customUrl}
             onChange={e => setCustomUrl(e.target.value)}
             placeholder="http://localhost:11434"
-            className="w-full bg-gray-700 border border-gray-600 text-white rounded-lg px-4 py-3 text-sm focus:outline-none focus:border-indigo-500"
+            className="w-full bg-ch-bg-raised border border-ch-line-strong text-white rounded-lg px-4 py-3 text-sm focus:outline-none focus:border-amber-500"
           />
           {error && <p className="text-red-400 text-xs">{error}</p>}
           <button

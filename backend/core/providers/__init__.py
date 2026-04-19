@@ -37,7 +37,7 @@ def get_ai_provider(agent_provider: str | None = None, agent_model: str | None =
     elif profile_name.startswith("openai:"):
         from core.providers.openai_provider import OpenAIProvider
         if profile.get("type") == "api_key":
-            return OpenAIProvider(access_token=profile.get("key", ""), model=model or "gpt-4o")
+            return OpenAIProvider(access_token=profile.get("key", ""), model=model or "gpt-5.4")
         if profile.get("type") == "chatgpt_oauth":
             access_token = profile.get("access", "")
             # Refresh token if expired
@@ -53,14 +53,14 @@ def get_ai_provider(agent_provider: str | None = None, agent_model: str | None =
                         access_token=tokens["access_token"],
                         refresh_token=tokens["refresh_token"],
                         expires_in=tokens["expires_in"],
-                        model=model or "gpt-4o",
+                        model=model or "gpt-5.4",
                     )
                 except Exception as e:
                     import logging
                     logging.getLogger(__name__).warning("ChatGPT token refresh failed: %s", e)
-            return OpenAIProvider(access_token=access_token, model=model or "gpt-4o", use_chatgpt_api=True)
+            return OpenAIProvider(access_token=access_token, model=model or "gpt-5.4", use_chatgpt_api=True)
         access_token = profile.get("access", "")
-        return OpenAIProvider(access_token=access_token, model=model or "gpt-4o")
+        return OpenAIProvider(access_token=access_token, model=model or "gpt-5.4")
 
     elif profile_name.startswith("google:"):
         from core.providers.google_provider import GoogleProvider

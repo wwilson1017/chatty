@@ -1,15 +1,10 @@
-/**
- * Chatty — AgentMessageBubble.
- * Claude-style: flat assistant messages with markdown, branded user bubbles.
- * Individual expandable tool pills with elapsed timer. Confirmation cards for write ops.
- * Plan mode cards. Copy button per message.
- */
-
 import { useState, useEffect, memo } from 'react';
 import type { ChatMessage, ToolCallInfo, PendingConfirmation, PendingPlan } from '../hooks/useAgentChat';
 import MarkdownContent from './MarkdownContent';
 import { useCopyToClipboard } from '../hooks/useCopyToClipboard';
 import ReportRenderer from '../reports/ReportRenderer';
+import { AgentMark } from '../../shared/AgentMark';
+import { IconAttach } from '../../shared/icons';
 
 interface Props {
   message: ChatMessage;
@@ -17,11 +12,10 @@ interface Props {
   onDeny?: (msgId: string) => void;
   onApprovePlan?: (msgId: string) => void;
   onIteratePlan?: (msgId: string) => void;
+  agentName?: string;
 }
 
 const HUNG_THRESHOLD_SEC = 30;
-
-/* ── Helper functions ────────────────────────────────────────────── */
 
 const TOOL_LABELS: Record<string, string> = {
   list_context_files: 'Listing files',
@@ -63,38 +57,32 @@ function _toolLabel(name: string): string {
 
 function _formatArgs(args: Record<string, unknown> | undefined): string {
   if (!args || Object.keys(args).length === 0) return '(none)';
-  try {
-    return JSON.stringify(args, null, 2);
-  } catch {
-    return String(args);
-  }
+  try { return JSON.stringify(args, null, 2); } catch { return String(args); }
 }
 
 function _formatResult(result: unknown): string {
   if (result === undefined || result === null) return '(none)';
   if (typeof result === 'string') return result;
-  try {
-    return JSON.stringify(result, null, 2);
-  } catch {
-    return String(result);
-  }
+  try { return JSON.stringify(result, null, 2); } catch { return String(result); }
 }
-
-/* ── Copy Button ─────────────────────────────────────────────────── */
 
 function CopyButton({ copied, onClick }: { copied: boolean; onClick: () => void }) {
   return (
     <button
       onClick={onClick}
-      className="p-1 text-gray-500 hover:text-gray-300 rounded transition-colors"
+      style={{
+        background: 'none', border: 'none', padding: 4,
+        color: copied ? '#8EA589' : 'rgba(237,240,244,0.38)',
+        cursor: 'pointer',
+      }}
       title={copied ? 'Copied!' : 'Copy message'}
     >
       {copied ? (
-        <svg className="w-3.5 h-3.5 text-green-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+        <svg width={14} height={14} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round">
           <polyline points="20 6 9 17 4 12" />
         </svg>
       ) : (
-        <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <svg width={14} height={14} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
           <rect x="9" y="9" width="13" height="13" rx="2" />
           <path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1" />
         </svg>
@@ -102,8 +90,6 @@ function CopyButton({ copied, onClick }: { copied: boolean; onClick: () => void 
     </button>
   );
 }
-
-/* ── Tool Call Bubble (individual expandable pill) ────────────────── */
 
 function ToolCallBubble({ tc, isExpanded, onToggle }: {
   tc: ToolCallInfo;
@@ -115,86 +101,90 @@ function ToolCallBubble({ tc, isExpanded, onToggle }: {
   const isHung = isRunning && elapsed !== null && elapsed >= HUNG_THRESHOLD_SEC;
 
   return (
-    <div className="text-xs rounded-lg overflow-hidden bg-gray-800/80 border border-gray-700/60 shadow-sm">
-      {/* Compact header -- always visible, clickable */}
+    <div style={{
+      fontSize: 12, borderRadius: 6, overflow: 'hidden',
+      background: 'rgba(20,24,30,0.78)',
+      border: '1px solid rgba(230,235,242,0.07)',
+    }}>
       <button
         onClick={onToggle}
-        className="w-full flex items-center gap-1.5 px-2.5 py-1.5 transition-opacity cursor-pointer text-gray-400 hover:bg-gray-700/40"
+        style={{
+          width: '100%', display: 'flex', alignItems: 'center', gap: 6,
+          padding: '6px 10px', cursor: 'pointer',
+          color: 'rgba(237,240,244,0.62)', background: 'transparent', border: 'none',
+          fontFamily: "'Inter Tight', system-ui, sans-serif", fontSize: 12,
+        }}
       >
-        {/* Status dot */}
-        {isRunning ? (
-          <span className={`w-2 h-2 rounded-full flex-shrink-0 animate-pulse ${
-            isHung ? 'bg-red-400 ring-2 ring-red-500/40' : 'bg-amber-400'
-          }`} />
-        ) : (
-          <span className="w-2 h-2 rounded-full bg-green-500 flex-shrink-0" />
-        )}
-
-        {/* Tool label */}
-        <span className="truncate text-gray-300">{_toolLabel(tc.tool)}</span>
-
-        {/* Duration / elapsed timer */}
+        <span style={{
+          width: 6, height: 6, borderRadius: '50%', flexShrink: 0,
+          background: isRunning ? (isHung ? '#D97757' : '#D4A85A') : '#8EA589',
+          animation: isRunning ? 'pulse 2s infinite' : 'none',
+        }} />
+        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: '#EDF0F4' }}>
+          {_toolLabel(tc.tool)}
+        </span>
         {isRunning && elapsed !== null && elapsed > 2 && (
-          <span className={`ml-auto text-[10px] tabular-nums ${
-            isHung ? 'text-red-400 font-semibold' : 'text-gray-500'
-          }`}>
-            {elapsed}s
-          </span>
+          <span style={{
+            marginLeft: 'auto',
+            fontFamily: "'JetBrains Mono', ui-monospace, monospace",
+            fontSize: 10, color: isHung ? '#D97757' : 'rgba(237,240,244,0.38)',
+            fontVariantNumeric: 'tabular-nums',
+          }}>{elapsed}s</span>
         )}
         {!isRunning && tc.durationMs != null && (
-          <span className="ml-auto text-[10px] tabular-nums text-gray-500">
+          <span style={{
+            marginLeft: 'auto',
+            fontFamily: "'JetBrains Mono', ui-monospace, monospace",
+            fontSize: 10, color: 'rgba(237,240,244,0.38)',
+            fontVariantNumeric: 'tabular-nums',
+          }}>
             {tc.durationMs < 1000 ? `${tc.durationMs}ms` : `${(tc.durationMs / 1000).toFixed(1)}s`}
           </span>
         )}
         {!isRunning && tc.durationMs == null && tc.elapsedMs != null && (
-          <span className="ml-auto text-[10px] tabular-nums text-gray-500">
+          <span style={{
+            marginLeft: 'auto',
+            fontFamily: "'JetBrains Mono', ui-monospace, monospace",
+            fontSize: 10, color: 'rgba(237,240,244,0.38)',
+            fontVariantNumeric: 'tabular-nums',
+          }}>
             {tc.elapsedMs < 1000 ? `${tc.elapsedMs}ms` : `${(tc.elapsedMs / 1000).toFixed(1)}s`}
           </span>
         )}
-
-        {/* Expand/collapse chevron */}
-        <svg
-          className={`w-3 h-3 flex-shrink-0 transition-transform ${isExpanded ? 'rotate-180' : ''} text-gray-500`}
-          viewBox="0 0 20 20"
-          fill="currentColor"
-        >
+        <svg width={12} height={12} viewBox="0 0 20 20" fill="currentColor"
+          style={{ flexShrink: 0, transition: 'transform 0.2s', transform: isExpanded ? 'rotate(180deg)' : '', color: 'rgba(237,240,244,0.38)' }}>
           <path fillRule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.938a.75.75 0 111.08 1.04l-4.25 4.5a.75.75 0 01-1.08 0l-4.25-4.5a.75.75 0 01.02-1.06z" />
         </svg>
       </button>
 
-      {/* Expanded detail panel */}
       {isExpanded && (
-        <div className="px-2.5 pb-2.5 space-y-1.5 border-t border-gray-700/40">
-          {/* Description */}
+        <div style={{
+          padding: '0 10px 10px', borderTop: '1px solid rgba(230,235,242,0.07)',
+          fontFamily: "'JetBrains Mono', ui-monospace, monospace", fontSize: 11,
+        }}>
           {tc.description && (
-            <p className="text-[11px] mt-1.5 italic text-gray-500">
+            <p style={{ fontSize: 11, fontStyle: 'italic', color: 'rgba(237,240,244,0.38)', marginTop: 6 }}>
               {tc.description}
             </p>
           )}
-
-          {/* Arguments */}
           {tc.args && Object.keys(tc.args).length > 0 && (
-            <div>
-              <div className="text-[10px] font-semibold mt-1 text-gray-500 uppercase tracking-wide">Input</div>
-              <pre className="text-[11px] mt-0.5 whitespace-pre-wrap break-all leading-snug max-h-32 overflow-y-auto text-gray-300">
+            <div style={{ marginTop: 6 }}>
+              <div style={{ fontSize: 9, fontWeight: 600, letterSpacing: '0.16em', textTransform: 'uppercase', color: 'rgba(237,240,244,0.38)' }}>Input</div>
+              <pre style={{ fontSize: 11, whiteSpace: 'pre-wrap', wordBreak: 'break-all', lineHeight: 1.4, maxHeight: 128, overflowY: 'auto', color: 'rgba(237,240,244,0.62)', marginTop: 4 }}>
                 {_formatArgs(tc.args)}
               </pre>
             </div>
           )}
-
-          {/* Result */}
           {tc.result !== undefined && tc.status === 'done' && (
-            <div>
-              <div className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide">Output</div>
-              <pre className="text-[11px] mt-0.5 whitespace-pre-wrap break-all leading-snug max-h-48 overflow-y-auto text-gray-300">
+            <div style={{ marginTop: 6 }}>
+              <div style={{ fontSize: 9, fontWeight: 600, letterSpacing: '0.16em', textTransform: 'uppercase', color: 'rgba(237,240,244,0.38)' }}>Output</div>
+              <pre style={{ fontSize: 11, whiteSpace: 'pre-wrap', wordBreak: 'break-all', lineHeight: 1.4, maxHeight: 192, overflowY: 'auto', color: 'rgba(237,240,244,0.62)', marginTop: 4 }}>
                 {_formatResult(tc.result)}
               </pre>
             </div>
           )}
-
-          {/* Still running */}
           {isRunning && !tc.result && (
-            <p className={`text-[10px] italic mt-1 ${isHung ? 'text-red-400' : 'text-gray-500'}`}>
+            <p style={{ fontSize: 10, fontStyle: 'italic', marginTop: 6, color: isHung ? '#D97757' : 'rgba(237,240,244,0.38)' }}>
               {isHung ? 'Tool may be stuck...' : 'Waiting for result...'}
             </p>
           )}
@@ -204,142 +194,102 @@ function ToolCallBubble({ tc, isExpanded, onToggle }: {
   );
 }
 
-/* ── Confirmation Card ────────────────────────────────────────────── */
-
 function ConfirmationCard({ confirm, onApprove, onDeny }: {
   confirm: PendingConfirmation;
   onApprove?: () => void;
   onDeny?: () => void;
 }) {
-  const borderColor = confirm.status === 'approved'
-    ? 'border-green-700/40 bg-green-900/20'
-    : confirm.status === 'denied'
-    ? 'border-red-700/40 bg-red-900/20'
-    : 'border-amber-700/40 bg-amber-900/20';
-
-  const dotColor = confirm.status === 'approved'
-    ? 'bg-green-500'
-    : confirm.status === 'denied'
-    ? 'bg-red-500'
-    : 'bg-amber-400 animate-pulse';
-
-  const statusLabel = confirm.status === 'approved'
-    ? 'Approved'
-    : confirm.status === 'denied'
-    ? 'Denied'
-    : 'Awaiting approval';
+  const bg = confirm.status === 'approved' ? 'rgba(142,165,137,0.08)' : confirm.status === 'denied' ? 'rgba(217,119,87,0.08)' : 'rgba(212,168,90,0.06)';
+  const border = confirm.status === 'approved' ? 'rgba(142,165,137,0.2)' : confirm.status === 'denied' ? 'rgba(217,119,87,0.2)' : 'rgba(212,168,90,0.15)';
+  const dotColor = confirm.status === 'approved' ? '#8EA589' : confirm.status === 'denied' ? '#D97757' : '#D4A85A';
+  const statusLabel = confirm.status === 'approved' ? 'Approved' : confirm.status === 'denied' ? 'Denied' : 'Awaiting approval';
 
   return (
-    <div className={`mt-3 rounded-xl border p-3 ${borderColor}`}>
-      <div className="flex items-center gap-2 mb-1">
-        <span className={`w-2 h-2 rounded-full ${dotColor}`} />
-        <span className="text-xs font-semibold text-gray-200">{statusLabel}</span>
+    <div style={{ marginTop: 12, borderRadius: 6, border: `1px solid ${border}`, background: bg, padding: 12 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+        <span style={{ width: 6, height: 6, borderRadius: '50%', background: dotColor, animation: confirm.status === 'pending' ? 'pulse 2s infinite' : 'none' }} />
+        <span style={{ fontSize: 12, fontWeight: 600, color: '#EDF0F4' }}>{statusLabel}</span>
       </div>
-      <p className="text-xs text-gray-400 mb-2">
+      <p style={{ fontSize: 12, color: 'rgba(237,240,244,0.62)', marginBottom: 8 }}>
         {confirm.description || `Execute ${confirm.tool}`}
       </p>
       {confirm.status === 'pending' && (
-        <div className="flex gap-2">
-          <button
-            onClick={onApprove}
-            className="px-3 py-1 text-xs font-medium rounded-lg bg-green-700/50 text-green-200 hover:bg-green-700/70 transition"
-          >
-            Approve
-          </button>
-          <button
-            onClick={onDeny}
-            className="px-3 py-1 text-xs font-medium rounded-lg bg-red-700/50 text-red-200 hover:bg-red-700/70 transition"
-          >
-            Deny
-          </button>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button onClick={onApprove} style={{
+            padding: '5px 12px', fontSize: 12, fontWeight: 500, borderRadius: 4,
+            background: 'rgba(142,165,137,0.2)', color: '#8EA589',
+            border: 'none', cursor: 'pointer',
+          }}>Approve</button>
+          <button onClick={onDeny} style={{
+            padding: '5px 12px', fontSize: 12, fontWeight: 500, borderRadius: 4,
+            background: 'rgba(217,119,87,0.15)', color: '#D97757',
+            border: 'none', cursor: 'pointer',
+          }}>Deny</button>
         </div>
       )}
     </div>
   );
 }
-
-/* ── Plan Card ────────────────────────────────────────────────────── */
 
 function PlanCard({ plan, onApprove, onIterate }: {
   plan: PendingPlan;
   onApprove?: () => void;
   onIterate?: () => void;
 }) {
-  const borderColor = plan.status === 'approved'
-    ? 'border-green-700/40 bg-green-900/15'
-    : plan.status === 'iterating'
-    ? 'border-gray-600/40 bg-gray-800/30'
-    : 'border-teal-600/40 bg-teal-900/15';
+  const bg = plan.status === 'approved' ? 'rgba(142,165,137,0.06)' : plan.status === 'iterating' ? 'rgba(34,40,48,0.55)' : 'rgba(212,168,90,0.06)';
+  const border = plan.status === 'approved' ? 'rgba(142,165,137,0.15)' : plan.status === 'iterating' ? 'rgba(230,235,242,0.07)' : 'rgba(212,168,90,0.15)';
 
   return (
-    <div className={`mt-3 rounded-xl border p-4 ${borderColor}`}>
-      <div className="flex items-center gap-2 mb-3">
-        {plan.status === 'pending' && (
-          <svg className="w-4 h-4 text-teal-400 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <rect x="3" y="3" width="18" height="18" rx="2" />
-            <path d="M8 7h8M8 12h8M8 17h4" />
-          </svg>
-        )}
-        {plan.status === 'approved' && (
-          <svg className="w-4 h-4 text-green-400 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-            <polyline points="20 6 9 17 4 12" />
-          </svg>
-        )}
-        {plan.status === 'iterating' && (
-          <svg className="w-4 h-4 text-gray-400 shrink-0 animate-spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M21 12a9 9 0 11-6.219-8.56" />
-          </svg>
-        )}
-        <span className={`text-xs font-semibold ${
-          plan.status === 'approved' ? 'text-green-300' : plan.status === 'iterating' ? 'text-gray-400' : 'text-teal-300'
-        }`}>
+    <div style={{ marginTop: 12, borderRadius: 6, border: `1px solid ${border}`, background: bg, padding: 16 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+        <span style={{
+          fontSize: 11, fontWeight: 600,
+          color: plan.status === 'approved' ? '#8EA589' : plan.status === 'iterating' ? 'rgba(237,240,244,0.38)' : '#D4A85A',
+        }}>
           {plan.status === 'pending' && 'Proposed Plan'}
           {plan.status === 'approved' && 'Plan Approved'}
           {plan.status === 'iterating' && 'Refining Plan...'}
         </span>
       </div>
-      <div className="text-sm text-gray-200">
+      <div style={{ fontSize: 14, color: '#EDF0F4' }}>
         <MarkdownContent content={plan.plan} />
       </div>
       {plan.status === 'pending' && (
-        <div className="flex gap-2 mt-4 pt-3 border-t border-teal-700/30">
-          <button
-            onClick={onApprove}
-            className="px-4 py-2 text-xs font-medium bg-teal-700/60 text-teal-200 rounded-lg hover:bg-teal-700/80 transition"
-          >
-            Approve & Execute
-          </button>
-          <button
-            onClick={onIterate}
-            className="px-4 py-2 text-xs font-medium bg-gray-700/50 text-gray-300 rounded-lg hover:bg-gray-700/70 transition"
-          >
-            Keep Iterating
-          </button>
+        <div style={{ display: 'flex', gap: 8, marginTop: 16, paddingTop: 12, borderTop: `1px solid ${border}` }}>
+          <button onClick={onApprove} style={{
+            padding: '7px 14px', fontSize: 12, fontWeight: 500, borderRadius: 4,
+            background: 'var(--color-ch-accent, #C8D1D9)', color: '#0E1013',
+            border: 'none', cursor: 'pointer',
+          }}>Approve & Execute</button>
+          <button onClick={onIterate} style={{
+            padding: '7px 14px', fontSize: 12, fontWeight: 500, borderRadius: 4,
+            background: 'transparent', color: '#EDF0F4',
+            border: '1px solid rgba(230,235,242,0.14)', cursor: 'pointer',
+          }}>Keep Iterating</button>
         </div>
       )}
     </div>
   );
 }
 
-/* ── Bouncing Dots ────────────────────────────────────────────────── */
-
-function BouncingDots() {
+function TypingDots() {
   return (
-    <div className="flex items-center gap-1 py-1">
-      {[0, 1, 2].map(i => (
-        <span
-          key={i}
-          className="w-1.5 h-1.5 rounded-full bg-gray-500 animate-bounce"
-          style={{ animationDelay: `${i * 0.15}s` }}
-        />
-      ))}
+    <div style={{ display: 'flex', alignItems: 'center', gap: 3, paddingLeft: 42 }}>
+      <div style={{ display: 'flex', gap: 3 }}>
+        {[0, 1, 2].map(i => (
+          <div key={i} style={{
+            width: 5, height: 5, borderRadius: '50%',
+            background: 'var(--color-ch-accent, #C8D1D9)', opacity: 0.7,
+            animation: `typedot 1.2s infinite ${i * 0.15}s`,
+          }} />
+        ))}
+      </div>
+      <style>{`@keyframes typedot { 0%,80%,100% { transform: scale(0.6); opacity: 0.3; } 40% { transform: scale(1); opacity: 1; } }`}</style>
     </div>
   );
 }
 
-/* ── Main Component ───────────────────────────────────────────────── */
-
-function AgentMessageBubbleInner({ message, onApprove, onDeny, onApprovePlan, onIteratePlan }: Props) {
+function AgentMessageBubbleInner({ message, onApprove, onDeny, onApprovePlan, onIteratePlan, agentName }: Props) {
   const isUser = message.role === 'user';
   const [expandedTools, setExpandedTools] = useState<Set<string>>(new Set());
   const { copied, copy } = useCopyToClipboard();
@@ -353,7 +303,6 @@ function AgentMessageBubbleInner({ message, onApprove, onDeny, onApprovePlan, on
     });
   };
 
-  // Tick every second while any tool is running (for elapsed timer)
   const hasRunningTool = message.toolCalls?.some(tc => tc.status === 'running');
   const [, setTick] = useState(0);
   useEffect(() => {
@@ -362,29 +311,40 @@ function AgentMessageBubbleInner({ message, onApprove, onDeny, onApprovePlan, on
     return () => clearInterval(interval);
   }, [hasRunningTool]);
 
-  // ── User message: branded right-aligned bubble ──
   if (isUser) {
     return (
       <div>
-        <div className="flex justify-end">
-          <div className="max-w-[85%] sm:max-w-[75%]">
+        <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+          <div style={{ maxWidth: '80%' }}>
             {message.attachments && message.attachments.length > 0 && (
-              <div className="mb-1.5 flex flex-wrap gap-1 justify-end">
+              <div style={{ marginBottom: 6, display: 'flex', flexWrap: 'wrap', gap: 4, justifyContent: 'flex-end' }}>
                 {message.attachments.map((att, i) => (
-                  <span key={i} className="inline-flex items-center gap-1 px-2 py-0.5 bg-indigo-500/30 border border-indigo-500/40 rounded text-xs text-indigo-200">
-                    <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" /></svg>
+                  <span key={i} style={{
+                    display: 'inline-flex', alignItems: 'center', gap: 4,
+                    padding: '2px 8px', background: 'rgba(200,209,217,0.12)',
+                    border: '1px solid rgba(230,235,242,0.14)', borderRadius: 3,
+                    fontSize: 11, color: 'rgba(237,240,244,0.62)',
+                  }}>
+                    <IconAttach size={12} strokeWidth={1.85} />
                     {att.name}
                   </span>
                 ))}
               </div>
             )}
-            <div className="bg-indigo-600 text-white rounded-2xl rounded-br-sm px-5 py-3.5 text-sm leading-relaxed whitespace-pre-wrap break-words">
+            <div style={{
+              padding: '11px 16px',
+              background: 'rgba(200,209,217,0.12)',
+              border: '1px solid rgba(230,235,242,0.14)',
+              borderRadius: '10px 10px 3px 10px',
+              fontSize: 14.5, lineHeight: 1.5, color: '#EDF0F4',
+              whiteSpace: 'pre-wrap', wordBreak: 'break-word',
+            }}>
               {message.content}
             </div>
           </div>
         </div>
         {message.content && (
-          <div className="flex justify-end mt-1">
+          <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 4 }}>
             <CopyButton copied={copied} onClick={() => copy(message.content)} />
           </div>
         )}
@@ -392,63 +352,77 @@ function AgentMessageBubbleInner({ message, onApprove, onDeny, onApprovePlan, on
     );
   }
 
-  // ── Assistant message: flat, no bubble, markdown rendered ──
+  const letter = agentName?.charAt(0) || 'A';
+
   return (
-    <div className="w-full">
-      {/* Tool calls -- individual expandable pills */}
-      {message.toolCalls && message.toolCalls.length > 0 && (
-        <div className="mb-3 space-y-1.5">
-          {message.toolCalls.map((tc) => (
-            <ToolCallBubble
-              key={tc.toolUseId}
-              tc={tc}
-              isExpanded={expandedTools.has(tc.toolUseId)}
-              onToggle={() => toggleTool(tc.toolUseId)}
-            />
-          ))}
+    <div style={{ display: 'flex', gap: 12 }}>
+      <AgentMark letter={letter} size={30} />
+      <div style={{ flex: 1, maxWidth: '85%' }}>
+        {/* Agent name + timestamp */}
+        <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, marginBottom: 6 }}>
+          <div style={{
+            fontFamily: "'Fraunces', Georgia, serif",
+            fontSize: 14, color: '#D4A85A',
+          }}>{agentName || 'Agent'}</div>
         </div>
-      )}
 
-      {/* Message content */}
-      {message.content ? (
-        <MarkdownContent content={message.content} />
-      ) : message.isStreaming && (!message.toolCalls || message.toolCalls.length === 0) ? (
-        <BouncingDots />
-      ) : null}
+        {/* Tool calls */}
+        {message.toolCalls && message.toolCalls.length > 0 && (
+          <div style={{ marginBottom: 12, display: 'flex', flexDirection: 'column', gap: 6 }}>
+            {message.toolCalls.map(tc => (
+              <ToolCallBubble
+                key={tc.toolUseId}
+                tc={tc}
+                isExpanded={expandedTools.has(tc.toolUseId)}
+                onToggle={() => toggleTool(tc.toolUseId)}
+              />
+            ))}
+          </div>
+        )}
 
-      {/* Inline reports */}
-      {message.reports && message.reports.length > 0 && (
-        <div className="mt-2 space-y-2">
-          {message.reports.map(report => (
-            <ReportRenderer key={report.id} report={report} compact />
-          ))}
-        </div>
-      )}
+        {/* Content */}
+        {message.content ? (
+          <div style={{ fontSize: 14.5, lineHeight: 1.6, color: '#EDF0F4' }}>
+            <MarkdownContent content={message.content} />
+          </div>
+        ) : message.isStreaming && (!message.toolCalls || message.toolCalls.length === 0) ? (
+          <TypingDots />
+        ) : null}
 
-      {/* Confirmation card */}
-      {message.pendingConfirm && (
-        <ConfirmationCard
-          confirm={message.pendingConfirm}
-          onApprove={() => onApprove?.(message.id)}
-          onDeny={() => onDeny?.(message.id)}
-        />
-      )}
+        {/* Reports */}
+        {message.reports && message.reports.length > 0 && (
+          <div style={{ marginTop: 8, display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {message.reports.map(report => (
+              <ReportRenderer key={report.id} report={report} compact />
+            ))}
+          </div>
+        )}
 
-      {/* Plan card */}
-      {message.pendingPlan && (
-        <PlanCard
-          plan={message.pendingPlan}
-          onApprove={() => onApprovePlan?.(message.id)}
-          onIterate={() => onIteratePlan?.(message.id)}
-        />
-      )}
+        {/* Confirmation */}
+        {message.pendingConfirm && (
+          <ConfirmationCard
+            confirm={message.pendingConfirm}
+            onApprove={() => onApprove?.(message.id)}
+            onDeny={() => onDeny?.(message.id)}
+          />
+        )}
 
-      {/* Copy button */}
-      {message.content && (
-        <div className="mt-1">
-          <CopyButton copied={copied} onClick={() => copy(message.content)} />
-        </div>
-      )}
+        {/* Plan */}
+        {message.pendingPlan && (
+          <PlanCard
+            plan={message.pendingPlan}
+            onApprove={() => onApprovePlan?.(message.id)}
+            onIterate={() => onIteratePlan?.(message.id)}
+          />
+        )}
+
+        {/* Copy */}
+        {message.content && (
+          <div style={{ marginTop: 4 }}>
+            <CopyButton copied={copied} onClick={() => copy(message.content)} />
+          </div>
+        )}
+      </div>
     </div>
   );
 }

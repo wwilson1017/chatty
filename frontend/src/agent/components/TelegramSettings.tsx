@@ -628,7 +628,7 @@ function ManagementView({ agentId, agentName, botUsername, telegramEnabled, onUp
             <button
               onClick={handleDisconnect}
               disabled={disconnecting}
-              className="text-sm px-4 py-2 rounded-lg bg-red-600 text-white hover:bg-red-700 transition disabled:opacity-50"
+              className="text-sm px-4 py-2 rounded-md border border-ch-coral/25 text-ch-coral bg-transparent hover:bg-ch-coral/10 transition disabled:opacity-50"
             >
               {disconnecting ? 'Disconnecting...' : 'Confirm Disconnect'}
             </button>

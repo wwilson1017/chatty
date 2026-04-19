@@ -1,22 +1,55 @@
 @import "tailwindcss";
 @import "highlight.js/styles/github-dark.css";
 
-:root {
-  --brand-color: #393c74;
-  --brand-color-dark: #2d2f5e;
-  --brand-color-light: #5558a0;
+@theme {
+  --color-ch-bg: #0A0C0F;
+  --color-ch-bg-elev: #11141A;
+  --color-ch-bg-card: rgba(20, 24, 30, 0.78);
+  --color-ch-bg-raised: rgba(34, 40, 48, 0.55);
+
+  --color-ch-line: rgba(230, 235, 242, 0.07);
+  --color-ch-line-strong: rgba(230, 235, 242, 0.14);
+
+  --color-ch-ink: #EDF0F4;
+  --color-ch-ink-mute: rgba(237, 240, 244, 0.62);
+  --color-ch-ink-dim: rgba(237, 240, 244, 0.38);
+
+  --color-ch-accent: var(--brand-color, #C8D1D9);
+  --color-ch-accent-soft: rgba(200, 209, 217, 0.12);
+  --color-ch-accent-ink: #0E1013;
+  --color-ch-accent-glow: rgba(200, 209, 217, 0.18);
+
+  --color-ch-gold: #D4A85A;
+  --color-ch-gold-soft: rgba(212, 168, 90, 0.10);
+
+  --color-ch-sage: #8EA589;
+  --color-ch-coral: #D97757;
+
+  --font-display: 'Fraunces', Georgia, serif;
+  --font-sans: 'Inter Tight', 'Inter', system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, monospace;
 }
 
-.bg-brand { background-color: var(--brand-color); }
+:root {
+  --brand-color: #C8D1D9;
+  --brand-color-dark: #a8b1b9;
+  --brand-color-light: #dde3e8;
+}
+
+.bg-brand { background-color: var(--brand-color); color: #0E1013; }
 .text-brand { color: var(--brand-color); }
 .border-brand { border-color: var(--brand-color); }
 
 body {
   margin: 0;
-  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  font-family: 'Inter Tight', 'Inter', system-ui, -apple-system, sans-serif;
   -webkit-font-smoothing: antialiased;
-  background: #030712;
-  color: #f9fafb;
+  background: #0A0C0F;
+  color: #EDF0F4;
+}
+
+button, input, select, textarea, option {
+  font-family: inherit;
 }
 
 #root {
@@ -25,8 +58,13 @@ body {
 
 ::-webkit-scrollbar { width: 6px; height: 6px; }
 ::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: #374151; border-radius: 3px; }
-::-webkit-scrollbar-thumb:hover { background: #4b5563; }
+::-webkit-scrollbar-thumb { background: rgba(230, 235, 242, 0.14); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(230, 235, 242, 0.22); }
+
+input:focus, textarea:focus, select:focus {
+  border-color: #D4A85A !important;
+  outline: none;
+}
 
 .streaming-cursor::after {
   content: '▋';

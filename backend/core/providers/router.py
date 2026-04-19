@@ -121,7 +121,7 @@ async def connect_google_key(body: GoogleKeyRequest, user=Depends(get_current_us
 
 class OpenAIKeyRequest(BaseModel):
     api_key: str
-    model: str = "gpt-4o"
+    model: str = "gpt-5.4"
 
 
 @router.post("/openai/connect-key")
@@ -151,7 +151,7 @@ async def connect_openai(user=Depends(get_current_user)):
         access_token=tokens["access_token"],
         refresh_token=tokens.get("refresh_token", ""),
         expires_in=tokens.get("expires_in", 3600),
-        model="gpt-4o",
+        model="gpt-5.4",
     )
     return {"ok": True, "provider": "openai"}
 
@@ -318,7 +318,7 @@ async def sync_openai_cli(user=Depends(get_current_user)):
                 provider = OpenAIProvider(access_token=api_key)
                 if await provider.validate():
                     store = CredentialStore()
-                    store.set_api_key("openai", api_key, model="gpt-4o")
+                    store.set_api_key("openai", api_key, model="gpt-5.4")
                     return {"ok": True, "provider": "openai", "source": str(cred_path)}
 
             # ChatGPT mode: validate via the Node.js proxy sidecar

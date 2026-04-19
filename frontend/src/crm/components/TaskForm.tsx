@@ -9,6 +9,20 @@ interface Props {
   onSaved: () => void;
 }
 
+const labelStyle: React.CSSProperties = {
+  display: 'block',
+  fontFamily: "'JetBrains Mono', ui-monospace, monospace",
+  fontSize: 9, letterSpacing: '0.16em', textTransform: 'uppercase',
+  color: 'rgba(237,240,244,0.38)', marginBottom: 6,
+};
+
+const inputStyle: React.CSSProperties = {
+  width: '100%', boxSizing: 'border-box',
+  background: 'rgba(34,40,48,0.55)', border: '1px solid rgba(230,235,242,0.14)',
+  color: '#EDF0F4', borderRadius: 4, padding: '8px 12px', fontSize: 13, outline: 'none',
+  fontFamily: "'Inter Tight', system-ui, sans-serif",
+};
+
 export function TaskForm({ contactId, dealId, onClose, onSaved }: Props) {
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
@@ -22,8 +36,7 @@ export function TaskForm({ contactId, dealId, onClose, onSaved }: Props) {
   useEffect(() => {
     if (!contactId) {
       api<{ contacts: CrmContact[] }>('/api/crm/contacts?limit=200')
-        .then(d => setContacts(d.contacts))
-        .catch(() => {});
+        .then(d => setContacts(d.contacts)).catch(() => {});
     }
   }, [contactId]);
 
@@ -37,55 +50,45 @@ export function TaskForm({ contactId, dealId, onClose, onSaved }: Props) {
       if (dealId) body.deal_id = dealId;
       await api('/api/crm/tasks', { method: 'POST', body: JSON.stringify(body) });
       onSaved();
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Failed to save');
-    }
+    } catch (err: unknown) { setError(err instanceof Error ? err.message : 'Failed to save'); }
     setSaving(false);
   }
 
   return (
-    <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50" onClick={onClose}>
-      <form
-        onClick={e => e.stopPropagation()}
-        onSubmit={handleSubmit}
-        className="bg-gray-900 rounded-2xl border border-gray-700 p-6 w-full max-w-md"
-      >
-        <h2 className="text-white font-bold text-lg mb-4">New Task</h2>
-        {error && <p className="text-red-400 text-xs mb-3">{error}</p>}
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50 }} onClick={onClose}>
+      <form onClick={e => e.stopPropagation()} onSubmit={handleSubmit} style={{
+        background: '#11141A', borderRadius: 6, border: '1px solid rgba(230,235,242,0.14)',
+        padding: 24, width: '100%', maxWidth: 420, boxShadow: '0 8px 40px rgba(0,0,0,0.5)',
+      }}>
+        <h2 style={{ fontFamily: "'Fraunces', Georgia, serif", fontSize: 20, fontWeight: 400, letterSpacing: '-0.02em', color: '#EDF0F4', marginBottom: 20 }}>New Task</h2>
+        {error && <p style={{ color: '#D97757', fontSize: 12, marginBottom: 12 }}>{error}</p>}
 
-        <div className="space-y-3">
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
           <div>
-            <label className="text-gray-400 text-xs block mb-1">What needs to be done? *</label>
-            <input value={title} onChange={e => setTitle(e.target.value)} className="w-full bg-gray-800 border border-gray-700 text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-indigo-500" />
+            <label style={labelStyle}>What needs to be done? *</label>
+            <input value={title} onChange={e => setTitle(e.target.value)} style={inputStyle} />
           </div>
-
           <div>
-            <label className="text-gray-400 text-xs block mb-1">Description</label>
-            <textarea value={description} onChange={e => setDescription(e.target.value)} rows={2} className="w-full bg-gray-800 border border-gray-700 text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-indigo-500 resize-none" />
+            <label style={labelStyle}>Description</label>
+            <textarea value={description} onChange={e => setDescription(e.target.value)} rows={2} style={{ ...inputStyle, resize: 'none' }} />
           </div>
-
           {!contactId && (
             <div>
-              <label className="text-gray-400 text-xs block mb-1">Contact</label>
-              <select
-                value={selectedContact ?? ''}
-                onChange={e => setSelectedContact(e.target.value ? Number(e.target.value) : null)}
-                className="w-full bg-gray-800 border border-gray-700 text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-indigo-500"
-              >
+              <label style={labelStyle}>Contact</label>
+              <select value={selectedContact ?? ''} onChange={e => setSelectedContact(e.target.value ? Number(e.target.value) : null)} style={inputStyle}>
                 <option value="">No contact</option>
                 {contacts.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
               </select>
             </div>
           )}
-
-          <div className="grid grid-cols-2 gap-3">
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
             <div>
-              <label className="text-gray-400 text-xs block mb-1">Due Date</label>
-              <input type="date" value={dueDate} onChange={e => setDueDate(e.target.value)} className="w-full bg-gray-800 border border-gray-700 text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-indigo-500" />
+              <label style={labelStyle}>Due Date</label>
+              <input type="date" value={dueDate} onChange={e => setDueDate(e.target.value)} style={inputStyle} />
             </div>
             <div>
-              <label className="text-gray-400 text-xs block mb-1">Priority</label>
-              <select value={priority} onChange={e => setPriority(e.target.value)} className="w-full bg-gray-800 border border-gray-700 text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-indigo-500">
+              <label style={labelStyle}>Priority</label>
+              <select value={priority} onChange={e => setPriority(e.target.value)} style={inputStyle}>
                 <option value="low">Low</option>
                 <option value="medium">Medium</option>
                 <option value="high">High</option>
@@ -94,11 +97,18 @@ export function TaskForm({ contactId, dealId, onClose, onSaved }: Props) {
           </div>
         </div>
 
-        <div className="flex gap-2 mt-5">
-          <button type="button" onClick={onClose} className="flex-1 py-2 text-sm rounded-lg border border-gray-600 text-gray-400 hover:bg-gray-800 transition">Cancel</button>
-          <button type="submit" disabled={saving} className="flex-1 py-2 text-sm rounded-lg bg-brand text-white font-medium disabled:opacity-50">
-            {saving ? 'Saving...' : 'Create Task'}
-          </button>
+        <div style={{ display: 'flex', gap: 8, marginTop: 20 }}>
+          <button type="button" onClick={onClose} style={{
+            flex: 1, padding: '9px 16px', borderRadius: 4,
+            border: '1px solid rgba(230,235,242,0.14)', background: 'transparent',
+            color: 'rgba(237,240,244,0.62)', fontSize: 13, cursor: 'pointer',
+          }}>Cancel</button>
+          <button type="submit" disabled={saving} style={{
+            flex: 1, padding: '9px 16px', borderRadius: 4,
+            background: '#D4A85A', color: '#0E1013',
+            border: 'none', fontWeight: 500, fontSize: 13, cursor: 'pointer',
+            opacity: saving ? 0.5 : 1,
+          }}>{saving ? 'Saving...' : 'Create Task'}</button>
         </div>
       </form>
     </div>

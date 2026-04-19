@@ -58,8 +58,8 @@ export default function AgentActivityPanel({ apiPrefix }: { apiPrefix: string })
 
   if (loading) {
     return (
-      <div className="flex items-center gap-2 text-sm text-gray-500 py-8 justify-center">
-        <div className="animate-spin w-4 h-4 border-2 border-indigo-500 border-t-transparent rounded-full" />
+      <div className="flex items-center gap-2 text-sm text-ch-ink-dim py-8 justify-center">
+        <div className="animate-spin w-4 h-4 border-2 border-ch-accent border-t-transparent rounded-full" />
         Loading activity...
       </div>
     );
@@ -68,37 +68,37 @@ export default function AgentActivityPanel({ apiPrefix }: { apiPrefix: string })
   if (records.length === 0) {
     return (
       <div className="text-center py-12">
-        <p className="text-sm text-gray-500">No recent heartbeat activity.</p>
-        <p className="text-xs text-gray-600 mt-1">Actions taken during periodic checks will appear here.</p>
+        <p className="text-sm text-ch-ink-dim">No recent heartbeat activity.</p>
+        <p className="text-xs text-ch-ink-dim mt-1">Actions taken during periodic checks will appear here.</p>
       </div>
     );
   }
 
   return (
     <div className="space-y-2 p-4">
-      <h3 className="text-sm font-semibold text-gray-200 mb-3">Recent Activity</h3>
+      <h3 className="text-sm font-semibold text-ch-ink mb-3">Recent Activity</h3>
       {records.map(rec => (
-        <div key={rec.id} className="border border-gray-700 rounded-lg bg-gray-900">
+        <div key={rec.id} className="border border-ch-line-strong rounded-lg bg-ch-bg-elev">
           <button
             onClick={() => setExpanded(expanded === rec.id ? null : rec.id)}
-            className="w-full px-4 py-3 flex items-center gap-3 text-left hover:bg-gray-800/50 transition-colors rounded-lg"
+            className="w-full px-4 py-3 flex items-center gap-3 text-left hover:bg-ch-bg-raised/50 transition-colors rounded-lg"
           >
-            <div className="w-2 h-2 rounded-full bg-indigo-500 shrink-0" />
+            <div className="w-2 h-2 rounded-full bg-ch-gold shrink-0" />
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-2">
-                <span className="text-xs font-medium text-gray-200 capitalize">{rec.action_type}</span>
-                <span className="text-xs text-gray-500">{timeAgo(rec.started_at)}</span>
+                <span className="text-xs font-medium text-ch-ink capitalize">{rec.action_type}</span>
+                <span className="text-xs text-ch-ink-dim">{timeAgo(rec.started_at)}</span>
               </div>
               {rec.result_summary && (
-                <p className="text-xs text-gray-500 truncate mt-0.5">{rec.result_summary}</p>
+                <p className="text-xs text-ch-ink-dim truncate mt-0.5">{rec.result_summary}</p>
               )}
             </div>
-            <div className="text-xs text-gray-500 shrink-0 text-right">
+            <div className="text-xs text-ch-ink-dim shrink-0 text-right">
               {rec.duration_ms ? `${(rec.duration_ms / 1000).toFixed(1)}s` : ''}
               {rec.tool_calls && ` | ${rec.tool_calls.length} tools`}
             </div>
             <svg
-              className={`w-4 h-4 text-gray-500 shrink-0 transition-transform ${expanded === rec.id ? 'rotate-180' : ''}`}
+              className={`w-4 h-4 text-ch-ink-dim shrink-0 transition-transform ${expanded === rec.id ? 'rotate-180' : ''}`}
               fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}
             >
               <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
@@ -106,8 +106,8 @@ export default function AgentActivityPanel({ apiPrefix }: { apiPrefix: string })
           </button>
 
           {expanded === rec.id && (
-            <div className="px-4 pb-4 border-t border-gray-700/50">
-              <div className="flex flex-wrap gap-3 mt-3 text-xs text-gray-500">
+            <div className="px-4 pb-4 border-t border-ch-line-strong/50">
+              <div className="flex flex-wrap gap-3 mt-3 text-xs text-ch-ink-dim">
                 {rec.model_used && <span>Model: {rec.model_used.split('-').slice(-2).join('-')}</span>}
                 <span>Tokens: {formatTokens(rec.input_tokens + rec.output_tokens)}</span>
                 <span>{new Date(rec.started_at + 'Z').toLocaleString()}</span>
@@ -115,7 +115,7 @@ export default function AgentActivityPanel({ apiPrefix }: { apiPrefix: string })
 
               {rec.result_full && (
                 <div className="mt-3">
-                  <div className="text-xs text-gray-400 bg-gray-800/50 px-3 py-2 rounded max-h-40 overflow-auto whitespace-pre-wrap">
+                  <div className="text-xs text-ch-ink-mute bg-ch-bg-raised/50 px-3 py-2 rounded max-h-40 overflow-auto whitespace-pre-wrap">
                     {rec.result_full}
                   </div>
                 </div>
@@ -124,13 +124,13 @@ export default function AgentActivityPanel({ apiPrefix }: { apiPrefix: string })
               {rec.tool_calls && rec.tool_calls.length > 0 && (
                 <div className="mt-3 space-y-1.5">
                   {rec.tool_calls.map((tc, i) => (
-                    <div key={i} className="text-xs bg-gray-800/50 px-3 py-2 rounded">
+                    <div key={i} className="text-xs bg-ch-bg-raised/50 px-3 py-2 rounded">
                       <div className="flex items-center justify-between">
-                        <span className="font-medium text-gray-200">{tc.tool}</span>
-                        <span className="text-gray-500">{tc.duration_ms}ms</span>
+                        <span className="font-medium text-ch-ink">{tc.tool}</span>
+                        <span className="text-ch-ink-dim">{tc.duration_ms}ms</span>
                       </div>
                       {tc.result && (
-                        <div className="text-gray-500 mt-1 max-h-16 overflow-auto whitespace-pre-wrap">{tc.result}</div>
+                        <div className="text-ch-ink-dim mt-1 max-h-16 overflow-auto whitespace-pre-wrap">{tc.result}</div>
                       )}
                     </div>
                   ))}

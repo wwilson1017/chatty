@@ -1,41 +1,53 @@
 import { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useOutletContext } from 'react-router-dom';
 import { api } from '../core/api/client';
 import { AgentCard } from './AgentCard';
 import { CreateAgentModal } from './CreateAgentModal';
-import { SettingsPanel } from './SettingsPanel';
-import type { Agent, BrandingConfig, Integration, ProviderStatus } from '../core/types';
+import { WarmHalo } from '../shared/WarmHalo';
+import { IconSearch, IconPlus } from '../shared/icons';
+import type { Agent, BrandingConfig, ProviderStatus } from '../core/types';
+
+const SUGGESTED_ROLES = [
+  { role: 'Personal Assistant', desc: 'Scheduling, email drafts, meeting prep' },
+  { role: 'AP Clerk', desc: 'Invoice review, vendor payments, expense tracking' },
+  { role: 'AR Clerk', desc: 'Collections, payment tracking, customer billing' },
+  { role: 'Customer Service', desc: 'Ticket triage, inquiries, escalations' },
+  { role: 'Purchasing', desc: 'Vendor sourcing, purchase orders, cost analysis' },
+  { role: 'Sales Rep', desc: 'Lead qualification, outreach, deal closing' },
+  { role: 'Sales Support', desc: 'Proposals, follow-ups, CRM updates' },
+  { role: 'Research Analyst', desc: 'Market research, competitive analysis, reports' },
+  { role: 'Bookkeeper', desc: 'Reconciliation, journal entries, financial reports' },
+  { role: 'HR Coordinator', desc: 'Onboarding, time-off requests, policy questions' },
+  { role: 'Marketing Assistant', desc: 'Content ideas, social posts, campaign tracking' },
+  { role: 'Operations Manager', desc: 'Process optimization, vendor coordination, logistics' },
+];
+
+const mono = (size: number, color = 'rgba(237,240,244,0.38)') => ({
+  fontFamily: "'JetBrains Mono', ui-monospace, monospace",
+  fontSize: size, letterSpacing: '0.16em',
+  textTransform: 'uppercase' as const, color,
+});
 
 export function DashboardPage() {
   const [agents, setAgents] = useState<Agent[]>([]);
-  const [branding, setBranding] = useState<BrandingConfig | null>(null);
   const [showCreate, setShowCreate] = useState(false);
-  const [showSettings, setShowSettings] = useState(false);
+  const [suggestedTitle, setSuggestedTitle] = useState('');
   const [loading, setLoading] = useState(true);
-  const [crmEnabled, setCrmEnabled] = useState(false);
   const navigate = useNavigate();
+  const context = useOutletContext<{ branding: BrandingConfig | null; setBranding: (b: BrandingConfig) => void }>();
+  const branding = context?.branding;
 
   useEffect(() => {
     Promise.all([
       api<{ agents: Agent[] }>('/api/agents'),
-      api<BrandingConfig>('/api/branding'),
-      api<{ integrations: Integration[] }>('/api/integrations'),
       api<ProviderStatus>('/api/providers'),
-    ]).then(([agentsData, brandingData, intData, providerData]) => {
-      // Redirect to onboarding if no AI provider is configured
+    ]).then(([agentsData, providerData]) => {
       const anyProviderConfigured = Object.values(providerData.profiles).some(p => p.configured);
       if (!anyProviderConfigured) {
         navigate('/setup', { replace: true });
         return;
       }
-
       setAgents(agentsData.agents);
-      setBranding(brandingData);
-      setCrmEnabled(intData.integrations.some(i => i.id === 'crm_lite' && i.enabled));
-      // Apply brand color
-      if (brandingData.accent_color) {
-        document.documentElement.style.setProperty('--brand-color', brandingData.accent_color);
-      }
     }).catch(err => {
       console.error('Dashboard load error:', err);
     }).finally(() => setLoading(false));
@@ -47,123 +59,197 @@ export function DashboardPage() {
     setAgents(prev => prev.filter(a => a.id !== id));
   }
 
+  const companyName = branding?.company_name || 'Chatty';
+  const hour = new Date().getHours();
+  const greeting = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening';
+
   return (
-    <div className="min-h-screen bg-gray-950">
-      {/* Header */}
-      <header className="border-b border-gray-800 px-6 py-4 flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <img
-            src={branding?.has_logo ? '/api/branding/logo' : '/chatty-logo.png'}
-            alt="Logo"
-            className="h-8 w-auto rounded-lg"
-          />
-          <span className="text-white font-semibold text-lg">
-            {branding?.company_name || 'Chatty'}
-          </span>
+    <div style={{ height: '100%', overflow: 'auto', position: 'relative' }}>
+      <WarmHalo />
+
+      {/* Top bar */}
+      <div style={{
+        height: 48, display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+        padding: '0 24px', borderBottom: '1px solid rgba(230,235,242,0.07)',
+        position: 'relative', zIndex: 2,
+      }}>
+        <div style={mono(10, 'rgba(237,240,244,0.62)')}>
+          {companyName} · {new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}
+        </div>
+        <div style={{
+          padding: '5px 12px', borderRadius: 4,
+          background: 'rgba(245,239,227,0.04)', border: '1px solid rgba(230,235,242,0.07)',
+          fontFamily: "'JetBrains Mono', ui-monospace, monospace",
+          fontSize: 11, color: 'rgba(237,240,244,0.62)',
+          display: 'flex', gap: 8, alignItems: 'center', cursor: 'pointer',
+        }}>
+          <IconSearch size={13} strokeWidth={1.85} /> Ask Chatty, or jump to…
+          <span style={{ color: 'rgba(237,240,244,0.38)', marginLeft: 20, letterSpacing: '0.1em' }}>⌘K</span>
+        </div>
+      </div>
+
+      {/* Hero */}
+      <div style={{
+        padding: '44px 44px 28px', borderBottom: '1px solid rgba(230,235,242,0.07)',
+        position: 'relative', zIndex: 2,
+      }}>
+        <h1 style={{
+          fontFamily: "'Fraunces', Georgia, serif",
+          fontSize: 54, fontWeight: 400, letterSpacing: '-0.028em',
+          lineHeight: 1.02, margin: 0, color: '#EDF0F4',
+        }}>
+          {greeting}.
+        </h1>
+        <div style={{
+          fontFamily: "'Fraunces', Georgia, serif",
+          fontSize: 22, fontStyle: 'italic',
+          color: 'rgba(237,240,244,0.62)', marginTop: 10,
+          letterSpacing: '-0.01em', lineHeight: 1.35,
+        }}>
+          {loading ? 'Loading your agents...' : agents.length === 0 ? (
+            'No agents yet — commission your first one below.'
+          ) : (
+            <>You have <span style={{ color: '#D4A85A', fontStyle: 'normal' }}>{agents.length} agent{agents.length !== 1 ? 's' : ''}</span> ready to work.</>
+          )}
         </div>
 
-        <button
-          onClick={() => setShowSettings(true)}
-          className="text-gray-400 hover:text-white transition p-2 rounded-lg hover:bg-gray-800"
-          title="Settings"
-        >
-          ⚙️
-        </button>
-      </header>
+        {/* Stats strip */}
+        {!loading && agents.length > 0 && (
+          <div style={{
+            display: 'flex', gap: 48, marginTop: 28, paddingTop: 22,
+            borderTop: '1px dashed rgba(230,235,242,0.07)',
+          }}>
+            {[
+              ['Agents', String(agents.length), null],
+            ].map(([label, value, sub]) => (
+              <div key={label as string}>
+                <div style={mono(9, 'rgba(237,240,244,0.38)')}>{label}</div>
+                <div style={{
+                  fontFamily: "'Fraunces', Georgia, serif",
+                  fontSize: 26, lineHeight: 1, fontWeight: 400,
+                  letterSpacing: '-0.02em', marginTop: 6, color: '#EDF0F4',
+                }}>{value}</div>
+                {sub && <div style={{ fontSize: 10, color: 'rgba(237,240,244,0.38)', marginTop: 4 }}>{sub}</div>}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
 
-      {/* Main */}
-      <main className="max-w-6xl mx-auto px-6 py-10">
-        <div className="flex items-center justify-between mb-8">
-          <div>
-            <h1 className="text-2xl font-bold text-white">Your Agents</h1>
-            <p className="text-gray-400 mt-1">Create and manage your AI agents</p>
+      {/* Agents */}
+      <div style={{ padding: '22px 44px 40px', position: 'relative', zIndex: 2 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
+          <div style={mono(10, 'rgba(237,240,244,0.38)')}>
+            Your agents · {agents.length}
           </div>
           <button
             onClick={() => setShowCreate(true)}
-            className="bg-brand text-white font-semibold px-5 py-2.5 rounded-xl hover:opacity-90 transition flex items-center gap-2"
+            style={{
+              background: 'transparent', color: '#EDF0F4',
+              border: '1px solid rgba(230,235,242,0.14)',
+              fontSize: 12, padding: '6px 12px', borderRadius: 4,
+              display: 'flex', alignItems: 'center', gap: 6,
+              cursor: 'pointer', fontFamily: "'Inter Tight', system-ui, sans-serif",
+            }}
           >
-            <span className="text-lg">+</span>
-            New Agent
+            <IconPlus size={13} strokeWidth={2.25} /> Commission agent
           </button>
         </div>
 
         {loading ? (
-          <div className="flex justify-center py-20">
-            <div className="w-8 h-8 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin" />
+          <div style={{ display: 'flex', justifyContent: 'center', padding: '80px 0' }}>
+            <div className="w-8 h-8 border-2 border-ch-accent border-t-transparent rounded-full animate-spin" />
           </div>
         ) : agents.length === 0 ? (
-          <div className="text-center py-20">
-            <img src="/chatty-logo.png" alt="Chatty" className="h-24 w-24 mx-auto mb-4" />
-            <p className="text-gray-400 text-lg mb-6">No agents yet. Create your first one!</p>
-            <button
-              onClick={() => setShowCreate(true)}
-              className="bg-brand text-white font-semibold px-6 py-3 rounded-xl hover:opacity-90 transition"
-            >
-              Create Agent
-            </button>
+          <div>
+            <div style={{
+              fontFamily: "'Fraunces', Georgia, serif",
+              fontSize: 22, fontWeight: 400, letterSpacing: '-0.01em',
+              color: 'rgba(237,240,244,0.62)', marginBottom: 16,
+            }}>
+              Build your team
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8 }}>
+              {SUGGESTED_ROLES.map(s => (
+                <div
+                  key={s.role}
+                  onClick={() => { setSuggestedTitle(s.role); setShowCreate(true); }}
+                  style={{
+                    background: 'rgba(20,24,30,0.78)',
+                    border: '1px dashed rgba(230,235,242,0.14)',
+                    borderRadius: 6, padding: '14px 16px',
+                    cursor: 'pointer',
+                  }}
+                  onMouseEnter={e => { (e.currentTarget as HTMLElement).style.borderColor = 'rgba(212,168,90,0.4)'; (e.currentTarget as HTMLElement).style.borderStyle = 'solid'; }}
+                  onMouseLeave={e => { (e.currentTarget as HTMLElement).style.borderColor = 'rgba(230,235,242,0.14)'; (e.currentTarget as HTMLElement).style.borderStyle = 'dashed'; }}
+                >
+                  <div style={{
+                    fontFamily: "'Fraunces', Georgia, serif",
+                    fontSize: 17, letterSpacing: '-0.01em', color: '#EDF0F4',
+                    marginBottom: 4,
+                  }}>{s.role}</div>
+                  <div style={{
+                    fontSize: 12, color: 'rgba(237,240,244,0.38)', lineHeight: 1.4,
+                  }}>{s.desc}</div>
+                </div>
+              ))}
+            </div>
           </div>
         ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8 }}>
             {agents.map(agent => (
               <AgentCard key={agent.id} agent={agent} onDelete={handleDelete} />
             ))}
           </div>
         )}
 
-        {/* CRM Card */}
-        {!loading && (
-          <div className="mt-10">
-            {crmEnabled ? (
-              <button
-                onClick={() => navigate('/crm')}
-                className="w-full bg-gray-900 border border-gray-800 rounded-2xl p-5 text-left hover:border-gray-700 transition group"
-              >
-                <div className="flex items-center justify-between">
-                  <div>
-                    <h3 className="text-white font-semibold">CRM</h3>
-                    <p className="text-gray-400 text-sm mt-0.5">Manage contacts, deals, tasks, and pipeline</p>
-                  </div>
-                  <span className="text-gray-500 group-hover:text-gray-300 transition">&rarr;</span>
+        {/* Suggested roles — show when fewer than 8 agents */}
+        {!loading && agents.length > 0 && agents.length < 8 && (
+          <div style={{ marginTop: 32 }}>
+            <div style={{
+              fontFamily: "'Fraunces', Georgia, serif",
+              fontSize: 18, fontWeight: 400, letterSpacing: '-0.01em',
+              color: 'rgba(237,240,244,0.5)', marginBottom: 14,
+            }}>
+              Ideas for your team
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8 }}>
+              {SUGGESTED_ROLES.map(s => (
+                <div
+                  key={s.role}
+                  onClick={() => { setSuggestedTitle(s.role); setShowCreate(true); }}
+                  style={{
+                    background: 'transparent',
+                    border: '1px dashed rgba(230,235,242,0.08)',
+                    borderRadius: 6, padding: '10px 14px',
+                    cursor: 'pointer',
+                  }}
+                  onMouseEnter={e => { (e.currentTarget as HTMLElement).style.borderColor = 'rgba(212,168,90,0.3)'; (e.currentTarget as HTMLElement).style.borderStyle = 'solid'; (e.currentTarget as HTMLElement).style.background = 'rgba(20,24,30,0.4)'; }}
+                  onMouseLeave={e => { (e.currentTarget as HTMLElement).style.borderColor = 'rgba(230,235,242,0.08)'; (e.currentTarget as HTMLElement).style.borderStyle = 'dashed'; (e.currentTarget as HTMLElement).style.background = 'transparent'; }}
+                >
+                  <div style={{
+                    fontSize: 14, color: 'rgba(237,240,244,0.5)', letterSpacing: '-0.01em',
+                  }}>{s.role}</div>
+                  <div style={{
+                    fontSize: 11, color: 'rgba(237,240,244,0.25)', marginTop: 3, lineHeight: 1.3,
+                  }}>{s.desc}</div>
                 </div>
-              </button>
-            ) : (
-              <div className="bg-gray-900 border border-gray-800 rounded-2xl p-5">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <h3 className="text-white font-semibold">CRM</h3>
-                    <p className="text-gray-400 text-sm mt-0.5">Lightweight CRM for contacts, deals, and pipeline tracking</p>
-                  </div>
-                  <button
-                    onClick={async () => {
-                      await api('/api/integrations/crm_lite/setup', { method: 'POST' });
-                      setCrmEnabled(true);
-                    }}
-                    className="bg-brand text-white text-sm font-medium px-4 py-2 rounded-lg hover:opacity-90 transition"
-                  >
-                    Setup CRM
-                  </button>
-                </div>
-              </div>
-            )}
+              ))}
+            </div>
           </div>
         )}
-      </main>
+
+      </div>
 
       {showCreate && (
         <CreateAgentModal
-          onClose={() => setShowCreate(false)}
+          suggestedTitle={suggestedTitle}
+          onClose={() => { setShowCreate(false); setSuggestedTitle(''); }}
           onCreated={agent => {
             setAgents(prev => [...prev, agent]);
             setShowCreate(false);
+            setSuggestedTitle('');
           }}
-        />
-      )}
-
-      {showSettings && (
-        <SettingsPanel
-          branding={branding}
-          onBrandingUpdate={setBranding}
-          onClose={() => setShowSettings(false)}
         />
       )}
     </div>
