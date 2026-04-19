@@ -22,7 +22,7 @@ export async function api<T = unknown>(
   const res = await fetch(path, { ...options, headers });
 
   if (res.status === 401) {
-    localStorage.removeItem('chatty_token');
+    sessionStorage.removeItem('chatty_token');
     window.location.href = '/login';
     throw new Error('Session expired');
   }

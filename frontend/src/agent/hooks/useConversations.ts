@@ -38,15 +38,36 @@ export function useConversations(apiPrefix: string) {
     try {
       const data = await api<{
         id: string; title: string;
-        messages: { id: string; role: string; content: string; seq: number }[];
+        messages: { id: string; role: string; content: string; seq: number; tool_calls?: string }[];
       }>(`${apiPrefix}/conversations/${id}`);
       setActiveId(id);
-      return data.messages.map(m => ({
-        id: m.id,
-        role: m.role as 'user' | 'assistant',
-        content: m.content,
-        timestamp: Date.now(),
-      }));
+      return data.messages.map(m => {
+        const msg: ChatMessage = {
+          id: m.id,
+          role: m.role as 'user' | 'assistant',
+          content: m.content,
+          timestamp: Date.now(),
+        };
+        if (m.tool_calls) {
+          try {
+            const parsed = JSON.parse(m.tool_calls);
+            if (Array.isArray(parsed) && parsed.length > 0) {
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              msg.toolCalls = parsed.map((tc: any) => ({
+                tool: tc.tool || '',
+                toolUseId: tc.toolUseId || tc.tool_use_id || '',
+                args: tc.args,
+                result: tc.result,
+                status: 'done' as const,
+                startedAt: 0,
+                elapsedMs: tc.elapsedMs ?? tc.elapsed_ms,
+                durationMs: tc.elapsedMs ?? tc.elapsed_ms ?? tc.durationMs,
+              }));
+            }
+          } catch { /* ignore corrupted tool_calls */ }
+        }
+        return msg;
+      });
     } catch {
       return [];
     } finally {

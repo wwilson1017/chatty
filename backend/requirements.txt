@@ -17,5 +17,7 @@ python-multipart
 beautifulsoup4
 ddgs
 openpyxl
+pdfplumber
+xlrd
 apscheduler
 croniter

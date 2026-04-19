@@ -18,7 +18,7 @@ export function CsvImportModal({ onClose, onImported }: Props) {
     try {
       const formData = new FormData();
       formData.append('file', file);
-      const token = localStorage.getItem('chatty_token');
+      const token = sessionStorage.getItem('chatty_token');
       const resp = await fetch('/api/crm/import', {
         method: 'POST',
         headers: token ? { Authorization: `Bearer ${token}` } : {},

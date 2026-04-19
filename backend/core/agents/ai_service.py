@@ -52,23 +52,46 @@ def _knowledge_management_instructions() -> str:
 
 ## CRITICAL RULES
 
-1. **NEVER narrate saving without actually calling a tool.** Phrases like "I'll save that" or "Let me note that down" are FORBIDDEN unless immediately followed by a `write_context_file` or `append_to_context_file` tool call in the same response.
+1. **NEVER narrate saving without actually calling a tool.** Phrases like "I'll save that" or "Let me note that down" are FORBIDDEN unless immediately followed by a `write_context_file`, `append_to_context_file`, `append_daily_note`, `update_memory`, or `write_shared_context` tool call in the same response. If you say you're saving something, you MUST call the tool. If you don't call the tool, the knowledge is LOST.
 
-2. **Save knowledge proactively.** When the user tells you something new — a fact, preference, rule, correction, or insight — call `write_context_file` or `append_to_context_file` immediately. Do not batch saves for later.
+2. **Save knowledge proactively.** When the user tells you something new — a fact, preference, rule, correction, or insight — save it immediately. Do not wait to be asked. Do not batch saves for later. Save now. Pick the right home:
+   - **Durable snapshot of key people / active projects / decisions / lessons → `update_memory`** (MEMORY.md)
+   - **Running log of what happened today → `append_daily_note`** (one call per event, short and factual)
+   - **Topic-scoped knowledge (rules, processes, account info) → `write_context_file` / `append_to_context_file`**
+   - **Your own identity & self-reflection → `write_context_file('soul.md', ...)`**
+   - **Knowledge any agent on the team could use → `write_shared_context`** (company operations, product details, customer info, process changes, vendor updates — NOT personal user preferences or single-conversation context)
 
-3. **Organize knowledge by topic.** Use descriptive hyphenated filenames (e.g. `team-preferences.md`, `scheduling-rules.md`). Don't dump everything into one file.
+3. **soul.md is your living identity.** Update it when you:
+   - Learn something about a team member's personality, preferences, or working style
+   - Discover a pattern in how you're being used
+   - Receive feedback on your responses (positive or negative)
+   - Form an opinion or develop a preference
+   - Notice something about your own communication style
+   Update soul.md by calling `write_context_file` with the filename `soul.md` and the complete updated content.
 
-4. **When you update a file, include the full content.** `write_context_file` overwrites the file. Always include everything that should remain. Read with `read_context_file` first if unsure.
+4. **MEMORY.md is your living snapshot.** The top of your prompt always shows you your current MEMORY.md — a curated list of Key People, Active Projects, Decisions, and Lessons Learned. When you learn something durable worth carrying across sessions, call `read_memory`, merge in the new item, then call `update_memory` with the full updated content. A weekly background job also rewrites it from recent daily notes; you can trigger `consolidate_memory` on demand if the user asks you to refresh your memory now.
+
+5. **Today's daily note is your running log.** You always see today's daily note in full at the top of your prompt. As meaningful events happen during the conversation — decisions, commitments, people mentioned, tool actions you took, things the user told you — call `append_daily_note` with a short factual entry. A nightly background job then summarizes each day into a one-line headline that appears in the "Recent daily notes" manifest.
+
+6. **The "Your Other Knowledge" manifest lists files you don't currently have loaded.** Topic files and past daily notes are listed there with short headlines. When the conversation references something in the manifest, reach for it: `read_context_file(filename)` for topic files, `read_daily_note(date)` for past days. Do not assume a topic isn't covered just because it isn't fully loaded — check the manifest first.
+
+7. **Organize topic knowledge by topic.** Use descriptive filenames: `vendor-relationships.md`, `scheduling-rules.md`, `team-preferences.md`. Don't dump everything into one file. When a file grows past ~50 lines, consider splitting it.
+
+8. **When you overwrite a file, include the full content.** `write_context_file` and `update_memory` overwrite the file. Always include everything that should remain, plus your additions. Read the file first if you're unsure what's already there.
 
 ## KNOWLEDGE CHECKPOINT
 
 When you see a message containing "[KNOWLEDGE CHECKPOINT]", you MUST:
 1. Review the conversation so far
-2. Identify any new facts, preferences, rules, or insights
-3. Call `write_context_file` or `append_to_context_file` for each piece of new knowledge
-4. Briefly confirm what you saved (1-2 sentences max), then continue naturally
+2. Identify any new facts, preferences, rules, or insights shared by the user
+3. Call `append_daily_note` for meaningful events from this conversation
+4. Call `update_memory` if anything learned is durable enough to live in MEMORY.md
+5. Call `write_context_file` or `append_to_context_file` for topic-scoped knowledge
+6. Call `write_shared_context` if you learned anything other agents would benefit from — company info, product changes, customer details, process updates
+7. Update `soul.md` if you learned anything about yourself, your relationships, or your patterns
+8. Briefly confirm what you saved (1-2 sentences max), then continue the conversation naturally
 
-If there is genuinely nothing new to save, say so in one sentence and move on."""
+If there is genuinely nothing new to save at a checkpoint, say so in one sentence and move on."""
 
 
 def _improve_instructions(config: AgentConfig) -> str:
@@ -91,7 +114,7 @@ You are {config.agent_name} in **Improve Mode**. Your goal is to strengthen your
 6. **Repeat** — move to the next gap until the user exits.
 
 ## Rules
-- Always save with `write_context_file` or `append_to_context_file` — never narrate without saving.
+- Always save with `write_context_file`, `append_to_context_file`, `update_memory`, or `append_daily_note` — never narrate without saving.
 - Don't re-ask things you already know. Reference existing knowledge.
 - One topic at a time. Go deep, not wide.
 - If the user wants to talk about something else, go with it — save what you learn."""
@@ -199,18 +222,22 @@ def _build_system_prompt(
     training_type: str | None = None,
     plan_mode: bool = False,
     first_user_message: str = "",
-) -> str:
-    """Assemble the full system prompt."""
-    now_ct = datetime.now(CT_TZ)
-    date_str = now_ct.strftime("%A, %B %d, %Y")
-    time_str = now_ct.strftime("%I:%M %p CT")
+) -> tuple[str, str]:
+    """Assemble the full system prompt.
 
+    Returns ``(static_text, volatile_text)`` so callers can apply Anthropic
+    prompt caching to the static portion. The static section contains
+    personality, loaded knowledge, manifests, and instructions. The volatile
+    tail is rebuilt every call (current date/time, today's daily note,
+    relevance pre-fetch).
+    """
     context = ctx_manager.load_all_context(agent_name=config.agent_name)
 
     personality = config.personality or (
         f"You are {config.agent_name}, a helpful personal AI assistant."
     )
 
+    # ── Static section (cacheable) ─────────────────────────────────────
     parts = [
         personality,
         "",
@@ -223,77 +250,47 @@ def _build_system_prompt(
         "",
     ]
 
-    # Daily notes — inject today's note if it exists
-    today_note = ctx_manager.today_daily_note_text()
-    if today_note:
-        parts.extend([
-            "# Today's Daily Note",
-            "",
-            today_note,
-            "",
-        ])
-
-    # Daily notes manifest — recent days for reference
-    daily_manifest = ctx_manager.daily_notes_manifest(limit=30)
-    if daily_manifest:
-        parts.extend([
-            "# Recent Daily Notes",
-            "",
-            daily_manifest,
-            "",
-        ])
-
-    # Topic files manifest
+    # Manifests of everything else (always injected)
     topic_manifest = ctx_manager.topic_files_manifest()
-    if topic_manifest:
-        parts.extend([
-            "# Topic Files",
-            "",
-            topic_manifest,
-            "",
-        ])
+    daily_manifest = ctx_manager.daily_notes_manifest(limit=30)
+    if topic_manifest or daily_manifest:
+        parts.append("# Your Other Knowledge (read on demand)")
+        parts.append("")
+        parts.append(
+            "These files exist but are not currently loaded in full. "
+            "Call `read_context_file(filename)` to fetch a topic file or "
+            "`read_daily_note(date)` to fetch a past daily note when the "
+            "conversation references something listed here."
+        )
+        parts.append("")
+        if topic_manifest:
+            parts.append("## Topic files")
+            parts.append(topic_manifest)
+            parts.append("")
+        if daily_manifest:
+            parts.append("## Recent daily notes")
+            parts.append(daily_manifest)
+            parts.append("")
 
-    # Shared context manifest
+    # Shared team context manifest
     try:
         from core.agents.shared_context.service import get_shared_manifest
         shared_manifest = get_shared_manifest()
         if shared_manifest:
-            parts.extend([
-                "# Shared Knowledge (visible to all agents)",
-                "",
-                shared_manifest,
-                "",
-            ])
+            parts.append("# Shared Team Context")
+            parts.append("")
+            parts.append(
+                "Knowledge shared across all agents. Call `read_shared_context(filename=...)` "
+                "or `read_shared_context(entry_id=...)` to read full content. "
+                "When you learn something about company operations, products, customers, or "
+                "processes that other agents would benefit from, share it with "
+                "`write_shared_context` — don't keep team-relevant knowledge to yourself."
+            )
+            parts.append("")
+            parts.append(shared_manifest)
+            parts.append("")
     except Exception:
         pass
-
-    # Relevance pre-fetch — on first message, inject relevant context.
-    # Capped at 30K chars to avoid prompt bloat on broad queries.
-    if first_user_message:
-        relevant = ctx_manager.relevance_prefetch(first_user_message)
-        if relevant:
-            prefetch_parts: list[str] = []
-            prefetch_chars = 0
-            max_prefetch = 30_000
-            for item in relevant:
-                section = f"## [{item['kind']}] {item['name']}\n\n{item['content']}"
-                if prefetch_chars + len(section) > max_prefetch:
-                    break
-                prefetch_parts.append(section)
-                prefetch_chars += len(section)
-            if prefetch_parts:
-                parts.append("# Likely Relevant Context")
-                parts.append("")
-                parts.extend(prefetch_parts)
-                parts.append("")
-
-    parts.extend([
-        "# Current Session",
-        "",
-        f"- Date: {date_str}",
-        f"- Time: {time_str}",
-        "",
-    ])
 
     if training_mode:
         if training_type == "improve":
@@ -324,7 +321,53 @@ def _build_system_prompt(
     if plan_mode:
         parts.append(_plan_mode_instructions())
 
-    return "\n".join(parts)
+    static_text = "\n".join(parts)
+
+    # ── Volatile tail (rebuilt every call) ──────────────────────────────
+    volatile_parts: list[str] = []
+
+    # Today's daily note (changes throughout the day)
+    today_note = ctx_manager.today_daily_note_text()
+    if today_note:
+        volatile_parts.extend([
+            "# Today's Daily Note",
+            "",
+            today_note,
+            "",
+        ])
+
+    # Relevance pre-fetch — on first message, inject relevant context
+    if first_user_message:
+        relevant = ctx_manager.relevance_prefetch(first_user_message)
+        if relevant:
+            prefetch_parts: list[str] = []
+            prefetch_chars = 0
+            max_prefetch = 30_000
+            for item in relevant:
+                section = f"## [{item['kind']}] {item['name']}\n\n{item['content']}"
+                if prefetch_chars + len(section) > max_prefetch:
+                    break
+                prefetch_parts.append(section)
+                prefetch_chars += len(section)
+            if prefetch_parts:
+                volatile_parts.append("# Likely Relevant Context")
+                volatile_parts.append("")
+                volatile_parts.extend(prefetch_parts)
+                volatile_parts.append("")
+
+    now_ct = datetime.now(CT_TZ)
+    date_str = now_ct.strftime("%A, %B %d, %Y")
+    time_str = now_ct.strftime("%I:%M %p CT")
+    volatile_parts.extend([
+        "# Current Session",
+        "",
+        f"- Date: {date_str}",
+        f"- Time: {time_str}",
+        "",
+    ])
+
+    volatile_text = "\n".join(volatile_parts)
+    return (static_text, volatile_text)
 
 
 def _memory_instructions() -> str:
@@ -334,15 +377,12 @@ def _memory_instructions() -> str:
 You have a structured memory system beyond basic context files:
 
 - **Daily Notes** — Use `append_daily_note` to log significant events, decisions, and information as they happen. Each entry is timestamped automatically. Optionally tag entries with a type (decision, person, task, etc.).
-- **MEMORY.md** — Your living snapshot of key facts. Read with `read_memory`, update with `update_memory`. This file is automatically regenerated nightly from your daily notes.
+- **MEMORY.md** — Your living snapshot of key facts. Read with `read_memory`, update with `update_memory`. Regenerated weekly from daily notes; call `consolidate_memory` to refresh on demand.
 - **Search** — Use `search_memory` to find information across all your files, daily notes, and facts.
 - **Facts** — Use `add_fact` to record structured entity-relationship facts (e.g. "John Smith works at Acme Corp"). Query with `query_facts`.
-- **Shared Context** — Use `list_shared_context` / `read_shared_context` / `write_shared_context` to access knowledge shared across all agents.
+- **Shared Context** — Use `list_shared_context` / `read_shared_context` / `write_shared_context` to access knowledge shared across all agents. Share team-relevant knowledge proactively — don't keep it to yourself.
 
-Guidelines:
-- Log important events and decisions to daily notes as they happen
-- Use search_memory before saying "I don't know" — you might have recorded it
-- When you learn structured facts (people, relationships, dates), use add_fact"""
+**Memory guideline:** When asked about past events, decisions, or conversations, check your daily notes and MEMORY.md using `search_memory` rather than guessing. If you're not sure about a fact, say so — don't fabricate memories."""
 
 
 # ── Background GCS sync ────────────────────────────────────────────────────────
@@ -563,7 +603,7 @@ async def chat(
     if len(user_msgs) == 1:
         first_user_msg = user_msgs[0].get("content", "")
 
-    system_prompt = _build_system_prompt(
+    static_prompt, volatile_prompt = _build_system_prompt(
         config, ctx_manager,
         training_mode=training_mode,
         training_type=training_type,
@@ -571,11 +611,11 @@ async def chat(
         first_user_message=first_user_msg,
     )
 
-    # Append integration-specific instructions
+    # Append integration-specific instructions to the static portion
     if integration_tool_defs:
         odoo_tools = [t for t in integration_tool_defs if t.get("name", "").startswith("odoo_")]
         if odoo_tools:
-            system_prompt += (
+            static_prompt += (
                 "\n\n# Odoo ERP Tools Available\n\n"
                 "You have Odoo tools for CRM, helpdesk, sales, purchasing, contacts, projects, "
                 "accounting, manufacturing, inventory, quality, and maintenance. "
@@ -588,7 +628,7 @@ async def chat(
 
         crm_tools = [t for t in integration_tool_defs if t.get("name", "").startswith("crm_")]
         if crm_tools:
-            system_prompt += (
+            static_prompt += (
                 "\n\n# CRM Tools Available\n\n"
                 "You have CRM tools for managing contacts, deals, tasks, and activities. "
                 "When the user mentions a customer, prospect, deal, or follow-up, proactively use CRM tools. "
@@ -598,7 +638,7 @@ async def chat(
 
         qbo_tools = [t for t in integration_tool_defs if t.get("name", "").startswith("qbo_")]
         if qbo_tools:
-            system_prompt += (
+            static_prompt += (
                 "\n\n# QuickBooks Online Tools Available\n\n"
                 "You have QuickBooks tools for invoicing, payments, estimates, customers, vendors, items, "
                 "and financial reports.\n\n"
@@ -612,6 +652,9 @@ async def chat(
                 "- **Never guess IDs** — always query first to find the correct Customer, Item, or Invoice ID.\n"
                 "- Amounts are in the company's home currency.\n"
             )
+
+    # Build the system prompt tuple for provider (enables prompt caching)
+    system_prompt = (static_prompt, volatile_prompt)
 
     accumulated_text = ""
 
@@ -643,6 +686,7 @@ async def chat(
     # ── Tool execution loop ───────────────────────────────────────────
     max_iterations = 20
     iteration = 0
+    all_tool_calls: list[dict] = []  # Accumulate across iterations for persistence
 
     while iteration < max_iterations:
         iteration += 1
@@ -693,14 +737,16 @@ async def chat(
                         "context_window": 200000,  # Default context window
                     })
 
-                # Save assistant turn to history
+                # Save assistant turn to history (with tool calls if any)
                 if persist and turn_text and conversation_id:
                     try:
+                        tc_json = json.dumps(all_tool_calls) if all_tool_calls else None
                         chat_service.save_message(
                             conversation_id=conversation_id,
                             msg_id=str(uuid.uuid4()),
                             role="assistant",
                             content=turn_text,
+                            tool_calls=tc_json,
                         )
                     except Exception as e:
                         logger.warning("Chat history save (assistant) failed: %s", e)
@@ -806,6 +852,16 @@ async def chat(
                 "content": result_str,
             })
 
+            # Accumulate for persistence (cap result preview at 2000 chars)
+            result_preview = result_str[:2000] if len(result_str) > 2000 else result_str
+            all_tool_calls.append({
+                "tool": tool_name,
+                "tool_use_id": tool_use_id,
+                "args": tool_args,
+                "result": result_preview,
+                "elapsed_ms": elapsed_ms,
+            })
+
             yield _sse({
                 "type": "tool_end",
                 "tool": tool_name,
@@ -871,14 +927,14 @@ async def run_sync(
     _internal_fields = {"kind", "writes", "context_memory"}
     provider_tools = [{k: v for k, v in t.items() if k not in _internal_fields} for t in tool_defs]
 
-    # Build system prompt
-    system_prompt = _build_system_prompt(config, ctx_manager)
+    # Build system prompt (returns tuple for caching)
+    static_prompt, volatile_prompt = _build_system_prompt(config, ctx_manager)
 
     # Append integration-specific instructions (same as chat())
     if integration_tool_defs:
         odoo_tools = [t for t in integration_tool_defs if t.get("name", "").startswith("odoo_")]
         if odoo_tools:
-            system_prompt += (
+            static_prompt += (
                 "\n\n# Odoo ERP Tools Available\n\n"
                 "You have Odoo tools for CRM, helpdesk, sales, purchasing, contacts, projects, "
                 "and timesheets. Use them when the user asks about business operations."
@@ -886,7 +942,7 @@ async def run_sync(
 
         qbo_tools = [t for t in integration_tool_defs if t.get("name", "").startswith("qbo_")]
         if qbo_tools:
-            system_prompt += (
+            static_prompt += (
                 "\n\n# QuickBooks Online Tools Available\n\n"
                 "You have QuickBooks tools for invoicing, payments, estimates, customers, vendors, items, "
                 "and financial reports.\n\n"
@@ -900,6 +956,8 @@ async def run_sync(
                 "- **Never guess IDs** — always query first to find the correct Customer, Item, or Invoice ID.\n"
                 "- Amounts are in the company's home currency.\n"
             )
+
+    system_prompt = (static_prompt, volatile_prompt)
 
     # Chat history — save user message
     persist = chat_service is not None
@@ -922,6 +980,7 @@ async def run_sync(
 
     current_messages = list(messages)
     accumulated_text = ""
+    all_tool_calls: list[dict] = []
     max_iterations = 20
 
     for iteration in range(max_iterations):
@@ -945,14 +1004,16 @@ async def run_sync(
                 logger.error("run_sync: provider error: %s", event.get("error"))
                 return accumulated_text or "I encountered an error. Please try again."
 
-        # Save assistant turn to history
+        # Save assistant turn to history (with tool calls)
         if persist and turn_text and conversation_id:
             try:
+                tc_json = json.dumps(all_tool_calls) if all_tool_calls else None
                 chat_service.save_message(
                     conversation_id=conversation_id,
                     msg_id=str(uuid.uuid4()),
                     role="assistant",
                     content=turn_text,
+                    tool_calls=tc_json,
                 )
             except Exception as e:
                 logger.warning("run_sync: chat history save (assistant) failed: %s", e)
@@ -969,17 +1030,29 @@ async def run_sync(
             tool_use_id = tc.get("id", "")
             kind = kind_map.get(tool_name, "context")
 
+            t_start = time.time()
             try:
                 result = await registry.execute_tool(tool_name, tool_args, kind)
                 _sync_context_after_tool(tool_name, result, ctx_manager)
             except Exception as e:
                 logger.error("run_sync: tool %s failed: %s", tool_name, e)
                 result = {"error": str(e)}
+            elapsed_ms = int((time.time() - t_start) * 1000)
 
+            result_str = json.dumps(result)
             results.append({
                 "tool_use_id": tool_use_id,
                 "tool_name": tool_name,
-                "content": json.dumps(result),
+                "content": result_str,
+            })
+
+            result_preview = result_str[:2000] if len(result_str) > 2000 else result_str
+            all_tool_calls.append({
+                "tool": tool_name,
+                "tool_use_id": tool_use_id,
+                "args": tool_args,
+                "result": result_preview,
+                "elapsed_ms": elapsed_ms,
             })
 
         # Append tool results for next turn

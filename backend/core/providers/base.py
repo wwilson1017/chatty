@@ -46,7 +46,7 @@ class AIProvider(ABC):
         self,
         messages: list[dict],
         tools: list[dict],
-        system_prompt: str,
+        system_prompt: "str | tuple[str, str]",
     ) -> AsyncGenerator[dict, None]:
         """
         Stream one LLM turn (one API call).
@@ -55,7 +55,9 @@ class AIProvider(ABC):
             messages: Conversation history in internal format:
                       [{"role": "user"|"assistant", "content": str|list}, ...]
             tools: Tool definitions in internal format (input_schema style).
-            system_prompt: The full system prompt string.
+            system_prompt: Either a single string or a (static, volatile) tuple.
+                           When a tuple is provided, providers that support prompt
+                           caching (e.g. Anthropic) can cache the static portion.
 
         Yields dicts (NOT yet SSE-encoded). Types:
             - {"type": "text", "text": "..."}

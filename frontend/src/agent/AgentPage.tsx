@@ -202,7 +202,7 @@ export function AgentPage() {
         <AgentMark
           letter={letter}
           size={28}
-          avatarUrl={agent.avatar_url ? `${agent.avatar_url}${agent.avatar_url.includes('?') ? '&' : '?'}token=${localStorage.getItem('chatty_token') || ''}` : undefined}
+          avatarUrl={agent.avatar_url ? `${agent.avatar_url}${agent.avatar_url.includes('?') ? '&' : '?'}token=${sessionStorage.getItem('chatty_token') || ''}` : undefined}
         />
 
         <span style={{

@@ -48,9 +48,20 @@ export function AgentChatPanel({
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  const scrollRafRef = useRef<number | null>(null);
   useEffect(() => {
-    const el = scrollContainerRef.current;
-    if (el) el.scrollTop = el.scrollHeight;
+    if (scrollRafRef.current !== null) return;
+    scrollRafRef.current = requestAnimationFrame(() => {
+      scrollRafRef.current = null;
+      const el = scrollContainerRef.current;
+      if (el) el.scrollTop = el.scrollHeight;
+    });
+    return () => {
+      if (scrollRafRef.current !== null) {
+        cancelAnimationFrame(scrollRafRef.current);
+        scrollRafRef.current = null;
+      }
+    };
   }, [messages, scrollContainerRef]);
 
   useEffect(() => {
@@ -255,6 +266,7 @@ export function AgentChatPanel({
           </div>
         </div>
 
+<<<<<<< HEAD
         {/* Context stats */}
         <div style={{
           textAlign: 'center', marginTop: 8,
