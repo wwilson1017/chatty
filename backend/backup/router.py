@@ -203,37 +203,48 @@ def _do_restore(file: UploadFile, content: bytes) -> dict:
         shutil.rmtree(tmp_dir, ignore_errors=True)
         raise
 
-    # Re-initialize all databases
+    # Re-initialize all databases — files are already replaced, so log
+    # failures rather than crashing (the user can restart to recover).
+    failed = []
+
+    def _reinit(name: str, fn) -> None:
+        try:
+            fn()
+        except Exception:
+            logger.exception("Post-restore init failed: %s", name)
+            failed.append(name)
+
     from agents.db import init_db as init_agents_db
-    init_agents_db()
+    _reinit("agents", init_agents_db)
 
     from core.agents.reminders.db import init_db as init_reminders_db
-    init_reminders_db()
+    _reinit("reminders", init_reminders_db)
 
     from core.agents.shared_context.db import init_db as init_shared_context_db
-    init_shared_context_db()
+    _reinit("shared_context", init_shared_context_db)
 
     from core.agents.tool_config_db import init_db as init_tool_config_db
-    init_tool_config_db()
+    _reinit("tool_configs", init_tool_config_db)
 
     from integrations.telegram.state import init_db as init_telegram_db
-    init_telegram_db()
+    _reinit("telegram", init_telegram_db)
+
+    from integrations.whatsapp.state import init_db as init_whatsapp_db
+    _reinit("whatsapp", init_whatsapp_db)
 
     from integrations.registry import is_enabled
     if is_enabled("crm_lite"):
         from integrations.crm_lite.db import init_db as init_crm_db
-        init_crm_db()
+        _reinit("crm_lite", init_crm_db)
 
     if is_enabled("qb_csv"):
         from integrations.qb_csv.db import init_db as init_qb_csv_db
-        init_qb_csv_db()
-
-    try:
-        from integrations.whatsapp.state import init_db as init_whatsapp_db
-        init_whatsapp_db()
-    except Exception:
-        pass
+        _reinit("qb_csv", init_qb_csv_db)
 
     logger.info("Backup restored successfully from %s", file.filename)
 
-    return {"ok": True, "message": "Restore complete. All data has been replaced."}
+    msg = "Restore complete. All data has been replaced."
+    if failed:
+        msg += f" Some databases failed to reinitialize ({', '.join(failed)}) — restart recommended."
+
+    return {"ok": True, "message": msg}
