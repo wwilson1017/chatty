@@ -1,5 +1,5 @@
 import { useLocation, useNavigate } from 'react-router-dom';
-import { IconLogo, IconBot, IconUsers, IconBook, IconSettings } from './icons';
+import { IconLogo, IconBot, IconFunnel, IconBook, IconSettings } from './icons';
 
 interface NavRailProps {
   onSettingsClick: () => void;
@@ -8,7 +8,7 @@ interface NavRailProps {
 
 const navItems = [
   { key: 'agents', icon: IconBot, path: '/', match: (p: string) => p === '/' || p.startsWith('/agent/') },
-  { key: 'crm', icon: IconUsers, path: '/crm', match: (p: string) => p.startsWith('/crm') },
+  { key: 'crm', icon: IconFunnel, path: '/crm', match: (p: string) => p.startsWith('/crm') },
   { key: 'knowledge', icon: IconBook, path: null as string | null, match: () => false },
 ];
 

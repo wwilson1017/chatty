@@ -1,9 +1,13 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../core/api/client';
-import type { CrmDashboard } from '../core/types';
+import type { CrmDashboard, CrmDeal } from '../core/types';
 import { ActivityTimeline } from './components/ActivityTimeline';
+import { DealForm } from './components/DealForm';
+import { DealDetailSheet } from './components/DealDetailSheet';
+import { STAGE_COLORS } from './constants';
 import { WarmHalo } from '../shared/WarmHalo';
+import { useIsMobile } from '../shared/useIsMobile';
 
 const mono = (size: number, color = 'rgba(237,240,244,0.38)') => ({
   fontFamily: "'JetBrains Mono', ui-monospace, monospace",
@@ -14,7 +18,26 @@ const mono = (size: number, color = 'rgba(237,240,244,0.38)') => ({
 export function CrmDashboardPage() {
   const [data, setData] = useState<CrmDashboard | null>(null);
   const [loading, setLoading] = useState(true);
+  const [selectedDeal, setSelectedDeal] = useState<CrmDeal | null>(null);
+  const [editDeal, setEditDeal] = useState<CrmDeal | null>(null);
   const navigate = useNavigate();
+  const isMobile = useIsMobile();
+
+  function reload() {
+    api<CrmDashboard>('/api/crm/dashboard').then(setData);
+  }
+
+  async function updateDealStage(deal: CrmDeal, stage: string) {
+    try {
+      await api(`/api/crm/deals/${deal.id}`, {
+        method: 'PUT', body: JSON.stringify({ stage }),
+      });
+      setSelectedDeal(null);
+      reload();
+    } catch (err) {
+      console.error('Failed to update deal stage:', err);
+    }
+  }
 
   useEffect(() => {
     api<CrmDashboard>('/api/crm/dashboard')
@@ -36,27 +59,29 @@ export function CrmDashboardPage() {
   const totalPipelineValue = `$${formatNumber(data.total_pipeline_value)}`;
   const totalDeals = activePipeline.reduce((s, p) => s + p.count, 0);
 
+  const px = isMobile ? '20px' : '44px';
+
   return (
     <div style={{ position: 'relative', overflow: 'auto', height: '100%' }}>
       <WarmHalo opacity={0.3} />
 
       {/* Hero */}
-      <div style={{ padding: '36px 44px 28px', position: 'relative', zIndex: 2 }}>
+      <div style={{ padding: isMobile ? '24px 20px 20px' : '36px 44px 28px', position: 'relative', zIndex: 2 }}>
         <div style={mono(10, 'rgba(237,240,244,0.38)')}>
           Week of {new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
         </div>
         <h1 style={{
           fontFamily: "'Fraunces', Georgia, serif",
-          fontSize: 48, fontWeight: 400, letterSpacing: '-0.02em',
-          lineHeight: 1.02, margin: '10px 0 0', color: '#EDF0F4',
+          fontSize: isMobile ? 30 : 48, fontWeight: 400, letterSpacing: '-0.02em',
+          lineHeight: 1.1, margin: '10px 0 0', color: '#EDF0F4',
         }}>
           Pipeline is <span style={{ color: '#D4A85A', fontStyle: 'italic' }}>{totalPipelineValue}</span>
-          <br /><span style={{ color: 'rgba(237,240,244,0.62)', fontSize: 26 }}>across {totalDeals} open deals.</span>
+          <br /><span style={{ color: 'rgba(237,240,244,0.62)', fontSize: isMobile ? 16 : 26 }}>across {totalDeals} open deals.</span>
         </h1>
       </div>
 
       {/* Stage rows */}
-      <div style={{ padding: '0 44px 28px', position: 'relative', zIndex: 2 }}>
+      <div style={{ padding: `0 ${px} 28px`, position: 'relative', zIndex: 2 }}>
         <div style={{ borderTop: '1px solid rgba(230,235,242,0.07)' }}>
           {activePipeline.length === 0 ? (
             <p style={{ color: 'rgba(237,240,244,0.38)', fontSize: 13, padding: '16px 0' }}>No active deals yet.</p>
@@ -64,32 +89,77 @@ export function CrmDashboardPage() {
             activePipeline.map(stage => {
               const pct = data.total_pipeline_value > 0 ? (stage.total_value / data.total_pipeline_value) * 100 : 0;
               return (
-                <div key={stage.stage} style={{
+                <div key={stage.stage} onClick={() => navigate(`/crm/pipeline?stage=${stage.stage}`)} style={{
                   padding: '16px 0', borderBottom: '1px solid rgba(230,235,242,0.07)',
-                  display: 'grid', gridTemplateColumns: '150px 1fr 110px 80px',
-                  gap: 20, alignItems: 'center',
+                  cursor: 'pointer',
+                  ...(isMobile ? {
+                    display: 'flex', flexDirection: 'column' as const, gap: 8,
+                  } : {
+                    display: 'grid', gridTemplateColumns: '150px 1fr 110px 80px',
+                    gap: 20, alignItems: 'center',
+                  }),
                 }}>
-                  <div style={{
-                    fontFamily: "'Fraunces', Georgia, serif",
-                    fontSize: 20, letterSpacing: '-0.01em',
-                    textTransform: 'capitalize', color: '#EDF0F4',
-                  }}>{stage.stage}</div>
-                  <div style={{ height: 2, background: 'rgba(230,235,242,0.07)', position: 'relative' }}>
-                    <div style={{
-                      position: 'absolute', inset: 0,
-                      right: `${100 - Math.max(pct, 2)}%`,
-                      background: 'linear-gradient(90deg, var(--color-ch-accent, #C8D1D9) 0%, #D4A85A 100%)',
-                    }} />
-                  </div>
-                  <div style={{
-                    fontFamily: "'Fraunces', Georgia, serif",
-                    fontSize: 18, fontWeight: 400, textAlign: 'right',
-                    letterSpacing: '-0.01em', color: '#EDF0F4',
-                  }}>${formatNumber(stage.total_value)}</div>
-                  <div style={{
-                    ...mono(10, 'rgba(237,240,244,0.62)'),
-                    textAlign: 'right',
-                  }}>{stage.count} deals</div>
+                  {isMobile ? (
+                    <>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                          <span style={{
+                            width: 8, height: 8, borderRadius: '50%', flexShrink: 0,
+                            background: STAGE_COLORS[stage.stage]?.color || 'rgba(237,240,244,0.38)',
+                          }} />
+                          <span style={{
+                            fontFamily: "'Fraunces', Georgia, serif",
+                            fontSize: 16, letterSpacing: '-0.01em',
+                            textTransform: 'capitalize', color: '#EDF0F4',
+                          }}>{stage.stage}</span>
+                        </div>
+                        <div style={{ display: 'flex', gap: 12, alignItems: 'baseline' }}>
+                          <span style={{
+                            fontFamily: "'Fraunces', Georgia, serif",
+                            fontSize: 16, color: '#EDF0F4',
+                          }}>${formatNumber(stage.total_value)}</span>
+                          <span style={{ ...mono(9, 'rgba(237,240,244,0.62)') }}>{stage.count} deals</span>
+                        </div>
+                      </div>
+                      <div style={{ height: 2, background: 'rgba(230,235,242,0.07)', position: 'relative' }}>
+                        <div style={{
+                          position: 'absolute', inset: 0,
+                          right: `${100 - Math.max(pct, 2)}%`,
+                          background: STAGE_COLORS[stage.stage]?.color || 'var(--color-ch-accent, #C8D1D9)',
+                        }} />
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                        <span style={{
+                          width: 8, height: 8, borderRadius: '50%', flexShrink: 0,
+                          background: STAGE_COLORS[stage.stage]?.color || 'rgba(237,240,244,0.38)',
+                        }} />
+                        <span style={{
+                          fontFamily: "'Fraunces', Georgia, serif",
+                          fontSize: 20, letterSpacing: '-0.01em',
+                          textTransform: 'capitalize', color: '#EDF0F4',
+                        }}>{stage.stage}</span>
+                      </div>
+                      <div style={{ height: 2, background: 'rgba(230,235,242,0.07)', position: 'relative' }}>
+                        <div style={{
+                          position: 'absolute', inset: 0,
+                          right: `${100 - Math.max(pct, 2)}%`,
+                          background: STAGE_COLORS[stage.stage]?.color || 'var(--color-ch-accent, #C8D1D9)',
+                        }} />
+                      </div>
+                      <div style={{
+                        fontFamily: "'Fraunces', Georgia, serif",
+                        fontSize: 18, fontWeight: 400, textAlign: 'right',
+                        letterSpacing: '-0.01em', color: '#EDF0F4',
+                      }}>${formatNumber(stage.total_value)}</div>
+                      <div style={{
+                        ...mono(10, 'rgba(237,240,244,0.62)'),
+                        textAlign: 'right',
+                      }}>{stage.count} deals</div>
+                    </>
+                  )}
                 </div>
               );
             })
@@ -99,8 +169,11 @@ export function CrmDashboardPage() {
 
       {/* Top deals + activity */}
       <div style={{
-        padding: '10px 44px 40px', position: 'relative', zIndex: 2,
-        display: 'grid', gridTemplateColumns: '1.4fr 1fr', gap: 36,
+        padding: `10px ${px} 40px`, position: 'relative', zIndex: 2,
+        display: isMobile ? 'flex' : 'grid',
+        flexDirection: isMobile ? 'column' as const : undefined,
+        gridTemplateColumns: isMobile ? undefined : '1.4fr 1fr',
+        gap: isMobile ? 28 : 36,
       }}>
         <div>
           <div style={{ ...mono(10, 'rgba(237,240,244,0.38)'), marginBottom: 14 }}>Top deals</div>
@@ -109,22 +182,28 @@ export function CrmDashboardPage() {
               <p style={{ color: 'rgba(237,240,244,0.38)', fontSize: 13, padding: '16px 0' }}>No deals yet.</p>
             ) : (
               data.top_deals.map(deal => (
-                <div key={deal.id} style={{
-                  padding: '14px 0', display: 'flex', alignItems: 'center', gap: 14,
-                  borderBottom: '1px solid rgba(230,235,242,0.07)',
+                <div key={deal.id} onClick={() => setSelectedDeal(deal)} style={{
+                  padding: '12px 14px', marginBottom: 6,
+                  display: 'flex', alignItems: 'center', gap: 14,
+                  cursor: 'pointer', borderRadius: 6,
+                  background: STAGE_COLORS[deal.stage]?.bg || 'rgba(20,24,30,0.78)',
+                  border: '1px solid rgba(230,235,242,0.07)',
+                  borderLeft: `3px solid ${STAGE_COLORS[deal.stage]?.color || 'rgba(230,235,242,0.14)'}`,
                 }}>
-                  <div style={{ flex: 1 }}>
+                  <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ fontSize: 14, letterSpacing: '-0.005em', color: '#EDF0F4' }}>
-                      {deal.title} <span style={{ color: 'rgba(237,240,244,0.62)' }}>· {deal.contact_name || 'No contact'}</span>
+                      {deal.title}
+                      {!isMobile && <span style={{ color: 'rgba(237,240,244,0.62)' }}> · {deal.contact_name || 'No contact'}</span>}
                     </div>
                     <div style={{
-                      ...mono(10, 'rgba(237,240,244,0.38)'),
+                      ...mono(10, STAGE_COLORS[deal.stage]?.color || 'rgba(237,240,244,0.38)'),
                       marginTop: 3, textTransform: 'uppercase',
-                    }}>{deal.stage}</div>
+                    }}>{deal.stage}{isMobile && deal.contact_name ? ` · ${deal.contact_name}` : ''}</div>
                   </div>
                   <div style={{
                     fontFamily: "'Fraunces', Georgia, serif",
-                    fontSize: 17, letterSpacing: '-0.01em', color: '#EDF0F4',
+                    fontSize: isMobile ? 15 : 17, letterSpacing: '-0.01em', color: '#EDF0F4',
+                    flexShrink: 0,
                   }}>${formatNumber(deal.value)}</div>
                 </div>
               ))
@@ -135,13 +214,13 @@ export function CrmDashboardPage() {
         <div>
           <div style={{ ...mono(10, 'rgba(237,240,244,0.38)'), marginBottom: 14 }}>Recent activity</div>
           <div style={{ borderTop: '1px solid rgba(230,235,242,0.07)' }}>
-            <ActivityTimeline activities={data.recent_activity} />
+            <ActivityTimeline activities={data.recent_activity} onUpdate={reload} />
           </div>
         </div>
       </div>
 
       {/* Quick actions */}
-      <div style={{ padding: '0 44px 40px', display: 'flex', gap: 8, position: 'relative', zIndex: 2 }}>
+      <div style={{ padding: `0 ${px} 40px`, display: 'flex', gap: 8, position: 'relative', zIndex: 2, flexWrap: 'wrap' }}>
         {[
           { label: '+ Add Contact', path: '/crm/contacts' },
           { label: '+ Add Deal', path: '/crm/pipeline' },
@@ -160,6 +239,18 @@ export function CrmDashboardPage() {
           >{a.label}</button>
         ))}
       </div>
+
+      {editDeal && <DealForm deal={editDeal} onClose={() => setEditDeal(null)} onSaved={() => { setEditDeal(null); setSelectedDeal(null); reload(); }} />}
+
+      {selectedDeal && (
+        <DealDetailSheet
+          deal={selectedDeal}
+          isMobile={isMobile}
+          onClose={() => setSelectedDeal(null)}
+          onEdit={setEditDeal}
+          onStageChange={updateDealStage}
+        />
+      )}
     </div>
   );
 }

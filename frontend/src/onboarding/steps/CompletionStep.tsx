@@ -19,6 +19,8 @@ const INTEGRATION_NAMES: Record<string, string> = {
   quickbooks: 'QuickBooks',
   bamboohr: 'BambooHR',
   crm_lite: 'CRM',
+  telegram: 'Telegram',
+  whatsapp: 'WhatsApp',
 };
 
 export function CompletionStep({ result, onComplete }: Props) {
