@@ -177,3 +177,12 @@ def delete_entry(entry_id: str) -> bool:
         cursor = conn.execute("DELETE FROM shared_entries WHERE id = ?", (entry_id,))
         conn.commit()
     return cursor.rowcount > 0
+
+
+def delete_entries_by_agent(agent_name: str) -> int:
+    """Delete all entries for a given agent_name. Returns count deleted."""
+    conn = get_db()
+    with _write_lock:
+        cursor = conn.execute("DELETE FROM shared_entries WHERE agent_name = ?", (agent_name,))
+        conn.commit()
+    return cursor.rowcount

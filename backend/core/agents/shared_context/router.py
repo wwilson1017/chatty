@@ -91,3 +91,18 @@ def delete_entry(entry_id: str):
     except Exception:
         pass
     return {"id": entry_id, "deleted": True}
+
+
+# ── Bootstrap ─────────────────────────────────────────────────────
+
+
+@router.post("/bootstrap")
+async def bootstrap_shared_knowledge(force: bool = False):
+    """Analyze all agents' knowledge files and populate shared context.
+
+    Extracts universally useful facts (user profile, company info, contacts,
+    preferences) via AI and writes them as shared entries. Runs automatically
+    when the second agent is created; this endpoint allows manual re-runs.
+    """
+    from .bootstrap import run_bootstrap
+    return await run_bootstrap(force=force)
