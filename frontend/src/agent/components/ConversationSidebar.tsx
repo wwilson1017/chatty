@@ -1,10 +1,7 @@
-/**
- * Chatty — ConversationSidebar.
- * Collapsible sidebar with conversation list and search.
- */
-
 import { useState, useRef, useCallback } from 'react';
 import type { Conversation } from '../hooks/useConversations';
+import { AgentMark } from '../../shared/AgentMark';
+import { IconPlus } from '../../shared/icons';
 
 interface Props {
   agentName: string;
@@ -20,6 +17,12 @@ interface Props {
   onRename: (id: string, title: string) => void;
 }
 
+const mono = (size: number, color = 'rgba(237,240,244,0.38)') => ({
+  fontFamily: "'JetBrains Mono', ui-monospace, monospace",
+  fontSize: size, letterSpacing: '0.16em',
+  textTransform: 'uppercase' as const, color,
+});
+
 export function ConversationSidebar({
   agentName, conversations, activeId, searchQuery, searchResults, isSearching,
   onNew, onSelect, onDelete, onSearch, onRename,
@@ -33,9 +36,7 @@ export function ConversationSidebar({
   const handleSearchChange = useCallback((value: string) => {
     setLocalQuery(value);
     if (debounceRef.current) clearTimeout(debounceRef.current);
-    debounceRef.current = setTimeout(() => {
-      onSearch(value);
-    }, 300);
+    debounceRef.current = setTimeout(() => onSearch(value), 300);
   }, [onSearch]);
 
   function startEdit(conv: Conversation, e: React.MouseEvent) {
@@ -50,56 +51,90 @@ export function ConversationSidebar({
   }
 
   const displayList = searchQuery.trim() ? searchResults : conversations;
+  const letter = agentName.charAt(0);
 
   if (collapsed) {
     return (
-      <div className="w-12 flex flex-col items-center py-4 border-r border-gray-800 bg-gray-950">
-        <button onClick={() => setCollapsed(false)} className="text-gray-400 hover:text-white transition p-2 rounded-lg hover:bg-gray-800" title="Expand">
-          ▶
-        </button>
-        <button onClick={onNew} className="mt-3 text-indigo-400 hover:text-white transition p-2 rounded-lg hover:bg-gray-800" title="New chat">
-          ✎
-        </button>
+      <div style={{
+        width: 48, display: 'flex', flexDirection: 'column', alignItems: 'center',
+        paddingTop: 16, borderRight: '1px solid rgba(230,235,242,0.07)',
+      }}>
+        <div onClick={() => setCollapsed(false)} style={{ cursor: 'pointer', color: 'rgba(237,240,244,0.62)', padding: 8 }}>▶</div>
+        <div onClick={onNew} style={{ cursor: 'pointer', marginTop: 8 }}>
+          <IconPlus size={16} className="text-ch-ink-mute" />
+        </div>
       </div>
     );
   }
 
   return (
-    <div className="w-72 flex flex-col border-r border-gray-800 bg-gray-950">
-      {/* Header */}
-      <div className="flex items-center justify-between px-4 py-3 border-b border-gray-800">
-        <span className="text-white font-semibold text-sm truncate">{agentName}</span>
-        <button onClick={() => setCollapsed(true)} className="text-gray-500 hover:text-white transition p-1 rounded" title="Collapse">
-          ◀
-        </button>
+    <div style={{
+      width: 240, display: 'flex', flexDirection: 'column',
+      borderRight: '1px solid rgba(230,235,242,0.07)',
+      position: 'relative', zIndex: 2,
+    }}>
+      {/* Agent header */}
+      <div style={{
+        padding: '14px 16px', display: 'flex', alignItems: 'center', gap: 12,
+        borderBottom: '1px solid rgba(230,235,242,0.07)',
+      }}>
+        <AgentMark letter={letter} size={36} />
+        <div style={{ flex: 1 }}>
+          <div style={{
+            fontFamily: "'Fraunces', Georgia, serif",
+            fontSize: 17, letterSpacing: '-0.01em', color: '#EDF0F4',
+          }}>{agentName}</div>
+        </div>
+        <div onClick={() => setCollapsed(true)} style={{
+          cursor: 'pointer', color: 'rgba(237,240,244,0.38)', fontSize: 12,
+        }}>◀</div>
       </div>
 
       {/* Search */}
-      <div className="px-3 py-2">
+      <div style={{ padding: '10px 14px 4px' }}>
         <input
           value={localQuery}
           onChange={e => handleSearchChange(e.target.value)}
-          placeholder="Search conversations..."
-          className="w-full bg-gray-800 border border-gray-700 text-sm text-white rounded-lg px-3 py-2 focus:outline-none focus:border-indigo-500"
+          placeholder="Search..."
+          style={{
+            width: '100%', boxSizing: 'border-box',
+            background: 'rgba(34,40,48,0.55)',
+            border: '1px solid rgba(230,235,242,0.07)',
+            color: '#EDF0F4', borderRadius: 4,
+            padding: '6px 10px', fontSize: 12,
+            outline: 'none',
+            fontFamily: "'Inter Tight', system-ui, sans-serif",
+          }}
+          onFocus={e => { e.target.style.borderColor = 'rgba(230,235,242,0.14)'; }}
+          onBlur={e => { e.target.style.borderColor = 'rgba(230,235,242,0.07)'; }}
         />
       </div>
 
-      {/* New chat button */}
-      <button
+      {/* New chat */}
+      <div
         onClick={onNew}
-        className="mx-3 mb-2 py-2 text-sm text-center rounded-lg border border-dashed border-gray-700 text-gray-400 hover:border-indigo-500 hover:text-indigo-400 transition"
+        style={{
+          margin: '6px 14px 8px', padding: '7px 0',
+          textAlign: 'center', fontSize: 12,
+          border: '1px dashed rgba(230,235,242,0.14)',
+          borderRadius: 4, color: 'rgba(237,240,244,0.62)',
+          cursor: 'pointer',
+        }}
       >
         + New chat
-      </button>
+      </div>
+
+      {/* Section label */}
+      <div style={{ padding: '8px 14px 4px', ...mono(9, 'rgba(237,240,244,0.38)') }}>Today</div>
 
       {/* Conversation list */}
-      <div className="flex-1 overflow-y-auto">
+      <div style={{ flex: 1, overflowY: 'auto' }}>
         {isSearching ? (
-          <div className="flex justify-center py-4">
-            <div className="w-4 h-4 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin" />
+          <div style={{ display: 'flex', justifyContent: 'center', padding: 16 }}>
+            <div className="w-4 h-4 border-2 border-ch-accent border-t-transparent rounded-full animate-spin" />
           </div>
         ) : displayList.length === 0 ? (
-          <p className="text-gray-600 text-xs text-center py-6 px-4">
+          <p style={{ color: 'rgba(237,240,244,0.38)', fontSize: 12, textAlign: 'center', padding: '24px 16px' }}>
             {searchQuery ? 'No results found' : 'No conversations yet'}
           </p>
         ) : (
@@ -113,11 +148,15 @@ export function ConversationSidebar({
               <div
                 key={id}
                 onClick={() => onSelect(id)}
-                className={`group flex items-center justify-between px-3 py-2.5 cursor-pointer transition ${
-                  isActive ? 'bg-indigo-900/30 border-l-2 border-indigo-500' : 'hover:bg-gray-800/50 border-l-2 border-transparent'
-                }`}
+                style={{
+                  padding: '9px 14px', cursor: 'pointer',
+                  background: isActive ? 'rgba(200,209,217,0.12)' : 'transparent',
+                  borderLeft: isActive ? '2px solid var(--color-ch-accent, #C8D1D9)' : '2px solid transparent',
+                  display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                }}
+                className="group"
               >
-                <div className="flex-1 min-w-0">
+                <div style={{ flex: 1, minWidth: 0 }}>
                   {editingId === id ? (
                     <input
                       value={editTitle}
@@ -125,28 +164,49 @@ export function ConversationSidebar({
                       onBlur={() => commitEdit(id)}
                       onKeyDown={e => { if (e.key === 'Enter') commitEdit(id); if (e.key === 'Escape') setEditingId(null); }}
                       onClick={e => e.stopPropagation()}
-                      className="w-full bg-gray-700 text-white text-xs rounded px-2 py-1 focus:outline-none"
+                      style={{
+                        width: '100%', background: 'rgba(34,40,48,0.55)',
+                        color: '#EDF0F4', fontSize: 12, borderRadius: 3,
+                        padding: '2px 6px', border: '1px solid rgba(230,235,242,0.14)',
+                        outline: 'none',
+                      }}
                       autoFocus
                     />
                   ) : (
                     <>
-                      <p className="text-sm text-gray-200 truncate">{title}</p>
-                      {snippet && <p className="text-xs text-gray-500 truncate mt-0.5">{snippet}</p>}
+                      <div style={{
+                        fontSize: 13, lineHeight: 1.3,
+                        color: isActive ? '#EDF0F4' : 'rgba(237,240,244,0.62)',
+                        overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                      }}>{title}</div>
+                      {snippet && (
+                        <div style={{
+                          fontSize: 11, color: 'rgba(237,240,244,0.38)',
+                          overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                          marginTop: 2,
+                        }}>{snippet}</div>
+                      )}
                     </>
                   )}
                 </div>
 
                 {!editingId && (
-                  <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition ml-2">
+                  <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition" style={{ marginLeft: 8 }}>
                     <button
                       onClick={e => startEdit(item as Conversation, e)}
-                      className="text-gray-500 hover:text-gray-300 p-1 rounded transition text-xs"
-                      title="Rename"
+                      style={{
+                        background: 'none', border: 'none',
+                        color: 'rgba(237,240,244,0.38)', fontSize: 12,
+                        cursor: 'pointer', padding: '2px 4px',
+                      }}
                     >✎</button>
                     <button
                       onClick={e => { e.stopPropagation(); onDelete(id); }}
-                      className="text-gray-500 hover:text-red-400 p-1 rounded transition text-xs"
-                      title="Delete"
+                      style={{
+                        background: 'none', border: 'none',
+                        color: 'rgba(237,240,244,0.38)', fontSize: 12,
+                        cursor: 'pointer', padding: '2px 4px',
+                      }}
                     >×</button>
                   </div>
                 )}

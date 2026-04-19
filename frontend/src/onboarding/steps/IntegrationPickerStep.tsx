@@ -38,7 +38,7 @@ export function IntegrationPickerStep({ onComplete, onSkip }: Props) {
   if (loading) {
     return (
       <div className="flex justify-center py-12">
-        <div className="w-6 h-6 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin" />
+        <div className="w-6 h-6 border-2 border-ch-gold border-t-transparent rounded-full animate-spin" />
       </div>
     );
   }
@@ -72,12 +72,12 @@ export function IntegrationPickerStep({ onComplete, onSkip }: Props) {
                   onClick={() => toggle(integration.id)}
                   className={`w-full flex items-center gap-4 p-4 rounded-xl border transition text-left ${
                     isSelected
-                      ? 'bg-indigo-500/10 border-indigo-500/50'
+                      ? 'bg-ch-gold/10 border-ch-gold/50'
                       : 'bg-gray-800 border-gray-700 hover:border-gray-600'
                   }`}
                 >
                   <div className={`w-5 h-5 rounded border-2 flex items-center justify-center flex-shrink-0 transition ${
-                    isSelected ? 'bg-indigo-500 border-indigo-500' : 'border-gray-600'
+                    isSelected ? 'bg-ch-gold border-ch-gold' : 'border-gray-600'
                   }`}>
                     {isSelected && (
                       <svg className="w-3 h-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>

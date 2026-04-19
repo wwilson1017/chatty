@@ -2,8 +2,15 @@ import { useState, useEffect, useCallback } from 'react';
 import { api } from '../core/api/client';
 import type { CrmTask } from '../core/types';
 import { TaskForm } from './components/TaskForm';
+import { IconPlus, IconCheck } from '../shared/icons';
 
 type Filter = 'all' | 'pending' | 'due_today' | 'overdue' | 'completed';
+
+const mono = (size: number, color = 'rgba(237,240,244,0.38)') => ({
+  fontFamily: "'JetBrains Mono', ui-monospace, monospace",
+  fontSize: size, letterSpacing: '0.16em',
+  textTransform: 'uppercase' as const, color,
+});
 
 export function TasksPage() {
   const [tasks, setTasks] = useState<CrmTask[]>([]);
@@ -15,20 +22,14 @@ export function TasksPage() {
     setLoading(true);
     const params = new URLSearchParams();
     const today = new Date().toISOString().split('T')[0];
-
     if (filter === 'pending') params.set('completed', 'false');
     else if (filter === 'completed') params.set('completed', 'true');
     else if (filter === 'due_today') { params.set('completed', 'false'); params.set('due_before', today); }
     else if (filter === 'overdue') { params.set('completed', 'false'); params.set('due_before', today); }
-
     params.set('limit', '100');
     const data = await api<{ tasks: CrmTask[] }>(`/api/crm/tasks?${params}`);
-
     let filtered = data.tasks;
-    if (filter === 'overdue') {
-      filtered = filtered.filter(t => t.due_date && t.due_date < today);
-    }
-
+    if (filter === 'overdue') filtered = filtered.filter(t => t.due_date && t.due_date < today);
     setTasks(filtered);
     setLoading(false);
   }, [filter]);
@@ -55,77 +56,86 @@ export function TasksPage() {
   ];
 
   return (
-    <div className="p-8 max-w-4xl">
-      <div className="flex items-center justify-between mb-6">
-        <h1 className="text-2xl font-bold text-white">Tasks</h1>
-        <button
-          onClick={() => setShowCreate(true)}
-          className="bg-brand text-white font-medium px-4 py-2 rounded-lg text-sm hover:opacity-90 transition"
-        >
-          + Add Task
+    <div style={{ padding: '32px 44px', maxWidth: 900 }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 24 }}>
+        <h1 style={{
+          fontFamily: "'Fraunces', Georgia, serif",
+          fontSize: 32, fontWeight: 400, letterSpacing: '-0.02em',
+          color: '#EDF0F4', margin: 0,
+        }}>Tasks</h1>
+        <button onClick={() => setShowCreate(true)} style={{
+          background: 'var(--color-ch-accent, #C8D1D9)', color: '#0E1013',
+          border: 'none', padding: '7px 14px', borderRadius: 4,
+          fontSize: 13, fontWeight: 500, cursor: 'pointer',
+          display: 'flex', alignItems: 'center', gap: 6,
+        }}>
+          <IconPlus size={13} strokeWidth={2.25} /> Add Task
         </button>
       </div>
 
       {/* Filter tabs */}
-      <div className="flex gap-1 mb-6 bg-gray-800 rounded-lg border border-gray-700 p-1 inline-flex">
+      <div style={{
+        display: 'inline-flex', border: '1px solid rgba(230,235,242,0.07)',
+        borderRadius: 4, overflow: 'hidden', marginBottom: 24,
+      }}>
         {FILTER_TABS.map(tab => (
-          <button
-            key={tab.key}
-            onClick={() => setFilter(tab.key)}
-            className={`px-3 py-1.5 rounded text-xs font-medium transition ${
-              filter === tab.key ? 'bg-gray-700 text-white' : 'text-gray-400 hover:text-white'
-            }`}
-          >
-            {tab.label}
-          </button>
+          <button key={tab.key} onClick={() => setFilter(tab.key)} style={{
+            padding: '6px 14px', fontSize: 11, fontWeight: 500,
+            color: filter === tab.key ? '#0E1013' : 'rgba(237,240,244,0.62)',
+            background: filter === tab.key ? 'var(--color-ch-accent, #C8D1D9)' : 'transparent',
+            border: 'none', cursor: 'pointer',
+          }}>{tab.label}</button>
         ))}
       </div>
 
       {loading ? (
-        <div className="flex justify-center py-12">
-          <div className="w-6 h-6 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin" />
+        <div style={{ display: 'flex', justifyContent: 'center', padding: '48px 0' }}>
+          <div className="w-6 h-6 border-2 border-ch-accent border-t-transparent rounded-full animate-spin" />
         </div>
       ) : tasks.length === 0 ? (
-        <div className="text-center py-16">
-          <p className="text-gray-500">{filter === 'all' ? 'No tasks yet.' : `No ${filter.replace('_', ' ')} tasks.`}</p>
+        <div style={{ textAlign: 'center', padding: '64px 0' }}>
+          <p style={{ color: 'rgba(237,240,244,0.38)', fontSize: 14 }}>
+            {filter === 'all' ? 'No tasks yet.' : `No ${filter.replace('_', ' ')} tasks.`}
+          </p>
         </div>
       ) : (
-        <div className="space-y-2">
+        <div style={{ borderTop: '1px solid rgba(230,235,242,0.07)' }}>
           {tasks.map(task => (
-            <div
-              key={task.id}
-              className={`bg-gray-900 rounded-xl border border-gray-800 px-4 py-3 flex items-center gap-3 ${task.completed ? 'opacity-50' : ''}`}
-            >
-              <button
-                onClick={() => toggleComplete(task)}
-                className={`w-5 h-5 rounded border-2 shrink-0 flex items-center justify-center transition ${
-                  task.completed
-                    ? 'bg-green-600 border-green-600 text-white'
-                    : 'border-gray-600 hover:border-gray-400'
-                }`}
-              >
-                {task.completed ? '✓' : ''}
+            <div key={task.id} style={{
+              display: 'flex', alignItems: 'center', gap: 12,
+              padding: '12px 16px',
+              borderBottom: '1px solid rgba(230,235,242,0.07)',
+              opacity: task.completed ? 0.5 : 1,
+            }}>
+              <button onClick={() => toggleComplete(task)} style={{
+                width: 20, height: 20, borderRadius: 4, flexShrink: 0,
+                border: `1.5px solid ${task.completed ? '#8EA589' : 'rgba(230,235,242,0.14)'}`,
+                background: task.completed ? 'rgba(142,165,137,0.2)' : 'transparent',
+                cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                color: '#8EA589',
+              }}>
+                {task.completed && <IconCheck size={12} strokeWidth={2.5} />}
               </button>
 
-              <div className="flex-1 min-w-0">
-                <p className={`text-sm ${task.completed ? 'text-gray-500 line-through' : 'text-white'}`}>
-                  {task.title}
-                </p>
-                <div className="flex gap-3 mt-0.5">
-                  {task.contact_name && <span className="text-gray-500 text-xs">{task.contact_name}</span>}
-                  {task.deal_title && <span className="text-gray-500 text-xs">{task.deal_title}</span>}
-                  {task.description && <span className="text-gray-600 text-xs truncate">{task.description}</span>}
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <p style={{
+                  fontSize: 14, margin: 0,
+                  color: task.completed ? 'rgba(237,240,244,0.38)' : '#EDF0F4',
+                  textDecoration: task.completed ? 'line-through' : 'none',
+                }}>{task.title}</p>
+                <div style={{ display: 'flex', gap: 12, marginTop: 2 }}>
+                  {task.contact_name && <span style={{ fontSize: 12, color: 'rgba(237,240,244,0.38)' }}>{task.contact_name}</span>}
+                  {task.deal_title && <span style={{ fontSize: 12, color: 'rgba(237,240,244,0.38)' }}>{task.deal_title}</span>}
                 </div>
               </div>
 
-              <div className="flex items-center gap-3 shrink-0">
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexShrink: 0 }}>
                 <PriorityBadge priority={task.priority} />
                 {task.due_date && (
-                  <span className={`text-xs ${
-                    !task.completed && task.due_date < today ? 'text-red-400 font-medium' : 'text-gray-500'
-                  }`}>
-                    {task.due_date}
-                  </span>
+                  <span style={{
+                    ...mono(10, !task.completed && task.due_date < today ? '#D97757' : 'rgba(237,240,244,0.38)'),
+                    fontWeight: !task.completed && task.due_date < today ? 600 : 400,
+                  }}>{task.due_date}</span>
                 )}
               </div>
             </div>
@@ -139,14 +149,18 @@ export function TasksPage() {
 }
 
 function PriorityBadge({ priority }: { priority: string }) {
-  const styles: Record<string, string> = {
-    high: 'bg-red-900/50 text-red-400',
-    medium: 'bg-yellow-900/50 text-yellow-400',
-    low: 'bg-gray-700/50 text-gray-400',
+  const colors: Record<string, { bg: string; color: string }> = {
+    high: { bg: 'rgba(217,119,87,0.1)', color: '#D97757' },
+    medium: { bg: 'rgba(212,168,90,0.08)', color: '#D4A85A' },
+    low: { bg: 'rgba(230,235,242,0.06)', color: 'rgba(237,240,244,0.38)' },
   };
+  const c = colors[priority] || colors.medium;
   return (
-    <span className={`text-xs px-2 py-0.5 rounded capitalize ${styles[priority] || styles.medium}`}>
-      {priority}
-    </span>
+    <span style={{
+      fontSize: 10, padding: '2px 8px', borderRadius: 3,
+      background: c.bg, color: c.color, textTransform: 'capitalize',
+      fontFamily: "'JetBrains Mono', ui-monospace, monospace",
+      letterSpacing: '0.1em',
+    }}>{priority}</span>
   );
 }

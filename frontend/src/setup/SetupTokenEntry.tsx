@@ -5,6 +5,12 @@ interface Props {
   onConnected: () => void;
 }
 
+const inputStyle: React.CSSProperties = {
+  width: '100%', boxSizing: 'border-box',
+  background: 'rgba(34,40,48,0.55)', border: '1px solid rgba(230,235,242,0.14)',
+  color: '#EDF0F4', borderRadius: 4, padding: '10px 14px', fontSize: 13, outline: 'none',
+};
+
 export function SetupTokenEntry({ onConnected }: Props) {
   const [token, setToken] = useState('');
   const [loading, setLoading] = useState(false);
@@ -27,9 +33,13 @@ export function SetupTokenEntry({ onConnected }: Props) {
   }
 
   return (
-    <div className="space-y-3">
-      <p className="text-gray-400 text-xs">
-        Run <code className="text-indigo-400 bg-gray-900 px-1.5 py-0.5 rounded">claude setup-token</code> in your terminal, then paste the result below.
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+      <p style={{ fontSize: 12, color: 'rgba(237,240,244,0.62)', margin: 0 }}>
+        Run <code style={{
+          fontFamily: "'JetBrains Mono', ui-monospace, monospace",
+          fontSize: 12, color: '#D4A85A',
+          background: 'rgba(34,40,48,0.55)', padding: '2px 6px', borderRadius: 3,
+        }}>claude setup-token</code> in your terminal, then paste below.
       </p>
       <input
         type="password"
@@ -37,13 +47,18 @@ export function SetupTokenEntry({ onConnected }: Props) {
         onChange={e => setToken(e.target.value)}
         placeholder="Paste your setup token"
         onKeyDown={e => e.key === 'Enter' && connect()}
-        className="w-full bg-gray-700 border border-gray-600 text-white rounded-lg px-4 py-3 text-sm focus:outline-none focus:border-indigo-500"
+        style={inputStyle}
       />
-      {error && <p className="text-red-400 text-xs">{error}</p>}
+      {error && <p style={{ color: '#D97757', fontSize: 12 }}>{error}</p>}
       <button
         onClick={connect}
         disabled={loading || !token.trim()}
-        className="w-full py-2.5 bg-brand text-white text-sm font-semibold rounded-lg hover:opacity-90 transition disabled:opacity-50"
+        style={{
+          width: '100%', padding: '9px 16px', borderRadius: 4,
+          background: '#D4A85A', color: '#0E1013',
+          border: 'none', fontSize: 13, fontWeight: 500,
+          cursor: 'pointer', opacity: (loading || !token.trim()) ? 0.5 : 1,
+        }}
       >
         {loading ? 'Validating...' : 'Connect'}
       </button>

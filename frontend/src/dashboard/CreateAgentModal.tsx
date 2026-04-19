@@ -4,12 +4,31 @@ import { api } from '../core/api/client';
 import type { Agent } from '../core/types';
 
 interface Props {
+  suggestedTitle?: string;
   onClose: () => void;
   onCreated: (agent: Agent) => void;
 }
 
-export function CreateAgentModal({ onClose, onCreated }: Props) {
+const labelStyle: React.CSSProperties = {
+  display: 'block',
+  fontFamily: "'JetBrains Mono', ui-monospace, monospace",
+  fontSize: 9, letterSpacing: '0.16em', textTransform: 'uppercase',
+  color: 'rgba(237,240,244,0.38)', marginBottom: 6,
+};
+
+const inputStyle: React.CSSProperties = {
+  width: '100%', boxSizing: 'border-box',
+  background: 'rgba(20,24,30,0.78)',
+  border: '1px solid rgba(230,235,242,0.14)',
+  color: '#EDF0F4', borderRadius: 4,
+  padding: '10px 14px', fontSize: 14,
+  outline: 'none',
+  fontFamily: "'Inter Tight', system-ui, sans-serif",
+};
+
+export function CreateAgentModal({ suggestedTitle, onClose, onCreated }: Props) {
   const [name, setName] = useState('');
+  const [title, setTitle] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const navigate = useNavigate();
@@ -25,7 +44,8 @@ export function CreateAgentModal({ onClose, onCreated }: Props) {
         body: JSON.stringify({ agent_name: name.trim() }),
       });
       onCreated(agent);
-      navigate(`/agent/${agent.id}`);
+      const roleParam = (title.trim() || suggestedTitle) ? `?role=${encodeURIComponent(title.trim() || suggestedTitle || '')}` : '';
+      navigate(`/agent/${agent.id}${roleParam}`);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Failed to create agent');
       setLoading(false);
@@ -33,42 +53,85 @@ export function CreateAgentModal({ onClose, onCreated }: Props) {
   }
 
   return (
-    <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50" onClick={onClose}>
-      <div className="bg-gray-900 rounded-2xl border border-gray-700 p-8 w-full max-w-md shadow-2xl"
+    <div
+      style={{
+        position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)',
+        display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50,
+      }}
+      onClick={onClose}
+    >
+      <div
+        style={{
+          background: '#11141A', borderRadius: 6,
+          border: '1px solid rgba(230,235,242,0.14)',
+          padding: 32, width: '100%', maxWidth: 420,
+          boxShadow: '0 8px 40px rgba(0,0,0,0.5)',
+        }}
         onClick={e => e.stopPropagation()}
       >
-        <h2 className="text-white text-xl font-bold mb-6">Create New Agent</h2>
+        <h2 style={{
+          fontFamily: "'Fraunces', Georgia, serif",
+          fontSize: 24, fontWeight: 400, letterSpacing: '-0.02em',
+          marginBottom: 24, color: '#EDF0F4',
+        }}>Commission Agent</h2>
 
         <form onSubmit={handleSubmit}>
-          <div className="mb-6">
-            <label className="block text-sm text-gray-400 mb-2">Agent name</label>
-            <input
-              type="text"
-              value={name}
-              onChange={e => setName(e.target.value)}
-              placeholder="e.g. Research Assistant"
-              className="w-full bg-gray-800 border border-gray-700 text-white rounded-lg px-4 py-3 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
-              autoFocus
-              maxLength={60}
-            />
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 16, marginBottom: 24 }}>
+            <div>
+              <label style={labelStyle}>Agent name *</label>
+              <input
+                type="text"
+                value={name}
+                onChange={e => setName(e.target.value)}
+                placeholder="e.g. Arthur, Penelope, Rhea"
+                autoFocus
+                maxLength={60}
+                style={inputStyle}
+              />
+            </div>
+
+            <div>
+              <label style={labelStyle}>Title / Role</label>
+              <input
+                type="text"
+                value={title}
+                onChange={e => setTitle(e.target.value)}
+                placeholder={suggestedTitle || 'e.g. AP Clerk, Sales Rep'}
+                maxLength={80}
+                style={{ ...inputStyle, color: title ? '#EDF0F4' : undefined }}
+              />
+              <p style={{
+                fontSize: 11, color: 'rgba(237,240,244,0.28)', marginTop: 4,
+              }}>This helps your agent understand its role during onboarding.</p>
+            </div>
           </div>
 
-          {error && <p className="text-red-400 text-sm mb-4">{error}</p>}
+          {error && <p style={{ color: '#D97757', fontSize: 13, marginBottom: 16 }}>{error}</p>}
 
-          <div className="flex gap-3">
+          <div style={{ display: 'flex', gap: 8 }}>
             <button
               type="button"
               onClick={onClose}
-              className="flex-1 py-3 rounded-lg border border-gray-700 text-gray-400 hover:bg-gray-800 transition"
+              style={{
+                flex: 1, padding: '9px 16px', borderRadius: 4,
+                border: '1px solid rgba(230,235,242,0.14)',
+                background: 'transparent', color: 'rgba(237,240,244,0.62)',
+                cursor: 'pointer', fontSize: 13,
+              }}
             >
               Cancel
             </button>
             <button
               type="submit"
               disabled={loading || !name.trim()}
-              className="flex-1 py-3 rounded-lg bg-brand text-white font-semibold hover:opacity-90 transition disabled:opacity-50"
+              style={{
+                flex: 1, padding: '9px 16px', borderRadius: 4,
+                background: '#D4A85A', color: '#0E1013',
+                border: 'none', fontWeight: 500, cursor: 'pointer', fontSize: 13,
+                opacity: (loading || !name.trim()) ? 0.5 : 1,
+              }}
             >
-              {loading ? 'Creating...' : 'Create Agent'}
+              {loading ? 'Creating...' : 'Commission'}
             </button>
           </div>
         </form>

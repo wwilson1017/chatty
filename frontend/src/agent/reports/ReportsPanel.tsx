@@ -98,7 +98,7 @@ export default function ReportsPanel({ apiPrefix }: ReportsPanelProps) {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-full text-gray-400 text-sm">
+      <div className="flex items-center justify-center h-full text-ch-ink-mute text-sm">
         Loading reports...
       </div>
     );
@@ -106,12 +106,12 @@ export default function ReportsPanel({ apiPrefix }: ReportsPanelProps) {
 
   if (reports.length === 0) {
     return (
-      <div className="flex flex-col items-center justify-center h-full text-gray-400 px-6">
+      <div className="flex flex-col items-center justify-center h-full text-ch-ink-mute px-6">
         <svg className="w-12 h-12 mb-3 opacity-30" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
           <path d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
         </svg>
-        <p className="text-sm font-medium text-gray-300">No reports yet</p>
-        <p className="text-xs mt-1 text-gray-500">Ask the agent to create one!</p>
+        <p className="text-sm font-medium text-ch-ink-mute">No reports yet</p>
+        <p className="text-xs mt-1 text-ch-ink-dim">Ask the agent to create one!</p>
       </div>
     );
   }
@@ -126,7 +126,7 @@ export default function ReportsPanel({ apiPrefix }: ReportsPanelProps) {
             value={search}
             onChange={e => setSearch(e.target.value)}
             placeholder="Search reports..."
-            className="w-full px-3 py-2 text-sm border border-gray-700 rounded-lg bg-gray-800 text-white placeholder-gray-500 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
+            className="w-full px-3 py-2 text-sm border border-ch-line-strong rounded-lg bg-ch-bg-raised text-white placeholder-gray-500 focus:outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500"
           />
         </div>
       )}
@@ -135,10 +135,10 @@ export default function ReportsPanel({ apiPrefix }: ReportsPanelProps) {
           <div key={r.id}>
             <button
               onClick={() => handleExpand(r.id)}
-              className={`w-full text-left px-4 py-3 rounded-xl border transition-colors ${
+              className={`w-full text-left px-4 py-3 rounded-md border transition-colors ${
                 expandedId === r.id
-                  ? 'border-indigo-500/40 bg-gray-800 shadow-sm'
-                  : 'border-gray-700 bg-gray-800/60 hover:border-gray-600 hover:bg-gray-800'
+                  ? 'border-ch-gold/40 bg-ch-bg-raised shadow-sm'
+                  : 'border-ch-line-strong bg-ch-bg-raised/60 hover:border-ch-line-strong hover:bg-ch-bg-raised'
               }`}
             >
               <div className="flex items-start justify-between">
@@ -147,15 +147,15 @@ export default function ReportsPanel({ apiPrefix }: ReportsPanelProps) {
                     {r.title}
                   </h3>
                   <div className="flex items-center gap-2 mt-1">
-                    <span className="text-xs text-gray-400">{formatDate(r.created_at)}</span>
-                    <span className="text-xs text-gray-500">
+                    <span className="text-xs text-ch-ink-mute">{formatDate(r.created_at)}</span>
+                    <span className="text-xs text-ch-ink-dim">
                       {r.section_count} section{r.section_count !== 1 ? 's' : ''}
                     </span>
                   </div>
                 </div>
                 <button
                   onClick={(e) => handleDelete(r.id, e)}
-                  className="ml-2 p-1 text-gray-600 hover:text-red-400 transition-colors"
+                  className="ml-2 p-1 text-ch-ink-dim hover:text-red-400 transition-colors"
                   title="Delete report"
                 >
                   <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
@@ -167,18 +167,18 @@ export default function ReportsPanel({ apiPrefix }: ReportsPanelProps) {
             {expandedId === r.id && (
               <div className="mt-2 mb-2">
                 {loadingReport ? (
-                  <div className="text-center py-6 text-gray-400 text-sm">Loading report...</div>
+                  <div className="text-center py-6 text-ch-ink-mute text-sm">Loading report...</div>
                 ) : expandedReport ? (
                   <ReportRenderer report={expandedReport} />
                 ) : (
-                  <div className="text-center py-6 text-gray-500 text-sm">Failed to load report</div>
+                  <div className="text-center py-6 text-ch-ink-dim text-sm">Failed to load report</div>
                 )}
               </div>
             )}
           </div>
         ))}
         {filtered.length === 0 && search.trim() && (
-          <div className="text-center py-8 text-gray-500 text-sm">
+          <div className="text-center py-8 text-ch-ink-dim text-sm">
             No reports matching &quot;{search}&quot;
           </div>
         )}

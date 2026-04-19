@@ -84,8 +84,8 @@ export function WebbyPage() {
   // Loading
   if (!status) {
     return (
-      <div className="flex items-center justify-center h-screen bg-gray-950">
-        <div className="w-6 h-6 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin" />
+      <div className="flex items-center justify-center h-screen bg-ch-bg">
+        <div className="w-6 h-6 border-2 border-ch-accent border-t-transparent rounded-full animate-spin" />
       </div>
     );
   }
@@ -93,22 +93,22 @@ export function WebbyPage() {
   // Webby agent doesn't exist yet — show setup prompt
   if (!status.exists || !agentId) {
     return (
-      <div className="flex flex-col items-center justify-center h-screen bg-gray-950 text-center px-6">
+      <div className="flex flex-col items-center justify-center h-screen bg-ch-bg text-center px-6">
         <div className="text-6xl mb-6">🌐</div>
         <h1 className="text-2xl font-bold text-white mb-2">Meet Webby</h1>
-        <p className="text-gray-400 max-w-md mb-8">
+        <p className="text-ch-ink-mute max-w-md mb-8">
           Webby manages your website through GitHub. Describe what you want changed
           in plain language — no coding required.
         </p>
-        <div className="bg-gray-900 border border-gray-700 rounded-xl p-4 text-left text-sm text-gray-400 mb-8 max-w-md">
-          <p className="font-medium text-gray-300 mb-2">Phase 1 — Preview</p>
+        <div className="bg-ch-bg-elev border border-ch-line-strong rounded-md p-4 text-left text-sm text-ch-ink-mute mb-8 max-w-md">
+          <p className="font-medium text-ch-ink-mute mb-2">Phase 1 — Preview</p>
           <p>GitHub editing tools are stubs in this version. Webby can be onboarded and chat,
           but file editing and pull requests require Phase 2.</p>
         </div>
         <div className="flex gap-3">
           <button
             onClick={() => navigate('/')}
-            className="px-4 py-2 rounded-lg border border-gray-700 text-gray-400 hover:text-white text-sm transition"
+            className="px-4 py-2 rounded-lg border border-ch-line-strong text-ch-ink-mute hover:text-white text-sm transition"
           >
             Back to Dashboard
           </button>
@@ -125,12 +125,12 @@ export function WebbyPage() {
   }
 
   return (
-    <div className="flex flex-col h-screen bg-gray-950 text-white overflow-hidden">
+    <div className="flex flex-col h-screen bg-ch-bg text-white overflow-hidden">
       {/* Top bar */}
-      <div className="flex items-center gap-3 px-4 py-3 border-b border-gray-800 bg-gray-950 flex-shrink-0">
+      <div className="flex items-center gap-3 px-4 py-3 border-b border-ch-line bg-ch-bg flex-shrink-0">
         <button
           onClick={() => navigate('/')}
-          className="text-gray-400 hover:text-white transition p-1.5 rounded-lg hover:bg-gray-800 text-sm"
+          className="text-ch-ink-mute hover:text-white transition p-1.5 rounded-lg hover:bg-ch-bg-raised text-sm"
         >
           ←
         </button>
@@ -152,15 +152,15 @@ export function WebbyPage() {
         )}
 
         {/* Tab switcher */}
-        <div className="ml-auto flex items-center bg-gray-800 rounded-lg p-0.5 gap-0.5">
+        <div className="ml-auto flex items-center bg-ch-bg-raised rounded-lg p-0.5 gap-0.5">
           {(['chat', 'knowledge', 'preview'] as Tab[]).map(tab => (
             <button
               key={tab}
               onClick={() => setActiveTab(tab)}
               className={`px-3 py-1 rounded-md text-xs font-medium transition capitalize ${
                 activeTab === tab
-                  ? 'bg-gray-700 text-white'
-                  : 'text-gray-400 hover:text-white'
+                  ? 'bg-ch-bg-raised text-white'
+                  : 'text-ch-ink-mute hover:text-white'
               }`}
             >
               {tab}

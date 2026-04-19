@@ -35,19 +35,19 @@ export function CrmLiteSetupStep({ onComplete, onSkip }: Props) {
         <h3 className="text-white font-medium mb-3">What you get</h3>
         <ul className="text-gray-400 text-sm space-y-2">
           <li className="flex items-start gap-2">
-            <span className="text-indigo-400 mt-0.5">&#x2022;</span>
+            <span className="text-ch-gold mt-0.5">&#x2022;</span>
             <span><span className="text-gray-300">Contacts</span> — store and search your contacts</span>
           </li>
           <li className="flex items-start gap-2">
-            <span className="text-indigo-400 mt-0.5">&#x2022;</span>
+            <span className="text-ch-gold mt-0.5">&#x2022;</span>
             <span><span className="text-gray-300">Deals</span> — track opportunities and pipeline stages</span>
           </li>
           <li className="flex items-start gap-2">
-            <span className="text-indigo-400 mt-0.5">&#x2022;</span>
+            <span className="text-ch-gold mt-0.5">&#x2022;</span>
             <span><span className="text-gray-300">Tasks</span> — manage follow-ups and to-dos</span>
           </li>
           <li className="flex items-start gap-2">
-            <span className="text-indigo-400 mt-0.5">&#x2022;</span>
+            <span className="text-ch-gold mt-0.5">&#x2022;</span>
             <span><span className="text-gray-300">Activity log</span> — automatic tracking of interactions</span>
           </li>
         </ul>

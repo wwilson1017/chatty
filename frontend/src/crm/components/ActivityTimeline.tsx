@@ -1,37 +1,51 @@
 import type { CrmActivity } from '../../core/types';
+import { IconPhone, IconMail, IconUsers, IconFile } from '../../shared/icons';
 
-const ACTIVITY_ICONS: Record<string, string> = {
-  call: 'tel',
-  email: '@',
-  meeting: 'mtg',
-  note: '#',
-  follow_up: '>>',
+const ACTIVITY_ICONS: Record<string, React.ComponentType<{ size?: number; strokeWidth?: number }>> = {
+  call: IconPhone,
+  email: IconMail,
+  meeting: IconUsers,
+  note: IconFile,
+  follow_up: IconMail,
 };
 
 export function ActivityTimeline({ activities }: { activities: CrmActivity[] }) {
   if (activities.length === 0) {
-    return <p className="text-gray-500 text-sm">No activity yet.</p>;
+    return <p style={{ color: 'rgba(237,240,244,0.38)', fontSize: 13 }}>No activity yet.</p>;
   }
 
   return (
-    <div className="space-y-3">
-      {activities.map(a => (
-        <div key={a.id} className="flex gap-3">
-          <div className="w-8 h-8 rounded-full bg-gray-800 flex items-center justify-center text-xs text-gray-400 font-mono shrink-0">
-            {ACTIVITY_ICONS[a.activity] || a.activity.charAt(0)}
-          </div>
-          <div className="min-w-0 flex-1">
-            <div className="flex items-baseline gap-2">
-              <span className="text-white text-sm capitalize">{a.activity.replace('_', ' ')}</span>
-              {a.contact_name && (
-                <span className="text-gray-500 text-xs">&middot; {a.contact_name}</span>
-              )}
+    <div>
+      {activities.map(a => {
+        const Icon = ACTIVITY_ICONS[a.activity] || IconFile;
+        return (
+          <div key={a.id} style={{
+            padding: '11px 0', display: 'flex', alignItems: 'center', gap: 12,
+            borderBottom: '1px solid rgba(230,235,242,0.07)',
+          }}>
+            <div style={{
+              width: 28, height: 28, borderRadius: 4,
+              background: 'rgba(245,239,227,0.06)',
+              border: '1px solid rgba(230,235,242,0.07)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              color: 'rgba(237,240,244,0.62)', flexShrink: 0,
+            }}>
+              <Icon size={13} strokeWidth={1.75} />
             </div>
-            {a.note && <p className="text-gray-400 text-xs mt-0.5 truncate">{a.note}</p>}
-            <p className="text-gray-600 text-xs mt-0.5">{formatDate(a.created_at)}</p>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: 13 }}>
+                <span style={{ color: '#EDF0F4', textTransform: 'capitalize' }}>{a.activity.replace('_', ' ')}</span>
+                {a.contact_name && <span style={{ color: 'rgba(237,240,244,0.62)' }}> · {a.contact_name}</span>}
+              </div>
+              {a.note && <p style={{ color: 'rgba(237,240,244,0.38)', fontSize: 12, marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{a.note}</p>}
+            </div>
+            <div style={{
+              fontFamily: "'JetBrains Mono', ui-monospace, monospace",
+              fontSize: 10, color: 'rgba(237,240,244,0.38)', flexShrink: 0,
+            }}>{formatDate(a.created_at)}</div>
           </div>
-        </div>
-      ))}
+        );
+      })}
     </div>
   );
 }
@@ -41,7 +55,5 @@ function formatDate(iso: string): string {
     const d = new Date(iso + 'Z');
     return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) +
       ' ' + d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
-  } catch {
-    return iso;
-  }
+  } catch { return iso; }
 }

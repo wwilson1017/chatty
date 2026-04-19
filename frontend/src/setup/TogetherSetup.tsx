@@ -29,11 +29,11 @@ export function TogetherSetup({ onConnected }: Props) {
 
   return (
     <div className="space-y-3">
-      <div className="bg-gray-700/50 rounded-lg px-4 py-3 space-y-2">
-        <p className="text-sm text-gray-300">
+      <div className="bg-ch-bg-card rounded-lg px-4 py-3 space-y-2">
+        <p className="text-sm text-ch-ink-mute">
           Run open-weight AI models in the cloud for a fraction of the cost.
         </p>
-        <ol className="text-xs text-gray-400 space-y-1 list-decimal list-inside">
+        <ol className="text-xs text-ch-ink-mute space-y-1 list-decimal list-inside">
           <li>Create a free account at together.ai ($25 free credits, no credit card)</li>
           <li>Go to Settings &gt; API Keys and create a key</li>
           <li>Paste it below</li>
@@ -46,7 +46,7 @@ export function TogetherSetup({ onConnected }: Props) {
         onChange={e => setKey(e.target.value)}
         placeholder="together_..."
         onKeyDown={e => e.key === 'Enter' && connect()}
-        className="w-full bg-gray-700 border border-gray-600 text-white rounded-lg px-4 py-3 text-sm focus:outline-none focus:border-indigo-500"
+        className="w-full bg-ch-bg-raised border border-ch-line-strong text-white rounded-lg px-4 py-3 text-sm focus:outline-none focus:border-amber-500"
       />
 
       {error && <p className="text-red-400 text-xs">{error}</p>}
@@ -55,7 +55,7 @@ export function TogetherSetup({ onConnected }: Props) {
         href="https://api.together.xyz/settings/api-keys"
         target="_blank"
         rel="noopener noreferrer"
-        className="block text-xs text-indigo-400 hover:text-indigo-300 transition"
+        className="block text-xs text-ch-gold hover:text-ch-gold transition"
       >
         Get your API key at api.together.xyz &rarr;
       </a>
