@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { api } from '../core/api/client';
 import type { CrmContact } from '../core/types';
 import { ContactForm } from './components/ContactForm';
-import { CsvImportModal } from './components/CsvImportModal';
+import { SmartImportModal } from './components/SmartImportModal';
 
 const STATUS_TABS = ['all', 'active', 'inactive', 'archived'] as const;
 
@@ -43,7 +43,7 @@ export function ContactsPage() {
             onClick={() => setShowImport(true)}
             className="bg-gray-800 text-gray-300 px-4 py-2 rounded-lg text-sm hover:bg-gray-700 transition"
           >
-            Import CSV
+            Import Contacts
           </button>
           <button
             onClick={() => setShowCreate(true)}
@@ -135,7 +135,7 @@ export function ContactsPage() {
       )}
 
       {showImport && (
-        <CsvImportModal
+        <SmartImportModal
           onClose={() => setShowImport(false)}
           onImported={() => { setShowImport(false); load(); }}
         />

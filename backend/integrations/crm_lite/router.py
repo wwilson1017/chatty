@@ -30,6 +30,8 @@ Activity:
 Other:
   GET    /api/crm/dashboard             — summary stats
   POST   /api/crm/import                — CSV import (contacts)
+  POST   /api/crm/smart-import/parse    — AI-powered parse (any format)
+  POST   /api/crm/smart-import/confirm  — confirm & insert parsed contacts
 """
 
 import csv
@@ -37,7 +39,7 @@ import io
 import logging
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Query
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 
 from core.auth import get_current_user
 from integrations.registry import is_enabled
@@ -364,6 +366,78 @@ async def import_csv(file: UploadFile = File(...), user=Depends(_require_crm)):
             imported += 1
         except Exception as e:
             errors.append(f"Row {i}: {e}")
+            if len(errors) > 50:
+                break
+
+    return {"imported": imported, "skipped": skipped, "errors": errors}
+
+
+# ── Smart Import (AI-powered) ────────────────────────────────────────────────
+
+class SmartImportConfirm(BaseModel):
+    contacts: list[dict]
+
+    @field_validator("contacts")
+    @classmethod
+    def validate_contacts(cls, v):
+        if not v:
+            raise ValueError("No contacts to import")
+        if len(v) > 5000:
+            raise ValueError("Too many contacts (max 5000)")
+        return v
+
+
+@router.post("/smart-import/parse")
+async def smart_import_parse(file: UploadFile = File(...), user=Depends(_require_crm)):
+    """Parse contacts from any file format using AI when needed."""
+    from .smart_import import parse_contacts
+
+    if not file.filename:
+        raise HTTPException(status_code=400, detail="No file provided")
+
+    content = await file.read()
+    if len(content) > 1_048_576:
+        raise HTTPException(status_code=400, detail="File too large (max 1MB)")
+
+    try:
+        text = content.decode("utf-8-sig")
+    except UnicodeDecodeError:
+        text = content.decode("latin-1")
+
+    result = parse_contacts(text, file.filename)
+    return {
+        "contacts": result.contacts,
+        "ai_used": result.ai_used,
+        "warnings": result.warnings,
+    }
+
+
+@router.post("/smart-import/confirm")
+async def smart_import_confirm(body: SmartImportConfirm, user=Depends(_require_crm)):
+    """Import previously parsed contacts into CRM."""
+    imported = 0
+    skipped = 0
+    errors = []
+
+    for i, entry in enumerate(body.contacts):
+        name = str(entry.get("name", "") or "").strip()
+        if not name:
+            skipped += 1
+            continue
+        try:
+            crm.create_contact(
+                name=name,
+                email=str(entry.get("email", "") or "").strip(),
+                phone=str(entry.get("phone", "") or "").strip(),
+                company=str(entry.get("company", "") or "").strip(),
+                title=str(entry.get("title", "") or "").strip(),
+                source=str(entry.get("source", "") or "").strip(),
+                tags=str(entry.get("tags", "") or "").strip(),
+                notes=str(entry.get("notes", "") or "").strip(),
+            )
+            imported += 1
+        except Exception as e:
+            errors.append(f"Contact {i + 1}: {e}")
             if len(errors) > 50:
                 break
 
