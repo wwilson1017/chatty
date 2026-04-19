@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { api } from '../core/api/client';
 import type { CrmContact } from '../core/types';
 import { ContactForm } from './components/ContactForm';
-import { CsvImportModal } from './components/CsvImportModal';
+import { SmartImportModal } from './components/SmartImportModal';
 import { IconPlus, IconSearch } from '../shared/icons';
 
 const STATUS_TABS = ['all', 'active', 'inactive', 'archived'] as const;
@@ -54,7 +54,7 @@ export function ContactsPage() {
             background: 'transparent', color: 'rgba(237,240,244,0.62)',
             border: '1px solid rgba(230,235,242,0.14)',
             padding: '7px 14px', borderRadius: 4, fontSize: 13, cursor: 'pointer',
-          }}>Import CSV</button>
+          }}>Import Contacts</button>
           <button onClick={() => setShowCreate(true)} style={{
             background: 'var(--color-ch-accent, #C8D1D9)', color: '#0E1013',
             border: 'none', padding: '7px 14px', borderRadius: 4,
@@ -146,7 +146,7 @@ export function ContactsPage() {
       )}
 
       {showCreate && <ContactForm onClose={() => setShowCreate(false)} onSaved={() => { setShowCreate(false); load(); }} />}
-      {showImport && <CsvImportModal onClose={() => setShowImport(false)} onImported={() => { setShowImport(false); load(); }} />}
+      {showImport && <SmartImportModal onClose={() => setShowImport(false)} onImported={() => { setShowImport(false); load(); }} />}
     </div>
   );
 }
