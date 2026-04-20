@@ -336,15 +336,15 @@ export function AgentChatPanel({
               <div style={{
                 display: 'flex', alignItems: 'center', gap: 8,
                 padding: '8px 14px', borderRadius: 8,
-                ...(conversationSource === 'telegram'
+                ...(conversationSource?.startsWith('telegram')
                   ? { background: 'rgba(0,136,204,0.08)', border: '1px solid rgba(0,136,204,0.2)' }
                   : { background: 'rgba(37,211,102,0.08)', border: '1px solid rgba(37,211,102,0.2)' }),
               }}>
                 <span style={{
                   fontSize: 11, fontWeight: 600, letterSpacing: '0.05em',
-                  color: conversationSource === 'telegram' ? '#0088cc' : '#25D366',
+                  color: conversationSource?.startsWith('telegram') ? '#0088cc' : '#25D366',
                 }}>
-                  {conversationSource === 'telegram' ? 'Telegram' : 'WhatsApp'}
+                  {conversationSource?.startsWith('telegram') ? (conversationSource === 'telegram-group' ? 'Telegram Group' : 'Telegram') : 'WhatsApp'}
                 </span>
                 <span style={{ fontSize: 11, color: 'rgba(237,240,244,0.4)' }}>
                   Messages from {conversationSource === 'telegram' ? 'Telegram' : 'WhatsApp'} appear here
