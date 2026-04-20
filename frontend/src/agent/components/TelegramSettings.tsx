@@ -516,6 +516,7 @@ function ManagementView({ agentId, agentName, botUsername, telegramEnabled, grou
   const [togglingGroup, setTogglingGroup] = useState(false);
   const [togglingBots, setTogglingBots] = useState(false);
   const [localMaxTurns, setLocalMaxTurns] = useState(maxBotTurns);
+  useEffect(() => { setLocalMaxTurns(maxBotTurns); }, [maxBotTurns]);
 
   async function handleToggleGroup() {
     setTogglingGroup(true);
@@ -713,6 +714,7 @@ function ManagementView({ agentId, agentName, botUsername, telegramEnabled, grou
                   value={localMaxTurns}
                   onChange={e => setLocalMaxTurns(parseInt(e.target.value, 10))}
                   onPointerUp={handleMaxBotTurnsSave}
+                  onKeyUp={handleMaxBotTurnsSave}
                   className="w-full accent-[#0088cc]"
                 />
                 <div className="flex justify-between text-gray-600 text-xs">

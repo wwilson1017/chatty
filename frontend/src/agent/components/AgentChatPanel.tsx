@@ -347,7 +347,7 @@ export function AgentChatPanel({
                   {conversationSource?.startsWith('telegram') ? (conversationSource === 'telegram-group' ? 'Telegram Group' : 'Telegram') : 'WhatsApp'}
                 </span>
                 <span style={{ fontSize: 11, color: 'rgba(237,240,244,0.4)' }}>
-                  Messages from {conversationSource === 'telegram' ? 'Telegram' : 'WhatsApp'} appear here
+                  Messages from {conversationSource?.startsWith('telegram') ? 'Telegram' : 'WhatsApp'} appear here
                 </span>
               </div>
             )}
