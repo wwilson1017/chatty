@@ -13,7 +13,7 @@ from pathlib import Path
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from core.auth import get_current_user
 from .registry import list_integrations, enable, disable, is_enabled
@@ -23,6 +23,10 @@ router = APIRouter()
 
 
 # ── Setup request models ──────────────────────────────────────────────────────
+
+class OdooDiscoverRequest(BaseModel):
+    url: str = Field(..., max_length=2048)
+
 
 class OdooSetupRequest(BaseModel):
     url: str
@@ -64,6 +68,13 @@ async def disable_integration(name: str, user=Depends(get_current_user)):
         raise HTTPException(status_code=404, detail=f"Unknown integration: {name}")
     disable(name)
     return {"ok": True, "integration": name, "enabled": False}
+
+
+@router.post("/odoo/discover-databases")
+def discover_odoo_databases(body: OdooDiscoverRequest, user=Depends(get_current_user)):
+    """Discover available databases on an Odoo instance (no credentials needed)."""
+    from .odoo.discovery import discover_databases
+    return discover_databases(url=body.url)
 
 
 @router.post("/odoo/setup")
