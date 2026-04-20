@@ -472,6 +472,9 @@ export function IntegrationsTab() {
                           botToken={agent.telegram_bot_token || ''}
                           botUsername={agent.telegram_bot_username || ''}
                           telegramEnabled={agent.telegram_enabled}
+                          groupEnabled={agent.telegram_group_enabled}
+                          respondToBots={agent.telegram_respond_to_bots}
+                          maxBotTurns={agent.telegram_max_bot_turns ?? 3}
                           onUpdate={() => api<{ agents: Agent[] }>('/api/agents').then(data => setAgents(data.agents))}
                         />
                       );

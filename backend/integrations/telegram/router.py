@@ -73,30 +73,47 @@ async def telegram_webhook(agent_slug: str, request: Request):
 
     chat = message.get("chat", {})
     chat_id = chat.get("id")
+    chat_type = chat.get("type", "private")
     from_user = message.get("from", {})
     user_id = str(from_user.get("id", ""))
+    is_bot = from_user.get("is_bot", False)
+    from_username = from_user.get("username", "")
     first_name = from_user.get("first_name", "")
     last_name = from_user.get("last_name", "")
     sender_name = f"{first_name} {last_name}".strip() or "Unknown"
+    group_name = chat.get("title", "")
+
+    # For group mention/reply detection
+    entities = message.get("entities", [])
+    reply_to = message.get("reply_to_message")
+    reply_to_bot_username = ""
+    if reply_to and reply_to.get("from", {}).get("is_bot"):
+        reply_to_bot_username = reply_to.get("from", {}).get("username", "")
 
     if not chat_id or not user_id:
         return {"status": "ok"}
 
     logger.info(
-        "Telegram webhook: slug=%s user_id=%s name=%s chat_id=%s msg=%s",
-        agent_slug, user_id, sender_name, chat_id, text[:100],
+        "Telegram webhook: slug=%s user_id=%s name=%s chat_id=%s type=%s msg=%s",
+        agent_slug, user_id, sender_name, chat_id, chat_type, text[:100],
     )
 
     _executor.submit(
         _safe_process_telegram, agent_slug, user_id, sender_name, text, chat_id,
+        chat_type, is_bot, from_username, group_name, entities, reply_to_bot_username,
     )
     return {"status": "ok"}
 
 
 def _safe_process_telegram(
     agent_slug: str, user_id: str, sender_name: str, message: str, chat_id: int,
+    chat_type: str = "private", is_bot: bool = False,
+    from_username: str = "", group_name: str = "",
+    entities: list | None = None, reply_to_bot_username: str = "",
 ) -> None:
     """Process a Telegram message in a background thread."""
+    from . import group
+
     bot_token = ""
     try:
         # Resolve slug → agent
@@ -113,6 +130,45 @@ def _safe_process_telegram(
         if not agent.get("telegram_enabled"):
             return
 
+        # ── Group chat path ──────────────────────────────────────────
+        if group.is_group_chat(chat_type):
+            if not is_bot:
+                group.record_human_message(chat_id)
+
+            bot_username = agent.get("telegram_bot_username", "")
+            is_addressed = group.is_addressed_to_bot(
+                message, entities or [], reply_to_bot_username, bot_username,
+            )
+            ok, reason = group.should_respond(chat_id, is_bot, from_username, agent, is_addressed)
+            if not ok:
+                logger.debug("Group skip: chat=%s agent=%s reason=%s", chat_id, agent_slug, reason)
+                return
+
+            if is_bot:
+                group.record_bot_message(chat_id)
+
+            loop = asyncio.new_event_loop()
+            try:
+                response = loop.run_until_complete(
+                    service.process_group_message(
+                        chat_id=chat_id,
+                        agent_id=agent["id"],
+                        sender_name=sender_name,
+                        sender_is_bot=is_bot,
+                        group_name=group_name,
+                        message_text=message,
+                    )
+                )
+            finally:
+                loop.close()
+
+            try:
+                send_message(chat_id, response, bot_token)
+            finally:
+                group.record_response(chat_id, agent["id"])
+            return
+
+        # ── Private chat path (unchanged) ────────────────────────────
         # Check if sender has a mapping
         mapping = state.get_mapping_by_sender("telegram", user_id)
         if not mapping:
@@ -217,6 +273,9 @@ def get_telegram_status(
         "connected": bool(bot_token),
         "enabled": bool(agent.get("telegram_enabled")),
         "bot_username": agent.get("telegram_bot_username", ""),
+        "group_enabled": bool(agent.get("telegram_group_enabled")),
+        "respond_to_bots": bool(agent.get("telegram_respond_to_bots")),
+        "max_bot_turns": agent.get("telegram_max_bot_turns", 3),
     }
 
 

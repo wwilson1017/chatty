@@ -31,7 +31,7 @@ class ChatHistoryService:
         """
         conv_id = str(uuid.uuid4())
         pinned = 1 if source else 0
-        title = {"telegram": "Telegram", "whatsapp": "WhatsApp"}.get(source or "", "New conversation")
+        title = {"telegram": "Telegram", "telegram-group": "Telegram Group", "whatsapp": "WhatsApp"}.get(source or "", "New conversation")
         db = self._db.get_db()
         with self._db.write_lock():
             db.execute(

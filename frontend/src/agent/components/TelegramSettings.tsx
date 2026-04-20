@@ -13,6 +13,9 @@ interface Props {
   botToken: string;
   botUsername: string;
   telegramEnabled: boolean;
+  groupEnabled: boolean;
+  respondToBots: boolean;
+  maxBotTurns: number;
   onUpdate: () => void;
 }
 
@@ -27,7 +30,7 @@ interface RegistrationWindow {
 
 const TELEGRAM_BLUE = '#0088cc';
 
-export function TelegramSettings({ agentId, agentName, botToken, botUsername, telegramEnabled, onUpdate }: Props) {
+export function TelegramSettings({ agentId, agentName, botToken, botUsername, telegramEnabled, groupEnabled, respondToBots, maxBotTurns, onUpdate }: Props) {
   // If already connected, show management view
   if (botToken) {
     return (
@@ -36,6 +39,9 @@ export function TelegramSettings({ agentId, agentName, botToken, botUsername, te
         agentName={agentName}
         botUsername={botUsername}
         telegramEnabled={telegramEnabled}
+        groupEnabled={groupEnabled}
+        respondToBots={respondToBots}
+        maxBotTurns={maxBotTurns}
         onUpdate={onUpdate}
       />
     );
@@ -492,11 +498,14 @@ function StepAllSet({ agentName, botUsername }: {
 
 // ── Management View (already connected) ───────────────────────────────────────
 
-function ManagementView({ agentId, agentName, botUsername, telegramEnabled, onUpdate }: {
+function ManagementView({ agentId, agentName, botUsername, telegramEnabled, groupEnabled, respondToBots, maxBotTurns, onUpdate }: {
   agentId: string;
   agentName: string;
   botUsername: string;
   telegramEnabled: boolean;
+  groupEnabled: boolean;
+  respondToBots: boolean;
+  maxBotTurns: number;
   onUpdate: () => void;
 }) {
   const [toggling, setToggling] = useState(false);
@@ -504,6 +513,40 @@ function ManagementView({ agentId, agentName, botUsername, telegramEnabled, onUp
   const [showConfirmDisconnect, setShowConfirmDisconnect] = useState(false);
   const [resetting, setResetting] = useState(false);
   const [resetSuccess, setResetSuccess] = useState(false);
+  const [togglingGroup, setTogglingGroup] = useState(false);
+  const [togglingBots, setTogglingBots] = useState(false);
+  const [localMaxTurns, setLocalMaxTurns] = useState(maxBotTurns);
+  useEffect(() => { setLocalMaxTurns(maxBotTurns); }, [maxBotTurns]);
+
+  async function handleToggleGroup() {
+    setTogglingGroup(true);
+    try {
+      await api(`/api/agents/${agentId}`, {
+        method: 'PUT',
+        body: JSON.stringify({ telegram_group_enabled: !groupEnabled }),
+      });
+      onUpdate();
+    } finally { setTogglingGroup(false); }
+  }
+
+  async function handleToggleRespondToBots() {
+    setTogglingBots(true);
+    try {
+      await api(`/api/agents/${agentId}`, {
+        method: 'PUT',
+        body: JSON.stringify({ telegram_respond_to_bots: !respondToBots }),
+      });
+      onUpdate();
+    } finally { setTogglingBots(false); }
+  }
+
+  async function handleMaxBotTurnsSave() {
+    await api(`/api/agents/${agentId}`, {
+      method: 'PUT',
+      body: JSON.stringify({ telegram_max_bot_turns: localMaxTurns }),
+    });
+    onUpdate();
+  }
 
   async function handleToggle() {
     setToggling(true);
@@ -612,6 +655,75 @@ function ManagementView({ agentId, agentName, botUsername, telegramEnabled, onUp
         </button>
         {resetSuccess && (
           <p className="text-green-400 text-xs">Registration window reopened for 10 minutes. Message the bot to link your account.</p>
+        )}
+      </div>
+
+      {/* Group Chats */}
+      <div className="bg-gray-800 rounded-xl border border-gray-700 p-4 space-y-4">
+        <h3 className="text-white text-sm font-semibold">Group Chats</h3>
+        <p className="text-gray-400 text-xs">
+          Allow this bot to respond in Telegram groups when @mentioned or replied to.
+          Anyone in the group can interact with the agent and its tools.
+        </p>
+
+        {/* Group enabled toggle */}
+        <div className="flex items-center justify-between py-2 border-t border-gray-700">
+          <div>
+            <p className="text-white text-sm font-medium">Enable Group Chats</p>
+            <p className="text-gray-500 text-xs">Respond to messages in group conversations</p>
+          </div>
+          <button
+            onClick={handleToggleGroup}
+            disabled={togglingGroup}
+            className={`relative w-11 h-6 rounded-full transition ${groupEnabled ? 'bg-[#0088cc]' : 'bg-gray-600'} ${togglingGroup ? 'opacity-50' : ''}`}
+          >
+            <span className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-all ${groupEnabled ? 'left-5' : 'left-0.5'}`} />
+          </button>
+        </div>
+
+        {groupEnabled && (
+          <>
+            {/* Bot-to-bot toggle */}
+            <div className="flex items-center justify-between py-2 border-t border-gray-700">
+              <div>
+                <p className="text-white text-sm font-medium">Respond to Other Bots</p>
+                <p className="text-gray-500 text-xs">Allow bot-to-bot conversations (requires BotFather <span className="font-mono">/setprivacy</span> → Disable)</p>
+              </div>
+              <button
+                onClick={handleToggleRespondToBots}
+                disabled={togglingBots}
+                className={`relative w-11 h-6 rounded-full transition ${respondToBots ? 'bg-[#0088cc]' : 'bg-gray-600'} ${togglingBots ? 'opacity-50' : ''}`}
+              >
+                <span className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-all ${respondToBots ? 'left-5' : 'left-0.5'}`} />
+              </button>
+            </div>
+
+            {respondToBots && (
+              <div className="py-2 border-t border-gray-700 space-y-2">
+                <div className="flex items-center justify-between">
+                  <p className="text-white text-sm font-medium">Max Bot Turns</p>
+                  <span className="text-gray-400 text-sm font-mono">{localMaxTurns}</span>
+                </div>
+                <p className="text-gray-500 text-xs">
+                  Maximum consecutive bot-to-bot messages before requiring a human message. Prevents infinite loops.
+                </p>
+                <input
+                  type="range"
+                  min={1}
+                  max={10}
+                  value={localMaxTurns}
+                  onChange={e => setLocalMaxTurns(parseInt(e.target.value, 10))}
+                  onPointerUp={handleMaxBotTurnsSave}
+                  onKeyUp={handleMaxBotTurnsSave}
+                  className="w-full accent-[#0088cc]"
+                />
+                <div className="flex justify-between text-gray-600 text-xs">
+                  <span>1</span>
+                  <span>10</span>
+                </div>
+              </div>
+            )}
+          </>
         )}
       </div>
 

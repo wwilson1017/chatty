@@ -32,6 +32,7 @@ from core.agents.scheduled_actions.tools import (
 from core.agents import ai_service
 
 from . import state
+from .group import build_group_prefix
 
 logger = logging.getLogger(__name__)
 
@@ -177,6 +178,85 @@ async def process_message(
         messages.append({"role": "user", "content": platform_prefix + message_text})
 
     # 8. Run the agent (non-streaming)
+    response = await ai_service.run_sync(
+        config=config,
+        provider=provider,
+        registry=registry,
+        ctx_manager=ctx_manager,
+        messages=messages,
+        chat_service=chat_service,
+        conversation_id=chatty_conv_id,
+        integration_tool_defs=integration_tool_defs or None,
+    )
+
+    return response or "I had trouble generating a response. Please try again."
+
+
+async def process_group_message(
+    chat_id: int,
+    agent_id: str,
+    sender_name: str,
+    sender_is_bot: bool,
+    group_name: str,
+    message_text: str,
+) -> str:
+    """Process a group chat message for a specific agent."""
+
+    agent = agent_db.get_agent(agent_id)
+    if not agent:
+        return "This agent is no longer available."
+    if not agent.get("telegram_enabled"):
+        return "Telegram messaging is currently disabled for this agent."
+
+    slug = agent["slug"]
+
+    config = build_agent_config(agent)
+    ctx_manager = get_context_manager(slug)
+    chat_service = get_chat_service(slug)
+
+    store = CredentialStore()
+    provider = get_ai_provider(
+        agent_provider=config.provider_override or None,
+        agent_model=config.model_override or None,
+    )
+    if not provider:
+        return "No AI provider is configured. Please set up an AI provider in Settings."
+
+    google_token = ""
+    if config.gmail_enabled or config.calendar_enabled:
+        google_token = store.get_google_token() or ""
+
+    integration_tool_defs, integration_executors = _load_integration_tools()
+
+    reminder_handlers, sa_handlers = _build_agent_handlers(slug)
+    registry = ToolRegistry(
+        context_dir=config.context_dir,
+        google_access_token=google_token,
+        integration_executors=integration_executors,
+        agent_slug=slug,
+        reminder_handlers=reminder_handlers,
+        scheduled_action_handlers=sa_handlers,
+    )
+
+    group_sender_id = f"group:{chat_id}"
+    conv = state.get_or_create_conversation(group_sender_id, agent_id)
+
+    chatty_conv_id = conv.get("chatty_conversation_id")
+    if not chatty_conv_id and chat_service:
+        try:
+            new_conv = chat_service.create_conversation(source="telegram-group")
+            chatty_conv_id = new_conv["id"]
+            state.set_chatty_conversation_id(conv["id"], chatty_conv_id)
+        except Exception as e:
+            logger.warning("Failed to create group chat conversation: %s", e)
+
+    messages = _load_recent_messages(chat_service, chatty_conv_id)
+    prefix = build_group_prefix(group_name, sender_name, sender_is_bot)
+    if not messages:
+        messages = [{"role": "user", "content": prefix + message_text}]
+    else:
+        messages.append({"role": "user", "content": prefix + message_text})
+
     response = await ai_service.run_sync(
         config=config,
         provider=provider,

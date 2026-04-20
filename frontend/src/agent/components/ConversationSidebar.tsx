@@ -186,11 +186,11 @@ export function ConversationSidebar({
                             textTransform: 'uppercase',
                             padding: '1px 5px', borderRadius: 3,
                             flexShrink: 0,
-                            ...((item as Conversation).source === 'telegram'
+                            ...((item as Conversation).source?.startsWith('telegram')
                               ? { background: 'rgba(0,136,204,0.15)', color: '#0088cc' }
                               : { background: 'rgba(37,211,102,0.15)', color: '#25D366' }),
                           }}>
-                            {(item as Conversation).source === 'telegram' ? 'TG' : 'WA'}
+                            {(item as Conversation).source?.startsWith('telegram') ? 'TG' : 'WA'}
                           </span>
                         )}
                         <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
