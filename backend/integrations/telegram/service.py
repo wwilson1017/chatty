@@ -32,6 +32,7 @@ from core.agents.scheduled_actions.tools import (
 from core.agents import ai_service
 
 from . import state
+from .group import build_group_prefix
 
 logger = logging.getLogger(__name__)
 
@@ -200,7 +201,6 @@ async def process_group_message(
     message_text: str,
 ) -> str:
     """Process a group chat message for a specific agent."""
-    from .group import build_group_prefix
 
     agent = agent_db.get_agent(agent_id)
     if not agent:

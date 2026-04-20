@@ -515,6 +515,7 @@ function ManagementView({ agentId, agentName, botUsername, telegramEnabled, grou
   const [resetSuccess, setResetSuccess] = useState(false);
   const [togglingGroup, setTogglingGroup] = useState(false);
   const [togglingBots, setTogglingBots] = useState(false);
+  const [localMaxTurns, setLocalMaxTurns] = useState(maxBotTurns);
 
   async function handleToggleGroup() {
     setTogglingGroup(true);
@@ -538,11 +539,10 @@ function ManagementView({ agentId, agentName, botUsername, telegramEnabled, grou
     } finally { setTogglingBots(false); }
   }
 
-  async function handleMaxBotTurnsChange(e: React.ChangeEvent<HTMLInputElement>) {
-    const val = parseInt(e.target.value, 10);
+  async function handleMaxBotTurnsSave() {
     await api(`/api/agents/${agentId}`, {
       method: 'PUT',
-      body: JSON.stringify({ telegram_max_bot_turns: val }),
+      body: JSON.stringify({ telegram_max_bot_turns: localMaxTurns }),
     });
     onUpdate();
   }
@@ -661,8 +661,8 @@ function ManagementView({ agentId, agentName, botUsername, telegramEnabled, grou
       <div className="bg-gray-800 rounded-xl border border-gray-700 p-4 space-y-4">
         <h3 className="text-white text-sm font-semibold">Group Chats</h3>
         <p className="text-gray-400 text-xs">
-          Allow this bot to participate in Telegram group conversations.
-          Requires BotFather privacy mode to be disabled (send <span className="font-mono bg-gray-700 px-1 rounded">/setprivacy</span> → select <span className="font-mono bg-gray-700 px-1 rounded">@{botUsername}</span> → Disable).
+          Allow this bot to respond in Telegram groups when @mentioned or replied to.
+          Anyone in the group can interact with the agent and its tools.
         </p>
 
         {/* Group enabled toggle */}
@@ -686,7 +686,7 @@ function ManagementView({ agentId, agentName, botUsername, telegramEnabled, grou
             <div className="flex items-center justify-between py-2 border-t border-gray-700">
               <div>
                 <p className="text-white text-sm font-medium">Respond to Other Bots</p>
-                <p className="text-gray-500 text-xs">Allow bot-to-bot conversations in groups</p>
+                <p className="text-gray-500 text-xs">Allow bot-to-bot conversations (requires BotFather <span className="font-mono">/setprivacy</span> → Disable)</p>
               </div>
               <button
                 onClick={handleToggleRespondToBots}
@@ -701,7 +701,7 @@ function ManagementView({ agentId, agentName, botUsername, telegramEnabled, grou
               <div className="py-2 border-t border-gray-700 space-y-2">
                 <div className="flex items-center justify-between">
                   <p className="text-white text-sm font-medium">Max Bot Turns</p>
-                  <span className="text-gray-400 text-sm font-mono">{maxBotTurns}</span>
+                  <span className="text-gray-400 text-sm font-mono">{localMaxTurns}</span>
                 </div>
                 <p className="text-gray-500 text-xs">
                   Maximum consecutive bot-to-bot messages before requiring a human message. Prevents infinite loops.
@@ -710,8 +710,9 @@ function ManagementView({ agentId, agentName, botUsername, telegramEnabled, grou
                   type="range"
                   min={1}
                   max={10}
-                  value={maxBotTurns}
-                  onChange={handleMaxBotTurnsChange}
+                  value={localMaxTurns}
+                  onChange={e => setLocalMaxTurns(parseInt(e.target.value, 10))}
+                  onPointerUp={handleMaxBotTurnsSave}
                   className="w-full accent-[#0088cc]"
                 />
                 <div className="flex justify-between text-gray-600 text-xs">

@@ -33,11 +33,30 @@ def is_group_chat(chat_type: str) -> bool:
     return chat_type in ("group", "supergroup")
 
 
+def is_addressed_to_bot(
+    text: str, entities: list, reply_to_bot_username: str, bot_username: str,
+) -> bool:
+    """Check if a group message is addressed to this bot via @mention or reply."""
+    if not bot_username:
+        return False
+    mention_tag = f"@{bot_username}".lower()
+    for ent in entities:
+        if ent.get("type") == "mention":
+            offset = ent.get("offset", 0)
+            length = ent.get("length", 0)
+            if text[offset:offset + length].lower() == mention_tag:
+                return True
+    if reply_to_bot_username and reply_to_bot_username.lower() == bot_username.lower():
+        return True
+    return False
+
+
 def should_respond(
     chat_id: int,
     sender_is_bot: bool,
     sender_username: str,
     agent: dict,
+    is_addressed: bool = False,
 ) -> tuple[bool, str]:
     """Decide whether the agent should respond to a group message.
 
@@ -50,13 +69,17 @@ def should_respond(
     if sender_username and bot_username and sender_username.lower() == bot_username.lower():
         return False, "self_message"
 
+    # Human messages require @mention or reply-to-bot
+    if not sender_is_bot and not is_addressed:
+        return False, "not_addressed"
+
     with _lock:
         state = _get_state(chat_id)
 
         if sender_is_bot:
             if not agent.get("telegram_respond_to_bots"):
                 return False, "bot_messages_disabled"
-            max_turns = agent.get("telegram_max_bot_turns", 3)
+            max_turns = max(1, agent.get("telegram_max_bot_turns", 3))
             if state.consecutive_bot_turns >= max_turns:
                 return False, "max_bot_turns"
 
@@ -86,8 +109,12 @@ def record_response(chat_id: int, agent_id: str) -> None:
         state.last_response_times[agent_id] = time.time()
 
 
+def _sanitize(text: str) -> str:
+    return text.replace("[", "(").replace("]", ")").replace("\n", " ")
+
+
 def build_group_prefix(
     group_name: str, sender_name: str, sender_is_bot: bool,
 ) -> str:
     bot_tag = " [bot]" if sender_is_bot else ""
-    return f"[Group: {group_name}] {sender_name}{bot_tag}: "
+    return f"[Group: {_sanitize(group_name)}] {_sanitize(sender_name)}{bot_tag}: "
