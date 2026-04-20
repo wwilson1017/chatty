@@ -1,14 +1,15 @@
-# Chatty
+# <img src="docs/chatty-logo.svg" alt="" width="28" /> Chatty
 
-A free, open-source personal AI agent platform built for small business owners.
+A free, open-source browser-based personal AI agent platform built for professionals and small business owners.
 
-Create custom AI agents with their own personality, knowledge, and tools — powered by your own API keys. No SaaS fees, no vendor lock-in. You only pay for the AI usage you consume.
+Create custom AI agents with their own personality, knowledge, and tools — powered by your own API keys or local AI model. No SaaS fees, no vendor lock-in. You only pay for the AI usage you consume.
 
 ## Features
 
 - **Multi-agent** — Create and manage multiple AI agents, each with its own name, personality, and knowledge base
 - **Multi-provider AI** — Anthropic, OpenAI, Google Gemini, Ollama (local models), and Together AI
 - **Brandable** — Upload your logo, company name, and accent color to make it yours
+- **Built-in CRM** — Manage your pipeline: contacts, companies, tasks and deals all with your AI agent
 - **Integrations** — Gmail, Google Calendar, QuickBooks Online, WhatsApp, Telegram
 - **Local-first** — SQLite database, no external services required
 - **One-click deploy** — Deploy to Railway for access from any device
