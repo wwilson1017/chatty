@@ -10,7 +10,11 @@ export interface Agent {
   provider_override: string;
   model_override: string;
   gmail_enabled: boolean;
+  gmail_send_enabled?: boolean;
   calendar_enabled: boolean;
+  calendar_write_enabled?: boolean;
+  drive_enabled?: boolean;
+  drive_write_enabled?: boolean;
   whatsapp_session_id?: string;
   telegram_enabled: boolean;
   telegram_bot_token?: string;
@@ -20,6 +24,16 @@ export interface Agent {
   telegram_max_bot_turns: number;
   created_at: string;
   updated_at: string;
+}
+
+export type GmailScopeLevel = 'none' | 'read' | 'send';
+export type CalendarScopeLevel = 'none' | 'read' | 'full';
+export type DriveScopeLevel = 'none' | 'file' | 'readonly' | 'full';
+
+export interface GoogleScopeGrants {
+  gmail: GmailScopeLevel;
+  calendar: CalendarScopeLevel;
+  drive: DriveScopeLevel;
 }
 
 export interface Conversation {
@@ -66,6 +80,9 @@ export interface Integration {
   enabled: boolean;
   configured: boolean;
   connection_status?: string;
+  // Google-specific
+  email?: string;
+  scope_grants?: GoogleScopeGrants;
 }
 
 // CRM types

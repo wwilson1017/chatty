@@ -538,11 +538,12 @@ async def chat(
     real_tools_dir = str(Path(config.context_dir).parent / "real_tools")
     dynamic_real_tools = load_all_real_tools(real_tools_dir)
 
+    from integrations.google.policy import google_capabilities
+    google_caps = google_capabilities()
     tool_defs = get_tool_definitions(
-        gmail_enabled=config.gmail_enabled,
-        calendar_enabled=config.calendar_enabled,
         integration_tools=integration_tool_defs,
         dynamic_real_tools=dynamic_real_tools or None,
+        **google_caps,
     )
     kind_map = _build_kind_map(tool_defs)
     writes_map = build_writes_map(tool_defs)
@@ -934,11 +935,12 @@ async def run_sync(
     real_tools_dir = str(Path(config.context_dir).parent / "real_tools")
     dynamic_real_tools = load_all_real_tools(real_tools_dir)
 
+    from integrations.google.policy import google_capabilities
+    google_caps = google_capabilities()
     tool_defs = get_tool_definitions(
-        gmail_enabled=config.gmail_enabled,
-        calendar_enabled=config.calendar_enabled,
         integration_tools=integration_tool_defs,
         dynamic_real_tools=dynamic_real_tools or None,
+        **google_caps,
     )
     kind_map = _build_kind_map(tool_defs)
 

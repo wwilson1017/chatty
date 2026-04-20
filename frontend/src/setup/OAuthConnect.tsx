@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { api } from '../core/api/client';
+import { useEffect } from 'react';
+import { useOAuthFlow } from '../core/hooks/useOAuthFlow';
 
 interface Props {
   provider: string;
@@ -7,54 +7,57 @@ interface Props {
 }
 
 export function OAuthConnect({ provider, onConnected }: Props) {
-  const [loading, setLoading] = useState(false);
-  const [status, setStatus] = useState<'idle' | 'waiting' | 'done' | 'error'>('idle');
-  const [error, setError] = useState('');
+  const { state, start } = useOAuthFlow();
 
-  async function startFlow() {
-    setLoading(true); setError(''); setStatus('waiting');
-    try {
-      // This call opens the browser and blocks until OAuth completes (backend handles it)
-      await api(`/api/providers/${provider}/connect`, { method: 'POST' });
-      setStatus('done');
-      onConnected();
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'OAuth flow failed');
-      setStatus('error');
-    } finally {
-      setLoading(false);
-    }
-  }
+  useEffect(() => {
+    if (state.status === 'success') onConnected();
+  }, [state.status, onConnected]);
 
   const providerLabel = provider === 'google' ? 'Google' : 'OpenAI';
 
+  async function startFlow() {
+    await start({
+      setupUrl: `/api/providers/${provider}/connect`,
+      completeUrl: `/api/providers/${provider}/connect/complete`,
+    });
+  }
+
+  const isWaiting = state.status === 'awaiting_user' || state.status === 'starting' || state.status === 'completing';
+  const isDone = state.status === 'success';
+
   return (
     <div className="space-y-3">
-      {status === 'waiting' && (
+      {isWaiting && (
         <div className="flex items-center gap-3 text-sm text-ch-gold bg-indigo-900/20 rounded-lg px-4 py-3">
           <div className="w-4 h-4 border-2 border-indigo-400 border-t-transparent rounded-full animate-spin flex-shrink-0" />
-          <span>Browser opened — complete authorization to continue...</span>
+          <span>
+            {state.status === 'starting' && 'Preparing authorization...'}
+            {state.status === 'awaiting_user' && 'Complete authorization in the popup window...'}
+            {state.status === 'completing' && 'Finalizing connection...'}
+          </span>
         </div>
       )}
 
-      {status === 'done' && (
+      {isDone && (
         <div className="text-sm text-green-400 bg-green-900/20 rounded-lg px-4 py-3">
           ✓ Connected successfully!
         </div>
       )}
 
-      {error && <p className="text-red-400 text-xs">{error}</p>}
+      {state.status === 'error' && state.error && (
+        <p className="text-red-400 text-xs">{state.error}</p>
+      )}
 
-      {status !== 'done' && (
+      {!isDone && (
         <button
           onClick={startFlow}
-          disabled={loading}
+          disabled={isWaiting}
           className="w-full py-2.5 bg-brand text-white text-sm font-semibold rounded-lg hover:opacity-90 transition disabled:opacity-50 flex items-center justify-center gap-2"
         >
-          {loading ? (
+          {isWaiting ? (
             <>
               <div className="w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin" />
-              Waiting for browser...
+              Waiting for authorization...
             </>
           ) : (
             `Connect ${providerLabel}`

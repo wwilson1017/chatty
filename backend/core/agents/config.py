@@ -23,9 +23,15 @@ class AgentConfig:
     provider_override: str = ""
     model_override: str = ""
 
-    # Feature flags
+    # Feature flags (per-agent capability toggles). Agent can only use a
+    # capability if the global Google connection has also granted the
+    # corresponding scope (see build_agent_config which handles this).
     gmail_enabled: bool = False
+    gmail_send_enabled: bool = False
     calendar_enabled: bool = False
+    calendar_write_enabled: bool = False
+    drive_enabled: bool = False
+    drive_write_enabled: bool = False
 
     # Context directory (absolute path)
     context_dir: str = ""

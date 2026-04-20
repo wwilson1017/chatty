@@ -176,9 +176,8 @@ def _process_message_locked(
 
     # 8. Build tool registry
     store = CredentialStore()
-    google_token = ""
-    if config.gmail_enabled or config.calendar_enabled:
-        google_token = store.get_google_token() or ""
+    from integrations.registry import is_enabled as _is_enabled
+    google_connected = _is_enabled("google")
 
     integration_tool_defs, integration_executors = _load_integration_tools()
 
@@ -196,7 +195,7 @@ def _process_message_locked(
 
     registry = ToolRegistry(
         context_dir=config.context_dir,
-        google_access_token=google_token,
+        google_connected=google_connected,
         integration_executors=integration_executors,
         agent_slug=agent_slug,
         reminder_handlers=reminder_handlers,
@@ -205,11 +204,12 @@ def _process_message_locked(
 
     # 9. Build tool definitions
     dynamic_real_tools = load_all_real_tools(agent_slug)
+    from integrations.google.policy import google_capabilities
+    google_caps = google_capabilities()
     tool_defs = get_tool_definitions(
-        gmail_enabled=config.gmail_enabled,
-        calendar_enabled=config.calendar_enabled,
         integration_tools=integration_tool_defs or None,
         dynamic_real_tools=dynamic_real_tools or None,
+        **google_caps,
     )
 
     # 10. Run the agent

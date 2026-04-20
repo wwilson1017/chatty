@@ -19,6 +19,7 @@ from fastapi.staticfiles import StaticFiles
 from core.config import settings
 from core.auth import router as auth_router
 from core.providers.router import router as providers_router
+from core.providers.oauth_callback_router import router as oauth_callback_router
 from agents.router import router as agents_router
 from branding.router import router as branding_router
 from integrations.router import router as integrations_router
@@ -215,6 +216,7 @@ app.add_middleware(
 
 app.include_router(auth_router, prefix="/api")
 app.include_router(providers_router, prefix="/api/providers", tags=["providers"])
+app.include_router(oauth_callback_router, prefix="/api/oauth", tags=["oauth"])
 app.include_router(agents_router, prefix="/api/agents", tags=["agents"])
 app.include_router(branding_router, prefix="/api/branding", tags=["branding"])
 app.include_router(integrations_router, prefix="/api/integrations", tags=["integrations"])

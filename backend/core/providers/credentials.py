@@ -140,19 +140,35 @@ class CredentialStore:
         refresh_token: str,
         expires_in: int,
         model: str | None = None,
+        set_active: bool = True,
     ):
-        """Store OAuth tokens for the given provider and set it as active."""
+        """Store OAuth tokens for the given provider.
+
+        When set_active=False, only the token is written — active_provider /
+        active_model are untouched. Use this when the tokens are being stored
+        for a non-AI purpose (e.g. Gmail/Calendar/Drive integration) and the
+        user may have a different AI provider selected.
+
+        If an existing refresh_token is present and the caller passes an empty
+        one, the existing value is preserved. (Google omits refresh_token on
+        re-auth when the user had already granted offline access.)
+        """
         profile_name = f"{provider}:default"
         if "profiles" not in self.data:
             self.data["profiles"] = {}
+
+        existing = self.data["profiles"].get(profile_name, {})
+        effective_refresh = refresh_token or existing.get("refresh", "")
+
         self.data["profiles"][profile_name] = {
             "type": "oauth",
             "access": access_token,
-            "refresh": refresh_token,
+            "refresh": effective_refresh,
             "expires": int(time.time()) + expires_in,
         }
-        self.data["active_provider"] = provider
-        self.data["active_model"] = model or PROVIDER_DEFAULTS.get(provider, "")
+        if set_active:
+            self.data["active_provider"] = provider
+            self.data["active_model"] = model or PROVIDER_DEFAULTS.get(provider, "")
         self._save()
 
     def set_active_model(self, model: str):
