@@ -67,6 +67,9 @@ def _setup_connection() -> None:
         ("telegram_enabled", "INTEGER NOT NULL DEFAULT 0"),
         ("telegram_bot_token", "TEXT NOT NULL DEFAULT ''"),
         ("telegram_bot_username", "TEXT NOT NULL DEFAULT ''"),
+        ("telegram_group_enabled", "INTEGER NOT NULL DEFAULT 0"),
+        ("telegram_respond_to_bots", "INTEGER NOT NULL DEFAULT 0"),
+        ("telegram_max_bot_turns", "INTEGER NOT NULL DEFAULT 3"),
         ("whatsapp_session_id", "TEXT NOT NULL DEFAULT ''"),
     ]:
         try:
@@ -145,6 +148,7 @@ UPDATABLE_FIELDS = {
     "onboarding_complete", "provider_override", "model_override",
     "gmail_enabled", "calendar_enabled", "whatsapp_session_id",
     "telegram_enabled", "telegram_bot_token", "telegram_bot_username",
+    "telegram_group_enabled", "telegram_respond_to_bots", "telegram_max_bot_turns",
 }
 
 

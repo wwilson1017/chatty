@@ -26,6 +26,9 @@ interface AgentRow {
   telegram_enabled: boolean;
   telegram_bot_token: string;
   telegram_bot_username: string;
+  telegram_group_enabled: boolean;
+  telegram_respond_to_bots: boolean;
+  telegram_max_bot_turns: number;
 }
 
 type Tab = 'chat' | 'knowledge' | 'reports' | 'activity' | 'telegram';
@@ -528,6 +531,9 @@ export function AgentPage() {
               botToken={agent.telegram_bot_token || ''}
               botUsername={agent.telegram_bot_username || ''}
               telegramEnabled={agent.telegram_enabled}
+              groupEnabled={agent.telegram_group_enabled}
+              respondToBots={agent.telegram_respond_to_bots}
+              maxBotTurns={agent.telegram_max_bot_turns ?? 3}
               onUpdate={() => {
                 api<AgentRow>(`/api/agents/${agentId}`).then(setAgent).catch(() => {});
               }}

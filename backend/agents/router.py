@@ -192,6 +192,9 @@ class UpdateAgentRequest(BaseModel):
     gmail_enabled: bool | None = None
     calendar_enabled: bool | None = None
     telegram_enabled: bool | None = None
+    telegram_group_enabled: bool | None = None
+    telegram_respond_to_bots: bool | None = None
+    telegram_max_bot_turns: int | None = None
 
 
 class ChatRequest(BaseModel):
@@ -282,7 +285,7 @@ async def update_agent(agent_id: str, body: UpdateAgentRequest, user=Depends(get
     updates = {k: v for k, v in body.model_dump().items() if v is not None}
     if not updates:
         raise HTTPException(status_code=400, detail="No fields to update")
-    for field in ("onboarding_complete", "gmail_enabled", "calendar_enabled", "telegram_enabled"):
+    for field in ("onboarding_complete", "gmail_enabled", "calendar_enabled", "telegram_enabled", "telegram_group_enabled", "telegram_respond_to_bots"):
         if field in updates:
             updates[field] = int(updates[field])
     agent = agent_db.update_agent(agent_id, **updates)

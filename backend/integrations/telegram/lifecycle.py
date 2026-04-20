@@ -163,12 +163,19 @@ def start_polling(agent_id: str, slug: str, bot_token: str) -> None:
                     chat = message.get("chat", {})
                     from_user = message.get("from", {})
                     chat_id = chat.get("id")
+                    chat_type = chat.get("type", "private")
                     user_id = str(from_user.get("id", ""))
+                    is_bot_sender = from_user.get("is_bot", False)
+                    from_username = from_user.get("username", "")
                     first_name = from_user.get("first_name", "")
                     last_name = from_user.get("last_name", "")
                     sender_name = f"{first_name} {last_name}".strip() or "Unknown"
+                    group_name = chat.get("title", "")
                     if chat_id and user_id:
-                        _safe_process_telegram(slug, user_id, sender_name, message["text"], chat_id)
+                        _safe_process_telegram(
+                            slug, user_id, sender_name, message["text"], chat_id,
+                            chat_type, is_bot_sender, from_username, group_name,
+                        )
             except Exception:
                 logger.exception("Telegram polling error for %s", slug)
                 if not stop_event.is_set():
