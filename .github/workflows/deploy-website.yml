@@ -1,0 +1,41 @@
+name: Deploy Website
+
+on:
+  push:
+    branches: [master]
+    paths: ['website/**']
+
+concurrency:
+  group: deploy-website
+  cancel-in-progress: true
+
+jobs:
+  deploy-main:
+    name: Deploy mechatty.com
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Deploy main site
+        uses: SamKirkland/FTP-Deploy-Action@v4.3.5
+        with:
+          server: ${{ secrets.PAIR_FTP_HOST }}
+          username: ${{ secrets.PAIR_FTP_USER }}
+          password: ${{ secrets.PAIR_FTP_PASSWORD }}
+          protocol: ftp
+          local-dir: website/
+          exclude: |
+            auth/**
+
+  deploy-auth:
+    name: Deploy auth.mechatty.com
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Deploy auth subdomain
+        uses: SamKirkland/FTP-Deploy-Action@v4.3.5
+        with:
+          server: ${{ secrets.PAIR_FTP_HOST }}
+          username: ${{ secrets.PAIR_AUTH_FTP_USER }}
+          password: ${{ secrets.PAIR_AUTH_FTP_PASSWORD }}
+          protocol: ftp
+          local-dir: website/auth/

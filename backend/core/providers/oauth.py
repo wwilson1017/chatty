@@ -195,7 +195,14 @@ def start_oauth_flow(
     verifier, challenge = _generate_pkce() if use_pkce else (None, None)
     flow_id = secrets.token_urlsafe(32)
 
-    auth_url = _build_auth_url(provider, challenge, state=flow_id, scopes=scopes)
+    if os.getenv("OAUTH_REDIRECT_URI"):
+        instance_callback = f"{settings.backend_url}{CALLBACK_PATH}"
+        encoded = base64.urlsafe_b64encode(instance_callback.encode()).rstrip(b"=").decode()
+        state = f"{flow_id}:{encoded}"
+    else:
+        state = flow_id
+
+    auth_url = _build_auth_url(provider, challenge, state=state, scopes=scopes)
 
     _OAUTH_FLOWS[flow_id] = OAuthFlow(
         flow_id=flow_id,

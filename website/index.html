@@ -1,0 +1,511 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Chatty — Free AI Agent Platform for Small Business</title>
+  <meta name="description" content="A free, open-source browser-based personal AI agent platform built for professionals and small business owners. Create custom AI agents powered by your own API keys.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300..600;1,9..144,300..600&family=Geist:wght@300..600&family=JetBrains+Mono:wght@300..500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<!-- ─── Nav ──────────────────────────────────────────────── -->
+<nav class="nav">
+  <div class="container nav-inner">
+    <a href="#top" class="nav-logo">
+      <svg height="28" viewBox="0 0 180 32" fill="none">
+        <g transform="translate(0, 4)">
+          <path d="M20 7.5a7.5 7.5 0 1 0 0 9" stroke="currentColor" stroke-width="3" stroke-linecap="round"/>
+          <path d="M18 9.5a5.5 5.5 0 1 0 0 5" stroke="currentColor" stroke-width="1.25" stroke-linecap="round" opacity="0.4"/>
+          <path d="M0 12h2.5M16 12h8" stroke="currentColor" stroke-width="1.25" stroke-linecap="round" opacity="0.5"/>
+          <circle cx="12" cy="12" r="1.5" fill="currentColor"/>
+        </g>
+        <text x="32" y="23" font-family="Fraunces, Georgia, serif" font-size="24" font-weight="400" fill="currentColor" letter-spacing="-0.02em">chatty</text>
+      </svg>
+    </a>
+    <div class="nav-links">
+      <a href="#product">Product</a>
+      <a href="#agents">Agents</a>
+      <a href="#integrations">Integrations</a>
+      <a href="#install">Docs</a>
+    </div>
+    <div class="nav-actions">
+      <a href="https://github.com/WWilson1017/chatty" target="_blank" rel="noopener" class="btn btn-outline btn-sm">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2a10 10 0 0 0-3.16 19.49c.5.09.68-.22.68-.48v-1.7c-2.78.6-3.37-1.34-3.37-1.34-.45-1.15-1.11-1.46-1.11-1.46-.91-.62.07-.6.07-.6 1 .07 1.53 1.03 1.53 1.03.89 1.53 2.34 1.09 2.91.83.09-.65.35-1.09.63-1.34-2.22-.25-4.55-1.11-4.55-4.94 0-1.09.39-1.98 1.03-2.68-.1-.25-.45-1.27.1-2.65 0 0 .84-.27 2.75 1.02a9.58 9.58 0 0 1 5 0c1.91-1.29 2.75-1.02 2.75-1.02.55 1.38.2 2.4.1 2.65.64.7 1.03 1.59 1.03 2.68 0 3.84-2.34 4.68-4.57 4.93.36.31.68.92.68 1.85v2.74c0 .27.18.58.69.48A10 10 0 0 0 12 2z"/></svg>
+        GitHub
+      </a>
+      <a href="#install" class="btn btn-primary btn-sm">Get started</a>
+    </div>
+  </div>
+</nav>
+
+<!-- ─── Hero ─────────────────────────────────────────────── -->
+<section id="top" class="hero">
+  <div class="halo"></div>
+  <div class="container hero-inner">
+    <div class="hero-logo-wrap">
+      <div class="hero-logo-glow"></div>
+      <svg class="hero-logo" width="104" height="104" viewBox="0 0 32 32" fill="none">
+        <path d="M26 10a10 10 0 1 0 0 12" stroke="currentColor" stroke-width="3" stroke-linecap="round"/>
+        <path d="M24 12.5a7 7 0 1 0 0 7" stroke="currentColor" stroke-width="1.25" stroke-linecap="round" opacity="0.4"/>
+        <path d="M3 16h3M21 16h8" stroke="currentColor" stroke-width="1.25" stroke-linecap="round" opacity="0.5"/>
+        <circle cx="16" cy="16" r="1.8" fill="currentColor"/>
+      </svg>
+    </div>
+
+    <h1 class="hero-heading">Your own AI agents,<br><em>on your own machine.</em></h1>
+
+    <p class="hero-sub">A free, open-source browser-based personal AI agent platform built for professionals and small business owners.</p>
+
+    <div class="hero-actions">
+      <a href="#install" class="btn btn-primary">
+        Get started
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 5l7 7-7 7"/></svg>
+      </a>
+      <a href="https://github.com/WWilson1017/chatty" target="_blank" rel="noopener" class="btn btn-outline">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2a10 10 0 0 0-3.16 19.49c.5.09.68-.22.68-.48v-1.7c-2.78.6-3.37-1.34-3.37-1.34-.45-1.15-1.11-1.46-1.11-1.46-.91-.62.07-.6.07-.6 1 .07 1.53 1.03 1.53 1.03.89 1.53 2.34 1.09 2.91.83.09-.65.35-1.09.63-1.34-2.22-.25-4.55-1.11-4.55-4.94 0-1.09.39-1.98 1.03-2.68-.1-.25-.45-1.27.1-2.65 0 0 .84-.27 2.75 1.02a9.58 9.58 0 0 1 5 0c1.91-1.29 2.75-1.02 2.75-1.02.55 1.38.2 2.4.1 2.65.64.7 1.03 1.59 1.03 2.68 0 3.84-2.34 4.68-4.57 4.93.36.31.68.92.68 1.85v2.74c0 .27.18.58.69.48A10 10 0 0 0 12 2z"/></svg>
+        Star on GitHub
+      </a>
+    </div>
+
+    <div class="hero-meta">Local-first &middot; SQLite &middot; Runs anywhere Python does</div>
+
+    <!-- Product screenshot chrome -->
+    <div class="screenshot-chrome">
+      <div class="chrome-bar">
+        <div class="chrome-dots">
+          <span></span><span></span><span></span>
+        </div>
+        <div class="chrome-url">localhost:8000</div>
+      </div>
+      <div class="screenshot-body">
+        <!-- Simplified dashboard preview -->
+        <div class="dash-preview">
+          <div class="dash-rail">
+            <svg width="22" height="22" viewBox="0 0 32 32" fill="none" style="color: var(--accent)">
+              <path d="M26 10a10 10 0 1 0 0 12" stroke="currentColor" stroke-width="3" stroke-linecap="round"/>
+              <path d="M24 12.5a7 7 0 1 0 0 7" stroke="currentColor" stroke-width="1.25" stroke-linecap="round" opacity="0.4"/>
+              <circle cx="16" cy="16" r="1.5" fill="currentColor"/>
+            </svg>
+            <div class="rail-sep"></div>
+            <div class="rail-icon active">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round"><path d="M20 12a8 8 0 0 1-8 8 8 8 0 0 1-3.5-.8L4 20.5l1.3-4.5A8 8 0 0 1 4 12a8 8 0 0 1 16 0z"/></svg>
+            </div>
+            <div class="rail-icon">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-6l-2 3h-4l-2-3H2"/><path d="M5.5 5 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.5-7a1.9 1.9 0 0 0-1.8-1h-9a1.9 1.9 0 0 0-1.8 1Z"/></svg>
+            </div>
+            <div class="rail-icon">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.9M16 3.1a4 4 0 0 1 0 7.8"/></svg>
+            </div>
+          </div>
+          <div class="dash-main">
+            <div class="dash-topbar">
+              <span class="mono-label">Cheesecake Operations &middot; Thursday, April 18</span>
+            </div>
+            <div class="dash-hero-area">
+              <div class="mono-label" style="margin-bottom: 14px">Vol. IV &middot; Morning edition</div>
+              <div class="dash-greeting">Good morning, Sammy.</div>
+              <div class="dash-subtitle">Your agents handled <span class="gold">34 tasks</span> overnight. Two are working now.</div>
+              <div class="dash-stats">
+                <div class="stat"><span class="mono-label">At work now</span><span class="stat-val">2</span></div>
+                <div class="stat"><span class="mono-label">Tasks today</span><span class="stat-val">34</span></div>
+                <div class="stat"><span class="mono-label">Avg. reply</span><span class="stat-val">12s</span></div>
+                <div class="stat"><span class="mono-label">Pipeline</span><span class="stat-val">$153.9K</span></div>
+              </div>
+            </div>
+            <div class="dash-agents-label">
+              <span class="mono-label">Your agents &middot; 6</span>
+            </div>
+            <div class="dash-grid">
+              <div class="agent-card"><div class="mark mark-P">P</div><div><strong>Penelope</strong><span class="muted">Personal Assistant</span></div></div>
+              <div class="agent-card"><div class="mark mark-A">A</div><div><strong>Arthur</strong><span class="muted">Accounts Payable</span></div></div>
+              <div class="agent-card"><div class="mark mark-R">R</div><div><strong>Rhea</strong><span class="muted">Accounts Receivable</span></div></div>
+              <div class="agent-card"><div class="mark mark-C">C</div><div><strong>Cassian</strong><span class="muted">Customer Service</span></div></div>
+              <div class="agent-card"><div class="mark mark-L">L</div><div><strong>Lior</strong><span class="muted">Inbound Sales</span></div></div>
+              <div class="agent-card"><div class="mark mark-T">T</div><div><strong>Talia</strong><span class="muted">Research Analyst</span></div></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ─── Product Showcase ─────────────────────────────────── -->
+<section id="product" class="section">
+  <div class="container">
+    <div class="section-header">
+      <div class="eyebrow">The product</div>
+      <h2>Chat + Tools + <em>Integrated.</em></h2>
+      <p class="section-sub">Your data, tools, and approvals wrap around a single conversation. Nothing feels bolted on because nothing is.</p>
+    </div>
+
+    <div class="showcase-item">
+      <div class="showcase-text">
+        <div class="showcase-label">01 &mdash; Chat</div>
+        <h3>Built to be read, not scrolled.</h3>
+        <p>A centered column, clear typography, and tool calls shown inline as footnotes. Switch between Power and Read modes to change the model without breaking your flow.</p>
+      </div>
+      <div class="showcase-preview">
+        <div class="preview-chat">
+          <div class="preview-topbar"><span>Alba Co. invoice review</span></div>
+          <div class="preview-messages">
+            <div class="msg-user">Arthur, can you look at the Alba Co. invoice that came in this morning?</div>
+            <div class="msg-agent">
+              <div class="mark mark-A mark-sm">A</div>
+              <div class="msg-agent-body">
+                <div class="msg-agent-head"><span class="gold">Arthur</span> <span class="mono-label">9:14 AM</span></div>
+                <p>Good catch. Alba's Q2 invoice came in at <span class="highlight">$18,420</span> &mdash; that's <em>+12.3%</em> over their contracted rate of $16,400.</p>
+                <div class="tool-card">
+                  <div class="tool-head"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8zM14 2v6h6"/></svg> alba_q2_2026.pdf <span class="mono-label">Read</span></div>
+                  <div class="tool-row"><span>Line 1 &middot; base service</span><span>$14,200</span></div>
+                  <div class="tool-row coral"><span>Line 2 &middot; "expedited handling"</span><span>$2,020</span></div>
+                  <div class="tool-row"><span>Line 3 &middot; fuel surcharge</span><span>$2,200</span></div>
+                </div>
+                <div class="msg-actions">
+                  <button class="btn btn-primary btn-xs">Draft dispute</button>
+                  <button class="btn btn-outline btn-xs">Show full PDF</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="showcase-item">
+      <div class="showcase-text">
+        <div class="showcase-label">02 &mdash; CRM</div>
+        <h3>Your agents run your pipeline.</h3>
+        <p>The CRM isn't a separate app &mdash; it's built in. Your agents read it, update it, and manage your deals directly. They log calls, move stages, create tasks, and follow up on stalled opportunities without you lifting a finger.</p>
+      </div>
+      <div class="showcase-preview">
+        <div class="preview-crm">
+          <div class="preview-topbar"><span>CRM</span> <span class="mono-label">/ Pipeline</span></div>
+          <div class="crm-hero">
+            <div class="mono-label">Week of Apr 14 &mdash; 20</div>
+            <div class="crm-total">Pipeline is <span class="gold"><em>$153,900</em></span></div>
+            <div class="crm-sub">across 26 open deals.</div>
+          </div>
+          <div class="crm-stages">
+            <div class="crm-row"><span class="crm-name">Lead</span><div class="crm-bar"><div style="width:38%"></div></div><span class="crm-val">$18.4K</span><span class="mono-label">12 deals</span></div>
+            <div class="crm-row"><span class="crm-name">Qualified</span><div class="crm-bar"><div style="width:62%"></div></div><span class="crm-val">$42.8K</span><span class="mono-label">7 deals</span></div>
+            <div class="crm-row"><span class="crm-name">Proposal</span><div class="crm-bar"><div style="width:88%"></div></div><span class="crm-val">$64.2K</span><span class="mono-label">4 deals</span></div>
+            <div class="crm-row"><span class="crm-name">Negotiation</span><div class="crm-bar"><div style="width:48%"></div></div><span class="crm-val">$28.5K</span><span class="mono-label">3 deals</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="showcase-item">
+      <div class="showcase-text">
+        <div class="showcase-label">03 &mdash; Onboarding</div>
+        <h3>Spin up an agent in a minute.</h3>
+        <p>Pick a role, connect the tools it needs, decide what it should ask before doing. That's it &mdash; you can always refine later.</p>
+      </div>
+      <div class="showcase-preview">
+        <div class="preview-onboarding">
+          <div class="preview-topbar"><span style="color: var(--accent)">
+            <svg height="18" viewBox="0 0 180 32" fill="none"><g transform="translate(0, 4)"><path d="M20 7.5a7.5 7.5 0 1 0 0 9" stroke="currentColor" stroke-width="3" stroke-linecap="round"/><circle cx="12" cy="12" r="1.5" fill="currentColor"/></g><text x="32" y="23" font-family="Fraunces, Georgia, serif" font-size="24" font-weight="400" fill="currentColor" letter-spacing="-0.02em">chatty</text></svg>
+          </span> <span class="mono-label">Step 2 of 4 &middot; Choose a provider</span></div>
+          <div class="onboard-body">
+            <div class="mono-label">Connect your model</div>
+            <div class="onboard-heading">Where does <em class="gold">the thinking</em> happen?</div>
+            <div class="onboard-grid">
+              <div class="provider-card selected"><div class="provider-check"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg></div><div><strong>Anthropic</strong><span class="muted">Claude Sonnet, Opus</span></div></div>
+              <div class="provider-card"><div class="provider-check empty"></div><div><strong>OpenAI</strong><span class="muted">GPT-4o, o1</span></div></div>
+              <div class="provider-card"><div class="provider-check empty"></div><div><strong>Together</strong><span class="muted">Open models, OSS fine-tunes</span></div></div>
+              <div class="provider-card"><div class="provider-check empty"></div><div><strong>Ollama</strong><span class="muted">Run locally, no cloud</span></div></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="showcase-item">
+      <div class="showcase-text">
+        <div class="showcase-label">04 &mdash; Heartbeat</div>
+        <h3>They work while you sleep.</h3>
+        <p>Agents set their own reminders, run scheduled actions, and consolidate what they've learned &mdash; all in the background. You wake up to work already done.</p>
+      </div>
+      <div class="showcase-preview">
+        <div class="preview-heartbeat">
+          <div class="preview-topbar"><span>Agent Activity</span> <span class="mono-label">Heartbeat</span></div>
+          <div class="heartbeat-body">
+            <div class="heartbeat-section">
+              <div class="mono-label" style="margin-bottom: 12px">Scheduled actions</div>
+              <div class="hb-row">
+                <div class="hb-dot sage"></div>
+                <div class="hb-content">
+                  <div class="hb-title"><span class="mark mark-A" style="width:22px;height:22px;font-size:12px;border-radius:4px">A</span> Arthur</div>
+                  <div class="hb-desc">Ran weekly AP digest &mdash; flagged 2 overdue invoices</div>
+                  <div class="mono-label">Scheduled &middot; Every Monday 8:00 AM</div>
+                </div>
+                <div class="mono-label">6:02 AM</div>
+              </div>
+              <div class="hb-row">
+                <div class="hb-dot sage"></div>
+                <div class="hb-content">
+                  <div class="hb-title"><span class="mark mark-R" style="width:22px;height:22px;font-size:12px;border-radius:4px">R</span> Rhea</div>
+                  <div class="hb-desc">Checked aged receivables &mdash; sent 3 follow-up emails</div>
+                  <div class="mono-label">Scheduled &middot; Daily 7:00 AM</div>
+                </div>
+                <div class="mono-label">7:00 AM</div>
+              </div>
+            </div>
+            <div class="heartbeat-section">
+              <div class="mono-label" style="margin-bottom: 12px">Self-reminders fired</div>
+              <div class="hb-row">
+                <div class="hb-dot gold"></div>
+                <div class="hb-content">
+                  <div class="hb-title"><span class="mark mark-L" style="width:22px;height:22px;font-size:12px;border-radius:4px">L</span> Lior</div>
+                  <div class="hb-desc">Follow up with Ocean View Caf&eacute; on proposal</div>
+                  <div class="mono-label">Self-set &middot; 3 days ago</div>
+                </div>
+                <div class="mono-label">9:00 AM</div>
+              </div>
+            </div>
+            <div class="heartbeat-section">
+              <div class="mono-label" style="margin-bottom: 12px">Dreaming</div>
+              <div class="hb-row">
+                <div class="hb-dot" style="background: var(--ink-dim)"></div>
+                <div class="hb-content">
+                  <div class="hb-desc">Consolidated 4 context files, archived 2 dormant docs</div>
+                  <div class="mono-label">Nightly cycle &middot; All agents</div>
+                </div>
+                <div class="mono-label">3:00 AM</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ─── Features ─────────────────────────────────────────── -->
+<section class="section section-ruled">
+  <div class="container">
+    <div class="section-header center">
+      <div class="eyebrow">What's inside</div>
+      <h2>Batteries, <em>included.</em></h2>
+      <p class="section-sub">Everything you need to build an agent-driven workspace.</p>
+    </div>
+    <div class="features-grid">
+      <div class="feature-card">
+        <div class="feature-icon accent">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round"><path d="M20 12a8 8 0 0 1-8 8 8 8 0 0 1-3.5-.8L4 20.5l1.3-4.5A8 8 0 0 1 4 12a8 8 0 0 1 16 0z"/></svg>
+        </div>
+        <div class="feature-title">Multi-agent</div>
+        <div class="feature-body">Create and manage multiple agents, each with its own name, personality, and knowledge base.</div>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon gold">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round"><path d="M9 4a3 3 0 0 0-3 3v1a3 3 0 0 0-2 5 3 3 0 0 0 2 5v1a3 3 0 0 0 3 3h1V4H9zM15 4a3 3 0 0 1 3 3v1a3 3 0 0 1 2 5 3 3 0 0 1-2 5v1a3 3 0 0 1-3 3h-1V4h1z"/></svg>
+        </div>
+        <div class="feature-title">Multi-provider AI</div>
+        <div class="feature-body">Anthropic, OpenAI, Gemini, Together, or Ollama. Switch models without re-wiring anything.</div>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon accent">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h12a4 4 0 0 1 4 4v12H8a4 4 0 0 1-4-4V4zM4 16a4 4 0 0 1 4-4h12"/></svg>
+        </div>
+        <div class="feature-title">Knowledge</div>
+        <div class="feature-body">Feed an agent your docs, notes, or scraped pages. It cites what it used, you see every source.</div>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon accent">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.9M16 3.1a4 4 0 0 1 0 7.8"/></svg>
+        </div>
+        <div class="feature-title">Built-in CRM</div>
+        <div class="feature-body">Contacts, companies, deals, tasks &mdash; the same store your agents read from. Not a bolt-on.</div>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon gold">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2 3 14h9l-1 8 10-12h-9l1-8z"/></svg>
+        </div>
+        <div class="feature-title">Tools &amp; integrations</div>
+        <div class="feature-body">Gmail, Calendar, QuickBooks, WhatsApp, Telegram. Agents use them; you approve what matters.</div>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon accent">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>
+        </div>
+        <div class="feature-title">Local-first</div>
+        <div class="feature-body">SQLite on disk. Your data never leaves your machine unless you point it somewhere else.</div>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon accent">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v4M12 17v4M3 12h4M17 12h4M5.6 5.6l2.8 2.8M15.6 15.6l2.8 2.8M5.6 18.4l2.8-2.8M15.6 8.4l2.8-2.8"/></svg>
+        </div>
+        <div class="feature-title">Brandable</div>
+        <div class="feature-body">Your logo, your company name, your accent color. Make it yours in a minute.</div>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon accent">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18 14 14 0 0 1 0-18z"/></svg>
+        </div>
+        <div class="feature-title">Deploy anywhere</div>
+        <div class="feature-body">One-click to Railway, or run it on a spare Raspberry Pi. Anywhere Python runs, Chatty runs.</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ─── Agents ───────────────────────────────────────────── -->
+<section id="agents" class="section section-ruled section-elev">
+  <div class="halo halo-sm"></div>
+  <div class="container" style="position:relative;z-index:2">
+    <div class="section-header">
+      <div class="eyebrow">Agents</div>
+      <h2>Start with one, <em>build a team.</em></h2>
+      <p class="section-sub">Pick a template, rename it, reshape it. Each agent gets its own monogram &mdash; a small piece of identity for something doing real work.</p>
+    </div>
+    <div class="agents-grid">
+      <div class="agent-spot"><div class="mark mark-P">P</div><div class="agent-info"><div class="agent-name">Parker</div><div class="muted">Support concierge</div><div class="agent-stats"><span>1,240 tasks</span><span>8 tools</span></div></div></div>
+      <div class="agent-spot"><div class="mark mark-A">A</div><div class="agent-info"><div class="agent-name">Arthur</div><div class="muted">AP controller</div><div class="agent-stats"><span>984 tasks</span><span>6 tools</span></div></div></div>
+      <div class="agent-spot"><div class="mark mark-R">R</div><div class="agent-info"><div class="agent-name">Reed</div><div class="muted">Revenue ops</div><div class="agent-stats"><span>720 tasks</span><span>7 tools</span></div></div></div>
+      <div class="agent-spot"><div class="mark mark-C">C</div><div class="agent-info"><div class="agent-name">Clare</div><div class="muted">Customer research</div><div class="agent-stats"><span>412 tasks</span><span>5 tools</span></div></div></div>
+      <div class="agent-spot"><div class="mark mark-L">L</div><div class="agent-info"><div class="agent-name">Lane</div><div class="muted">Lead qualification</div><div class="agent-stats"><span>1,899 tasks</span><span>4 tools</span></div></div></div>
+      <div class="agent-spot"><div class="mark mark-T">T</div><div class="agent-info"><div class="agent-name">Theo</div><div class="muted">On-call triage</div><div class="agent-stats"><span>260 tasks</span><span>9 tools</span></div></div></div>
+    </div>
+  </div>
+</section>
+
+<!-- ─── Integrations ─────────────────────────────────────── -->
+<section id="integrations" class="section section-ruled">
+  <div class="container">
+    <div class="section-header">
+      <div class="eyebrow">Models &amp; tools</div>
+      <h2>It plugs into<br><em>what you already run.</em></h2>
+      <p class="section-sub">Bring your own keys for any supported provider &mdash; or point Chatty at a local Ollama instance and never pay for a token.</p>
+    </div>
+
+    <div class="featured-grid">
+      <div class="featured-card featured-gold">
+        <div class="featured-glow gold"></div>
+        <div class="featured-top">
+          <svg width="68" height="68" viewBox="0 0 48 48" fill="none" style="color: var(--gold)">
+            <circle cx="24" cy="24" r="22" stroke="currentColor" stroke-width="1.5" opacity="0.3"/>
+            <circle cx="24" cy="24" r="15" stroke="currentColor" stroke-width="1.5" opacity="0.6"/>
+            <text x="24" y="30.5" text-anchor="middle" font-family="Fraunces, serif" font-size="20" font-weight="500" fill="currentColor" font-style="italic">O</text>
+          </svg>
+          <span class="featured-badge gold">Odoo</span>
+        </div>
+        <div class="featured-body">
+          <div class="mono-label">Odoo ERP</div>
+          <div class="featured-tagline">Your whole back-office, <em>at your agent's fingertips.</em></div>
+        </div>
+        <div class="featured-bullets">
+          <div class="bullet gold"><span></span>CRM, helpdesk, sales, purchasing, accounting, quality &mdash; 60+ tools wired in</div>
+          <div class="bullet gold"><span></span>Auto-discovers your databases; works with any self-hosted or cloud Odoo instance</div>
+          <div class="bullet gold"><span></span>Per-agent permissions: read-only to full CRUD, your call</div>
+          <div class="bullet gold"><span></span>Query aged receivables, open tickets, leads, quality alerts &mdash; in plain English</div>
+        </div>
+      </div>
+      <div class="featured-card">
+        <div class="featured-glow"></div>
+        <div class="featured-top">
+          <svg width="68" height="68" viewBox="0 0 48 48" fill="none" style="color: var(--accent)">
+            <circle cx="24" cy="24" r="22" stroke="currentColor" stroke-width="1.5" opacity="0.3"/>
+            <path d="M12 24 35 15l-3 19-7.5-6-4 4 .4-7L12 24z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/>
+            <path d="m16.5 24 13 2.5-8 4.5" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" opacity="0.45"/>
+          </svg>
+          <span class="featured-badge">Telegram</span>
+        </div>
+        <div class="featured-body">
+          <div class="mono-label">Telegram</div>
+          <div class="featured-tagline">Chat with your agents <em>from anywhere.</em></div>
+        </div>
+        <div class="featured-bullets">
+          <div class="bullet"><span></span>Talk to any agent from your phone &mdash; no extra app to install</div>
+          <div class="bullet"><span></span>Full tool access: bookkeeping, CRM, email drafts, all over text</div>
+          <div class="bullet"><span></span>One-to-one or group chats; threads stay in sync with your desktop</div>
+          <div class="bullet"><span></span>Run an ops team that never leaves the group chat</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="also-connected">
+      <div class="mono-label" style="margin-bottom: 18px">Also connected</div>
+      <div class="integrations-grid">
+        <div class="integ-item"><div class="integ-icon">G</div><div><div class="integ-name">Gmail</div><div class="mono-label">Tool</div></div></div>
+        <div class="integ-item"><div class="integ-icon">G</div><div><div class="integ-name">Google Calendar</div><div class="mono-label">Tool</div></div></div>
+        <div class="integ-item"><div class="integ-icon">Q</div><div><div class="integ-name">QuickBooks Online</div><div class="mono-label">Tool</div></div></div>
+        <div class="integ-item"><div class="integ-icon">W</div><div><div class="integ-name">WhatsApp</div><div class="mono-label">Tool</div></div></div>
+        <div class="integ-item"><div class="integ-icon">A</div><div><div class="integ-name">Anthropic</div><div class="mono-label">Model</div></div></div>
+        <div class="integ-item"><div class="integ-icon">O</div><div><div class="integ-name">OpenAI</div><div class="mono-label">Model</div></div></div>
+        <div class="integ-item"><div class="integ-icon">G</div><div><div class="integ-name">Google Gemini</div><div class="mono-label">Model</div></div></div>
+        <div class="integ-item"><div class="integ-icon">T</div><div><div class="integ-name">Together AI</div><div class="mono-label">Model</div></div></div>
+        <div class="integ-item"><div class="integ-icon">O</div><div><div class="integ-name">Ollama</div><div class="mono-label">Model &middot; local</div></div></div>
+      </div>
+    </div>
+
+    <div class="docs-link">
+      <a href="https://github.com/WWilson1017/chatty#features" target="_blank" rel="noopener">
+        See setup docs
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 5l7 7-7 7"/></svg>
+      </a>
+    </div>
+  </div>
+</section>
+
+<!-- ─── Install ──────────────────────────────────────────── -->
+<section id="install" class="section section-ruled">
+  <div class="halo halo-sm" style="opacity: 0.3"></div>
+  <div class="container container-sm" style="position:relative;z-index:2">
+    <div class="section-header center">
+      <div class="eyebrow">Get started</div>
+      <h2>Up and running in <em>5 minutes.</em></h2>
+      <p class="section-sub">Three lines. The launcher sets up a virtualenv, installs deps, and starts the server.</p>
+    </div>
+    <div class="code-block">
+      <span class="dim">$ </span>git clone https://github.com/WWilson1017/chatty.git<br>
+      <span class="dim">$ </span>cd chatty<br>
+      <span class="dim">$ </span>python run.py<br>
+      <span class="sage">&rarr; Chatty is running at http://localhost:8000</span>
+    </div>
+    <div class="install-actions">
+      <a href="https://github.com/WWilson1017/chatty" target="_blank" rel="noopener" class="btn btn-primary">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2a10 10 0 0 0-3.16 19.49c.5.09.68-.22.68-.48v-1.7c-2.78.6-3.37-1.34-3.37-1.34-.45-1.15-1.11-1.46-1.11-1.46-.91-.62.07-.6.07-.6 1 .07 1.53 1.03 1.53 1.03.89 1.53 2.34 1.09 2.91.83.09-.65.35-1.09.63-1.34-2.22-.25-4.55-1.11-4.55-4.94 0-1.09.39-1.98 1.03-2.68-.1-.25-.45-1.27.1-2.65 0 0 .84-.27 2.75 1.02a9.58 9.58 0 0 1 5 0c1.91-1.29 2.75-1.02 2.75-1.02.55 1.38.2 2.4.1 2.65.64.7 1.03 1.59 1.03 2.68 0 3.84-2.34 4.68-4.57 4.93.36.31.68.92.68 1.85v2.74c0 .27.18.58.69.48A10 10 0 0 0 12 2z"/></svg>
+        View on GitHub
+      </a>
+      <a href="https://github.com/WWilson1017/chatty#deploy-to-railway" target="_blank" rel="noopener" class="btn btn-outline">
+        One-click deploy to Railway
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 5l7 7-7 7"/></svg>
+      </a>
+    </div>
+    <div class="install-meta">Requires Python 3.10+ and Node 18+</div>
+  </div>
+</section>
+
+<!-- ─── Footer ───────────────────────────────────────────── -->
+<footer class="footer">
+  <div class="container footer-inner">
+    <div class="footer-left">
+      <svg height="22" viewBox="0 0 180 32" fill="none" style="color: var(--ink)">
+        <g transform="translate(0, 4)">
+          <path d="M20 7.5a7.5 7.5 0 1 0 0 9" stroke="currentColor" stroke-width="3" stroke-linecap="round"/>
+          <path d="M18 9.5a5.5 5.5 0 1 0 0 5" stroke="currentColor" stroke-width="1.25" stroke-linecap="round" opacity="0.4"/>
+          <path d="M0 12h2.5M16 12h8" stroke="currentColor" stroke-width="1.25" stroke-linecap="round" opacity="0.5"/>
+          <circle cx="12" cy="12" r="1.5" fill="currentColor"/>
+        </g>
+        <text x="32" y="23" font-family="Fraunces, Georgia, serif" font-size="24" font-weight="400" fill="currentColor" letter-spacing="-0.02em">chatty</text>
+      </svg>
+      <span class="mono-label">MIT &middot; free forever</span>
+    </div>
+    <div class="footer-links">
+      <a href="https://github.com/WWilson1017/chatty" target="_blank" rel="noopener">GitHub</a>
+      <a href="https://github.com/WWilson1017/chatty#quick-start" target="_blank" rel="noopener">Docs</a>
+      <a href="https://github.com/WWilson1017/chatty/issues" target="_blank" rel="noopener">Issues</a>
+      <a href="https://github.com/WWilson1017/chatty/blob/main/CONTRIBUTING.md" target="_blank" rel="noopener">Contributing</a>
+      <a href="https://github.com/WWilson1017/chatty/blob/main/LICENSE" target="_blank" rel="noopener">License</a>
+    </div>
+  </div>
+</footer>
+
+</body>
+</html>
