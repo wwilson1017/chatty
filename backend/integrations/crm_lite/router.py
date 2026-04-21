@@ -316,6 +316,39 @@ async def dashboard(user=Depends(_require_crm)):
     return crm.get_dashboard_stats()
 
 
+# ── Demo mode ────────────────────────────────────────────────────────────────
+
+@router.get("/demo-status")
+async def demo_status(user=Depends(_require_crm)):
+    from integrations.registry import get_credentials
+    creds = get_credentials("crm_lite")
+    return {"demo_mode": bool(creds.get("demo_mode", False))}
+
+
+@router.post("/demo-clear")
+async def demo_clear(user=Depends(_require_crm)):
+    from integrations.registry import get_credentials, save_credentials
+    from .db import _get_db, write_lock
+
+    creds = get_credentials("crm_lite")
+    if not creds.get("demo_mode"):
+        return {"ok": True}
+
+    db = _get_db()
+    with write_lock():
+        db.execute("DELETE FROM activity_log")
+        db.execute("DELETE FROM tasks")
+        db.execute("DELETE FROM deals")
+        db.execute("DELETE FROM contacts")
+        db.execute("DELETE FROM sqlite_sequence WHERE name IN ('contacts','deals','tasks','activity_log')")
+        db.commit()
+
+    creds["enabled"] = True
+    creds["demo_mode"] = False
+    save_credentials("crm_lite", creds)
+    return {"ok": True}
+
+
 # ── CSV Import ────────────────────────────────────────────────────────────────
 
 @router.post("/import")
