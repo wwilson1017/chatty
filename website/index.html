@@ -8,17 +8,19 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300..600;1,9..144,300..600&family=Geist:wght@300..600&family=JetBrains+Mono:wght@300..500&display=swap" rel="stylesheet">
+  <meta name="theme-color" content="#0A0C0F">
   <link rel="icon" href="favicon.svg" type="image/svg+xml">
   <link rel="icon" href="favicon.ico" sizes="32x32">
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
+<a href="#top" class="skip-link">Skip to content</a>
 
 <!-- ─── Nav ──────────────────────────────────────────────── -->
-<nav class="nav">
+<nav class="nav" aria-label="Main">
   <div class="container nav-inner">
-    <a href="#top" class="nav-logo">
-      <svg height="28" viewBox="0 0 180 32" fill="none">
+    <a href="#top" class="nav-logo" aria-label="Chatty — home">
+      <svg height="28" viewBox="0 0 180 32" fill="none" aria-hidden="true">
         <g transform="translate(0, 4)">
           <path d="M20 7.5a7.5 7.5 0 1 0 0 9" stroke="currentColor" stroke-width="3" stroke-linecap="round"/>
           <path d="M18 9.5a5.5 5.5 0 1 0 0 5" stroke="currentColor" stroke-width="1.25" stroke-linecap="round" opacity="0.4"/>
@@ -50,7 +52,7 @@
   <div class="container hero-inner">
     <div class="hero-logo-wrap">
       <div class="hero-logo-glow"></div>
-      <svg class="hero-logo" width="104" height="104" viewBox="0 0 32 32" fill="none">
+      <svg class="hero-logo" width="104" height="104" viewBox="0 0 32 32" fill="none" aria-hidden="true">
         <path d="M26 10a10 10 0 1 0 0 12" stroke="currentColor" stroke-width="3" stroke-linecap="round"/>
         <path d="M24 12.5a7 7 0 1 0 0 7" stroke="currentColor" stroke-width="1.25" stroke-linecap="round" opacity="0.4"/>
         <path d="M3 16h3M21 16h8" stroke="currentColor" stroke-width="1.25" stroke-linecap="round" opacity="0.5"/>
@@ -366,16 +368,16 @@
       <h2>Start with one, <em>build a team.</em></h2>
       <p class="section-sub">Pick a template, rename it, reshape it. Each agent gets its own monogram &mdash; a small piece of identity for something doing real work.</p>
     </div>
-    <div class="chat-demo" id="chat-demo">
+    <div class="chat-demo" id="chat-demo" role="region" aria-label="Demo conversation with Parker">
       <div class="chat-demo-header">
-        <div class="mark mark-P mark-sm">P</div>
+        <div class="mark mark-P mark-sm" aria-hidden="true">P</div>
         <div class="chat-demo-meta">
           <span class="chat-demo-name">Parker</span>
           <span class="chat-demo-role">Support concierge</span>
         </div>
-        <div class="chat-demo-status"><span class="status-dot"></span>Online</div>
+        <div class="chat-demo-status"><span class="status-dot" aria-hidden="true"></span>Online</div>
       </div>
-      <div class="chat-demo-messages" id="chat-messages"></div>
+      <div class="chat-demo-messages" id="chat-messages" aria-live="polite"></div>
     </div>
 
     <div class="agents-grid">
@@ -497,10 +499,10 @@
 </section>
 
 <!-- ─── Footer ───────────────────────────────────────────── -->
-<footer class="footer">
+<footer class="footer" role="contentinfo">
   <div class="container footer-inner">
     <div class="footer-left">
-      <svg height="22" viewBox="0 0 180 32" fill="none" style="color: var(--ink)">
+      <svg height="22" viewBox="0 0 180 32" fill="none" style="color: var(--ink)" aria-hidden="true">
         <g transform="translate(0, 4)">
           <path d="M20 7.5a7.5 7.5 0 1 0 0 9" stroke="currentColor" stroke-width="3" stroke-linecap="round"/>
           <path d="M18 9.5a5.5 5.5 0 1 0 0 5" stroke="currentColor" stroke-width="1.25" stroke-linecap="round" opacity="0.4"/>
@@ -524,24 +526,18 @@
 <script>
 (function() {
   var msgs = [
-    { from: 'agent', text: "Hey! I'm Parker. Looks like I just got set up — nice to meet you." },
+    { from: 'agent', text: "Hey! I'm Parker. Looks like I just got set up \u2014 nice to meet you." },
     { from: 'user',  text: "Welcome, Parker! You're going to be our support concierge." },
     { from: 'agent', text: "Got it. I can see I've got Gmail and the CRM connected. Want me to start by reading through recent support emails?" },
-    { from: 'user',  text: "Yes — flag anything that's been waiting more than 24 hours." },
+    { from: 'user',  text: "Yes \u2014 flag anything that's been waiting more than 24 hours." },
     { from: 'agent', text: "On it. I found 3 tickets older than 24h. Two are shipping questions and one is a refund request. Want me to draft replies?" },
     { from: 'user',  text: "Draft the shipping replies. I'll handle the refund myself." },
-    { from: 'agent', text: "Done — two drafts ready in Gmail. I tagged the refund ticket as urgent in the CRM so it stays on your radar." }
+    { from: 'agent', text: "Done \u2014 two drafts ready in Gmail. I tagged the refund ticket as urgent in the CRM so it stays on your radar." }
   ];
   var container = document.getElementById('chat-messages');
-  var shown = 0;
-  var observer = new IntersectionObserver(function(entries) {
-    if (entries[0].isIntersecting && shown === 0) { showNext(); observer.disconnect(); }
-  }, { threshold: 0.3 });
-  observer.observe(document.getElementById('chat-demo'));
+  var reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
-  function showNext() {
-    if (shown >= msgs.length) return;
-    var m = msgs[shown];
+  function createBubble(m) {
     var bubble = document.createElement('div');
     bubble.className = 'chat-bubble chat-' + m.from;
     if (m.from === 'agent') {
@@ -553,12 +549,34 @@
     var body = document.createElement('div');
     body.className = 'chat-body';
     bubble.appendChild(body);
-    container.appendChild(bubble);
+    return { el: bubble, body: body };
+  }
+
+  if (reducedMotion) {
+    msgs.forEach(function(m) {
+      var b = createBubble(m);
+      b.body.textContent = m.text;
+      container.appendChild(b.el);
+    });
+    return;
+  }
+
+  var shown = 0;
+  var observer = new IntersectionObserver(function(entries) {
+    if (entries[0].isIntersecting && shown === 0) { showNext(); observer.disconnect(); }
+  }, { threshold: 0.3 });
+  observer.observe(document.getElementById('chat-demo'));
+
+  function showNext() {
+    if (shown >= msgs.length) return;
+    var m = msgs[shown];
+    var b = createBubble(m);
+    container.appendChild(b.el);
     container.scrollTop = container.scrollHeight;
     var i = 0;
     function type() {
       if (i <= m.text.length) {
-        body.textContent = m.text.slice(0, i);
+        b.body.textContent = m.text.slice(0, i);
         container.scrollTop = container.scrollHeight;
         i++;
         setTimeout(type, 18 + Math.random() * 12);
