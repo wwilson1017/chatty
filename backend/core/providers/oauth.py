@@ -15,6 +15,7 @@ Usage:
 import asyncio
 import base64
 import hashlib
+import html
 import json
 import logging
 import os
@@ -123,7 +124,7 @@ class _CallbackHandler(BaseHTTPRequestHandler):
             if self.server.auth_code:
                 msg = "<h2>✓ Connected! You can close this tab and return to Chatty.</h2>"
             else:
-                msg = f"<h2>Authorization failed: {self.server.auth_error}</h2>"
+                msg = f"<h2>Authorization failed: {html.escape(str(self.server.auth_error or ''))}</h2>"
             self.wfile.write(msg.encode())
         else:
             self.send_response(404)

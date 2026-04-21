@@ -188,10 +188,12 @@ export function IntegrationsTab() {
     finally { setSaving(false); }
   }
 
-  async function setupCRMLite() {
-    await api('/api/integrations/crm_lite/setup', { method: 'POST' });
+  async function toggleCrmVisibility(hidden: boolean) {
+    const endpoint = hidden ? 'show' : 'hide';
+    await api(`/api/integrations/crm_lite/${endpoint}`, { method: 'POST' });
     const data = await api<{ integrations: Integration[] }>('/api/integrations');
     setIntegrations(data.integrations);
+    document.dispatchEvent(new Event('chatty:integrations-changed'));
   }
 
   async function setupQuickBooks() {
@@ -262,7 +264,38 @@ export function IntegrationsTab() {
               </div>
 
               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                {integration.auth_type !== 'stub' && integration.auth_type !== 'qr_session' && integration.auth_type !== 'per_agent' && (() => {
+                {/* Always-on integrations (CRM) — show/hide toggle */}
+                {integration.always_on && (() => {
+                  const isHidden = integration.hidden;
+                  return (
+                    <>
+                      <span style={{ fontSize: 11, color: isHidden ? 'rgba(237,240,244,0.38)' : '#8EA589', background: isHidden ? 'transparent' : 'rgba(142,165,137,0.08)', padding: '2px 8px', borderRadius: 4 }}>
+                        {isHidden ? 'Hidden' : 'Active'}
+                      </span>
+                      <button
+                        onClick={() => toggleCrmVisibility(!!isHidden)}
+                        style={{
+                          position: 'relative', width: 44, height: 24, borderRadius: 12,
+                          background: isHidden
+                            ? 'rgba(230,235,242,0.14)'
+                            : 'var(--color-ch-accent, #C8D1D9)',
+                          border: 'none', cursor: 'pointer',
+                          transition: 'background 0.2s',
+                        }}
+                      >
+                        <span style={{
+                          position: 'absolute', top: 2, width: 20, height: 20,
+                          borderRadius: '50%', background: '#fff',
+                          boxShadow: '0 1px 3px rgba(0,0,0,0.3)',
+                          left: isHidden ? 2 : 22,
+                          transition: 'left 0.2s',
+                        }} />
+                      </button>
+                    </>
+                  );
+                })()}
+                {/* Standard integrations — setup + enable/disable */}
+                {!integration.always_on && integration.auth_type !== 'stub' && integration.auth_type !== 'qr_session' && integration.auth_type !== 'per_agent' && (() => {
                   const isConfigured = integration.configured;
                   const isBroken = isConfigured && integration.connection_status === 'broken';
                   const isHealthy = isConfigured && !isBroken;
@@ -284,8 +317,7 @@ export function IntegrationsTab() {
                       {/* Setup button — only when not configured */}
                       {!isConfigured && (
                         <button onClick={() => {
-                          if (integration.id === 'crm_lite') setupCRMLite();
-                          else if (integration.id === 'quickbooks') setupQuickBooks();
+                          if (integration.id === 'quickbooks') setupQuickBooks();
                           else if (integration.id === 'qb_csv') setupQbCsv();
                           else { setSetupFor(integration.id); setError(''); }
                         }} disabled={saving} style={{
@@ -364,6 +396,10 @@ export function IntegrationsTab() {
             {/* WhatsApp panel */}
             {integration.auth_type === 'qr_session' && waExpanded && (
               <div style={{ marginTop: 16, paddingTop: 16, borderTop: '1px solid rgba(230,235,242,0.07)' }}>
+                <p style={{ fontSize: 12, color: 'rgba(237,240,244,0.50)', lineHeight: 1.5, marginBottom: 14 }}>
+                  WhatsApp requires a QR code scan from your phone, so it must be set up here.
+                  Select an agent below, then scan the code with WhatsApp &rarr; Settings &rarr; Linked Devices.
+                </p>
                 {agents.length === 0 ? (
                   <p style={{ color: 'rgba(237,240,244,0.62)', fontSize: 13 }}>No agents created yet.</p>
                 ) : (
@@ -471,6 +507,10 @@ export function IntegrationsTab() {
             {/* Telegram per-agent panel */}
             {integration.auth_type === 'per_agent' && telegramExpanded && (
               <div style={{ marginTop: 16, paddingTop: 16, borderTop: '1px solid rgba(230,235,242,0.07)' }}>
+                <p style={{ fontSize: 12, color: 'rgba(237,240,244,0.50)', lineHeight: 1.5, marginBottom: 14 }}>
+                  Each agent gets its own Telegram bot. You can set this up here, or just ask your agent
+                  &mdash; say something like "set up Telegram" and it will walk you through creating a bot with @BotFather.
+                </p>
                 {agents.length === 0 ? (
                   <p style={{ color: 'rgba(237,240,244,0.62)', fontSize: 13 }}>No agents created yet.</p>
                 ) : (
@@ -514,6 +554,9 @@ export function IntegrationsTab() {
                 {error && <p style={{ color: '#D97757', fontSize: 12 }}>{error}</p>}
                 {integration.id === 'odoo' && (
                   <>
+                    <p style={{ fontSize: 12, color: 'rgba(237,240,244,0.50)', lineHeight: 1.5, marginBottom: 4 }}>
+                      You can also set this up by asking your agent &mdash; say "connect Odoo" and provide your credentials in chat.
+                    </p>
                     <input placeholder="Odoo URL (https://...)" value={odooUrl} onChange={e => {
                       setOdooUrl(e.target.value);
                       if (odooDiscoveredDbs.length > 0) {
@@ -559,6 +602,9 @@ export function IntegrationsTab() {
                 )}
                 {integration.id === 'bamboohr' && (
                   <>
+                    <p style={{ fontSize: 12, color: 'rgba(237,240,244,0.50)', lineHeight: 1.5, marginBottom: 4 }}>
+                      You can also set this up by asking your agent &mdash; say "connect BambooHR" and provide your subdomain and API key in chat.
+                    </p>
                     <input placeholder="Subdomain (company.bamboohr.com)" value={bambooSubdomain} onChange={e => setBambooSubdomain(e.target.value)} style={inputStyle} />
                     <input placeholder="API key" value={bambooKey} onChange={e => setBambooKey(e.target.value)} style={inputStyle} />
                     <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>

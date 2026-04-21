@@ -19,13 +19,13 @@ export function OnboardingPage() {
 
       {/* Header */}
       <div style={{
-        height: isMobile ? 56 : 48, padding: '0 32px',
+        height: isMobile ? 80 : 72, padding: '0 32px',
         display: 'flex', alignItems: 'center', justifyContent: 'center',
         borderBottom: '1px solid rgba(230,235,242,0.07)',
         position: 'relative', zIndex: 2,
       }}>
         <div style={{ color: 'var(--color-ch-accent, #C8D1D9)' }}>
-          <IconWordmark height={isMobile ? 32 : 22} color="currentColor" />
+          <IconWordmark height={isMobile ? 64 : 44} color="currentColor" />
         </div>
       </div>
 

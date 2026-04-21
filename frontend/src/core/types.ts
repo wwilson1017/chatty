@@ -65,6 +65,8 @@ export interface Integration {
   auth_type: string;
   enabled: boolean;
   configured: boolean;
+  hidden?: boolean;
+  always_on?: boolean;
   connection_status?: string;
 }
 

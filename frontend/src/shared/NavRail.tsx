@@ -1,5 +1,6 @@
 import { useLocation, useNavigate } from 'react-router-dom';
 import { IconLogo, IconBot, IconFunnel, IconBook, IconSettings } from './icons';
+import { useCrmHidden } from './CrmVisibilityContext';
 
 interface NavRailProps {
   onSettingsClick: () => void;
@@ -15,6 +16,7 @@ const navItems = [
 export function NavRail({ onSettingsClick, userInitial = 'U' }: NavRailProps) {
   const location = useLocation();
   const navigate = useNavigate();
+  const crmHidden = useCrmHidden();
 
   function handleKnowledgeClick() {
     const lastAgent = localStorage.getItem('chatty_last_agent');
@@ -36,7 +38,7 @@ export function NavRail({ onSettingsClick, userInitial = 'U' }: NavRailProps) {
       </div>
       <div style={{ width: 24, height: 1, background: 'rgba(230,235,242,0.07)', margin: '16px 0' }} />
 
-      {navItems.map(item => {
+      {navItems.filter(item => !(item.key === 'crm' && crmHidden)).map(item => {
         const active = item.match(location.pathname);
         const Icon = item.icon;
         return (

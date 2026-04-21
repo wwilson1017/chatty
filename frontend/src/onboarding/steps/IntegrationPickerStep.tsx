@@ -17,9 +17,9 @@ export function IntegrationPickerStep({ onComplete, onSkip }: Props) {
   useEffect(() => {
     api<{ integrations: Integration[] }>('/api/integrations')
       .then(data => {
-        // Only show business tool integrations (not messaging, not stubs, not already configured)
+        // Only show business tool integrations (not messaging, not stubs, not always-on, not already configured)
         const available = data.integrations.filter(
-          i => i.auth_type !== 'stub' && !i.configured && !MESSAGING_IDS.includes(i.id)
+          i => i.auth_type !== 'stub' && !i.configured && !i.always_on && !MESSAGING_IDS.includes(i.id)
         );
         setIntegrations(available);
       })

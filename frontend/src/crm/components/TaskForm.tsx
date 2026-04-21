@@ -1,5 +1,7 @@
 import { useState, useEffect } from 'react';
 import { api } from '../../core/api/client';
+import { labelStyle, inputStyle, CORAL } from '../../shared/styles';
+import { formModalOverlay, formModalContent, formTitle, btnPrimary, btnSecondary } from '../styles';
 import type { CrmContact, CrmTask } from '../../core/types';
 
 interface Props {
@@ -9,20 +11,6 @@ interface Props {
   onClose: () => void;
   onSaved: () => void;
 }
-
-const labelStyle: React.CSSProperties = {
-  display: 'block',
-  fontFamily: "'JetBrains Mono', ui-monospace, monospace",
-  fontSize: 9, letterSpacing: '0.16em', textTransform: 'uppercase',
-  color: 'rgba(237,240,244,0.38)', marginBottom: 6,
-};
-
-const inputStyle: React.CSSProperties = {
-  width: '100%', boxSizing: 'border-box',
-  background: 'rgba(34,40,48,0.55)', border: '1px solid rgba(230,235,242,0.14)',
-  color: '#EDF0F4', borderRadius: 4, padding: '8px 12px', fontSize: 13, outline: 'none',
-  fontFamily: "'Inter Tight', system-ui, sans-serif",
-};
 
 export function TaskForm({ task, contactId, dealId, onClose, onSaved }: Props) {
   const isEdit = !!task;
@@ -62,16 +50,12 @@ export function TaskForm({ task, contactId, dealId, onClose, onSaved }: Props) {
   }
 
   return (
-    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50 }} onClick={onClose}>
-      <form onClick={e => e.stopPropagation()} onSubmit={handleSubmit} style={{
-        background: '#11141A', borderRadius: 6, border: '1px solid rgba(230,235,242,0.14)',
-        padding: 24, width: '100%', maxWidth: 420, margin: '0 16px',
-        boxShadow: '0 8px 40px rgba(0,0,0,0.5)',
-      }}>
-        <h2 style={{ fontFamily: "'Fraunces', Georgia, serif", fontSize: 20, fontWeight: 400, letterSpacing: '-0.02em', color: '#EDF0F4', marginBottom: 20 }}>
+    <div style={formModalOverlay} onClick={onClose}>
+      <form onClick={e => e.stopPropagation()} onSubmit={handleSubmit} style={formModalContent()}>
+        <h2 style={formTitle}>
           {isEdit ? 'Edit Task' : 'New Task'}
         </h2>
-        {error && <p style={{ color: '#D97757', fontSize: 12, marginBottom: 12 }}>{error}</p>}
+        {error && <p style={{ color: CORAL, fontSize: 12, marginBottom: 12 }}>{error}</p>}
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
           <div>
@@ -108,16 +92,9 @@ export function TaskForm({ task, contactId, dealId, onClose, onSaved }: Props) {
         </div>
 
         <div style={{ display: 'flex', gap: 8, marginTop: 20 }}>
-          <button type="button" onClick={onClose} style={{
-            flex: 1, padding: '9px 16px', borderRadius: 4,
-            border: '1px solid rgba(230,235,242,0.14)', background: 'transparent',
-            color: 'rgba(237,240,244,0.62)', fontSize: 13, cursor: 'pointer',
-          }}>Cancel</button>
+          <button type="button" onClick={onClose} style={{ ...btnSecondary, flex: 1 }}>Cancel</button>
           <button type="submit" disabled={saving} style={{
-            flex: 1, padding: '9px 16px', borderRadius: 4,
-            background: '#D4A85A', color: '#0E1013',
-            border: 'none', fontWeight: 500, fontSize: 13, cursor: 'pointer',
-            opacity: saving ? 0.5 : 1,
+            ...btnPrimary, flex: 1, opacity: saving ? 0.5 : 1,
           }}>{saving ? 'Saving...' : isEdit ? 'Save Changes' : 'Create Task'}</button>
         </div>
       </form>

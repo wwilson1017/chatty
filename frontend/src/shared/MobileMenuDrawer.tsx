@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react';
 import { IconBot, IconFunnel, IconSettings } from './icons';
+import { useCrmHidden } from './CrmVisibilityContext';
 
 interface MobileMenuDrawerProps {
   onClose: () => void;
@@ -8,6 +9,7 @@ interface MobileMenuDrawerProps {
 }
 
 export function MobileMenuDrawer({ onClose, navigate, children }: MobileMenuDrawerProps) {
+  const crmHidden = useCrmHidden();
   return (
     <div style={{
       position: 'fixed', inset: 0, zIndex: 50,
@@ -30,7 +32,7 @@ export function MobileMenuDrawer({ onClose, navigate, children }: MobileMenuDraw
       <div style={{ display: 'flex', flexDirection: 'column', gap: 2, padding: '12px 16px' }}>
         {[
           { icon: IconBot, label: 'Agents', action: () => { onClose(); navigate('/'); } },
-          { icon: IconFunnel, label: 'CRM', action: () => { onClose(); navigate('/crm'); } },
+          ...(!crmHidden ? [{ icon: IconFunnel, label: 'CRM', action: () => { onClose(); navigate('/crm'); } }] : []),
           { icon: IconSettings, label: 'Settings', action: () => { onClose(); document.dispatchEvent(new CustomEvent('chatty:open-settings')); } },
         ].map(item => (
           <div

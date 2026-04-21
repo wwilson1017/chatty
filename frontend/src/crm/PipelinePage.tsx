@@ -4,17 +4,19 @@ import { api } from '../core/api/client';
 import type { CrmDeal } from '../core/types';
 import { DealForm } from './components/DealForm';
 import { DealDetailSheet } from './components/DealDetailSheet';
-import { STAGE_COLORS } from './constants';
+import { STAGE_COLORS, STAGE_ORDER } from './constants';
 import { IconPlus } from '../shared/icons';
 import { useIsMobile } from '../shared/useIsMobile';
+import {
+  INK, INK_MUTE, INK_DIM, LINE, BG_CARD,
+  FONT_DISPLAY, mono, formatNumber,
+} from '../shared/styles';
+import {
+  pageHeading, filterBar, filterTab, tableHeader, tableRow,
+  btnPrimary, stageCard,
+} from './styles';
 
 const STAGES = ['lead', 'qualified', 'proposal', 'negotiation', 'won', 'lost'];
-
-const mono = (size: number, color = 'rgba(237,240,244,0.38)') => ({
-  fontFamily: "'JetBrains Mono', ui-monospace, monospace",
-  fontSize: size, letterSpacing: '0.16em',
-  textTransform: 'uppercase' as const, color,
-});
 
 interface PipelineData {
   deals: CrmDeal[];
@@ -84,53 +86,40 @@ export function PipelinePage() {
 
   return (
     <div style={{ padding: isMobile ? '20px 16px' : '32px 44px', maxWidth: 1000 }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: isMobile ? 16 : 24 }}>
+      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: isMobile ? 16 : 24 }}>
         <div>
-          <h1 style={{
-            fontFamily: "'Fraunces', Georgia, serif",
-            fontSize: isMobile ? 24 : 32, fontWeight: 400, letterSpacing: '-0.02em',
-            color: '#EDF0F4', margin: 0,
-          }}>Pipeline</h1>
+          <h1 style={pageHeading(isMobile)}>Pipeline</h1>
           {data && (
-            <p style={{ fontSize: 13, color: 'rgba(237,240,244,0.62)', marginTop: 4 }}>
+            <p style={{ fontSize: isMobile ? 14 : 20, color: INK_MUTE, marginTop: 6 }}>
               ${formatNumber(data.total_pipeline_value)} total · {deals.filter(d => !['won', 'lost'].includes(d.stage)).length} open deals
             </p>
           )}
         </div>
         <button onClick={() => setShowCreate(true)} style={{
-          background: 'var(--color-ch-accent, #C8D1D9)', color: '#0E1013',
-          border: 'none', padding: '7px 14px', borderRadius: 4,
-          fontSize: 13, fontWeight: 500, cursor: 'pointer',
-          display: 'flex', alignItems: 'center', gap: 6,
-          flexShrink: 0,
+          ...btnPrimary,
+          padding: '7px 14px', fontSize: 13,
+          flexShrink: 0, marginTop: 8,
         }}>
           <IconPlus size={13} strokeWidth={2.25} /> {isMobile ? 'Add' : 'Add Deal'}
         </button>
       </div>
 
       {/* Stage filter */}
-      <div style={{
-        display: 'flex', border: '1px solid rgba(230,235,242,0.07)',
-        borderRadius: 4, overflow: 'hidden', marginBottom: isMobile ? 16 : 24,
-        overflowX: isMobile ? 'auto' : undefined,
-        WebkitOverflowScrolling: 'touch' as const,
-      }}>
-        <button onClick={() => setStageFilter('')} style={{
-          padding: isMobile ? '6px 10px' : '6px 14px', fontSize: 11, fontWeight: 500,
-          color: !stageFilter ? '#0E1013' : 'rgba(237,240,244,0.62)',
-          background: !stageFilter ? 'var(--color-ch-accent, #C8D1D9)' : 'transparent',
-          border: 'none', cursor: 'pointer', whiteSpace: 'nowrap',
-        }}>All</button>
-        {STAGES.map(stage => (
-          <button key={stage} onClick={() => setStageFilter(stage === stageFilter ? '' : stage)} style={{
-            padding: isMobile ? '6px 10px' : '6px 14px', fontSize: 11, fontWeight: 500, textTransform: 'capitalize',
-            color: stageFilter === stage ? '#0E1013' : 'rgba(237,240,244,0.62)',
-            background: stageFilter === stage ? 'var(--color-ch-accent, #C8D1D9)' : 'transparent',
-            border: 'none', cursor: 'pointer', whiteSpace: 'nowrap',
-          }}>
-            {stage} ({grouped[stage]?.length || 0})
-          </button>
-        ))}
+      <div style={filterBar(isMobile)}>
+        {[{ stage: '', label: 'All' }, ...STAGE_ORDER.map(s => ({ stage: s, label: s }))].map(({ stage, label }) => {
+          const isActive = stageFilter === stage;
+          const stageColor = stage ? (STAGE_COLORS[stage]?.color || INK_DIM) : undefined;
+          return (
+            <button key={label} onClick={() => setStageFilter(stage === stageFilter ? '' : stage)} style={filterTab(isMobile, isActive, stageColor)}>
+              <span style={{ color: isActive ? (stageColor || INK) : INK_MUTE }}>{label}</span>
+              {stage && (
+                <span style={{ marginLeft: 6, fontSize: 12, color: isActive ? INK_MUTE : INK_DIM }}>
+                  {grouped[stage]?.length || 0}
+                </span>
+              )}
+            </button>
+          );
+        })}
       </div>
 
       {/* Grouped deals */}
@@ -138,45 +127,45 @@ export function PipelinePage() {
         const stageDeals = grouped[stage] || [];
         if (stageDeals.length === 0 && stageFilter) return null;
 
+        const stageBg = STAGE_COLORS[stage]?.bg || BG_CARD;
+        const stageColor = STAGE_COLORS[stage]?.color || INK_DIM;
+
         return (
           <div key={stage} style={{ marginBottom: 24 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
               <span style={{
                 width: 8, height: 8, borderRadius: '50%', flexShrink: 0,
-                background: STAGE_COLORS[stage]?.color || 'rgba(237,240,244,0.38)',
+                background: stageColor,
               }} />
               <span style={{
-                fontFamily: "'Fraunces', Georgia, serif",
+                fontFamily: FONT_DISPLAY,
                 fontSize: isMobile ? 16 : 18, letterSpacing: '-0.01em', textTransform: 'capitalize',
-                color: '#EDF0F4',
+                color: INK,
               }}>{stage}</span>
-              <span style={{ ...mono(9, 'rgba(237,240,244,0.38)') }}>
+              <span style={{ ...mono(10, INK_DIM) }}>
                 {stageDeals.length} deal{stageDeals.length !== 1 ? 's' : ''} · ${formatNumber(stageDeals.reduce((s, d) => s + d.value, 0))}
               </span>
             </div>
 
             {stageDeals.length === 0 ? (
-              <p style={{ color: 'rgba(237,240,244,0.38)', fontSize: 12, marginLeft: 8, marginBottom: 16 }}>No deals</p>
+              <p style={{ color: INK_DIM, fontSize: 12, marginLeft: 8, marginBottom: 16 }}>No deals</p>
             ) : isMobile ? (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 8 }}>
                 {stageDeals.map(deal => (
                   <div key={deal.id} onClick={() => setSelectedDeal(deal)}
                     style={{
                       padding: '12px 14px', cursor: 'pointer',
-                      background: STAGE_COLORS[stage]?.bg || 'rgba(20,24,30,0.78)',
-                      border: '1px solid rgba(230,235,242,0.07)',
-                      borderLeft: `3px solid ${STAGE_COLORS[stage]?.color || 'rgba(230,235,242,0.14)'}`,
-                      borderRadius: 6,
+                      ...stageCard(stageBg, stageColor),
                     }}
                   >
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 4 }}>
-                      <span style={{ fontSize: 14, color: '#EDF0F4' }}>{deal.title}</span>
+                      <span style={{ fontSize: 14, color: INK }}>{deal.title}</span>
                       <span style={{
-                        fontFamily: "'Fraunces', Georgia, serif",
-                        fontSize: 15, color: '#EDF0F4', flexShrink: 0, marginLeft: 8,
+                        fontFamily: FONT_DISPLAY,
+                        fontSize: 15, color: INK, flexShrink: 0, marginLeft: 8,
                       }}>${deal.value.toLocaleString()}</span>
                     </div>
-                    <div style={{ display: 'flex', gap: 12, fontSize: 12, color: 'rgba(237,240,244,0.38)' }}>
+                    <div style={{ display: 'flex', gap: 12, fontSize: 12, color: INK_DIM }}>
                       {deal.contact_name && <span>{deal.contact_name}</span>}
                       {deal.probability > 0 && <span>{deal.probability}%</span>}
                       {deal.expected_close_date && <span>{deal.expected_close_date}</span>}
@@ -185,37 +174,30 @@ export function PipelinePage() {
                 ))}
               </div>
             ) : (
-              <div style={{ borderTop: '1px solid rgba(230,235,242,0.07)', marginBottom: 8 }}>
-                <div style={{
-                  display: 'grid', gridTemplateColumns: '2fr 1.5fr 1fr 80px 1fr',
-                  gap: 16, padding: '8px 16px',
-                  borderBottom: '1px solid rgba(230,235,242,0.07)',
-                  ...mono(9),
-                }}>
+              <div style={{ borderTop: `1px solid ${LINE}`, marginBottom: 8 }}>
+                <div style={tableHeader('2fr 1.5fr 1fr 80px 1fr')}>
                   <span>Deal</span><span>Contact</span><span style={{ textAlign: 'right' }}>Value</span>
                   <span style={{ textAlign: 'right' }}>Prob.</span><span>Close Date</span>
                 </div>
                 {stageDeals.map(deal => (
                   <div key={deal.id} onClick={() => setSelectedDeal(deal)}
                     style={{
-                      display: 'grid', gridTemplateColumns: '2fr 1.5fr 1fr 80px 1fr',
-                      gap: 16, padding: '10px 16px', cursor: 'pointer',
-                      borderBottom: '1px solid rgba(230,235,242,0.07)',
-                      borderLeft: `3px solid ${STAGE_COLORS[stage]?.color || 'rgba(230,235,242,0.14)'}`,
+                      ...tableRow('2fr 1.5fr 1fr 80px 1fr'),
+                      borderLeft: `3px solid ${stageColor}`,
                     }}
-                    onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = STAGE_COLORS[stage]?.bg || 'rgba(200,209,217,0.04)'; }}
+                    onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = stageBg; }}
                     onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = 'transparent'; }}
                   >
-                    <span style={{ fontSize: 14, color: '#EDF0F4' }}>{deal.title}</span>
-                    <span style={{ fontSize: 13, color: 'rgba(237,240,244,0.62)' }}>{deal.contact_name || '—'}</span>
+                    <span style={{ fontSize: 14, color: INK }}>{deal.title}</span>
+                    <span style={{ fontSize: 13, color: INK_MUTE }}>{deal.contact_name || '—'}</span>
                     <span style={{
-                      fontFamily: "'Fraunces', Georgia, serif",
-                      fontSize: 15, color: '#EDF0F4', textAlign: 'right',
+                      fontFamily: FONT_DISPLAY,
+                      fontSize: 15, color: INK, textAlign: 'right',
                     }}>${deal.value.toLocaleString()}</span>
-                    <span style={{ fontSize: 13, color: 'rgba(237,240,244,0.38)', textAlign: 'right' }}>
+                    <span style={{ fontSize: 13, color: INK_DIM, textAlign: 'right' }}>
                       {deal.probability > 0 ? `${deal.probability}%` : '—'}
                     </span>
-                    <span style={{ fontSize: 13, color: 'rgba(237,240,244,0.38)' }}>{deal.expected_close_date || '—'}</span>
+                    <span style={{ fontSize: 13, color: INK_DIM }}>{deal.expected_close_date || '—'}</span>
                   </div>
                 ))}
               </div>
@@ -238,10 +220,4 @@ export function PipelinePage() {
       )}
     </div>
   );
-}
-
-function formatNumber(n: number): string {
-  if (n >= 1_000_000) return (n / 1_000_000).toFixed(1) + 'M';
-  if (n >= 1_000) return (n / 1_000).toFixed(n >= 10_000 ? 0 : 1) + 'K';
-  return n.toLocaleString();
 }
