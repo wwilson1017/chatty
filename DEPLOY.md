@@ -50,14 +50,70 @@ These auto-generate if not set. You can override them for extra control:
 
 | Variable | Description |
 |----------|-------------|
-| `GOOGLE_CLIENT_ID` | Google OAuth client ID (for Gmail + Calendar integration) |
-| `GOOGLE_CLIENT_SECRET` | Google OAuth client secret |
+| `GOOGLE_CLIENT_ID` | Google OAuth client ID (for Gmail + Calendar + Drive). Defaults to the Chatty-owned OAuth app provided by the Railway template. |
+| `GOOGLE_CLIENT_SECRET` | Google OAuth client secret (paired with `GOOGLE_CLIENT_ID`) |
+| `OAUTH_REDIRECT_URI` | Override the OAuth callback URL. Auto-computed from `BACKEND_URL` + `/api/oauth/callback` — only set this if you have an unusual networking setup. |
 | `QUICKBOOKS_CLIENT_ID` | QuickBooks OAuth client ID |
 | `QUICKBOOKS_CLIENT_SECRET` | QuickBooks OAuth client secret |
 | `WHATSAPP_BRIDGE_URL` | WhatsApp Baileys bridge URL (advanced) |
 | `WHATSAPP_BRIDGE_API_KEY` | WhatsApp bridge API key |
 | `WEBBY_GITHUB_TOKEN` | GitHub token for Webby website builder |
 | `WEBBY_GITHUB_REPO` | GitHub repo for Webby (e.g. `user/repo`) |
+
+## Google integration (Gmail + Calendar + Drive)
+
+Chatty agents can read, send, and draft emails; create and edit calendar events;
+and list, read, and upload files in Google Drive. Access is OAuth-based — you
+authorize Chatty once from **Dashboard → Integrations → Google** and pick exactly
+which scopes (read vs send, read-only vs full Drive access, etc.) you want to
+grant.
+
+You need a Google OAuth client (a **client ID** and **client secret** pair) for
+this to work. There are two paths:
+
+### Path 1: Use the bundled Chatty OAuth client (default, easiest)
+
+The Railway template ships with `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET`
+pre-populated, pointing at a Chatty-owned Google Cloud OAuth app. If you deployed
+via the "Deploy on Railway" button in the README, you already have this — you
+can go straight to **Dashboard → Integrations → Google** and connect.
+
+The bundled app is subject to Google's verification limits for sensitive scopes
+(Gmail, Drive). Early adopters will see a warning screen; the Chatty maintainers
+submit the app for verification as user count grows.
+
+### Path 2: Bring your own Google Cloud OAuth client (recommended for production)
+
+If you want full control, your own verification status, or a separate app for
+your organization, create your own Google Cloud project:
+
+1. Go to [console.cloud.google.com](https://console.cloud.google.com) → create a project
+2. **APIs & Services → Library** → enable **Gmail API**, **Google Calendar API**, and **Google Drive API**
+3. **OAuth consent screen** → choose *External* → fill in app name, support email, and developer contact
+4. Add these scopes (only add what you plan to actually use):
+   - `openid`, `email`, `profile`
+   - `https://www.googleapis.com/auth/gmail.readonly`
+   - `https://www.googleapis.com/auth/gmail.send`
+   - `https://www.googleapis.com/auth/gmail.compose`
+   - `https://www.googleapis.com/auth/calendar.readonly`
+   - `https://www.googleapis.com/auth/calendar`
+   - `https://www.googleapis.com/auth/drive.file`
+   - `https://www.googleapis.com/auth/drive.readonly`
+   - `https://www.googleapis.com/auth/drive`
+5. **Credentials → Create Credentials → OAuth client ID** → *Web application*
+6. Under **Authorized redirect URIs**, add:
+   - `http://localhost:8000/api/oauth/callback` (for local dev)
+   - `https://<your-railway-domain>/api/oauth/callback` (for your deployed Chatty)
+   - If you use a custom domain, add that too
+7. Copy the **Client ID** and **Client secret**
+8. In Railway, set the `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` env vars to the new values
+9. Trigger a redeploy so the new values take effect
+10. Open Chatty → **Dashboard → Integrations → Google** → pick your scopes → click **Connect Google**
+
+**Sensitive-scope verification:** Gmail and Drive scopes are "sensitive" or
+"restricted" in Google's classification. Unverified apps can serve up to 100
+test users; for more than that, submit your OAuth app for Google's verification
+review (takes a few days to a few weeks).
 
 ### Server Configuration
 

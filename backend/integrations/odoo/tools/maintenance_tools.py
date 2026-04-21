@@ -189,6 +189,7 @@ MAINTENANCE_TOOL_DEFS = [
             "required": ["name", "maintenance_type"],
         },
         "kind": "integration",
+        "writes": True,
     },
     # 6 - odoo_update_maintenance_request
     {
@@ -233,6 +234,7 @@ MAINTENANCE_TOOL_DEFS = [
             "required": ["request_id"],
         },
         "kind": "integration",
+        "writes": True,
     },
 ]
 

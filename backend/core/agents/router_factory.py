@@ -80,14 +80,12 @@ def create_agent_router(
         if not provider:
             raise HTTPException(status_code=400, detail="No AI provider configured")
 
-        # Get Google access token if Gmail/Calendar enabled
-        google_token = ""
-        if config.gmail_enabled or config.calendar_enabled:
-            google_token = store.get_google_token() or ""
+        from integrations.registry import is_enabled as _is_enabled
+        google_connected = _is_enabled("google")
 
         registry = ToolRegistry(
             context_dir=config.context_dir,
-            google_access_token=google_token,
+            google_connected=google_connected,
         )
 
         # Anthropic API key for smart title generation (haiku)

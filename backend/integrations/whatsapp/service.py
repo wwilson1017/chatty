@@ -81,7 +81,7 @@ def _load_integration_tools() -> tuple[list[dict], dict]:
             mod = importlib.import_module(module_path)
             defs = getattr(mod, defs_attr, [])
             execs = getattr(mod, "TOOL_EXECUTORS", {})
-            tool_defs.extend(defs)
+            tool_defs.extend({**d, "integration": name} for d in defs)
             executors.update(execs)
         except Exception as e:
             logger.warning("Failed to load integration %s: %s", name, e)
@@ -176,11 +176,13 @@ def _process_message_locked(
 
     # 8. Build tool registry
     store = CredentialStore()
-    google_token = ""
-    if config.gmail_enabled or config.calendar_enabled:
-        google_token = store.get_google_token() or ""
+    from integrations.registry import is_enabled as _is_enabled
+    google_connected = _is_enabled("google")
 
     integration_tool_defs, integration_executors = _load_integration_tools()
+
+    from integrations.registry import get_tool_mode
+    integration_tool_modes = {name: get_tool_mode(name) for name in _INTEGRATION_MODULES}
 
     reminder_handlers = {
         "create_reminder": lambda **kw: create_reminder_handler(agent_slug, **kw),
@@ -196,7 +198,7 @@ def _process_message_locked(
 
     registry = ToolRegistry(
         context_dir=config.context_dir,
-        google_access_token=google_token,
+        google_connected=google_connected,
         integration_executors=integration_executors,
         agent_slug=agent_slug,
         reminder_handlers=reminder_handlers,
@@ -205,12 +207,23 @@ def _process_message_locked(
 
     # 9. Build tool definitions
     dynamic_real_tools = load_all_real_tools(agent_slug)
+    from integrations.google.policy import google_capabilities
+    google_caps = google_capabilities()
     tool_defs = get_tool_definitions(
-        gmail_enabled=config.gmail_enabled,
-        calendar_enabled=config.calendar_enabled,
         integration_tools=integration_tool_defs or None,
         dynamic_real_tools=dynamic_real_tools or None,
+        **google_caps,
     )
+
+    # Apply integration permission ceilings — messaging channels have no approval UI,
+    # so both "read-only" and "normal" ceilings must strip write tools here.
+    if integration_tool_modes:
+        tool_defs = [
+            t for t in tool_defs
+            if not t.get("writes", False)
+            or t.get("context_memory", False)
+            or integration_tool_modes.get(t.get("integration", ""), "power") == "power"
+        ]
 
     # 10. Run the agent
     result = run_background_turn(

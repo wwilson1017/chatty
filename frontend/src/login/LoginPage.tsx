@@ -1,4 +1,4 @@
-import { useState, useEffect, type FormEvent } from 'react';
+import { useState, useEffect, useRef, type FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../core/auth/AuthContext';
 import { IconWordmark } from '../shared/icons';
@@ -13,21 +13,53 @@ const mono = (size: number, color = 'rgba(237,240,244,0.38)') => ({
 });
 
 export function LoginPage() {
-  const { login } = useAuth();
+  const { login, verify2fa } = useAuth();
   const navigate = useNavigate();
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
-  async function handleSubmit(e: FormEvent) {
+  // 2FA state
+  const [step, setStep] = useState<'password' | '2fa'>('password');
+  const [pendingToken, setPendingToken] = useState('');
+  const [code, setCode] = useState('');
+  const [useBackupCode, setUseBackupCode] = useState(false);
+  const [trustDevice, setTrustDevice] = useState(false);
+  const codeInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (step === '2fa') codeInputRef.current?.focus();
+  }, [step]);
+
+  async function handlePasswordSubmit(e: FormEvent) {
     e.preventDefault();
     setError('');
     setLoading(true);
     try {
-      await login(password);
-      navigate('/');
+      const result = await login(password);
+      if ('requires2fa' in result) {
+        setPendingToken(result.pendingToken);
+        setStep('2fa');
+      } else {
+        navigate('/');
+      }
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Login failed');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handle2faSubmit(e: FormEvent) {
+    e.preventDefault();
+    setError('');
+    setLoading(true);
+    try {
+      await verify2fa(pendingToken, code, trustDevice);
+      navigate('/');
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Verification failed');
+      setCode('');
     } finally {
       setLoading(false);
     }
@@ -130,57 +162,156 @@ export function LoginPage() {
           </div>
         )}
 
-        <form onSubmit={handleSubmit} style={{ maxWidth: 360, width: '100%' }}>
-          <div style={mono(10, 'rgba(237,240,244,0.38)')}>Sign in</div>
-          <h2 style={{
-            fontFamily: "'Fraunces', Georgia, serif",
-            fontSize: isMobile ? 30 : 36, fontWeight: 400, letterSpacing: '-0.02em',
-            lineHeight: 1.05, margin: '10px 0 24px',
-          }}>Welcome back.</h2>
+        {step === 'password' ? (
+          <form onSubmit={handlePasswordSubmit} style={{ maxWidth: 360, width: '100%' }}>
+            <div style={mono(10, 'rgba(237,240,244,0.38)')}>Sign in</div>
+            <h2 style={{
+              fontFamily: "'Fraunces', Georgia, serif",
+              fontSize: isMobile ? 30 : 36, fontWeight: 400, letterSpacing: '-0.02em',
+              lineHeight: 1.05, margin: '10px 0 24px',
+            }}>Welcome back.</h2>
 
-          <div style={{ marginBottom: 22 }}>
-            <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 6 }}>
-              <div style={mono(9, 'rgba(237,240,244,0.38)')}>Password</div>
+            <div style={{ marginBottom: 22 }}>
+              <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 6 }}>
+                <div style={mono(9, 'rgba(237,240,244,0.38)')}>Password</div>
+              </div>
+              <input
+                type="password"
+                value={password}
+                onChange={e => setPassword(e.target.value)}
+                placeholder="Enter your password"
+                autoFocus
+                style={{
+                  width: '100%', boxSizing: 'border-box',
+                  border: '1px solid rgba(230,235,242,0.14)',
+                  borderRadius: 4, padding: '12px 14px',
+                  background: 'rgba(20,24,30,0.78)',
+                  fontSize: 16, color: '#EDF0F4',
+                  outline: 'none',
+                  fontFamily: "'Inter Tight', system-ui, sans-serif",
+                }}
+                onFocus={e => { e.target.style.borderColor = 'var(--color-ch-accent, #C8D1D9)'; }}
+                onBlur={e => { e.target.style.borderColor = 'rgba(230,235,242,0.14)'; }}
+              />
             </div>
-            <input
-              type="password"
-              value={password}
-              onChange={e => setPassword(e.target.value)}
-              placeholder="Enter your password"
-              autoFocus
+
+            {error && (
+              <p style={{ color: '#D97757', fontSize: 13, marginBottom: 16 }}>{error}</p>
+            )}
+
+            <button
+              type="submit"
+              disabled={loading || !password}
               style={{
-                width: '100%', boxSizing: 'border-box',
-                border: '1px solid rgba(230,235,242,0.14)',
-                borderRadius: 4, padding: '12px 14px',
-                background: 'rgba(20,24,30,0.78)',
-                fontSize: 16, color: '#EDF0F4',
-                outline: 'none',
-                fontFamily: "'Inter Tight', system-ui, sans-serif",
+                width: '100%',
+                background: 'var(--color-ch-accent, #C8D1D9)',
+                color: '#0E1013',
+                border: 'none', fontSize: 14, fontWeight: 500,
+                padding: '13px 16px', borderRadius: 4, cursor: 'pointer',
+                opacity: (loading || !password) ? 0.5 : 1,
               }}
-              onFocus={e => { e.target.style.borderColor = 'var(--color-ch-accent, #C8D1D9)'; }}
-              onBlur={e => { e.target.style.borderColor = 'rgba(230,235,242,0.14)'; }}
-            />
-          </div>
+            >
+              {loading ? 'Signing in...' : 'Continue'}
+            </button>
+          </form>
+        ) : (
+          <form onSubmit={handle2faSubmit} style={{ maxWidth: 360, width: '100%' }}>
+            <div style={mono(10, 'rgba(237,240,244,0.38)')}>Two-factor authentication</div>
+            <h2 style={{
+              fontFamily: "'Fraunces', Georgia, serif",
+              fontSize: isMobile ? 30 : 36, fontWeight: 400, letterSpacing: '-0.02em',
+              lineHeight: 1.05, margin: '10px 0 8px',
+            }}>Verify your identity.</h2>
+            <p style={{ fontSize: 14, color: 'rgba(237,240,244,0.52)', margin: '0 0 24px', lineHeight: 1.5 }}>
+              {useBackupCode
+                ? 'Enter one of your backup codes.'
+                : 'Enter the 6-digit code from your authenticator app.'}
+            </p>
 
-          {error && (
-            <p style={{ color: '#D97757', fontSize: 13, marginBottom: 16 }}>{error}</p>
-          )}
+            <div style={{ marginBottom: 22 }}>
+              <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 6 }}>
+                <div style={mono(9, 'rgba(237,240,244,0.38)')}>{useBackupCode ? 'Backup code' : 'Code'}</div>
+              </div>
+              <input
+                ref={codeInputRef}
+                type="text"
+                inputMode={useBackupCode ? 'text' : 'numeric'}
+                value={code}
+                onChange={e => setCode(e.target.value)}
+                placeholder={useBackupCode ? 'XXXX-XXXX' : '000000'}
+                maxLength={useBackupCode ? 9 : 6}
+                autoComplete="one-time-code"
+                style={{
+                  width: '100%', boxSizing: 'border-box',
+                  border: '1px solid rgba(230,235,242,0.14)',
+                  borderRadius: 4, padding: '12px 14px',
+                  background: 'rgba(20,24,30,0.78)',
+                  fontSize: 20, color: '#EDF0F4',
+                  outline: 'none', letterSpacing: '0.2em', textAlign: 'center',
+                  fontFamily: "'JetBrains Mono', ui-monospace, monospace",
+                }}
+                onFocus={e => { e.target.style.borderColor = 'var(--color-ch-accent, #C8D1D9)'; }}
+                onBlur={e => { e.target.style.borderColor = 'rgba(230,235,242,0.14)'; }}
+              />
+            </div>
 
-          <button
-            type="submit"
-            disabled={loading || !password}
-            style={{
-              width: '100%',
-              background: 'var(--color-ch-accent, #C8D1D9)',
-              color: '#0E1013',
-              border: 'none', fontSize: 14, fontWeight: 500,
-              padding: '13px 16px', borderRadius: 4, cursor: 'pointer',
-              opacity: (loading || !password) ? 0.5 : 1,
-            }}
-          >
-            {loading ? 'Signing in...' : 'Continue'}
-          </button>
-        </form>
+            <div style={{ marginBottom: 22, display: 'flex', alignItems: 'center', gap: 8 }}>
+              <input
+                type="checkbox"
+                id="trust-device"
+                checked={trustDevice}
+                onChange={e => setTrustDevice(e.target.checked)}
+                style={{ accentColor: 'var(--color-ch-accent, #C8D1D9)' }}
+              />
+              <label htmlFor="trust-device" style={{ fontSize: 13, color: 'rgba(237,240,244,0.52)', cursor: 'pointer' }}>
+                Trust this browser for 30 days
+              </label>
+            </div>
+
+            {error && (
+              <p style={{ color: '#D97757', fontSize: 13, marginBottom: 16 }}>{error}</p>
+            )}
+
+            <button
+              type="submit"
+              disabled={loading || !code}
+              style={{
+                width: '100%',
+                background: 'var(--color-ch-accent, #C8D1D9)',
+                color: '#0E1013',
+                border: 'none', fontSize: 14, fontWeight: 500,
+                padding: '13px 16px', borderRadius: 4, cursor: 'pointer',
+                opacity: (loading || !code) ? 0.5 : 1,
+              }}
+            >
+              {loading ? 'Verifying...' : 'Verify'}
+            </button>
+
+            <div style={{ marginTop: 16, display: 'flex', justifyContent: 'space-between' }}>
+              <button
+                type="button"
+                onClick={() => { setStep('password'); setError(''); setCode(''); }}
+                style={{
+                  background: 'none', border: 'none', color: 'rgba(237,240,244,0.52)',
+                  fontSize: 13, cursor: 'pointer', padding: 0,
+                }}
+              >
+                &larr; Back
+              </button>
+              <button
+                type="button"
+                onClick={() => { setUseBackupCode(!useBackupCode); setCode(''); setError(''); }}
+                style={{
+                  background: 'none', border: 'none',
+                  color: 'var(--color-ch-accent, #C8D1D9)',
+                  fontSize: 13, cursor: 'pointer', padding: 0,
+                }}
+              >
+                {useBackupCode ? 'Use authenticator code' : 'Use a backup code'}
+              </button>
+            </div>
+          </form>
+        )}
 
         {/* CHATTY letter marks for mobile — auto-cycles tooltips */}
         {isMobile && (

@@ -40,6 +40,10 @@ class BambooHRSetupRequest(BaseModel):
     api_key: str
 
 
+class ToolModeRequest(BaseModel):
+    tool_mode: str
+
+
 # ── Routes ────────────────────────────────────────────────────────────────────
 
 @router.get("")
@@ -94,6 +98,21 @@ async def show_integration(name: str, user=Depends(get_current_user)):
     return {"ok": True, "integration": name, "hidden": False}
 
 
+@router.post("/{name}/tool-mode")
+async def set_integration_tool_mode(name: str, body: ToolModeRequest, user=Depends(get_current_user)):
+    """Set the tool_mode permission ceiling for an integration."""
+    if name not in ("odoo", "quickbooks"):
+        raise HTTPException(status_code=400, detail="Tool mode is only supported for Odoo and QuickBooks")
+    if body.tool_mode not in ("read-only", "normal", "power"):
+        raise HTTPException(status_code=400, detail=f"Invalid tool_mode: {body.tool_mode}")
+    integrations = {i["id"]: i for i in list_integrations()}
+    if not integrations.get(name, {}).get("configured"):
+        raise HTTPException(status_code=400, detail="Integration must be configured before setting tool mode")
+    from .registry import set_tool_mode
+    set_tool_mode(name, body.tool_mode)
+    return {"ok": True, "integration": name, "tool_mode": body.tool_mode}
+
+
 @router.post("/odoo/discover-databases")
 def discover_odoo_databases(body: OdooDiscoverRequest, user=Depends(get_current_user)):
     """Discover available databases on an Odoo instance (no credentials needed)."""
@@ -128,14 +147,32 @@ async def setup_bamboohr(body: BambooHRSetupRequest, user=Depends(get_current_us
 
 @router.post("/quickbooks/setup")
 async def setup_quickbooks(user=Depends(get_current_user)):
-    """Start QuickBooks OAuth flow. Opens browser, waits for callback, saves credentials."""
+    """Start QuickBooks OAuth flow. Returns {flow_id, auth_url} for the
+    frontend to open in a popup and poll until /quickbooks/setup/complete."""
     from core.providers.oauth import start_oauth_flow
 
     try:
-        tokens = await start_oauth_flow("quickbooks")
+        return start_oauth_flow("quickbooks")
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
+
+class CompleteSetupRequest(BaseModel):
+    flow_id: str
+
+
+@router.post("/quickbooks/setup/complete")
+async def setup_quickbooks_complete(body: CompleteSetupRequest, user=Depends(get_current_user)):
+    """Finalize QuickBooks setup after the OAuth callback stashes tokens."""
+    from core.providers.oauth import consume_flow
+
+    flow = consume_flow(body.flow_id)
+    if not flow:
+        raise HTTPException(status_code=404, detail="OAuth flow not found or expired")
+    if flow.status != "ok" or not flow.tokens:
+        raise HTTPException(status_code=400, detail=flow.error or "OAuth flow incomplete")
+
+    tokens = flow.tokens
     realm_id = tokens.get("realmId", "")
     if not realm_id:
         raise HTTPException(status_code=400, detail="QuickBooks did not return a company ID (realmId)")
@@ -185,6 +222,110 @@ async def disconnect_quickbooks(user=Depends(get_current_user)):
         logger.info("Removed quickbooks.json credentials")
 
     return {"ok": True}
+
+
+from typing import Literal
+
+
+class GoogleSetupRequest(BaseModel):
+    gmail_level: Literal["none", "read", "send"] = "none"
+    calendar_level: Literal["none", "read", "full"] = "none"
+    drive_level: Literal["none", "file", "readonly", "full"] = "none"
+
+
+@router.post("/google/setup")
+async def setup_google(body: GoogleSetupRequest, user=Depends(get_current_user)):
+    """Start Google OAuth flow with user-chosen scope levels.
+
+    Returns {flow_id, auth_url}. The frontend opens auth_url in a popup,
+    polls /api/oauth/flows/{flow_id}/status, then calls
+    /api/integrations/google/setup/complete with {flow_id}.
+    """
+    from core.providers.oauth import start_oauth_flow
+    from core.config import build_google_scopes
+
+    # Reject "all none" — user must grant at least one capability
+    if body.gmail_level == "none" and body.calendar_level == "none" and body.drive_level == "none":
+        raise HTTPException(
+            status_code=400,
+            detail="At least one of Gmail, Calendar, or Drive must be enabled",
+        )
+
+    # Include Gemini AI scope if Google is already the active AI provider, so
+    # we don't break Gemini when the user connects Gmail/Calendar/Drive.
+    from core.providers.credentials import CredentialStore
+    store = CredentialStore()
+    include_ai = store.data.get("active_provider") == "google"
+
+    scopes = build_google_scopes(
+        gmail_level=body.gmail_level,
+        calendar_level=body.calendar_level,
+        drive_level=body.drive_level,
+        include_ai=include_ai,
+    )
+
+    try:
+        return start_oauth_flow(
+            "google",
+            scopes=scopes,
+            metadata={
+                "gmail_level": body.gmail_level,
+                "calendar_level": body.calendar_level,
+                "drive_level": body.drive_level,
+                "include_ai": include_ai,
+            },
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+class GoogleCompleteRequest(BaseModel):
+    flow_id: str
+
+
+@router.post("/google/setup/complete")
+async def setup_google_complete(body: GoogleCompleteRequest, user=Depends(get_current_user)):
+    """Finalize Google setup after the OAuth callback stashes tokens."""
+    from core.providers.oauth import consume_flow
+    from .google.onboarding import setup_from_oauth
+
+    flow = consume_flow(body.flow_id)
+    if not flow:
+        raise HTTPException(status_code=404, detail="OAuth flow not found or expired")
+    if flow.status != "ok" or not flow.tokens:
+        raise HTTPException(status_code=400, detail=flow.error or "OAuth flow incomplete")
+
+    tokens = flow.tokens
+    if not tokens.get("access_token"):
+        raise HTTPException(status_code=400, detail="Google did not return an access token")
+    if not tokens.get("refresh_token"):
+        raise HTTPException(
+            status_code=400,
+            detail="Google did not return a refresh token. Try disconnecting at "
+                   "https://myaccount.google.com/permissions then reconnect.",
+        )
+
+    meta = flow.metadata or {}
+    scope_grants = {
+        "gmail": meta.get("gmail_level", "none"),
+        "calendar": meta.get("calendar_level", "none"),
+        "drive": meta.get("drive_level", "none"),
+    }
+
+    result = await setup_from_oauth(
+        access_token=tokens["access_token"],
+        refresh_token=tokens["refresh_token"],
+        expires_in=tokens.get("expires_in", 3600),
+        scope_grants=scope_grants,
+    )
+    return result
+
+
+@router.post("/google/disconnect")
+async def disconnect_google(user=Depends(get_current_user)):
+    """Revoke Google OAuth + clear stored credentials."""
+    from .google.onboarding import disconnect
+    return await disconnect()
 
 
 @router.post("/qb_csv/setup")

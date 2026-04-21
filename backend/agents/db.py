@@ -44,22 +44,26 @@ def _setup_connection() -> None:
 
     _connection.executescript("""
         CREATE TABLE IF NOT EXISTS agents (
-            id                  TEXT PRIMARY KEY,
-            slug                TEXT NOT NULL UNIQUE,
-            agent_name          TEXT NOT NULL DEFAULT 'My Agent',
-            avatar_url          TEXT NOT NULL DEFAULT '',
-            personality         TEXT NOT NULL DEFAULT '',
-            onboarding_complete INTEGER NOT NULL DEFAULT 0,
-            provider_override   TEXT NOT NULL DEFAULT '',
-            model_override      TEXT NOT NULL DEFAULT '',
-            gmail_enabled       INTEGER NOT NULL DEFAULT 0,
-            calendar_enabled    INTEGER NOT NULL DEFAULT 0,
-            telegram_enabled    INTEGER NOT NULL DEFAULT 0,
-            telegram_bot_token  TEXT NOT NULL DEFAULT '',
-            telegram_bot_username TEXT NOT NULL DEFAULT '',
-            whatsapp_session_id TEXT NOT NULL DEFAULT '',
-            created_at          TEXT NOT NULL DEFAULT (datetime('now')),
-            updated_at          TEXT NOT NULL DEFAULT (datetime('now'))
+            id                     TEXT PRIMARY KEY,
+            slug                   TEXT NOT NULL UNIQUE,
+            agent_name             TEXT NOT NULL DEFAULT 'My Agent',
+            avatar_url             TEXT NOT NULL DEFAULT '',
+            personality            TEXT NOT NULL DEFAULT '',
+            onboarding_complete    INTEGER NOT NULL DEFAULT 0,
+            provider_override      TEXT NOT NULL DEFAULT '',
+            model_override         TEXT NOT NULL DEFAULT '',
+            gmail_enabled          INTEGER NOT NULL DEFAULT 0,
+            gmail_send_enabled     INTEGER NOT NULL DEFAULT 0,
+            calendar_enabled       INTEGER NOT NULL DEFAULT 0,
+            calendar_write_enabled INTEGER NOT NULL DEFAULT 0,
+            drive_enabled          INTEGER NOT NULL DEFAULT 0,
+            drive_write_enabled    INTEGER NOT NULL DEFAULT 0,
+            telegram_enabled       INTEGER NOT NULL DEFAULT 0,
+            telegram_bot_token     TEXT NOT NULL DEFAULT '',
+            telegram_bot_username  TEXT NOT NULL DEFAULT '',
+            whatsapp_session_id    TEXT NOT NULL DEFAULT '',
+            created_at             TEXT NOT NULL DEFAULT (datetime('now')),
+            updated_at             TEXT NOT NULL DEFAULT (datetime('now'))
         );
     """)
 
@@ -71,6 +75,10 @@ def _setup_connection() -> None:
         ("telegram_respond_to_bots", "INTEGER NOT NULL DEFAULT 0"),
         ("telegram_max_bot_turns", "INTEGER NOT NULL DEFAULT 3"),
         ("whatsapp_session_id", "TEXT NOT NULL DEFAULT ''"),
+        ("gmail_send_enabled", "INTEGER NOT NULL DEFAULT 0"),
+        ("calendar_write_enabled", "INTEGER NOT NULL DEFAULT 0"),
+        ("drive_enabled", "INTEGER NOT NULL DEFAULT 0"),
+        ("drive_write_enabled", "INTEGER NOT NULL DEFAULT 0"),
     ]:
         try:
             _connection.execute(f"ALTER TABLE agents ADD COLUMN {col} {typedef}")
@@ -146,7 +154,10 @@ def list_agents() -> list[dict]:
 UPDATABLE_FIELDS = {
     "agent_name", "avatar_url", "personality",
     "onboarding_complete", "provider_override", "model_override",
-    "gmail_enabled", "calendar_enabled", "whatsapp_session_id",
+    "gmail_enabled", "gmail_send_enabled",
+    "calendar_enabled", "calendar_write_enabled",
+    "drive_enabled", "drive_write_enabled",
+    "whatsapp_session_id",
     "telegram_enabled", "telegram_bot_token", "telegram_bot_username",
     "telegram_group_enabled", "telegram_respond_to_bots", "telegram_max_bot_turns",
 }

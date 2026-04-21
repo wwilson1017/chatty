@@ -1,6 +1,8 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { api } from '../core/api/client';
 import { getToken } from '../core/auth/tokenUtils';
+import { useOAuthFlow } from '../core/hooks/useOAuthFlow';
+import { GoogleIntegrationCard } from './GoogleIntegrationCard';
 import type { Integration, Agent } from '../core/types';
 import { IconGlobe, IconUsers, IconFunnel, IconFile, IconPhone, IconMail, IconChart, IconBook, IconZap } from '../shared/icons';
 import { TelegramSettings } from '../agent/components/TelegramSettings';
@@ -146,6 +148,16 @@ export function IntegrationsTab() {
     setIntegrations(prev => prev.map(i => i.id === id ? { ...i, enabled: !enabled } : i));
   }
 
+  async function setToolMode(id: string, mode: string) {
+    const prev = integrations.find(i => i.id === id)?.tool_mode || 'normal';
+    setIntegrations(ps => ps.map(i => i.id === id ? { ...i, tool_mode: mode } : i));
+    try {
+      await api(`/api/integrations/${id}/tool-mode`, { method: 'POST', body: JSON.stringify({ tool_mode: mode }) });
+    } catch {
+      setIntegrations(ps => ps.map(i => i.id === id ? { ...i, tool_mode: prev } : i));
+    }
+  }
+
   async function setupOdoo() {
     setSaving(true); setError('');
     try {
@@ -196,14 +208,23 @@ export function IntegrationsTab() {
     document.dispatchEvent(new Event('chatty:integrations-changed'));
   }
 
+  const qbOAuth = useOAuthFlow();
+
+  useEffect(() => {
+    if (qbOAuth.state.status === 'success') {
+      api<{ integrations: Integration[] }>('/api/integrations').then(d => setIntegrations(d.integrations));
+      qbOAuth.reset();
+    } else if (qbOAuth.state.status === 'error' && qbOAuth.state.error) {
+      setError(qbOAuth.state.error);
+    }
+  }, [qbOAuth.state.status]);  // eslint-disable-line react-hooks/exhaustive-deps
+
   async function setupQuickBooks() {
-    setSaving(true); setError('');
-    try {
-      await api('/api/integrations/quickbooks/setup', { method: 'POST' });
-      const data = await api<{ integrations: Integration[] }>('/api/integrations');
-      setIntegrations(data.integrations);
-    } catch (err: unknown) { setError(err instanceof Error ? err.message : 'Setup failed'); }
-    finally { setSaving(false); }
+    setError('');
+    await qbOAuth.start({
+      setupUrl: '/api/integrations/quickbooks/setup',
+      completeUrl: '/api/integrations/quickbooks/setup/complete',
+    });
   }
 
   async function disconnectQuickBooks() {
@@ -217,6 +238,10 @@ export function IntegrationsTab() {
   }
 
   async function reconnectQuickBooks() { await disconnectQuickBooks(); await setupQuickBooks(); }
+
+  const qbConnecting = qbOAuth.state.status === 'starting' ||
+                        qbOAuth.state.status === 'awaiting_user' ||
+                        qbOAuth.state.status === 'completing';
 
   async function setupQbCsv() {
     await api('/api/integrations/qb_csv/setup', { method: 'POST' });
@@ -237,9 +262,23 @@ export function IntegrationsTab() {
     </div>
   );
 
+  async function refreshIntegrations() {
+    const data = await api<{ integrations: Integration[] }>('/api/integrations');
+    setIntegrations(data.integrations);
+  }
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
       {integrations.map(integration => {
+        if (integration.id === 'google') {
+          return (
+            <GoogleIntegrationCard
+              key={integration.id}
+              integration={integration}
+              onChanged={refreshIntegrations}
+            />
+          );
+        }
         const Icon = INTEGRATION_ICONS[integration.id] || IconGlobe;
         return (
           <div key={integration.id} style={{
@@ -320,13 +359,13 @@ export function IntegrationsTab() {
                           if (integration.id === 'quickbooks') setupQuickBooks();
                           else if (integration.id === 'qb_csv') setupQbCsv();
                           else { setSetupFor(integration.id); setError(''); }
-                        }} disabled={saving} style={{
+                        }} disabled={saving || (integration.id === 'quickbooks' && qbConnecting)} style={{
                           fontSize: 11, padding: '4px 12px', borderRadius: 4,
                           background: 'transparent', color: 'rgba(237,240,244,0.62)',
                           border: '1px solid rgba(230,235,242,0.14)', cursor: 'pointer',
                           opacity: saving ? 0.5 : 1,
                         }}>
-                          {saving && integration.id === 'quickbooks' ? 'Connecting...' : 'Setup'}
+                          {integration.id === 'quickbooks' && qbConnecting ? 'Connecting...' : 'Setup'}
                         </button>
                       )}
 
@@ -388,6 +427,39 @@ export function IntegrationsTab() {
                 )}
               </div>
             </div>
+
+            {/* Permission level selector for Odoo and QuickBooks */}
+            {(integration.id === 'odoo' || integration.id === 'quickbooks') && integration.enabled && integration.configured && integration.connection_status !== 'broken' && (
+              <div style={{ marginTop: 10, display: 'flex', alignItems: 'center', gap: 10 }}>
+                <span style={{ ...mono(9), whiteSpace: 'nowrap' }}>Permissions</span>
+                <div style={{
+                  display: 'flex', border: '1px solid rgba(230,235,242,0.07)',
+                  borderRadius: 3, overflow: 'hidden',
+                }}>
+                  {([
+                    { key: 'read-only', label: 'Read' },
+                    { key: 'normal', label: 'Approval' },
+                    { key: 'power', label: 'Full Control' },
+                  ] as const).map(m => (
+                    <div
+                      key={m.key}
+                      onClick={() => setToolMode(integration.id, m.key)}
+                      style={{
+                        padding: '3px 10px',
+                        fontFamily: "'JetBrains Mono', ui-monospace, monospace",
+                        fontSize: 10, letterSpacing: '0.12em', textTransform: 'uppercase',
+                        color: (integration.tool_mode || 'normal') === m.key ? '#0E1013' : 'rgba(237,240,244,0.62)',
+                        background: (integration.tool_mode || 'normal') === m.key ? 'var(--color-ch-accent, #C8D1D9)' : 'transparent',
+                        cursor: 'pointer',
+                        transition: 'background 0.15s, color 0.15s',
+                      }}
+                    >
+                      {m.label}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
 
             {error && integration.id === 'quickbooks' && !setupFor && (
               <p style={{ marginTop: 8, color: '#D97757', fontSize: 12 }}>{error}</p>
