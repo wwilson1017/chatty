@@ -1,7 +1,10 @@
 /**
- * Chatty — Password auth context.
+ * Chatty — Password auth context with optional TOTP 2FA.
  *
  * Single-user: authenticates with a password, gets back a JWT.
+ * If 2FA is enabled, login() returns a pending token that must be
+ * verified via verify2fa() before access is granted.
+ *
  * JWT stored in sessionStorage (cleared on browser close).
  * BroadcastChannel syncs login/logout across tabs.
  */
@@ -27,10 +30,15 @@ function migrateToken() {
   }
 }
 
+export type LoginResult =
+  | { success: true }
+  | { requires2fa: true; pendingToken: string };
+
 interface AuthContextType {
   isLoggedIn: boolean;
   loading: boolean;
-  login: (password: string) => Promise<void>;
+  login: (password: string) => Promise<LoginResult>;
+  verify2fa: (pendingToken: string, code: string, trustDevice?: boolean) => Promise<void>;
   logout: () => void;
 }
 
@@ -49,6 +57,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     } catch {
       return false;
     }
+  }, []);
+
+  const _completeLogin = useCallback((token: string) => {
+    sessionStorage.setItem(TOKEN_KEY, token);
+    setIsLoggedIn(true);
+    try {
+      const ch = new BroadcastChannel(CHANNEL_NAME);
+      ch.postMessage({ type: 'login', token });
+      ch.close();
+    } catch { /* noop */ }
   }, []);
 
   useEffect(() => {
@@ -87,7 +105,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return () => { channel?.close(); };
   }, [validateToken]);
 
-  const login = useCallback(async (password: string) => {
+  const login = useCallback(async (password: string): Promise<LoginResult> => {
     const res = await fetch('/api/login', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -98,16 +116,28 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       throw new Error(body.detail || 'Login failed');
     }
     const data = await res.json();
-    sessionStorage.setItem(TOKEN_KEY, data.access_token);
-    setIsLoggedIn(true);
 
-    // Notify other tabs
-    try {
-      const ch = new BroadcastChannel(CHANNEL_NAME);
-      ch.postMessage({ type: 'login', token: data.access_token });
-      ch.close();
-    } catch { /* noop */ }
-  }, []);
+    if (data.requires_2fa) {
+      return { requires2fa: true, pendingToken: data.pending_token };
+    }
+
+    _completeLogin(data.access_token);
+    return { success: true };
+  }, [_completeLogin]);
+
+  const verify2fa = useCallback(async (pendingToken: string, code: string, trustDevice = false) => {
+    const res = await fetch('/api/login/verify-2fa', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ pending_token: pendingToken, code, trust_device: trustDevice }),
+    });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      throw new Error(body.detail || 'Verification failed');
+    }
+    const data = await res.json();
+    _completeLogin(data.access_token);
+  }, [_completeLogin]);
 
   const logout = useCallback(() => {
     sessionStorage.removeItem(TOKEN_KEY);
@@ -122,7 +152,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   return (
-    <AuthContext.Provider value={{ isLoggedIn, loading, login, logout }}>
+    <AuthContext.Provider value={{ isLoggedIn, loading, login, verify2fa, logout }}>
       {children}
     </AuthContext.Provider>
   );
