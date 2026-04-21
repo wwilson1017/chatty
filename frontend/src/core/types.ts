@@ -66,6 +66,7 @@ export interface Integration {
   enabled: boolean;
   configured: boolean;
   connection_status?: string;
+  tool_mode?: string;
 }
 
 // CRM types

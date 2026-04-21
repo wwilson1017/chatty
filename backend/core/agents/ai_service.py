@@ -498,6 +498,7 @@ async def chat(
     integration_tool_defs: list[dict] | None = None,
     tool_mode: str = "normal",
     approved_tool: dict | None = None,
+    integration_tool_modes: dict[str, str] | None = None,
 ) -> AsyncGenerator[str, None]:
     """Stream a chat response as SSE events.
 
@@ -518,6 +519,7 @@ async def chat(
         integration_tool_defs: Extra tool definitions from enabled integrations
         tool_mode: 'read-only', 'normal', or 'power'
         approved_tool: Previously confirmed tool execution result to reconstruct
+        integration_tool_modes: Per-integration permission ceilings (e.g. {"odoo": "read-only"})
     """
     # Validate tool_mode
     if tool_mode not in ("read-only", "normal", "power"):
@@ -548,15 +550,27 @@ async def chat(
     writes_map = build_writes_map(tool_defs)
     cm_map = build_context_memory_map(tool_defs)
 
-    # ── Read-only mode: filter out write tools (except context_memory) ──
-    if tool_mode == "read-only":
-        tool_defs = [
-            t for t in tool_defs
-            if not t.get("writes", False) or t.get("context_memory", False)
-        ]
+    # ── Per-tool effective mode (min of chat mode and integration ceiling) ──
+    _MODE_RANK = {"read-only": 0, "normal": 1, "power": 2}
+    _RANK_MODE = {0: "read-only", 1: "normal", 2: "power"}
+    _itm = integration_tool_modes or {}
+    integration_map = {t["name"]: t.get("integration", "") for t in tool_defs}
+
+    def _effective_mode(tname: str) -> str:
+        integ = integration_map.get(tname, "")
+        integ_ceil = _itm.get(integ, "power")
+        return _RANK_MODE[min(_MODE_RANK.get(tool_mode, 1), _MODE_RANK.get(integ_ceil, 1))]
+
+    # ── Filter out write tools whose effective mode is read-only ──
+    tool_defs = [
+        t for t in tool_defs
+        if not t.get("writes", False)
+        or t.get("context_memory", False)
+        or _effective_mode(t["name"]) != "read-only"
+    ]
 
     # Strip internal fields before sending to provider
-    _internal_fields = {"kind", "writes", "context_memory"}
+    _internal_fields = {"kind", "writes", "context_memory", "integration"}
     provider_tools = [{k: v for k, v in t.items() if k not in _internal_fields} for t in tool_defs]
 
     # ── Chat history persistence ──────────────────────────────────────
@@ -828,11 +842,12 @@ async def chat(
                 yield _sse({"type": "done"})
                 return
 
-            # ── Normal mode: intercept write tools (not context_memory) ──
+            # ── Intercept write tools that need approval ──
             is_write = writes_map.get(tool_name, False)
             is_cm = cm_map.get(tool_name, False)
+            eff_mode = _effective_mode(tool_name)
 
-            if tool_mode == "normal" and is_write and not is_cm:
+            if eff_mode == "normal" and is_write and not is_cm:
                 # Get human-readable description
                 tool_desc = next(
                     (t.get("description", tool_name) for t in tool_defs if t["name"] == tool_name),
@@ -920,6 +935,7 @@ async def run_sync(
     chat_service=None,
     conversation_id: str | None = None,
     integration_tool_defs: list[dict] | None = None,
+    integration_tool_modes: dict[str, str] | None = None,
 ) -> str:
     """Run an agent synchronously, returning the final text response.
 
@@ -940,10 +956,22 @@ async def run_sync(
         integration_tools=integration_tool_defs,
         dynamic_real_tools=dynamic_real_tools or None,
     )
+
+    # Apply integration permission ceilings — messaging channels have no approval UI,
+    # so both "read-only" and "normal" ceilings must strip write tools here.
+    _itm = integration_tool_modes or {}
+    if _itm:
+        tool_defs = [
+            t for t in tool_defs
+            if not t.get("writes", False)
+            or t.get("context_memory", False)
+            or _itm.get(t.get("integration", ""), "power") == "power"
+        ]
+
     kind_map = _build_kind_map(tool_defs)
 
     # Strip internal fields before sending to provider
-    _internal_fields = {"kind", "writes", "context_memory"}
+    _internal_fields = {"kind", "writes", "context_memory", "integration"}
     provider_tools = [{k: v for k, v in t.items() if k not in _internal_fields} for t in tool_defs]
 
     # Build system prompt (returns tuple for caching)

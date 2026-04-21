@@ -162,6 +162,7 @@ PROJECT_TOOL_DEFS = [
             "required": ["name", "project_id"],
         },
         "kind": "integration",
+        "writes": True,
     },
     {
         "name": "odoo_update_task",
@@ -212,6 +213,7 @@ PROJECT_TOOL_DEFS = [
             "required": ["task_id"],
         },
         "kind": "integration",
+        "writes": True,
     },
     {
         "name": "odoo_log_timesheet",
@@ -240,6 +242,7 @@ PROJECT_TOOL_DEFS = [
             "required": ["task_id", "hours"],
         },
         "kind": "integration",
+        "writes": True,
     },
 ]
 

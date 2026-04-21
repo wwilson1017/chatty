@@ -134,7 +134,7 @@ def _load_integration_tools() -> tuple[list[dict], dict]:
             mod = importlib.import_module(module_path)
             defs = getattr(mod, defs_attr, [])
             execs = getattr(mod, "TOOL_EXECUTORS", {})
-            tool_defs.extend(defs)
+            tool_defs.extend({**d, "integration": name} for d in defs)
             executors.update(execs)
         except Exception as e:
             logger.warning("Failed to load integration %s: %s", name, e)
@@ -485,6 +485,9 @@ def _stream_chat(agent: dict, messages: list, training_mode: bool, conversation_
 
     integration_tool_defs, integration_executors = _load_integration_tools()
 
+    from integrations.registry import get_tool_mode
+    integration_tool_modes = {name: get_tool_mode(name) for name in _INTEGRATION_MODULES}
+
     reminder_handlers, sa_handlers = _build_agent_handlers(agent["slug"])
     registry = ToolRegistry(
         context_dir=config.context_dir,
@@ -516,6 +519,7 @@ def _stream_chat(agent: dict, messages: list, training_mode: bool, conversation_
             integration_tool_defs=integration_tool_defs or None,
             tool_mode=tool_mode,
             approved_tool=approved_tool,
+            integration_tool_modes=integration_tool_modes,
         ):
             yield event
 
@@ -842,6 +846,15 @@ async def tool_execute(agent_id: str, req: ToolExecuteRequest, user=Depends(get_
     writes_map = build_writes_map(tool_defs)
     if not writes_map.get(req.tool, False):
         raise HTTPException(status_code=400, detail="Tool is not a write operation")
+
+    # Enforce integration permission ceiling — reject if integration is set to read-only
+    tool_def = next((t for t in tool_defs if t["name"] == req.tool), None)
+    integ_name = (tool_def or {}).get("integration", "")
+    if integ_name:
+        from integrations.registry import get_tool_mode as _get_tm
+        integ_ceil = _get_tm(integ_name)
+        if integ_ceil == "read-only":
+            raise HTTPException(status_code=403, detail=f"Write operations are disabled for {integ_name} (set to read-only)")
 
     kind_map = {t["name"]: t.get("kind", "context") for t in tool_defs}
     kind = kind_map.get(req.tool, "context")

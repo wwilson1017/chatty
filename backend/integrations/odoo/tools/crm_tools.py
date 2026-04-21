@@ -174,6 +174,7 @@ CRM_TOOL_DEFS = [
             "required": ["name"],
         },
         "kind": "integration",
+        "writes": True,
     },
     {
         "name": "odoo_update_lead",
@@ -222,6 +223,7 @@ CRM_TOOL_DEFS = [
             "required": ["lead_id"],
         },
         "kind": "integration",
+        "writes": True,
     },
     {
         "name": "odoo_update_lead_stage",
@@ -241,6 +243,7 @@ CRM_TOOL_DEFS = [
             "required": ["lead_id", "stage_id"],
         },
         "kind": "integration",
+        "writes": True,
     },
     {
         "name": "odoo_mark_lead_won",
@@ -256,6 +259,7 @@ CRM_TOOL_DEFS = [
             "required": ["lead_id"],
         },
         "kind": "integration",
+        "writes": True,
     },
     {
         "name": "odoo_mark_lead_lost",
@@ -275,6 +279,7 @@ CRM_TOOL_DEFS = [
             "required": ["lead_id"],
         },
         "kind": "integration",
+        "writes": True,
     },
     {
         "name": "odoo_create_crm_activity",
@@ -310,6 +315,7 @@ CRM_TOOL_DEFS = [
             "required": ["lead_id", "activity_type_id", "summary"],
         },
         "kind": "integration",
+        "writes": True,
     },
     {
         "name": "odoo_log_lead_note",
@@ -329,6 +335,7 @@ CRM_TOOL_DEFS = [
             "required": ["lead_id", "message"],
         },
         "kind": "integration",
+        "writes": True,
     },
 ]
 
