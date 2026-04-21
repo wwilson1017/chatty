@@ -9,7 +9,7 @@
 - User creates agents from a dashboard; each has name/personality/knowledge via onboarding wizard
 - Optional branding: logo, company name, accent color
 - Multi-provider AI: Anthropic, OpenAI, Google Gemini — all via API key paste (no OAuth for AI providers)
-- Integrations: QuickBooks Online (OAuth), QuickBooks CSV import, Gmail, Google Calendar, WhatsApp (Baileys bridge), Telegram, CRM Lite, HubSpot, Salesforce, Odoo, BambooHR
+- Integrations: QuickBooks Online (OAuth), QuickBooks CSV import, Gmail, Google Calendar, WhatsApp (Baileys bridge), Telegram, CRM Lite, Odoo, BambooHR
 - Agent features: memory system, dreaming/reflection, shared context across agents, scheduled actions, reminders
 - One-click cloud deployment via Railway
 
@@ -59,7 +59,7 @@ backend/
 │   ├── encryption.py                # Fernet encryption for credentials
 │   ├── providers/                   # AI provider abstraction (Anthropic, OpenAI, Gemini)
 │   └── agents/                      # Agent engine (ai_service, tool_registry, context_manager, chat_history, memory, dreaming, shared_context, reminders, scheduled_actions)
-├── integrations/                    # QuickBooks, QB CSV, Telegram, WhatsApp, CRM, HubSpot, Salesforce, Odoo, BambooHR
+├── integrations/                    # QuickBooks, QB CSV, Telegram, WhatsApp, CRM, Odoo, BambooHR
 ├── branding/                        # Logo/name/color
 └── whatsapp-bridge/                 # Node.js Baileys sidecar
 

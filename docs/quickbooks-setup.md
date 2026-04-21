@@ -67,14 +67,23 @@ Restart the Chatty backend after updating the `.env` file.
 
 Once connected, your AI agents can:
 
-- **Query any QuickBooks data** — invoices, customers, vendors, bills, payments, items, and more using QuickBooks SQL-style queries
-- **Pull financial reports** — Profit & Loss statements for any date range
+- **Query any QuickBooks data** — invoices, customers, vendors, bills, payments, items, and more using SQL-style queries
+- **Pull financial reports** — Profit & Loss and Balance Sheet reports for any date range
+- **Create invoices and estimates** — generate and email invoices and quotes to customers
+- **Update invoices** — modify existing invoices or void them
+- **Record payments** — log payments received from customers
+- **Create entities** — add new customers, vendors, items, bills, expenses, and credit memos
+- **Update entities** — modify existing customers, vendors, and items
+- **Send documents** — email invoices and estimates directly to customers from QuickBooks
 
 Example questions you can ask your agent:
 - "Show me all unpaid invoices"
 - "Who are my top 5 customers by revenue?"
 - "What's my profit and loss for Q1 2026?"
-- "List all bills due this month"
+- "Create an invoice for Acme Corp — 10 hours of consulting at $150/hr"
+- "Send the latest estimate to Jane at jane@example.com"
+- "Record a $5,000 payment from Acme Corp against invoice #1042"
+- "Add a new vendor: Office Supply Co"
 
 ## Troubleshooting
 
