@@ -147,8 +147,13 @@ export function IntegrationsTab() {
   }
 
   async function setToolMode(id: string, mode: string) {
-    setIntegrations(prev => prev.map(i => i.id === id ? { ...i, tool_mode: mode } : i));
-    await api(`/api/integrations/${id}/tool-mode`, { method: 'POST', body: JSON.stringify({ tool_mode: mode }) });
+    const prev = integrations.find(i => i.id === id)?.tool_mode || 'normal';
+    setIntegrations(ps => ps.map(i => i.id === id ? { ...i, tool_mode: mode } : i));
+    try {
+      await api(`/api/integrations/${id}/tool-mode`, { method: 'POST', body: JSON.stringify({ tool_mode: mode }) });
+    } catch {
+      setIntegrations(ps => ps.map(i => i.id === id ? { ...i, tool_mode: prev } : i));
+    }
   }
 
   async function setupOdoo() {
