@@ -10,7 +10,7 @@ Create custom AI agents with their own personality, knowledge, and tools — pow
 - **Multi-provider AI** — Anthropic, OpenAI, Google Gemini, Ollama (local models), and Together AI
 - **Brandable** — Upload your logo, company name, and accent color to make it yours
 - **Built-in CRM** — Manage your pipeline: contacts, companies, tasks and deals all with your AI agent
-- **Integrations** — Gmail, Google Calendar, QuickBooks Online, WhatsApp, Telegram, Odoo, BambooHR
+- **Integrations** — Gmail, Google Calendar, Google Drive, QuickBooks Online, WhatsApp, Telegram, Odoo, BambooHR
 - **Local-first** — SQLite database, no external services required
 - **One-click deploy** — Deploy to Railway for access from any device
 
@@ -74,9 +74,10 @@ Chatty connects to your existing business tools so your agents can answer questi
 
 | Integration | Setup | What your agent can do |
 |---|---|---|
-| [Gmail](docs/gmail-setup.md) | Google OAuth | Search and read your email |
-| [Google Calendar](docs/google-calendar-setup.md) | Google OAuth | View and search your calendar events |
-| [QuickBooks Online](docs/quickbooks-setup.md) | Intuit OAuth | Query invoices, customers, bills, and financial reports |
+| [Gmail](docs/gmail-setup.md) | Google OAuth | Search, read, send, reply to, and draft emails |
+| [Google Calendar](docs/google-calendar-setup.md) | Google OAuth | View, create, update, and delete calendar events |
+| [Google Drive](docs/google-drive-setup.md) | Google OAuth | Search, read, and upload files |
+| [QuickBooks Online](docs/quickbooks-setup.md) | Intuit OAuth | Invoices, estimates, payments, customers, vendors, and financial reports |
 | [QuickBooks CSV](docs/quickbooks-csv-setup.md) | One-click | Analyze exported QuickBooks CSV files — no OAuth required |
 | [CRM Lite](docs/crm-lite-setup.md) | One-click | Manage contacts, deals, tasks, and activities — built in |
 | [Telegram](docs/telegram-setup.md) | Bot token | Chat with your agent from Telegram |
