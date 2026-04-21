@@ -10,7 +10,7 @@ Create custom AI agents with their own personality, knowledge, and tools — pow
 - **Multi-provider AI** — Anthropic, OpenAI, Google Gemini, Ollama (local models), and Together AI
 - **Brandable** — Upload your logo, company name, and accent color to make it yours
 - **Built-in CRM** — Manage your pipeline: contacts, companies, tasks and deals all with your AI agent
-- **Integrations** — Gmail, Google Calendar, QuickBooks Online, WhatsApp, Telegram
+- **Integrations** — Gmail, Google Calendar, QuickBooks Online, WhatsApp, Telegram, Odoo, BambooHR
 - **Local-first** — SQLite database, no external services required
 - **One-click deploy** — Deploy to Railway for access from any device
 
@@ -57,6 +57,32 @@ Run AI models on your own hardware with no API key or usage fees:
 | Phi-4 | `ollama pull phi4` | Microsoft's compact model |
 
 Models without tool support will still chat but won't have access to memory, search, or integrations.
+
+## Jumpstart Your Agent with Existing Knowledge
+
+Already have context about you or your business in another AI tool? You can bootstrap a new Chatty agent in minutes instead of starting from scratch.
+
+**Export from an existing AI agent.** If you have an agent on another platform (ChatGPT, Claude, OpenClaw, etc.), ask it to create a markdown knowledge file summarizing what it knows about you — your role, your business, your preferences, how you like to work. Then paste that file into a Chatty conversation and your new agent is caught up immediately.
+
+You can tailor the export to fit the new agent's purpose. For example, if your existing agent is a business assistant but you're setting up a personal agent in Chatty, tell it to leave out work-specific details and focus on personal preferences. Going the other direction, ask it to emphasize business context. You can also ask it to include a list of questions where it has gaps, so your new agent knows what to ask you about.
+
+**No existing agent? Use any AI chat.** Open ChatGPT, Claude, or any AI assistant and ask it something like: *"Search your memory and our conversation history, then create a markdown knowledge file I can give to a new AI agent that explains who I am, what I do, what's important to me, and how I like to work."* Paste the result into Chatty and you've got a head start.
+
+## Integrations
+
+Chatty connects to your existing business tools so your agents can answer questions, look up data, and take action on your behalf.
+
+| Integration | Setup | What your agent can do |
+|---|---|---|
+| [Gmail](docs/gmail-setup.md) | Google OAuth | Search and read your email |
+| [Google Calendar](docs/google-calendar-setup.md) | Google OAuth | View and search your calendar events |
+| [QuickBooks Online](docs/quickbooks-setup.md) | Intuit OAuth | Query invoices, customers, bills, and financial reports |
+| [QuickBooks CSV](docs/quickbooks-csv-setup.md) | One-click | Analyze exported QuickBooks CSV files — no OAuth required |
+| [CRM Lite](docs/crm-lite-setup.md) | One-click | Manage contacts, deals, tasks, and activities — built in |
+| [Telegram](docs/telegram-setup.md) | Bot token | Chat with your agent from Telegram |
+| [WhatsApp](docs/whatsapp-setup.md) | QR code scan | Chat with your agent from WhatsApp |
+| [Odoo](docs/odoo-setup.md) | API key | Sales, inventory, accounting, HR, and more from your Odoo ERP |
+| [BambooHR](docs/bamboohr-setup.md) | API key | Employee directory, time off, and HR data |
 
 ## Deploy to Railway
 
