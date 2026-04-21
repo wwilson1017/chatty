@@ -343,7 +343,6 @@ async def demo_clear(user=Depends(_require_crm)):
         db.execute("DELETE FROM sqlite_sequence WHERE name IN ('contacts','deals','tasks','activity_log')")
         db.commit()
 
-    creds = get_credentials("crm_lite")
     creds["enabled"] = True
     creds["demo_mode"] = False
     save_credentials("crm_lite", creds)
