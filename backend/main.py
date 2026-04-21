@@ -18,6 +18,7 @@ from fastapi.staticfiles import StaticFiles
 
 from core.config import settings
 from core.auth import router as auth_router
+from core.auth_2fa import router as auth_2fa_router
 from core.providers.router import router as providers_router
 from core.providers.oauth_callback_router import router as oauth_callback_router
 from agents.router import router as agents_router
@@ -104,6 +105,9 @@ async def lifespan(app: FastAPI):
         _safe_init("whatsapp", init_whatsapp_db)
         logger.info("WhatsApp bridge configured at %s", settings.whatsapp.bridge_url)
 
+    from core.auth_2fa import init_db as init_auth_2fa_db
+    _safe_init("auth_2fa", init_auth_2fa_db, critical=True)
+
     from core.agents.reminders.db import init_db as init_reminders_db
     _safe_init("reminders", init_reminders_db)
 
@@ -129,6 +133,9 @@ async def lifespan(app: FastAPI):
     from core.agents.scheduled_actions.nightly import run_nightly_jobs
     _scheduler.add_job(run_nightly_jobs, "cron", hour=23, minute=0, id="nightly_memory_jobs",
                        timezone="America/Chicago")
+
+    from core.auth_2fa import cleanup_expired_devices
+    _scheduler.add_job(cleanup_expired_devices, "interval", hours=24, id="2fa_device_cleanup")
 
     _scheduler.start()
     logger.info("APScheduler started (reminder heartbeat + scheduled actions + nightly jobs)")
@@ -215,6 +222,7 @@ app.add_middleware(
 # ── Routes ────────────────────────────────────────────────────────────────────
 
 app.include_router(auth_router, prefix="/api")
+app.include_router(auth_2fa_router, prefix="/api", tags=["auth-2fa"])
 app.include_router(providers_router, prefix="/api/providers", tags=["providers"])
 app.include_router(oauth_callback_router, prefix="/api/oauth", tags=["oauth"])
 app.include_router(agents_router, prefix="/api/agents", tags=["agents"])

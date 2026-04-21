@@ -4,6 +4,7 @@ import type { BrandingConfig } from '../core/types';
 import { ProviderSetup } from '../setup/ProviderSetup';
 import { IntegrationsTab } from './IntegrationsTab';
 import { DataTab } from './DataTab';
+import { SecurityTab } from './SecurityTab';
 
 interface Props {
   branding: BrandingConfig | null;
@@ -11,7 +12,7 @@ interface Props {
   onClose: () => void;
 }
 
-type Tab = 'providers' | 'branding' | 'integrations' | 'chat' | 'data';
+type Tab = 'providers' | 'branding' | 'integrations' | 'chat' | 'data' | 'security';
 
 export function SettingsPanel({ branding, onBrandingUpdate, onClose }: Props) {
   const [tab, setTab] = useState<Tab>('providers');
@@ -54,6 +55,7 @@ export function SettingsPanel({ branding, onBrandingUpdate, onClose }: Props) {
     { id: 'integrations', label: 'Integrations' },
     { id: 'chat', label: 'Chat' },
     { id: 'data', label: 'Data' },
+    { id: 'security', label: 'Security' },
   ];
 
   return (
@@ -226,6 +228,8 @@ export function SettingsPanel({ branding, onBrandingUpdate, onClose }: Props) {
           )}
 
           {tab === 'data' && <DataTab />}
+
+          {tab === 'security' && <SecurityTab />}
         </div>
       </div>
     </div>
