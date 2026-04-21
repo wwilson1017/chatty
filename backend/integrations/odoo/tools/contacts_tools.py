@@ -137,6 +137,7 @@ CONTACTS_TOOL_DEFS = [
             "required": ["name"],
         },
         "kind": "integration",
+        "writes": True,
     },
     # 4 - odoo_update_partner
     {
@@ -200,6 +201,7 @@ CONTACTS_TOOL_DEFS = [
             "required": ["partner_id"],
         },
         "kind": "integration",
+        "writes": True,
     },
     # 5 - odoo_search_partner_contacts
     {

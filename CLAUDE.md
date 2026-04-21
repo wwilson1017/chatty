@@ -73,6 +73,43 @@ frontend/src/
 └── crm/                             # CRM interface
 ```
 
+## Adding Integrations
+
+New integrations follow a consistent pattern. When connected globally, ALL agents automatically get the integration's tools — no per-agent opt-in required. This is a single-user app; if the user connected a service, they want their agents to use it.
+
+### File structure
+
+Mirror `integrations/quickbooks/` for credential-based integrations, or `integrations/google/` for OAuth-scoped integrations:
+
+```
+integrations/{name}/
+├── __init__.py
+├── client.py          # Authenticated API client (token refresh, retry)
+├── onboarding.py      # setup_from_oauth() or setup() — persists credentials
+├── tools.py           # Tool handler functions called by ToolRegistry
+└── *_ops.py           # Raw API operations (each takes a service/client object)
+```
+
+### Wiring checklist
+
+1. **Register** in `integrations/registry.py` → `AVAILABLE_INTEGRATIONS` dict
+2. **Add routes** in `integrations/router.py` → setup, setup/complete (for OAuth), disconnect
+3. **Add tool definitions** in `core/agents/tool_definitions.py` — each tool needs `name`, `description`, `input_schema`, `kind`, and `writes: bool`
+4. **Add dispatch** in `core/agents/tool_registry.py` — add a `_execute_{name}` method and wire it in `execute_tool`
+5. **For OAuth integrations**: use the shared two-step flow in `core/providers/oauth.py` — `start_oauth_flow()` returns `{flow_id, auth_url}`, frontend opens popup + polls, `/setup/complete` calls `consume_flow()`
+6. **Frontend**: add a card component in `dashboard/` and wire it into `IntegrationsTab.tsx`
+
+### Tool auto-discovery
+
+Tools appear for agents automatically when their integration is enabled globally:
+- **QB/Odoo/BambooHR/CRM/QB CSV**: `_load_integration_tools()` in `agents/router.py` checks `is_enabled(name)` and injects tools + executors
+- **Google (Gmail/Calendar/Drive)**: `google_capabilities()` in `integrations/google/policy.py` reads scope grants from `google.json` and returns capability flags passed to `get_tool_definitions()`
+- **Do NOT require per-agent flags** for new integrations. Connect once → all agents get the tools.
+
+### Write tools
+
+Tools that modify external data (send email, create event, upload file) must set `writes: True` in their tool definition. Chatty's `tool_mode` system will require user confirmation before executing write tools in "normal" mode.
+
 ## Worktrees
 
 Worktrees live in `.claude/worktrees/` within the repo. Use `/wt <feature name>` to create one, `/dwt` to clean up. Branch from `master`, PR back to `master`.

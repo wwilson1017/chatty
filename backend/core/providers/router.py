@@ -19,7 +19,7 @@ from pydantic import BaseModel
 
 from core.auth import get_current_user
 from core.providers.credentials import CredentialStore
-from core.providers.oauth import start_oauth_flow, refresh_google_token
+from core.providers.oauth import start_oauth_flow, refresh_google_token, consume_flow
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -84,12 +84,28 @@ class OAuthStartRequest(BaseModel):
 
 @router.post("/google/connect")
 async def connect_google(user=Depends(get_current_user)):
-    """Start Google PKCE OAuth flow. Opens browser, waits for callback."""
+    """Start Google PKCE OAuth flow. Returns {flow_id, auth_url} for the
+    frontend to open in a popup and poll until /google/connect/complete."""
     try:
-        tokens = await start_oauth_flow("google")
+        return start_oauth_flow("google")
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
+
+class CompleteOAuthRequest(BaseModel):
+    flow_id: str
+
+
+@router.post("/google/connect/complete")
+async def connect_google_complete(body: CompleteOAuthRequest, user=Depends(get_current_user)):
+    """Finalize Google OAuth setup after the callback stashes tokens."""
+    flow = consume_flow(body.flow_id)
+    if not flow:
+        raise HTTPException(status_code=404, detail="OAuth flow not found or expired")
+    if flow.status != "ok" or not flow.tokens:
+        raise HTTPException(status_code=400, detail=flow.error or "OAuth flow incomplete")
+
+    tokens = flow.tokens
     store = CredentialStore()
     store.set_oauth_tokens(
         provider="google",
@@ -139,12 +155,24 @@ async def connect_openai_key(body: OpenAIKeyRequest, user=Depends(get_current_us
 
 @router.post("/openai/connect")
 async def connect_openai(user=Depends(get_current_user)):
-    """Start OpenAI PKCE OAuth flow. Opens browser, waits for callback."""
+    """Start OpenAI PKCE OAuth flow. Returns {flow_id, auth_url} for the
+    frontend to open in a popup and poll until /openai/connect/complete."""
     try:
-        tokens = await start_oauth_flow("openai")
+        return start_oauth_flow("openai")
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
+
+@router.post("/openai/connect/complete")
+async def connect_openai_complete(body: CompleteOAuthRequest, user=Depends(get_current_user)):
+    """Finalize OpenAI OAuth setup after the callback stashes tokens."""
+    flow = consume_flow(body.flow_id)
+    if not flow:
+        raise HTTPException(status_code=404, detail="OAuth flow not found or expired")
+    if flow.status != "ok" or not flow.tokens:
+        raise HTTPException(status_code=400, detail=flow.error or "OAuth flow incomplete")
+
+    tokens = flow.tokens
     store = CredentialStore()
     store.set_oauth_tokens(
         provider="openai",

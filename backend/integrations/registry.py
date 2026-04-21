@@ -30,6 +30,12 @@ AVAILABLE_INTEGRATIONS = {
         "icon": "🏢",
         "auth_type": "credentials",
     },
+    "google": {
+        "name": "Google (Gmail + Calendar + Drive)",
+        "description": "Connect Google — email, calendar, and Drive access, with per-scope permissions",
+        "icon": "📧",
+        "auth_type": "oauth2_scoped",
+    },
     "quickbooks": {
         "name": "QuickBooks",
         "description": "QuickBooks Online — invoices, bills, P&L, customers",
@@ -127,16 +133,36 @@ def disable(name: str) -> None:
     save_credentials(name, creds)
 
 
+def get_tool_mode(name: str) -> str:
+    """Get the tool_mode ceiling for an integration. Default: 'normal' (approval)."""
+    creds = get_credentials(name)
+    return creds.get("tool_mode", "normal")
+
+
+def set_tool_mode(name: str, mode: str) -> None:
+    """Set the tool_mode ceiling for an integration."""
+    if mode not in ("read-only", "normal", "power"):
+        raise ValueError(f"Invalid tool_mode: {mode}")
+    creds = get_credentials(name)
+    creds["tool_mode"] = mode
+    save_credentials(name, creds)
+
+
 def list_integrations() -> list[dict]:
     """Return all integrations with their status."""
     result = []
     for key, meta in AVAILABLE_INTEGRATIONS.items():
         creds = get_credentials(key)
-        result.append({
+        entry = {
             "id": key,
             **meta,
             "enabled": bool(creds.get("enabled", False)),
             "configured": bool(creds),
             "connection_status": creds.get("connection_status", "ok") if creds else "ok",
-        })
+            "tool_mode": creds.get("tool_mode", "normal"),
+        }
+        if key == "google" and creds:
+            entry["email"] = creds.get("email", "")
+            entry["scope_grants"] = creds.get("scope_grants", {})
+        result.append(entry)
     return result

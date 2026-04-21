@@ -134,7 +134,7 @@ def _load_integration_tools() -> tuple[list[dict], dict]:
             mod = importlib.import_module(module_path)
             defs = getattr(mod, defs_attr, [])
             execs = getattr(mod, "TOOL_EXECUTORS", {})
-            tool_defs.extend(defs)
+            tool_defs.extend({**d, "integration": name} for d in defs)
             executors.update(execs)
         except Exception as e:
             logger.warning("Failed to load integration %s: %s", name, e)
@@ -190,7 +190,11 @@ class UpdateAgentRequest(BaseModel):
     provider_override: str | None = None
     model_override: str | None = None
     gmail_enabled: bool | None = None
+    gmail_send_enabled: bool | None = None
     calendar_enabled: bool | None = None
+    calendar_write_enabled: bool | None = None
+    drive_enabled: bool | None = None
+    drive_write_enabled: bool | None = None
     telegram_enabled: bool | None = None
     telegram_group_enabled: bool | None = None
     telegram_respond_to_bots: bool | None = None
@@ -285,7 +289,13 @@ async def update_agent(agent_id: str, body: UpdateAgentRequest, user=Depends(get
     updates = {k: v for k, v in body.model_dump().items() if v is not None}
     if not updates:
         raise HTTPException(status_code=400, detail="No fields to update")
-    for field in ("onboarding_complete", "gmail_enabled", "calendar_enabled", "telegram_enabled", "telegram_group_enabled", "telegram_respond_to_bots"):
+    for field in (
+        "onboarding_complete",
+        "gmail_enabled", "gmail_send_enabled",
+        "calendar_enabled", "calendar_write_enabled",
+        "drive_enabled", "drive_write_enabled",
+        "telegram_enabled", "telegram_group_enabled", "telegram_respond_to_bots",
+    ):
         if field in updates:
             updates[field] = int(updates[field])
     agent = agent_db.update_agent(agent_id, **updates)
@@ -479,17 +489,19 @@ def _stream_chat(agent: dict, messages: list, training_mode: bool, conversation_
     if not provider:
         raise HTTPException(status_code=400, detail="No AI provider configured")
 
-    google_token = ""
-    if config.gmail_enabled or config.calendar_enabled:
-        google_token = store.get_google_token() or ""
+    from integrations.registry import is_enabled as _is_enabled
+    google_connected = _is_enabled("google")
 
     integration_tool_defs, integration_executors = _load_integration_tools()
+
+    from integrations.registry import get_tool_mode
+    integration_tool_modes = {name: get_tool_mode(name) for name in _INTEGRATION_MODULES}
 
     reminder_handlers, sa_handlers = _build_agent_handlers(agent["slug"])
     registry = ToolRegistry(
         context_dir=config.context_dir,
         gcs_prefix=config.gcs_prefix,
-        google_access_token=google_token,
+        google_connected=google_connected,
         integration_executors=integration_executors,
         agent_slug=agent["slug"],
         agent_name=config.agent_name,
@@ -516,6 +528,7 @@ def _stream_chat(agent: dict, messages: list, training_mode: bool, conversation_
             integration_tool_defs=integration_tool_defs or None,
             tool_mode=tool_mode,
             approved_tool=approved_tool,
+            integration_tool_modes=integration_tool_modes,
         ):
             yield event
 
@@ -817,16 +830,16 @@ async def tool_execute(agent_id: str, req: ToolExecuteRequest, user=Depends(get_
     config = build_agent_config(agent)
 
     store = CredentialStore()
-    google_token = ""
-    if config.gmail_enabled or config.calendar_enabled:
-        google_token = store.get_google_token() or ""
+    from integrations.registry import is_enabled as _is_enabled
+    google_connected = _is_enabled("google")
 
     integration_tool_defs, integration_executors = _load_integration_tools()
     reminder_handlers, sa_handlers = _build_agent_handlers(agent["slug"])
 
     registry = ToolRegistry(
         context_dir=config.context_dir,
-        google_access_token=google_token,
+        gcs_prefix=config.gcs_prefix,
+        google_connected=google_connected,
         integration_executors=integration_executors,
         agent_slug=agent["slug"],
         reminder_handlers=reminder_handlers,
@@ -834,14 +847,24 @@ async def tool_execute(agent_id: str, req: ToolExecuteRequest, user=Depends(get_
     )
 
     from core.agents.tool_definitions import get_tool_definitions, build_writes_map
+    from integrations.google.policy import google_capabilities
+    google_caps = google_capabilities()
     tool_defs = get_tool_definitions(
-        gmail_enabled=config.gmail_enabled,
-        calendar_enabled=config.calendar_enabled,
         integration_tools=integration_tool_defs,
+        **google_caps,
     )
     writes_map = build_writes_map(tool_defs)
     if not writes_map.get(req.tool, False):
         raise HTTPException(status_code=400, detail="Tool is not a write operation")
+
+    # Enforce integration permission ceiling — reject if integration is set to read-only
+    tool_def = next((t for t in tool_defs if t["name"] == req.tool), None)
+    integ_name = (tool_def or {}).get("integration", "")
+    if integ_name:
+        from integrations.registry import get_tool_mode as _get_tm
+        integ_ceil = _get_tm(integ_name)
+        if integ_ceil == "read-only":
+            raise HTTPException(status_code=403, detail=f"Write operations are disabled for {integ_name} (set to read-only)")
 
     kind_map = {t["name"]: t.get("kind", "context") for t in tool_defs}
     kind = kind_map.get(req.tool, "context")

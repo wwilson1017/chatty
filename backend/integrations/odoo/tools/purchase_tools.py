@@ -107,6 +107,7 @@ PURCHASE_TOOL_DEFS = [
             "required": ["partner_id", "lines"],
         },
         "kind": "integration",
+        "writes": True,
     },
     # 4 - odoo_confirm_purchase_order
     {
@@ -125,6 +126,7 @@ PURCHASE_TOOL_DEFS = [
             "required": ["po_id"],
         },
         "kind": "integration",
+        "writes": True,
     },
     # 5 - odoo_approve_purchase_order
     {
@@ -141,6 +143,7 @@ PURCHASE_TOOL_DEFS = [
             "required": ["po_id"],
         },
         "kind": "integration",
+        "writes": True,
     },
     # 6 - odoo_update_purchase_order
     {
@@ -168,6 +171,7 @@ PURCHASE_TOOL_DEFS = [
             "required": ["po_id"],
         },
         "kind": "integration",
+        "writes": True,
     },
     # 7 - odoo_post_purchase_message
     {
@@ -196,6 +200,7 @@ PURCHASE_TOOL_DEFS = [
             "required": ["po_id", "message"],
         },
         "kind": "integration",
+        "writes": True,
     },
 ]
 

@@ -17,11 +17,27 @@ from core.agents.tools.context_tools import (
     append_to_context_file,
     delete_context_file,
 )
-from core.agents.tools.gmail_tools import search_emails, get_email, get_email_thread
-from core.agents.tools.calendar_tools import (
-    list_calendar_events,
+from integrations.google.tools import (
+    # Gmail
+    create_draft,
+    get_email,
+    get_email_thread,
+    reply_to_email,
+    search_emails,
+    send_email,
+    # Calendar
+    create_calendar_event,
+    delete_calendar_event,
+    find_free_slot,
     get_calendar_event,
+    list_calendar_events,
     search_calendar_events,
+    update_calendar_event,
+    # Drive
+    get_drive_file_content,
+    list_drive_files,
+    search_drive_files,
+    upload_drive_file,
 )
 from core.agents.tools.web_tools import web_search, web_fetch
 from core.agents.tools.real_tools import (
@@ -46,7 +62,7 @@ class ToolRegistry:
         self,
         context_dir: str,
         gcs_prefix: str = "",
-        google_access_token: str = "",
+        google_connected: bool = False,
         integration_executors: dict | None = None,
         agent_slug: str = "",
         agent_name: str = "",
@@ -55,7 +71,7 @@ class ToolRegistry:
     ):
         self.context_dir = context_dir
         self.gcs_prefix = gcs_prefix
-        self.google_access_token = google_access_token
+        self.google_connected = google_connected
         self.integration_executors: dict = integration_executors or {}
         self.agent_slug = agent_slug
         self.agent_name = agent_name
@@ -89,6 +105,8 @@ class ToolRegistry:
                 return self._execute_gmail(tool_name, tool_args)
             elif kind == "calendar":
                 return self._execute_calendar(tool_name, tool_args)
+            elif kind == "drive":
+                return self._execute_drive(tool_name, tool_args)
             elif kind == "web":
                 return self._execute_web(tool_name, tool_args)
             elif kind == "real_tool":
@@ -207,22 +225,38 @@ class ToolRegistry:
         return {"error": f"Unknown shared_context tool: {tool_name}"}
 
     def _execute_gmail(self, tool_name: str, args: dict) -> dict:
-        if not self.google_access_token:
-            return {"error": "Google not connected — no access token available"}
+        if not self.google_connected:
+            return {"error": "Google not connected. Connect at Settings → Integrations → Google.",
+                    "needs_reconnect": True}
         if tool_name == "search_emails":
-            return search_emails(self.google_access_token, args["query"], args.get("max_results", 10))
+            return search_emails(query=args["query"], max_results=args.get("max_results", 10))
         elif tool_name == "get_email":
-            return get_email(self.google_access_token, args["message_id"])
+            return get_email(message_id=args["message_id"])
         elif tool_name == "get_email_thread":
-            return get_email_thread(self.google_access_token, args["thread_id"])
+            return get_email_thread(thread_id=args["thread_id"])
+        elif tool_name == "send_email":
+            return send_email(
+                to=args["to"], subject=args["subject"], body=args["body"],
+                cc=args.get("cc", ""), bcc=args.get("bcc", ""),
+            )
+        elif tool_name == "reply_to_email":
+            return reply_to_email(
+                message_id=args["message_id"], body=args["body"],
+                reply_all=args.get("reply_all", False),
+            )
+        elif tool_name == "create_draft":
+            return create_draft(
+                to=args["to"], subject=args["subject"], body=args["body"],
+                cc=args.get("cc", ""), bcc=args.get("bcc", ""),
+            )
         return {"error": f"Unknown gmail tool: {tool_name}"}
 
     def _execute_calendar(self, tool_name: str, args: dict) -> dict:
-        if not self.google_access_token:
-            return {"error": "Google not connected — no access token available"}
+        if not self.google_connected:
+            return {"error": "Google not connected. Connect at Settings → Integrations → Google.",
+                    "needs_reconnect": True}
         if tool_name == "list_calendar_events":
             return list_calendar_events(
-                self.google_access_token,
                 calendar_id=args.get("calendar_id", "primary"),
                 max_results=args.get("max_results", 10),
                 time_min=args.get("time_min", ""),
@@ -230,18 +264,74 @@ class ToolRegistry:
             )
         elif tool_name == "get_calendar_event":
             return get_calendar_event(
-                self.google_access_token,
-                args["event_id"],
+                event_id=args["event_id"],
                 calendar_id=args.get("calendar_id", "primary"),
             )
         elif tool_name == "search_calendar_events":
             return search_calendar_events(
-                self.google_access_token,
-                args["query"],
-                max_results=args.get("max_results", 10),
+                query=args["query"],
+                time_min=args.get("time_min", ""),
+                time_max=args.get("time_max", ""),
+                max_results=args.get("max_results", 20),
+                calendar_id=args.get("calendar_id", "primary"),
+            )
+        elif tool_name == "find_free_slot":
+            return find_free_slot(
+                duration_minutes=args["duration_minutes"],
+                between_start=args["between_start"],
+                between_end=args["between_end"],
+                calendar_ids=args.get("calendar_ids"),
+            )
+        elif tool_name == "create_calendar_event":
+            return create_calendar_event(
+                summary=args["summary"], start=args["start"], end=args["end"],
+                description=args.get("description", ""), location=args.get("location", ""),
+                attendees=args.get("attendees"),
+                calendar_id=args.get("calendar_id", "primary"),
+            )
+        elif tool_name == "update_calendar_event":
+            return update_calendar_event(
+                event_id=args["event_id"],
+                calendar_id=args.get("calendar_id", "primary"),
+                summary=args.get("summary"), start=args.get("start"), end=args.get("end"),
+                description=args.get("description"), location=args.get("location"),
+                attendees=args.get("attendees"),
+            )
+        elif tool_name == "delete_calendar_event":
+            return delete_calendar_event(
+                event_id=args["event_id"],
                 calendar_id=args.get("calendar_id", "primary"),
             )
         return {"error": f"Unknown calendar tool: {tool_name}"}
+
+    def _execute_drive(self, tool_name: str, args: dict) -> dict:
+        if not self.google_connected:
+            return {"error": "Google not connected. Connect at Settings → Integrations → Google.",
+                    "needs_reconnect": True}
+        if tool_name == "list_drive_files":
+            return list_drive_files(
+                query=args.get("query", ""),
+                folder_id=args.get("folder_id", ""),
+                max_results=args.get("max_results", 20),
+            )
+        elif tool_name == "search_drive_files":
+            return search_drive_files(
+                name_contains=args.get("name_contains", ""),
+                mime_type=args.get("mime_type", ""),
+                max_results=args.get("max_results", 20),
+            )
+        elif tool_name == "get_drive_file_content":
+            return get_drive_file_content(
+                file_id=args["file_id"],
+                as_format=args.get("as_format", "default"),
+            )
+        elif tool_name == "upload_drive_file":
+            return upload_drive_file(
+                filename=args["filename"], content=args["content"],
+                mime_type=args.get("mime_type", "text/plain"),
+                parent_folder_id=args.get("parent_folder_id", ""),
+            )
+        return {"error": f"Unknown drive tool: {tool_name}"}
 
     def _execute_web(self, tool_name: str, args: dict) -> dict:
         if tool_name == "web_search":
