@@ -80,7 +80,7 @@ export interface Integration {
   enabled: boolean;
   configured: boolean;
   connection_status?: string;
-  // Google-specific
+  tool_mode?: string;
   email?: string;
   scope_grants?: GoogleScopeGrants;
 }

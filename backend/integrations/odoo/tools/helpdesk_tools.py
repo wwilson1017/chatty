@@ -168,6 +168,7 @@ HELPDESK_TOOL_DEFS = [
             "required": ["ticket_id", "stage_id"],
         },
         "kind": "integration",
+        "writes": True,
     },
     # 7 - odoo_assign_ticket
     {
@@ -188,6 +189,7 @@ HELPDESK_TOOL_DEFS = [
             "required": ["ticket_id", "user_id"],
         },
         "kind": "integration",
+        "writes": True,
     },
     # 8 - odoo_post_ticket_message
     {
@@ -216,6 +218,7 @@ HELPDESK_TOOL_DEFS = [
             "required": ["ticket_id", "message"],
         },
         "kind": "integration",
+        "writes": True,
     },
     # 9 - odoo_send_ticket_reply
     {
@@ -239,6 +242,7 @@ HELPDESK_TOOL_DEFS = [
             "required": ["ticket_id", "message"],
         },
         "kind": "integration",
+        "writes": True,
     },
     # 10 - odoo_send_internal_message
     {
@@ -266,6 +270,7 @@ HELPDESK_TOOL_DEFS = [
             "required": ["partner_id", "subject", "message"],
         },
         "kind": "integration",
+        "writes": True,
     },
 ]
 

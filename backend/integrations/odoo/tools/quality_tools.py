@@ -152,6 +152,7 @@ QUALITY_TOOL_DEFS = [
             "required": ["check_id"],
         },
         "kind": "integration",
+        "writes": True,
     },
     # 6 - odoo_fail_quality_check
     {
@@ -171,6 +172,7 @@ QUALITY_TOOL_DEFS = [
             "required": ["check_id"],
         },
         "kind": "integration",
+        "writes": True,
     },
     # 7 - odoo_create_quality_alert
     {
@@ -221,6 +223,7 @@ QUALITY_TOOL_DEFS = [
             "required": ["name"],
         },
         "kind": "integration",
+        "writes": True,
     },
 ]
 

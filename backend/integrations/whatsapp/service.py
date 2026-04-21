@@ -81,7 +81,7 @@ def _load_integration_tools() -> tuple[list[dict], dict]:
             mod = importlib.import_module(module_path)
             defs = getattr(mod, defs_attr, [])
             execs = getattr(mod, "TOOL_EXECUTORS", {})
-            tool_defs.extend(defs)
+            tool_defs.extend({**d, "integration": name} for d in defs)
             executors.update(execs)
         except Exception as e:
             logger.warning("Failed to load integration %s: %s", name, e)
@@ -181,6 +181,9 @@ def _process_message_locked(
 
     integration_tool_defs, integration_executors = _load_integration_tools()
 
+    from integrations.registry import get_tool_mode
+    integration_tool_modes = {name: get_tool_mode(name) for name in _INTEGRATION_MODULES}
+
     reminder_handlers = {
         "create_reminder": lambda **kw: create_reminder_handler(agent_slug, **kw),
         "list_reminders": lambda **kw: list_reminders_handler(agent_slug, **kw),
@@ -211,6 +214,16 @@ def _process_message_locked(
         dynamic_real_tools=dynamic_real_tools or None,
         **google_caps,
     )
+
+    # Apply integration permission ceilings — messaging channels have no approval UI,
+    # so both "read-only" and "normal" ceilings must strip write tools here.
+    if integration_tool_modes:
+        tool_defs = [
+            t for t in tool_defs
+            if not t.get("writes", False)
+            or t.get("context_memory", False)
+            or integration_tool_modes.get(t.get("integration", ""), "power") == "power"
+        ]
 
     # 10. Run the agent
     result = run_background_turn(

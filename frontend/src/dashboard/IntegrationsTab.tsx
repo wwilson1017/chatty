@@ -36,6 +36,10 @@ export function IntegrationsTab() {
   const [odooDb, setOdooDb] = useState('');
   const [odooUser, setOdooUser] = useState('');
   const [odooKey, setOdooKey] = useState('');
+  const [odooDiscoveredDbs, setOdooDiscoveredDbs] = useState<string[]>([]);
+  const [odooDiscovering, setOdooDiscovering] = useState(false);
+  const [odooDiscoveryMethod, setOdooDiscoveryMethod] = useState('');
+  const [odooManualMode, setOdooManualMode] = useState(false);
   const [bambooSubdomain, setBambooSubdomain] = useState('');
   const [bambooKey, setBambooKey] = useState('');
   const [saving, setSaving] = useState(false);
@@ -144,6 +148,16 @@ export function IntegrationsTab() {
     setIntegrations(prev => prev.map(i => i.id === id ? { ...i, enabled: !enabled } : i));
   }
 
+  async function setToolMode(id: string, mode: string) {
+    const prev = integrations.find(i => i.id === id)?.tool_mode || 'normal';
+    setIntegrations(ps => ps.map(i => i.id === id ? { ...i, tool_mode: mode } : i));
+    try {
+      await api(`/api/integrations/${id}/tool-mode`, { method: 'POST', body: JSON.stringify({ tool_mode: mode }) });
+    } catch {
+      setIntegrations(ps => ps.map(i => i.id === id ? { ...i, tool_mode: prev } : i));
+    }
+  }
+
   async function setupOdoo() {
     setSaving(true); setError('');
     try {
@@ -153,6 +167,26 @@ export function IntegrationsTab() {
       setIntegrations(data.integrations);
     } catch (err: unknown) { setError(err instanceof Error ? err.message : 'Setup failed'); }
     finally { setSaving(false); }
+  }
+
+  async function discoverOdooDatabases() {
+    if (!odooUrl.trim()) return;
+    setOdooDiscovering(true); setError('');
+    setOdooDiscoveredDbs([]); setOdooDiscoveryMethod('');
+    try {
+      const result = await api<{ databases: string[]; method: string | null; error: string | null }>('/api/integrations/odoo/discover-databases', {
+        method: 'POST', body: JSON.stringify({ url: odooUrl }),
+      });
+      if (result.databases.length > 0) {
+        setOdooDiscoveredDbs(result.databases);
+        setOdooDiscoveryMethod(result.method || '');
+        setOdooManualMode(false);
+        if (result.databases.length === 1) setOdooDb(result.databases[0]);
+      } else {
+        setError(result.error || 'No databases found. Enter the name manually.');
+      }
+    } catch { setError('Could not reach the Odoo instance. Check the URL and try again.'); }
+    finally { setOdooDiscovering(false); }
   }
 
   async function setupBambooHR() {
@@ -362,6 +396,39 @@ export function IntegrationsTab() {
               </div>
             </div>
 
+            {/* Permission level selector for Odoo and QuickBooks */}
+            {(integration.id === 'odoo' || integration.id === 'quickbooks') && integration.enabled && integration.configured && integration.connection_status !== 'broken' && (
+              <div style={{ marginTop: 10, display: 'flex', alignItems: 'center', gap: 10 }}>
+                <span style={{ ...mono(9), whiteSpace: 'nowrap' }}>Permissions</span>
+                <div style={{
+                  display: 'flex', border: '1px solid rgba(230,235,242,0.07)',
+                  borderRadius: 3, overflow: 'hidden',
+                }}>
+                  {([
+                    { key: 'read-only', label: 'Read' },
+                    { key: 'normal', label: 'Approval' },
+                    { key: 'power', label: 'Full Control' },
+                  ] as const).map(m => (
+                    <div
+                      key={m.key}
+                      onClick={() => setToolMode(integration.id, m.key)}
+                      style={{
+                        padding: '3px 10px',
+                        fontFamily: "'JetBrains Mono', ui-monospace, monospace",
+                        fontSize: 10, letterSpacing: '0.12em', textTransform: 'uppercase',
+                        color: (integration.tool_mode || 'normal') === m.key ? '#0E1013' : 'rgba(237,240,244,0.62)',
+                        background: (integration.tool_mode || 'normal') === m.key ? 'var(--color-ch-accent, #C8D1D9)' : 'transparent',
+                        cursor: 'pointer',
+                        transition: 'background 0.15s, color 0.15s',
+                      }}
+                    >
+                      {m.label}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
             {error && integration.id === 'quickbooks' && !setupFor && (
               <p style={{ marginTop: 8, color: '#D97757', fontSize: 12 }}>{error}</p>
             )}
@@ -519,10 +586,43 @@ export function IntegrationsTab() {
                 {error && <p style={{ color: '#D97757', fontSize: 12 }}>{error}</p>}
                 {integration.id === 'odoo' && (
                   <>
-                    <input placeholder="Odoo URL (https://...)" value={odooUrl} onChange={e => setOdooUrl(e.target.value)} style={inputStyle} />
-                    <input placeholder="Database name" value={odooDb} onChange={e => setOdooDb(e.target.value)} style={inputStyle} />
+                    <input placeholder="Odoo URL (https://...)" value={odooUrl} onChange={e => {
+                      setOdooUrl(e.target.value);
+                      if (odooDiscoveredDbs.length > 0) {
+                        setOdooDiscoveredDbs([]); setOdooDiscoveryMethod(''); setOdooDb(''); setOdooManualMode(false);
+                      }
+                    }} style={inputStyle} />
+                    <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 2 }}>
+                      <button onClick={discoverOdooDatabases} disabled={odooDiscovering || !odooUrl.trim()} style={{ background: 'none', border: 'none', color: 'var(--color-ch-accent, #C8D1D9)', fontSize: 11, cursor: 'pointer', padding: 0, opacity: odooDiscovering || !odooUrl.trim() ? 0.3 : 1 }}>
+                        {odooDiscovering ? 'Searching...' : 'Find my database'}
+                      </button>
+                    </div>
+                    {odooDiscoveredDbs.length > 0 && !odooManualMode ? (
+                      <>
+                        <select value={odooDb} onChange={e => setOdooDb(e.target.value)} style={{ ...inputStyle }}>
+                          <option value="">Select a database...</option>
+                          {odooDiscoveredDbs.map(db => <option key={db} value={db}>{db}</option>)}
+                        </select>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                          <span style={{ color: 'rgba(237,240,244,0.38)', fontSize: 11 }}>
+                            {odooDiscoveredDbs.length === 1 ? 'Database found' : `${odooDiscoveredDbs.length} databases found`}
+                            {odooDiscoveryMethod === 'url_inference' && ' (inferred from URL)'}
+                          </span>
+                          <button onClick={() => setOdooManualMode(true)} style={{ background: 'none', border: 'none', color: 'rgba(237,240,244,0.38)', fontSize: 11, cursor: 'pointer', padding: 0 }}>Type manually</button>
+                        </div>
+                      </>
+                    ) : (
+                      <>
+                        <input placeholder="Database name" value={odooDb} onChange={e => setOdooDb(e.target.value)} style={inputStyle} />
+                        {odooDiscoveredDbs.length > 0 && odooManualMode && (
+                          <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                            <button onClick={() => setOdooManualMode(false)} style={{ background: 'none', border: 'none', color: 'rgba(237,240,244,0.38)', fontSize: 11, cursor: 'pointer', padding: 0 }}>Use discovered databases</button>
+                          </div>
+                        )}
+                      </>
+                    )}
                     <input placeholder="Username / email" value={odooUser} onChange={e => setOdooUser(e.target.value)} style={inputStyle} />
-                    <input placeholder="API key" value={odooKey} onChange={e => setOdooKey(e.target.value)} style={inputStyle} />
+                    <input placeholder="API key" type="password" value={odooKey} onChange={e => setOdooKey(e.target.value)} style={inputStyle} />
                     <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
                       <button onClick={() => setSetupFor(null)} style={{ flex: 1, padding: '8px 16px', fontSize: 13, borderRadius: 4, border: '1px solid rgba(230,235,242,0.14)', background: 'transparent', color: 'rgba(237,240,244,0.62)', cursor: 'pointer' }}>Cancel</button>
                       <button onClick={setupOdoo} disabled={saving} style={{ flex: 1, padding: '8px 16px', fontSize: 13, borderRadius: 4, background: 'var(--color-ch-accent, #C8D1D9)', color: '#0E1013', border: 'none', cursor: 'pointer', fontWeight: 500, opacity: saving ? 0.5 : 1 }}>{saving ? 'Connecting...' : 'Connect'}</button>
