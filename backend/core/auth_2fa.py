@@ -31,7 +31,7 @@ from pydantic import BaseModel
 from core.auth import create_access_token, decode_access_token, get_current_user, verify_password
 from core.config import settings
 from core.encryption import encrypt_value, decrypt_value
-from core.storage import safe_init_sqlite
+from core.storage import safe_backup_sqlite, safe_init_sqlite
 
 logger = logging.getLogger(__name__)
 
@@ -41,6 +41,7 @@ GCS_KEY = "auth.db"
 
 _connection: sqlite3.Connection | None = None
 _write_lock = threading.Lock()
+_backup_mutex = threading.Lock()
 
 TOTP_ISSUER = "Chatty"
 TRUST_COOKIE_NAME = "chatty_2fa_trust"
@@ -104,6 +105,18 @@ def _setup_connection() -> None:
 
 def init_db() -> dict:
     return safe_init_sqlite(DB_PATH, GCS_KEY, init_fn=_setup_connection)
+
+
+def backup_to_gcs() -> None:
+    safe_backup_sqlite(_connection, DB_PATH, GCS_KEY, backup_mutex=_backup_mutex)
+
+
+def _backup_after_mutation() -> None:
+    """Best-effort GCS backup after a 2FA state change."""
+    try:
+        backup_to_gcs()
+    except Exception:
+        pass
 
 
 def get_totp_config() -> dict | None:
@@ -336,6 +349,8 @@ async def verify_setup(body: VerifySetupRequest, user: dict = Depends(get_curren
     encrypted_secret = encrypt_value(body.secret)
     plaintext_codes, hashed_codes = _generate_backup_codes()
     save_totp_config(encrypted_secret, json.dumps(hashed_codes))
+    revoke_all_trusted_devices()
+    _backup_after_mutation()
 
     return {"enabled": True, "backup_codes": plaintext_codes}
 
@@ -345,6 +360,7 @@ async def disable_2fa(body: PasswordConfirmRequest, user: dict = Depends(get_cur
     if not verify_password(body.password):
         raise HTTPException(status_code=401, detail="Incorrect password")
     disable_totp()
+    _backup_after_mutation()
     return {"disabled": True}
 
 
@@ -362,6 +378,7 @@ async def regenerate_backup_codes(body: PasswordConfirmRequest, user: dict = Dep
             (json.dumps(hashed_codes),),
         )
         _get_db().commit()
+    _backup_after_mutation()
 
     return {"backup_codes": plaintext_codes}
 
@@ -411,4 +428,5 @@ async def verify_2fa_login(body: Verify2FARequest, request: Request, response: R
             samesite="lax",
         )
 
+    _backup_after_mutation()
     return {"access_token": token, "token_type": "bearer"}

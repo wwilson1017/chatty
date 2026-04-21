@@ -124,20 +124,20 @@ async def login(body: LoginRequest, request: Request):
             detail="Incorrect password",
         )
 
-    # Check if 2FA is enabled (lazy import to avoid circular dependency at module load)
     try:
         from core.auth_2fa import is_2fa_enabled, is_device_trusted, TRUST_COOKIE_NAME
+        if is_2fa_enabled():
+            trust_token = request.cookies.get(TRUST_COOKIE_NAME, "")
+            if not is_device_trusted(trust_token):
+                pending = create_access_token(
+                    {"sub": "user", "purpose": "2fa_pending"},
+                    expire_minutes=PENDING_TOKEN_EXPIRE_MINUTES,
+                )
+                return JSONResponse({"requires_2fa": True, "pending_token": pending})
     except ImportError:
         logger.warning("auth_2fa module not available — 2FA check skipped")
-        is_2fa_enabled = None
-    if is_2fa_enabled and is_2fa_enabled():
-        trust_token = request.cookies.get(TRUST_COOKIE_NAME, "")
-        if not is_device_trusted(trust_token):
-            pending = create_access_token(
-                {"sub": "user", "purpose": "2fa_pending"},
-                expire_minutes=PENDING_TOKEN_EXPIRE_MINUTES,
-            )
-            return JSONResponse({"requires_2fa": True, "pending_token": pending})
+    except RuntimeError:
+        logger.warning("auth_2fa DB not initialized — 2FA check skipped")
 
     token = create_access_token({"sub": "user", "role": "admin"})
     return JSONResponse({"access_token": token, "token_type": "bearer"})
