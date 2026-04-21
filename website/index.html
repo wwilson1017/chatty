@@ -364,6 +364,18 @@
       <h2>Start with one, <em>build a team.</em></h2>
       <p class="section-sub">Pick a template, rename it, reshape it. Each agent gets its own monogram &mdash; a small piece of identity for something doing real work.</p>
     </div>
+    <div class="chat-demo" id="chat-demo">
+      <div class="chat-demo-header">
+        <div class="mark mark-P mark-sm">P</div>
+        <div class="chat-demo-meta">
+          <span class="chat-demo-name">Parker</span>
+          <span class="chat-demo-role">Support concierge</span>
+        </div>
+        <div class="chat-demo-status"><span class="status-dot"></span>Online</div>
+      </div>
+      <div class="chat-demo-messages" id="chat-messages"></div>
+    </div>
+
     <div class="agents-grid">
       <div class="agent-spot"><div class="mark mark-P">P</div><div class="agent-info"><div class="agent-name">Parker</div><div class="muted">Support concierge</div><div class="agent-stats"><span>1,240 tasks</span><span>8 tools</span></div></div></div>
       <div class="agent-spot"><div class="mark mark-A">A</div><div class="agent-info"><div class="agent-name">Arthur</div><div class="muted">AP controller</div><div class="agent-stats"><span>984 tasks</span><span>6 tools</span></div></div></div>
@@ -507,5 +519,55 @@
   </div>
 </footer>
 
+<script>
+(function() {
+  var msgs = [
+    { from: 'agent', text: "Hey! I'm Parker. Looks like I just got set up — nice to meet you." },
+    { from: 'user',  text: "Welcome, Parker! You're going to be our support concierge." },
+    { from: 'agent', text: "Got it. I can see I've got Gmail and the CRM connected. Want me to start by reading through recent support emails?" },
+    { from: 'user',  text: "Yes — flag anything that's been waiting more than 24 hours." },
+    { from: 'agent', text: "On it. I found 3 tickets older than 24h. Two are shipping questions and one is a refund request. Want me to draft replies?" },
+    { from: 'user',  text: "Draft the shipping replies. I'll handle the refund myself." },
+    { from: 'agent', text: "Done — two drafts ready in Gmail. I tagged the refund ticket as urgent in the CRM so it stays on your radar." }
+  ];
+  var container = document.getElementById('chat-messages');
+  var shown = 0;
+  var observer = new IntersectionObserver(function(entries) {
+    if (entries[0].isIntersecting && shown === 0) { showNext(); observer.disconnect(); }
+  }, { threshold: 0.3 });
+  observer.observe(document.getElementById('chat-demo'));
+
+  function showNext() {
+    if (shown >= msgs.length) return;
+    var m = msgs[shown];
+    var bubble = document.createElement('div');
+    bubble.className = 'chat-bubble chat-' + m.from;
+    if (m.from === 'agent') {
+      var avi = document.createElement('div');
+      avi.className = 'mark mark-P chat-avatar';
+      avi.textContent = 'P';
+      bubble.appendChild(avi);
+    }
+    var body = document.createElement('div');
+    body.className = 'chat-body';
+    bubble.appendChild(body);
+    container.appendChild(bubble);
+    container.scrollTop = container.scrollHeight;
+    var i = 0;
+    function type() {
+      if (i <= m.text.length) {
+        body.textContent = m.text.slice(0, i);
+        container.scrollTop = container.scrollHeight;
+        i++;
+        setTimeout(type, 18 + Math.random() * 12);
+      } else {
+        shown++;
+        setTimeout(showNext, 900 + Math.random() * 400);
+      }
+    }
+    setTimeout(type, 300);
+  }
+})();
+</script>
 </body>
 </html>
