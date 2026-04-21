@@ -10,7 +10,6 @@ import ReportsPanel from './reports/ReportsPanel';
 import AgentActivityPanel from './components/AgentActivityPanel';
 import { ConversationSidebar } from './components/ConversationSidebar';
 import { AvatarPicker } from './components/AvatarPicker';
-import { TelegramSettings } from './components/TelegramSettings';
 import { AgentMark } from '../shared/AgentMark';
 import { useIsMobile } from '../shared/useIsMobile';
 import { MobileMenuDrawer } from '../shared/MobileMenuDrawer';
@@ -22,7 +21,11 @@ interface AgentRow {
   avatar_url?: string;
   onboarding_complete: boolean;
   gmail_enabled: boolean;
+  gmail_send_enabled?: boolean;
   calendar_enabled: boolean;
+  calendar_write_enabled?: boolean;
+  drive_enabled?: boolean;
+  drive_write_enabled?: boolean;
   telegram_enabled: boolean;
   telegram_bot_token: string;
   telegram_bot_username: string;
@@ -31,7 +34,7 @@ interface AgentRow {
   telegram_max_bot_turns: number;
 }
 
-type Tab = 'chat' | 'knowledge' | 'reports' | 'activity' | 'telegram';
+type Tab = 'chat' | 'knowledge' | 'reports' | 'activity';
 
 const TABS: { key: Tab; label: string }[] = [
   { key: 'chat', label: 'Chat' },
@@ -54,7 +57,7 @@ export function AgentPage() {
   const [agent, setAgent] = useState<AgentRow | null>(null);
   const [activeTab, setActiveTab] = useState<Tab>(() => {
     const tab = searchParams.get('tab');
-    return (tab && ['chat', 'knowledge', 'reports', 'activity', 'telegram'].includes(tab)) ? tab as Tab : 'chat';
+    return (tab && ['chat', 'knowledge', 'reports', 'activity'].includes(tab)) ? tab as Tab : 'chat';
   });
   const [showAvatarPicker, setShowAvatarPicker] = useState(false);
   const [showSidebar, setShowSidebar] = useState(false);
@@ -135,7 +138,7 @@ export function AgentPage() {
   // Handle tab from URL search params
   useEffect(() => {
     const tab = searchParams.get('tab');
-    if (tab && ['chat', 'knowledge', 'reports', 'activity', 'telegram'].includes(tab)) {
+    if (tab && ['chat', 'knowledge', 'reports', 'activity'].includes(tab)) {
       queueMicrotask(() => setActiveTab(tab as Tab));
       searchParams.delete('tab');
       setSearchParams(searchParams, { replace: true });
@@ -318,16 +321,6 @@ export function AgentPage() {
                   {tab.label}
                 </div>
               ))}
-              <div
-                onClick={() => setActiveTab('telegram')}
-                style={{
-                  fontSize: 12, padding: '4px 12px', cursor: 'pointer',
-                  color: activeTab === 'telegram' ? '#EDF0F4' : 'rgba(237,240,244,0.62)',
-                  borderBottom: activeTab === 'telegram' ? '1px solid var(--color-ch-accent, #C8D1D9)' : '1px solid transparent',
-                }}
-              >
-                Telegram
-              </div>
             </div>
           )}
         </div>
@@ -352,16 +345,6 @@ export function AgentPage() {
                 {tab.label}
               </div>
             ))}
-            <div
-              onClick={() => setActiveTab('telegram')}
-              style={{
-                fontSize: 12, padding: '8px 14px', cursor: 'pointer', whiteSpace: 'nowrap',
-                color: activeTab === 'telegram' ? '#EDF0F4' : 'rgba(237,240,244,0.5)',
-                borderBottom: activeTab === 'telegram' ? '2px solid var(--color-ch-accent, #C8D1D9)' : '2px solid transparent',
-              }}
-            >
-              Telegram
-            </div>
           </div>
         )}
       </div>
@@ -523,23 +506,7 @@ export function AgentPage() {
           <div style={{ flex: 1, overflow: 'auto' }}>
             <AgentActivityPanel apiPrefix={apiPrefix} />
           </div>
-        ) : (
-          <div style={{ flex: 1, overflow: 'auto' }}>
-            <TelegramSettings
-              agentId={agentId!}
-              agentName={agent.agent_name}
-              botToken={agent.telegram_bot_token || ''}
-              botUsername={agent.telegram_bot_username || ''}
-              telegramEnabled={agent.telegram_enabled}
-              groupEnabled={agent.telegram_group_enabled}
-              respondToBots={agent.telegram_respond_to_bots}
-              maxBotTurns={agent.telegram_max_bot_turns ?? 3}
-              onUpdate={() => {
-                api<AgentRow>(`/api/agents/${agentId}`).then(setAgent).catch(() => {});
-              }}
-            />
-          </div>
-        )}
+        ) : null}
       </div>
 
       {/* Avatar picker overlay */}

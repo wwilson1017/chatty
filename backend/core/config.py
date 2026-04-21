@@ -34,7 +34,9 @@ class JWTSettings:
 class GoogleOAuthSettings:
     client_id: str = os.getenv("GOOGLE_CLIENT_ID", "")
     client_secret: str = os.getenv("GOOGLE_CLIENT_SECRET", "")
-    # Scopes: Gemini AI + Gmail + Google Calendar in one OAuth flow
+    # Default scopes for Gemini-AI-only connect (from /providers/google/connect).
+    # The Gmail/Calendar/Drive integration computes scopes dynamically based on
+    # the user's chosen access levels — see build_google_scopes().
     scopes: list[str] = [
         "https://www.googleapis.com/auth/generative-language",
         "https://www.googleapis.com/auth/gmail.readonly",
@@ -44,6 +46,59 @@ class GoogleOAuthSettings:
         "email",
         "profile",
     ]
+
+
+# ── Google scope builder (for Gmail/Calendar/Drive integration) ───────────────
+
+GMAIL_SCOPE_LEVELS = {
+    "none": [],
+    "read": ["https://www.googleapis.com/auth/gmail.readonly"],
+    "send": [
+        "https://www.googleapis.com/auth/gmail.readonly",
+        "https://www.googleapis.com/auth/gmail.send",
+        "https://www.googleapis.com/auth/gmail.compose",
+    ],
+}
+
+CALENDAR_SCOPE_LEVELS = {
+    "none": [],
+    "read": ["https://www.googleapis.com/auth/calendar.readonly"],
+    "full": ["https://www.googleapis.com/auth/calendar"],
+}
+
+DRIVE_SCOPE_LEVELS = {
+    "none": [],
+    "file": ["https://www.googleapis.com/auth/drive.file"],
+    "readonly": ["https://www.googleapis.com/auth/drive.readonly"],
+    "full": ["https://www.googleapis.com/auth/drive"],
+}
+
+
+def build_google_scopes(
+    gmail_level: str = "none",
+    calendar_level: str = "none",
+    drive_level: str = "none",
+    include_ai: bool = False,
+) -> list[str]:
+    """Build the Google OAuth scope list for a user-chosen access profile.
+
+    Always includes openid/email/profile for identity resolution.
+    Set include_ai=True to also request the Gemini generative-language scope.
+    """
+    scopes = ["openid", "email", "profile"]
+    if include_ai:
+        scopes.append("https://www.googleapis.com/auth/generative-language")
+    scopes.extend(GMAIL_SCOPE_LEVELS.get(gmail_level, []))
+    scopes.extend(CALENDAR_SCOPE_LEVELS.get(calendar_level, []))
+    scopes.extend(DRIVE_SCOPE_LEVELS.get(drive_level, []))
+    # De-duplicate while preserving order
+    seen: set[str] = set()
+    deduped = []
+    for s in scopes:
+        if s not in seen:
+            seen.add(s)
+            deduped.append(s)
+    return deduped
 
 
 class OpenAIOAuthSettings:

@@ -350,10 +350,10 @@ SHARED_CONTEXT_TOOLS = [
 
 # ── Gmail tools ───────────────────────────────────────────────────────────────
 
-GMAIL_TOOLS = [
+GMAIL_READ_TOOLS = [
     {
         "name": "search_emails",
-        "description": "Search Gmail messages using a query. Supports Gmail search operators (from:, to:, subject:, after:, before:, etc.).",
+        "description": "Search Gmail messages using a query. Supports Gmail search operators (from:, to:, subject:, after:, before:, is:unread, newer_than:7d, has:attachment, etc.).",
         "input_schema": {
             "type": "object",
             "properties": {
@@ -406,12 +406,65 @@ GMAIL_TOOLS = [
     },
 ]
 
+GMAIL_WRITE_TOOLS = [
+    {
+        "name": "send_email",
+        "description": "Send a new email. The user must approve this action before it goes out.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "to": {"type": "string", "description": "Recipient email address(es), comma-separated"},
+                "subject": {"type": "string", "description": "Email subject line"},
+                "body": {"type": "string", "description": "Plain-text email body"},
+                "cc": {"type": "string", "description": "CC recipient(s), comma-separated", "default": ""},
+                "bcc": {"type": "string", "description": "BCC recipient(s), comma-separated", "default": ""},
+            },
+            "required": ["to", "subject", "body"],
+        },
+        "kind": "gmail",
+        "writes": True,
+    },
+    {
+        "name": "reply_to_email",
+        "description": "Reply to an existing email, preserving thread headers. The user must approve before sending.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "message_id": {"type": "string", "description": "The message ID to reply to"},
+                "body": {"type": "string", "description": "Plain-text reply body"},
+                "reply_all": {"type": "boolean", "description": "Include all original recipients in CC", "default": False},
+            },
+            "required": ["message_id", "body"],
+        },
+        "kind": "gmail",
+        "writes": True,
+    },
+    {
+        "name": "create_draft",
+        "description": "Save a draft in Gmail without sending. Useful when the user wants to review before the email goes out.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "to": {"type": "string", "description": "Recipient email address(es)"},
+                "subject": {"type": "string", "description": "Email subject"},
+                "body": {"type": "string", "description": "Plain-text body"},
+                "cc": {"type": "string", "default": ""},
+                "bcc": {"type": "string", "default": ""},
+            },
+            "required": ["to", "subject", "body"],
+        },
+        "kind": "gmail",
+        "writes": True,
+    },
+]
+
+
 # ── Calendar tools ─────────────────────────────────────────────────────────────
 
-CALENDAR_TOOLS = [
+CALENDAR_READ_TOOLS = [
     {
         "name": "list_calendar_events",
-        "description": "List upcoming Google Calendar events.",
+        "description": "List upcoming Google Calendar events. Defaults to events from now forward if time_min is not provided.",
         "input_schema": {
             "type": "object",
             "properties": {
@@ -427,7 +480,7 @@ CALENDAR_TOOLS = [
                 },
                 "time_min": {
                     "type": "string",
-                    "description": "Start time in RFC 3339 format (e.g. '2024-01-01T00:00:00Z')",
+                    "description": "Start time in RFC 3339 format (e.g. '2026-04-16T00:00:00-05:00')",
                 },
                 "time_max": {
                     "type": "string",
@@ -470,10 +523,18 @@ CALENDAR_TOOLS = [
                     "type": "string",
                     "description": "Text to search for in event titles, descriptions, and locations",
                 },
+                "time_min": {
+                    "type": "string",
+                    "description": "Start time in RFC 3339 format (optional)",
+                },
+                "time_max": {
+                    "type": "string",
+                    "description": "End time in RFC 3339 format (optional)",
+                },
                 "max_results": {
                     "type": "integer",
-                    "description": "Maximum number of results (default: 10)",
-                    "default": 10,
+                    "description": "Maximum number of results (default: 20)",
+                    "default": 20,
                 },
                 "calendar_id": {
                     "type": "string",
@@ -485,6 +546,198 @@ CALENDAR_TOOLS = [
         },
         "kind": "calendar",
         "writes": False,
+    },
+    {
+        "name": "find_free_slot",
+        "description": "Find the earliest free window of a given duration within a time range. Uses the calendar free/busy query.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "duration_minutes": {
+                    "type": "integer",
+                    "description": "Meeting duration in minutes",
+                },
+                "between_start": {
+                    "type": "string",
+                    "description": "Earliest start time to consider (RFC 3339)",
+                },
+                "between_end": {
+                    "type": "string",
+                    "description": "Latest end time to consider (RFC 3339)",
+                },
+                "calendar_ids": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Calendar IDs to check for busy time (default: ['primary'])",
+                },
+            },
+            "required": ["duration_minutes", "between_start", "between_end"],
+        },
+        "kind": "calendar",
+        "writes": False,
+    },
+]
+
+CALENDAR_WRITE_TOOLS = [
+    {
+        "name": "create_calendar_event",
+        "description": "Create a new calendar event. The user must approve this action before it is written.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "summary": {"type": "string", "description": "Event title"},
+                "start": {"type": "string", "description": "Start time (RFC 3339, e.g. '2026-04-20T14:00:00-05:00')"},
+                "end": {"type": "string", "description": "End time (RFC 3339)"},
+                "description": {"type": "string", "description": "Event description", "default": ""},
+                "location": {"type": "string", "description": "Physical or virtual location", "default": ""},
+                "attendees": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Attendee email addresses",
+                },
+                "calendar_id": {"type": "string", "default": "primary"},
+            },
+            "required": ["summary", "start", "end"],
+        },
+        "kind": "calendar",
+        "writes": True,
+    },
+    {
+        "name": "update_calendar_event",
+        "description": "Patch-update an existing event. Only the fields you pass are modified. The user must approve before changes are saved.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "event_id": {"type": "string"},
+                "calendar_id": {"type": "string", "default": "primary"},
+                "summary": {"type": "string"},
+                "start": {"type": "string", "description": "RFC 3339 start"},
+                "end": {"type": "string", "description": "RFC 3339 end"},
+                "description": {"type": "string"},
+                "location": {"type": "string"},
+                "attendees": {"type": "array", "items": {"type": "string"}},
+            },
+            "required": ["event_id"],
+        },
+        "kind": "calendar",
+        "writes": True,
+    },
+    {
+        "name": "delete_calendar_event",
+        "description": "Delete a calendar event. The user must approve this action.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "event_id": {"type": "string"},
+                "calendar_id": {"type": "string", "default": "primary"},
+            },
+            "required": ["event_id"],
+        },
+        "kind": "calendar",
+        "writes": True,
+    },
+]
+
+# ── Drive tools ────────────────────────────────────────────────────────────────
+
+DRIVE_READ_TOOLS = [
+    {
+        "name": "list_drive_files",
+        "description": "List files in Google Drive, optionally filtered by a Drive search query or parent folder.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "Drive search query (e.g. \"name contains 'report' and mimeType = 'application/pdf'\")",
+                    "default": "",
+                },
+                "folder_id": {
+                    "type": "string",
+                    "description": "Optional parent folder ID to scope the listing",
+                    "default": "",
+                },
+                "max_results": {
+                    "type": "integer",
+                    "description": "Max files to return (default: 20)",
+                    "default": 20,
+                },
+            },
+            "required": [],
+        },
+        "kind": "drive",
+        "writes": False,
+    },
+    {
+        "name": "search_drive_files",
+        "description": "Search Drive for files by name substring and/or MIME type.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "name_contains": {
+                    "type": "string",
+                    "description": "Substring to match in the file name",
+                    "default": "",
+                },
+                "mime_type": {
+                    "type": "string",
+                    "description": "MIME type filter (e.g. 'application/pdf', 'application/vnd.google-apps.document')",
+                    "default": "",
+                },
+                "max_results": {
+                    "type": "integer",
+                    "default": 20,
+                },
+            },
+            "required": [],
+        },
+        "kind": "drive",
+        "writes": False,
+    },
+    {
+        "name": "get_drive_file_content",
+        "description": "Fetch the text content of a Drive file. Google Docs are exported as plain text (or markdown); Sheets as CSV; binary files are returned as decoded text when possible.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "file_id": {"type": "string"},
+                "as_format": {
+                    "type": "string",
+                    "description": "Export format for Google-native files: 'txt', 'markdown', 'html', 'csv', or 'default'",
+                    "default": "default",
+                },
+            },
+            "required": ["file_id"],
+        },
+        "kind": "drive",
+        "writes": False,
+    },
+]
+
+DRIVE_WRITE_TOOLS = [
+    {
+        "name": "upload_drive_file",
+        "description": "Upload a new file to Google Drive. With drive.file scope, the file is created in the app's Drive folder. The user must approve before upload.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "filename": {"type": "string", "description": "Name of the file to create"},
+                "content": {"type": "string", "description": "File content as a string (UTF-8 will be used)"},
+                "mime_type": {
+                    "type": "string",
+                    "description": "MIME type of the uploaded content",
+                    "default": "text/plain",
+                },
+                "parent_folder_id": {
+                    "type": "string",
+                    "description": "Optional parent folder ID",
+                    "default": "",
+                },
+            },
+            "required": ["filename", "content"],
+        },
+        "kind": "drive",
+        "writes": True,
     },
 ]
 
@@ -965,6 +1218,12 @@ def build_context_memory_map(tool_defs: list[dict]) -> dict[str, bool]:
 def get_tool_definitions(
     gmail_enabled: bool = False,
     calendar_enabled: bool = False,
+    gmail_read_enabled: bool | None = None,
+    gmail_send_enabled: bool = False,
+    calendar_read_enabled: bool | None = None,
+    calendar_write_enabled: bool = False,
+    drive_read_enabled: bool = False,
+    drive_write_enabled: bool = False,
     web_enabled: bool = True,
     real_tools_enabled: bool = True,
     reports_enabled: bool = True,
@@ -975,16 +1234,42 @@ def get_tool_definitions(
     integration_tools: list[dict] | None = None,
     dynamic_real_tools: list[dict] | None = None,
 ) -> list[dict]:
-    """Return the full list of tool definitions for the given feature flags."""
+    """Return the full list of tool definitions for the given feature flags.
+
+    Granular Google flags take precedence when set. `gmail_enabled` /
+    `calendar_enabled` serve as shortcuts that enable read access (they do
+    not imply write access). The agents/router.py caller computes the
+    granular flags by intersecting global scope grants (from google.json)
+    with the agent's per-capability toggles.
+    """
     tools = list(CONTEXT_TOOLS)
     if memory_enabled:
         tools.extend(MEMORY_TOOLS)
     if shared_context_enabled:
         tools.extend(SHARED_CONTEXT_TOOLS)
-    if gmail_enabled:
-        tools.extend(GMAIL_TOOLS)
-    if calendar_enabled:
-        tools.extend(CALENDAR_TOOLS)
+
+    # Gmail — fall through to legacy flag if granular not specified
+    if gmail_read_enabled is None:
+        gmail_read_enabled = gmail_enabled
+    if gmail_read_enabled:
+        tools.extend(GMAIL_READ_TOOLS)
+    if gmail_send_enabled:
+        tools.extend(GMAIL_WRITE_TOOLS)
+
+    # Calendar
+    if calendar_read_enabled is None:
+        calendar_read_enabled = calendar_enabled
+    if calendar_read_enabled:
+        tools.extend(CALENDAR_READ_TOOLS)
+    if calendar_write_enabled:
+        tools.extend(CALENDAR_WRITE_TOOLS)
+
+    # Drive
+    if drive_read_enabled:
+        tools.extend(DRIVE_READ_TOOLS)
+    if drive_write_enabled:
+        tools.extend(DRIVE_WRITE_TOOLS)
+
     if web_enabled:
         tools.extend(WEB_TOOLS)
     if real_tools_enabled:

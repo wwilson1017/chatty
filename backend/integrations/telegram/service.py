@@ -140,9 +140,8 @@ async def process_message(
     if not provider:
         return "No AI provider is configured. Please set up an AI provider in Settings."
 
-    google_token = ""
-    if config.gmail_enabled or config.calendar_enabled:
-        google_token = store.get_google_token() or ""
+    from integrations.registry import is_enabled as _is_enabled
+    google_connected = _is_enabled("google")
 
     integration_tool_defs, integration_executors = _load_integration_tools()
 
@@ -152,7 +151,7 @@ async def process_message(
     reminder_handlers, sa_handlers = _build_agent_handlers(slug)
     registry = ToolRegistry(
         context_dir=config.context_dir,
-        google_access_token=google_token,
+        google_connected=google_connected,
         integration_executors=integration_executors,
         agent_slug=slug,
         reminder_handlers=reminder_handlers,
@@ -226,9 +225,8 @@ async def process_group_message(
     if not provider:
         return "No AI provider is configured. Please set up an AI provider in Settings."
 
-    google_token = ""
-    if config.gmail_enabled or config.calendar_enabled:
-        google_token = store.get_google_token() or ""
+    from integrations.registry import is_enabled as _is_enabled
+    google_connected = _is_enabled("google")
 
     integration_tool_defs, integration_executors = _load_integration_tools()
 
@@ -238,7 +236,7 @@ async def process_group_message(
     reminder_handlers, sa_handlers = _build_agent_handlers(slug)
     registry = ToolRegistry(
         context_dir=config.context_dir,
-        google_access_token=google_token,
+        google_connected=google_connected,
         integration_executors=integration_executors,
         agent_slug=slug,
         reminder_handlers=reminder_handlers,

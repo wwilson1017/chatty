@@ -1,6 +1,8 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { api } from '../core/api/client';
 import { getToken } from '../core/auth/tokenUtils';
+import { useOAuthFlow } from '../core/hooks/useOAuthFlow';
+import { GoogleIntegrationCard } from './GoogleIntegrationCard';
 import type { Integration, Agent } from '../core/types';
 import { IconGlobe, IconUsers, IconFunnel, IconFile, IconPhone, IconMail, IconChart, IconBook, IconZap } from '../shared/icons';
 import { TelegramSettings } from '../agent/components/TelegramSettings';
@@ -204,14 +206,23 @@ export function IntegrationsTab() {
     setIntegrations(data.integrations);
   }
 
+  const qbOAuth = useOAuthFlow();
+
+  useEffect(() => {
+    if (qbOAuth.state.status === 'success') {
+      api<{ integrations: Integration[] }>('/api/integrations').then(d => setIntegrations(d.integrations));
+      qbOAuth.reset();
+    } else if (qbOAuth.state.status === 'error' && qbOAuth.state.error) {
+      setError(qbOAuth.state.error);
+    }
+  }, [qbOAuth.state.status]);  // eslint-disable-line react-hooks/exhaustive-deps
+
   async function setupQuickBooks() {
-    setSaving(true); setError('');
-    try {
-      await api('/api/integrations/quickbooks/setup', { method: 'POST' });
-      const data = await api<{ integrations: Integration[] }>('/api/integrations');
-      setIntegrations(data.integrations);
-    } catch (err: unknown) { setError(err instanceof Error ? err.message : 'Setup failed'); }
-    finally { setSaving(false); }
+    setError('');
+    await qbOAuth.start({
+      setupUrl: '/api/integrations/quickbooks/setup',
+      completeUrl: '/api/integrations/quickbooks/setup/complete',
+    });
   }
 
   async function disconnectQuickBooks() {
@@ -225,6 +236,10 @@ export function IntegrationsTab() {
   }
 
   async function reconnectQuickBooks() { await disconnectQuickBooks(); await setupQuickBooks(); }
+
+  const qbConnecting = qbOAuth.state.status === 'starting' ||
+                        qbOAuth.state.status === 'awaiting_user' ||
+                        qbOAuth.state.status === 'completing';
 
   async function setupQbCsv() {
     await api('/api/integrations/qb_csv/setup', { method: 'POST' });
@@ -245,9 +260,23 @@ export function IntegrationsTab() {
     </div>
   );
 
+  async function refreshIntegrations() {
+    const data = await api<{ integrations: Integration[] }>('/api/integrations');
+    setIntegrations(data.integrations);
+  }
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
       {integrations.map(integration => {
+        if (integration.id === 'google') {
+          return (
+            <GoogleIntegrationCard
+              key={integration.id}
+              integration={integration}
+              onChanged={refreshIntegrations}
+            />
+          );
+        }
         const Icon = INTEGRATION_ICONS[integration.id] || IconGlobe;
         return (
           <div key={integration.id} style={{
@@ -298,13 +327,13 @@ export function IntegrationsTab() {
                           else if (integration.id === 'quickbooks') setupQuickBooks();
                           else if (integration.id === 'qb_csv') setupQbCsv();
                           else { setSetupFor(integration.id); setError(''); }
-                        }} disabled={saving} style={{
+                        }} disabled={saving || (integration.id === 'quickbooks' && qbConnecting)} style={{
                           fontSize: 11, padding: '4px 12px', borderRadius: 4,
                           background: 'transparent', color: 'rgba(237,240,244,0.62)',
                           border: '1px solid rgba(230,235,242,0.14)', cursor: 'pointer',
                           opacity: saving ? 0.5 : 1,
                         }}>
-                          {saving && integration.id === 'quickbooks' ? 'Connecting...' : 'Setup'}
+                          {integration.id === 'quickbooks' && qbConnecting ? 'Connecting...' : 'Setup'}
                         </button>
                       )}
 
