@@ -136,8 +136,12 @@ async def login(body: LoginRequest, request: Request):
                 return JSONResponse({"requires_2fa": True, "pending_token": pending})
     except ImportError:
         logger.warning("auth_2fa module not available — 2FA check skipped")
-    except RuntimeError:
-        logger.warning("auth_2fa DB not initialized — 2FA check skipped")
+    except Exception:
+        logger.exception("2FA check failed — blocking login")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Authentication service temporarily unavailable",
+        )
 
     token = create_access_token({"sub": "user", "role": "admin"})
     return JSONResponse({"access_token": token, "token_type": "bearer"})

@@ -105,7 +105,7 @@ async def lifespan(app: FastAPI):
         logger.info("WhatsApp bridge configured at %s", settings.whatsapp.bridge_url)
 
     from core.auth_2fa import init_db as init_auth_2fa_db
-    _safe_init("auth_2fa", init_auth_2fa_db)
+    _safe_init("auth_2fa", init_auth_2fa_db, critical=True)
 
     from core.agents.reminders.db import init_db as init_reminders_db
     _safe_init("reminders", init_reminders_db)
