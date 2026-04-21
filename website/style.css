@@ -24,7 +24,7 @@
 
 /* ─── Reset ─────────────────────────────────────────────── */
 *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
-html { scroll-behavior: smooth; }
+html { scroll-behavior: smooth; color-scheme: dark; }
 html, body { background: var(--bg); }
 body {
   font-family: var(--sans);
@@ -32,6 +32,20 @@ body {
   line-height: 1.6;
   -webkit-font-smoothing: antialiased;
 }
+.skip-link {
+  position: absolute;
+  top: -100%;
+  left: 16px;
+  z-index: 100;
+  padding: 8px 16px;
+  background: var(--accent);
+  color: var(--accent-ink);
+  font-size: 14px;
+  font-weight: 500;
+  text-decoration: none;
+  border-radius: 0 0 4px 4px;
+}
+.skip-link:focus { top: 0; }
 ::selection { background: rgba(200,209,217,0.25); }
 img, svg { display: block; }
 a { color: inherit; }
@@ -696,6 +710,100 @@ em { font-style: italic; }
   text-transform: uppercase;
 }
 
+/* ─── Chat demo ────────────────────────────────────────── */
+.chat-demo {
+  margin-bottom: 56px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--bg-card);
+  overflow: hidden;
+}
+.chat-demo-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 16px 24px;
+  border-bottom: 1px solid var(--line);
+}
+.chat-demo-meta { flex: 1; }
+.chat-demo-name {
+  font-family: var(--display);
+  font-size: 16px;
+  display: block;
+  line-height: 1.2;
+}
+.chat-demo-role {
+  font-size: 12px;
+  color: var(--ink-dim);
+}
+.chat-demo-status {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--sage);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.status-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--sage);
+  animation: pulse-dot 2s ease-in-out infinite;
+}
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+.chat-demo-messages {
+  padding: 24px;
+  max-height: 420px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(200,209,217,0.12) transparent;
+}
+.chat-bubble {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  animation: bubble-in 0.3s ease-out;
+}
+@keyframes bubble-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.chat-agent { align-self: flex-start; }
+.chat-user  { align-self: flex-end; flex-direction: row-reverse; }
+.chat-demo .chat-avatar {
+  width: 28px;
+  height: 28px;
+  font-size: 14px;
+  border-radius: 6px;
+  flex-shrink: 0;
+}
+.chat-body {
+  padding: 10px 16px;
+  border-radius: 10px;
+  font-size: 14px;
+  line-height: 1.55;
+  max-width: 480px;
+}
+.chat-agent .chat-body {
+  background: var(--bg-raised);
+  color: var(--ink);
+  border-bottom-left-radius: 3px;
+}
+.chat-user .chat-body {
+  background: rgba(200,209,217,0.10);
+  color: var(--ink-mute);
+  border-bottom-right-radius: 3px;
+}
+
 /* ─── Integrations ──────────────────────────────────────── */
 .featured-grid {
   display: grid;
@@ -873,6 +981,33 @@ em { font-style: italic; }
 }
 .footer-links a:hover { color: var(--ink); }
 
+/* ─── Accessibility ─────────────────────────────────────── */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+  html { scroll-behavior: auto; }
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.nav-links a:focus-visible,
+.footer-links a:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 4px;
+  border-radius: 2px;
+}
+
 /* ─── Responsive ────────────────────────────────────────── */
 @media (max-width: 1024px) {
   .features-grid { grid-template-columns: repeat(2, 1fr); }
@@ -899,4 +1034,6 @@ em { font-style: italic; }
   .crm-row .mono-label { display: none; }
   .footer-inner { flex-direction: column; text-align: center; }
   .footer-links { flex-wrap: wrap; justify-content: center; }
+  .chat-body { max-width: 280px; }
+  .chat-demo-messages { padding: 16px; }
 }
