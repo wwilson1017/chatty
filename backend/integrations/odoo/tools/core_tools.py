@@ -254,6 +254,7 @@ CORE_TOOL_DEFS = [
             "required": ["product_id", "qty"],
         },
         "kind": "integration",
+        "writes": True,
     },
     # 10 - odoo_update_manufacturing_order
     {
@@ -281,6 +282,7 @@ CORE_TOOL_DEFS = [
             "required": ["mo_name"],
         },
         "kind": "integration",
+        "writes": True,
     },
     # 11 - odoo_confirm_manufacturing_order
     {
@@ -297,6 +299,7 @@ CORE_TOOL_DEFS = [
             "required": ["mo_name"],
         },
         "kind": "integration",
+        "writes": True,
     },
     # 12 - odoo_update_record
     {
@@ -324,6 +327,7 @@ CORE_TOOL_DEFS = [
             "required": ["model", "record_id", "field_values"],
         },
         "kind": "integration",
+        "writes": True,
     },
     # 13 - odoo_execute_action
     {
@@ -354,6 +358,7 @@ CORE_TOOL_DEFS = [
             "required": ["model", "record_id", "action"],
         },
         "kind": "integration",
+        "writes": True,
     },
     # 14 - odoo_post_message
     {
@@ -390,6 +395,7 @@ CORE_TOOL_DEFS = [
             "required": ["model", "record_id", "body"],
         },
         "kind": "integration",
+        "writes": True,
     },
 ]
 

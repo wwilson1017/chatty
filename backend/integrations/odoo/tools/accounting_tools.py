@@ -257,6 +257,7 @@ ACCOUNTING_TOOL_DEFS = [
             "required": ["partner_id", "lines"],
         },
         "kind": "integration",
+        "writes": True,
     },
     {
         "name": "odoo_register_payment",
@@ -286,6 +287,7 @@ ACCOUNTING_TOOL_DEFS = [
             "required": ["invoice_id"],
         },
         "kind": "integration",
+        "writes": True,
     },
 ]
 

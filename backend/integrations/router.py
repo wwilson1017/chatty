@@ -40,6 +40,10 @@ class BambooHRSetupRequest(BaseModel):
     api_key: str
 
 
+class ToolModeRequest(BaseModel):
+    tool_mode: str
+
+
 # ── Routes ────────────────────────────────────────────────────────────────────
 
 @router.get("")
@@ -68,6 +72,21 @@ async def disable_integration(name: str, user=Depends(get_current_user)):
         raise HTTPException(status_code=404, detail=f"Unknown integration: {name}")
     disable(name)
     return {"ok": True, "integration": name, "enabled": False}
+
+
+@router.post("/{name}/tool-mode")
+async def set_integration_tool_mode(name: str, body: ToolModeRequest, user=Depends(get_current_user)):
+    """Set the tool_mode permission ceiling for an integration."""
+    if name not in ("odoo", "quickbooks"):
+        raise HTTPException(status_code=400, detail="Tool mode is only supported for Odoo and QuickBooks")
+    if body.tool_mode not in ("read-only", "normal", "power"):
+        raise HTTPException(status_code=400, detail=f"Invalid tool_mode: {body.tool_mode}")
+    integrations = {i["id"]: i for i in list_integrations()}
+    if not integrations.get(name, {}).get("configured"):
+        raise HTTPException(status_code=400, detail="Integration must be configured before setting tool mode")
+    from .registry import set_tool_mode
+    set_tool_mode(name, body.tool_mode)
+    return {"ok": True, "integration": name, "tool_mode": body.tool_mode}
 
 
 @router.post("/odoo/discover-databases")

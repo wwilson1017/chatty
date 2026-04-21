@@ -67,7 +67,7 @@ def _load_integration_tools() -> tuple[list[dict], dict]:
             mod = importlib.import_module(module_path)
             defs = getattr(mod, defs_attr, [])
             execs = getattr(mod, "TOOL_EXECUTORS", {})
-            tool_defs.extend(defs)
+            tool_defs.extend({**d, "integration": name} for d in defs)
             executors.update(execs)
         except Exception as e:
             logger.warning("Failed to load integration %s: %s", name, e)
@@ -146,6 +146,9 @@ async def process_message(
 
     integration_tool_defs, integration_executors = _load_integration_tools()
 
+    from integrations.registry import get_tool_mode
+    integration_tool_modes = {name: get_tool_mode(name) for name in _INTEGRATION_MODULES}
+
     reminder_handlers, sa_handlers = _build_agent_handlers(slug)
     registry = ToolRegistry(
         context_dir=config.context_dir,
@@ -187,6 +190,7 @@ async def process_message(
         chat_service=chat_service,
         conversation_id=chatty_conv_id,
         integration_tool_defs=integration_tool_defs or None,
+        integration_tool_modes=integration_tool_modes,
     )
 
     return response or "I had trouble generating a response. Please try again."
@@ -228,6 +232,9 @@ async def process_group_message(
 
     integration_tool_defs, integration_executors = _load_integration_tools()
 
+    from integrations.registry import get_tool_mode
+    integration_tool_modes = {name: get_tool_mode(name) for name in _INTEGRATION_MODULES}
+
     reminder_handlers, sa_handlers = _build_agent_handlers(slug)
     registry = ToolRegistry(
         context_dir=config.context_dir,
@@ -266,6 +273,7 @@ async def process_group_message(
         chat_service=chat_service,
         conversation_id=chatty_conv_id,
         integration_tool_defs=integration_tool_defs or None,
+        integration_tool_modes=integration_tool_modes,
     )
 
     return response or "I had trouble generating a response. Please try again."

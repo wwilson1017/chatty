@@ -146,6 +146,16 @@ export function IntegrationsTab() {
     setIntegrations(prev => prev.map(i => i.id === id ? { ...i, enabled: !enabled } : i));
   }
 
+  async function setToolMode(id: string, mode: string) {
+    const prev = integrations.find(i => i.id === id)?.tool_mode || 'normal';
+    setIntegrations(ps => ps.map(i => i.id === id ? { ...i, tool_mode: mode } : i));
+    try {
+      await api(`/api/integrations/${id}/tool-mode`, { method: 'POST', body: JSON.stringify({ tool_mode: mode }) });
+    } catch {
+      setIntegrations(ps => ps.map(i => i.id === id ? { ...i, tool_mode: prev } : i));
+    }
+  }
+
   async function setupOdoo() {
     setSaving(true); setError('');
     try {
@@ -356,6 +366,39 @@ export function IntegrationsTab() {
                 )}
               </div>
             </div>
+
+            {/* Permission level selector for Odoo and QuickBooks */}
+            {(integration.id === 'odoo' || integration.id === 'quickbooks') && integration.enabled && integration.configured && integration.connection_status !== 'broken' && (
+              <div style={{ marginTop: 10, display: 'flex', alignItems: 'center', gap: 10 }}>
+                <span style={{ ...mono(9), whiteSpace: 'nowrap' }}>Permissions</span>
+                <div style={{
+                  display: 'flex', border: '1px solid rgba(230,235,242,0.07)',
+                  borderRadius: 3, overflow: 'hidden',
+                }}>
+                  {([
+                    { key: 'read-only', label: 'Read' },
+                    { key: 'normal', label: 'Approval' },
+                    { key: 'power', label: 'Full Control' },
+                  ] as const).map(m => (
+                    <div
+                      key={m.key}
+                      onClick={() => setToolMode(integration.id, m.key)}
+                      style={{
+                        padding: '3px 10px',
+                        fontFamily: "'JetBrains Mono', ui-monospace, monospace",
+                        fontSize: 10, letterSpacing: '0.12em', textTransform: 'uppercase',
+                        color: (integration.tool_mode || 'normal') === m.key ? '#0E1013' : 'rgba(237,240,244,0.62)',
+                        background: (integration.tool_mode || 'normal') === m.key ? 'var(--color-ch-accent, #C8D1D9)' : 'transparent',
+                        cursor: 'pointer',
+                        transition: 'background 0.15s, color 0.15s',
+                      }}
+                    >
+                      {m.label}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
 
             {error && integration.id === 'quickbooks' && !setupFor && (
               <p style={{ marginTop: 8, color: '#D97757', fontSize: 12 }}>{error}</p>
