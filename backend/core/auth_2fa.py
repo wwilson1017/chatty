@@ -235,34 +235,39 @@ def _generate_qr_data_uri(provisioning_uri: str) -> str:
 
 def verify_totp_code(code: str) -> bool:
     """Verify a TOTP code against the stored secret. Returns True on valid code."""
-    config = get_totp_config()
-    if not config or not config["secret_enc"]:
-        return False
+    with _write_lock:
+        config = get_totp_config()
+        if not config or not config["secret_enc"]:
+            return False
 
-    secret = decrypt_value(config["secret_enc"])
-    if not secret:
-        return False
+        secret = decrypt_value(config["secret_enc"])
+        if not secret:
+            return False
 
-    totp = pyotp.TOTP(secret)
-    code_stripped = code.strip()
-    if not totp.verify(code_stripped, valid_window=1):
-        return False
+        totp = pyotp.TOTP(secret)
+        code_stripped = code.strip()
+        if not totp.verify(code_stripped, valid_window=1):
+            return False
 
-    # Find which timeslot the code actually belongs to (could be T-1, T, or T+1)
-    now_ts = totp.timecode(datetime.now(timezone.utc))
-    matched_slot = now_ts
-    for offset in (-1, 0, 1):
-        candidate = now_ts + offset
-        if totp.generate_otp(candidate) == code_stripped:
-            matched_slot = candidate
-            break
+        # Find which timeslot the code actually belongs to (could be T-1, T, or T+1)
+        now_ts = totp.timecode(datetime.now(timezone.utc))
+        matched_slot = now_ts
+        for offset in (-1, 0, 1):
+            candidate = now_ts + offset
+            if totp.generate_otp(candidate) == code_stripped:
+                matched_slot = candidate
+                break
 
-    # Replay prevention: reject if this or a later timeslot was already used
-    if config["last_used_at"] and int(config["last_used_at"]) >= matched_slot:
-        return False
+        # Replay prevention: reject if this or a later timeslot was already used
+        if config["last_used_at"] and int(config["last_used_at"]) >= matched_slot:
+            return False
 
-    update_last_used(str(matched_slot))
-    return True
+        _get_db().execute(
+            "UPDATE totp_config SET last_used_at = ?, updated_at = datetime('now') WHERE id = 1",
+            (str(matched_slot),),
+        )
+        _get_db().commit()
+        return True
 
 
 # ── API request/response models ──────────────────────────────────────────────

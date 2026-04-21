@@ -10,6 +10,7 @@ for Phase 2.
 """
 
 import hmac
+import logging
 import time
 from collections import defaultdict
 from datetime import datetime, timedelta, timezone
@@ -21,6 +22,8 @@ from jose import JWTError, jwt
 from pydantic import BaseModel
 
 from core.config import settings
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -125,6 +128,7 @@ async def login(body: LoginRequest, request: Request):
     try:
         from core.auth_2fa import is_2fa_enabled, is_device_trusted, TRUST_COOKIE_NAME
     except ImportError:
+        logger.warning("auth_2fa module not available — 2FA check skipped")
         is_2fa_enabled = None
     if is_2fa_enabled and is_2fa_enabled():
         trust_token = request.cookies.get(TRUST_COOKIE_NAME, "")
