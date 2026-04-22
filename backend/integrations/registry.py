@@ -56,7 +56,7 @@ AVAILABLE_INTEGRATIONS = {
     },
     "crm_lite": {
         "name": "CRM",
-        "description": "Built-in CRM — always available. Hide from nav if not needed.",
+        "description": "Built-in CRM — always available.",
         "icon": "📋",
         "auth_type": "none",
         "always_on": True,
@@ -134,19 +134,6 @@ def disable(name: str) -> None:
     save_credentials(name, creds)
 
 
-def is_hidden(name: str) -> bool:
-    """Check if an integration is hidden from the UI."""
-    creds = get_credentials(name)
-    return bool(creds.get("hidden", False))
-
-
-def set_hidden(name: str, hidden: bool) -> None:
-    """Show or hide an integration in the UI."""
-    creds = get_credentials(name)
-    creds["hidden"] = hidden
-    save_credentials(name, creds)
-
-
 def ensure_crm_active() -> None:
     """Ensure CRM Lite is always configured and enabled on startup."""
     creds = get_credentials("crm_lite")
@@ -180,7 +167,7 @@ def list_integrations() -> list[dict]:
             **meta,
             "enabled": True if always_on else bool(creds.get("enabled", False)),
             "configured": True if always_on else bool(creds),
-            "hidden": bool(creds.get("hidden", False)),
+            "hidden": False,
             "connection_status": creds.get("connection_status", "ok") if creds else "ok",
             "tool_mode": creds.get("tool_mode", "normal"),
         }

@@ -16,7 +16,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
 from core.auth import get_current_user
-from .registry import list_integrations, enable, disable, is_enabled, set_hidden
+from .registry import list_integrations, enable, disable, is_enabled
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -76,30 +76,6 @@ async def disable_integration(name: str, user=Depends(get_current_user)):
     return {"ok": True, "integration": name, "enabled": False}
 
 
-@router.post("/{name}/hide")
-async def hide_integration(name: str, user=Depends(get_current_user)):
-    """Hide an always-on integration from the UI."""
-    integrations = {i["id"]: i for i in list_integrations()}
-    if name not in integrations:
-        raise HTTPException(status_code=404, detail=f"Unknown integration: {name}")
-    if not integrations[name].get("always_on"):
-        raise HTTPException(status_code=400, detail="Only always-on integrations can be hidden")
-    set_hidden(name, True)
-    return {"ok": True, "integration": name, "hidden": True}
-
-
-@router.post("/{name}/show")
-async def show_integration(name: str, user=Depends(get_current_user)):
-    """Show a hidden always-on integration in the UI."""
-    integrations = {i["id"]: i for i in list_integrations()}
-    if name not in integrations:
-        raise HTTPException(status_code=404, detail=f"Unknown integration: {name}")
-    if not integrations[name].get("always_on"):
-        raise HTTPException(status_code=400, detail="Only always-on integrations can be shown")
-    set_hidden(name, False)
-    return {"ok": True, "integration": name, "hidden": False}
-
-
 @router.post("/{name}/tool-mode")
 async def set_integration_tool_mode(name: str, body: ToolModeRequest, user=Depends(get_current_user)):
     """Set the tool_mode permission ceiling for an integration."""
@@ -156,7 +132,8 @@ async def setup_quickbooks(user=Depends(get_current_user)):
     try:
         return start_oauth_flow("quickbooks")
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        logger.warning("QuickBooks OAuth setup failed: %s", e)
+        raise HTTPException(status_code=400, detail="QuickBooks OAuth is not configured. Check server settings.")
 
 
 class CompleteSetupRequest(BaseModel):
@@ -172,7 +149,8 @@ async def setup_quickbooks_complete(body: CompleteSetupRequest, user=Depends(get
     if not flow:
         raise HTTPException(status_code=404, detail="OAuth flow not found or expired")
     if flow.status != "ok" or not flow.tokens:
-        raise HTTPException(status_code=400, detail=flow.error or "OAuth flow incomplete")
+        logger.warning("QuickBooks OAuth flow failed: %s", flow.error)
+        raise HTTPException(status_code=400, detail="OAuth flow failed. Please try again.")
 
     tokens = flow.tokens
     realm_id = tokens.get("realmId", "")
@@ -278,7 +256,8 @@ async def setup_google(body: GoogleSetupRequest, user=Depends(get_current_user))
             },
         )
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        logger.warning("Google OAuth setup failed: %s", e)
+        raise HTTPException(status_code=400, detail="Google OAuth is not configured. Check server settings.")
 
 
 class GoogleCompleteRequest(BaseModel):
@@ -295,7 +274,8 @@ async def setup_google_complete(body: GoogleCompleteRequest, user=Depends(get_cu
     if not flow:
         raise HTTPException(status_code=404, detail="OAuth flow not found or expired")
     if flow.status != "ok" or not flow.tokens:
-        raise HTTPException(status_code=400, detail=flow.error or "OAuth flow incomplete")
+        logger.warning("Google OAuth flow failed: %s", flow.error)
+        raise HTTPException(status_code=400, detail="OAuth flow failed. Please try again.")
 
     tokens = flow.tokens
     if not tokens.get("access_token"):

@@ -4,7 +4,7 @@ import { getToken } from '../core/auth/tokenUtils';
 import { useOAuthFlow } from '../core/hooks/useOAuthFlow';
 import { GoogleIntegrationCard } from './GoogleIntegrationCard';
 import type { Integration, Agent } from '../core/types';
-import { IconGlobe, IconUsers, IconFunnel, IconFile, IconPhone, IconMail, IconChart, IconBook, IconZap } from '../shared/icons';
+import { IconGlobe, IconUsers, IconFile, IconPhone, IconMail, IconChart, IconBook, IconZap } from '../shared/icons';
 import { TelegramSettings } from '../agent/components/TelegramSettings';
 
 const INTEGRATION_ICONS: Record<string, React.ComponentType<{ size?: number; className?: string; strokeWidth?: number }>> = {
@@ -12,7 +12,6 @@ const INTEGRATION_ICONS: Record<string, React.ComponentType<{ size?: number; cla
   qb_csv: IconFile,
   odoo: IconGlobe,
   bamboohr: IconUsers,
-  crm_lite: IconFunnel,
   hubspot: IconZap,
   salesforce: IconGlobe,
   whatsapp: IconPhone,
@@ -200,14 +199,6 @@ export function IntegrationsTab() {
     finally { setSaving(false); }
   }
 
-  async function toggleCrmVisibility(hidden: boolean) {
-    const endpoint = hidden ? 'show' : 'hide';
-    await api(`/api/integrations/crm_lite/${endpoint}`, { method: 'POST' });
-    const data = await api<{ integrations: Integration[] }>('/api/integrations');
-    setIntegrations(data.integrations);
-    document.dispatchEvent(new Event('chatty:integrations-changed'));
-  }
-
   const qbOAuth = useOAuthFlow();
 
   useEffect(() => {
@@ -269,7 +260,7 @@ export function IntegrationsTab() {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-      {integrations.map(integration => {
+      {integrations.filter(i => !i.always_on).map(integration => {
         if (integration.id === 'google') {
           return (
             <GoogleIntegrationCard
@@ -303,36 +294,6 @@ export function IntegrationsTab() {
               </div>
 
               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                {/* Always-on integrations (CRM) — show/hide toggle */}
-                {integration.always_on && (() => {
-                  const isHidden = integration.hidden;
-                  return (
-                    <>
-                      <span style={{ fontSize: 11, color: isHidden ? 'rgba(237,240,244,0.38)' : '#8EA589', background: isHidden ? 'transparent' : 'rgba(142,165,137,0.08)', padding: '2px 8px', borderRadius: 4 }}>
-                        {isHidden ? 'Hidden' : 'Active'}
-                      </span>
-                      <button
-                        onClick={() => toggleCrmVisibility(!!isHidden)}
-                        style={{
-                          position: 'relative', width: 44, height: 24, borderRadius: 12,
-                          background: isHidden
-                            ? 'rgba(230,235,242,0.14)'
-                            : 'var(--color-ch-accent, #C8D1D9)',
-                          border: 'none', cursor: 'pointer',
-                          transition: 'background 0.2s',
-                        }}
-                      >
-                        <span style={{
-                          position: 'absolute', top: 2, width: 20, height: 20,
-                          borderRadius: '50%', background: '#fff',
-                          boxShadow: '0 1px 3px rgba(0,0,0,0.3)',
-                          left: isHidden ? 2 : 22,
-                          transition: 'left 0.2s',
-                        }} />
-                      </button>
-                    </>
-                  );
-                })()}
                 {/* Standard integrations — setup + enable/disable */}
                 {!integration.always_on && integration.auth_type !== 'stub' && integration.auth_type !== 'qr_session' && integration.auth_type !== 'per_agent' && (() => {
                   const isConfigured = integration.configured;
