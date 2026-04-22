@@ -7,6 +7,7 @@ Mounts all routers, initializes databases, sets up CORS and APScheduler.
 import contextvars
 import logging
 import os
+import shutil
 import uuid as _uuid
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
@@ -114,6 +115,16 @@ async def lifespan(app: FastAPI):
 
     from core.agents.shared_context.db import init_db as init_shared_context_db
     _safe_init("shared_context", init_shared_context_db)
+
+    from core.agents.shared_context.db import DATA_DIR as _shared_dir
+    _seed_dir = Path(__file__).parent / "seed" / "shared"
+    if _seed_dir.exists():
+        _shared_dir.mkdir(parents=True, exist_ok=True)
+        for _sf in _seed_dir.glob("*.md"):
+            _target = _shared_dir / _sf.name
+            if not _target.exists():
+                shutil.copy2(_sf, _target)
+                logger.info("Seeded shared context: %s", _sf.name)
 
     from core.agents.tool_config_db import init_db as init_tool_config_db
     _safe_init("tool_configs", init_tool_config_db)
