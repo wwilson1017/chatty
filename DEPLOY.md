@@ -52,7 +52,7 @@ These auto-generate if not set. You can override them for extra control:
 |----------|-------------|
 | `GOOGLE_CLIENT_ID` | Google OAuth client ID (for Gmail + Calendar + Drive). Defaults to the Chatty-owned OAuth app provided by the Railway template. |
 | `GOOGLE_CLIENT_SECRET` | Google OAuth client secret (paired with `GOOGLE_CLIENT_ID`) |
-| `OAUTH_REDIRECT_URI` | Override the OAuth callback URL. Auto-computed from `BACKEND_URL` + `/api/oauth/callback` — only set this if you have an unusual networking setup. |
+| `OAUTH_REDIRECT_URI` | Override the OAuth callback URL. Defaults to `https://auth.mechatty.com/callback` (the shared OAuth proxy). Only set this if you run your own proxy or want direct-to-instance OAuth. |
 | `QUICKBOOKS_CLIENT_ID` | QuickBooks OAuth client ID |
 | `QUICKBOOKS_CLIENT_SECRET` | QuickBooks OAuth client secret |
 | `WHATSAPP_BRIDGE_URL` | WhatsApp Baileys bridge URL (advanced) |
@@ -101,10 +101,7 @@ your organization, create your own Google Cloud project:
    - `https://www.googleapis.com/auth/drive.readonly`
    - `https://www.googleapis.com/auth/drive`
 5. **Credentials → Create Credentials → OAuth client ID** → *Web application*
-6. Under **Authorized redirect URIs**, add:
-   - `http://localhost:8000/api/oauth/callback` (for local dev)
-   - `https://<your-railway-domain>/api/oauth/callback` (for your deployed Chatty)
-   - If you use a custom domain, add that too
+6. Under **Authorized redirect URIs**, add `https://auth.mechatty.com/callback`
 7. Copy the **Client ID** and **Client secret**
 8. In Railway, set the `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` env vars to the new values
 9. Trigger a redeploy so the new values take effect

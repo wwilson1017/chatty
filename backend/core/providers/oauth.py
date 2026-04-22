@@ -1,12 +1,20 @@
 """
-Chatty — PKCE OAuth flow for Google, OpenAI, and QuickBooks.
+Chatty — OAuth flow for Google, OpenAI, and QuickBooks.
 
-Two-step pattern (Railway-compatible):
+All OAuth flows route through the auth.mechatty.com proxy by default.
+The proxy receives the callback from the OAuth provider (Google, Intuit,
+OpenAI), then 302-redirects the auth code to the originating Chatty
+instance. This lets every deployment — local dev, Railway, custom host —
+share a single registered redirect URI without ngrok or per-instance
+callback URLs.
+
+Two-step pattern:
     1. `start_oauth_flow(provider, scopes=..., metadata=...)` returns
        {flow_id, auth_url}. The caller opens auth_url in a popup; the user
-       authorizes with Google/Intuit/OpenAI.
-    2. The provider redirects the user's browser to
-       `{backend_url}/api/oauth/callback?code=...&state=<flow_id>`.
+       authorizes with the provider.
+    2. The provider redirects to auth.mechatty.com/callback, which decodes
+       the instance callback URL from the state parameter and 302-redirects
+       to `{backend_url}/api/oauth/callback?code=...&state=<flow_id>`.
        That FastAPI route calls `complete_oauth_flow(...)` which exchanges
        the code for tokens and stashes them on the OAuthFlow object.
     3. The frontend polls `/api/oauth/flows/{flow_id}/status`; once it
@@ -14,9 +22,8 @@ Two-step pattern (Railway-compatible):
        `/setup/complete` endpoint (e.g. `/api/integrations/quickbooks/setup/complete`)
        which reads the tokens via `consume_flow(flow_id)` and persists them.
 
-This replaces the old "localhost:9876 HTTP server" pattern, which only
-worked when the backend ran on the same machine as the user's browser
-(i.e. local dev, not Railway).
+Set OAUTH_REDIRECT_URI to bypass the proxy (direct mode) or use a
+different proxy.
 """
 
 import base64
@@ -109,12 +116,11 @@ def _cleanup_expired_flows() -> None:
 
 # ── Redirect URI ──────────────────────────────────────────────────────────────
 
+_DEFAULT_REDIRECT_URI = "https://auth.mechatty.com/callback"
+
+
 def redirect_uri() -> str:
-    """Compute the OAuth callback URL — works for both local and Railway."""
-    override = os.getenv("OAUTH_REDIRECT_URI", "")
-    if override:
-        return override
-    return f"{settings.backend_url}{CALLBACK_PATH}"
+    return os.getenv("OAUTH_REDIRECT_URI", "") or _DEFAULT_REDIRECT_URI
 
 
 # ── PKCE helpers ──────────────────────────────────────────────────────────────
@@ -195,7 +201,9 @@ def start_oauth_flow(
     verifier, challenge = _generate_pkce() if use_pkce else (None, None)
     flow_id = secrets.token_urlsafe(32)
 
-    if os.getenv("OAUTH_REDIRECT_URI"):
+    if not os.getenv("OAUTH_REDIRECT_URI", ""):
+        # Proxy mode (default): encode the instance callback in state so the
+        # proxy knows where to forward the auth code.
         instance_callback = f"{settings.backend_url}{CALLBACK_PATH}"
         encoded = base64.urlsafe_b64encode(instance_callback.encode()).rstrip(b"=").decode()
         state = f"{flow_id}:{encoded}"
