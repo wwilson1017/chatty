@@ -5,7 +5,11 @@ from __future__ import annotations
 import base64
 import logging
 import re
+from email import encoders
 from email.message import EmailMessage
+from email.mime.base import MIMEBase
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
 from html import unescape
 
 logger = logging.getLogger(__name__)
@@ -110,11 +114,6 @@ def _format_message(msg: dict) -> dict:
     }
 
 
-def _encode_rfc2822(msg: EmailMessage) -> str:
-    """Encode an EmailMessage as a base64url string for Gmail send."""
-    return base64.urlsafe_b64encode(msg.as_bytes()).decode("utf-8")
-
-
 # ── Read ops ─────────────────────────────────────────────────────────────────
 
 def list_messages_op(service, query: str = "", max_results: int = 20) -> list[dict]:
@@ -169,6 +168,85 @@ def get_thread_op(service, thread_id: str) -> dict:
     }
 
 
+def mark_as_read_op(service, message_id: str) -> dict:
+    """Mark a message as read by removing the UNREAD label."""
+    result = service.users().messages().modify(
+        userId="me",
+        id=message_id,
+        body={"removeLabelIds": ["UNREAD"]},
+    ).execute()
+    return {"ok": True, "id": message_id, "is_unread": "UNREAD" in result.get("labelIds", [])}
+
+
+def get_attachment_content_op(service, message_id: str, attachment_id: str) -> bytes:
+    """Download attachment content from a Gmail message. Returns raw bytes."""
+    result = service.users().messages().attachments().get(
+        userId="me", messageId=message_id, id=attachment_id,
+    ).execute()
+    data = result.get("data", "")
+    return base64.urlsafe_b64decode(data + "=" * (-len(data) % 4))
+
+
+# ── MIME builder with attachment support ─────────────────────────────────────
+
+def _build_mime(
+    to: str, subject: str, body_text: str,
+    cc: str = "", bcc: str = "",
+    in_reply_to: str = "", references: str = "",
+    attachments: list[dict] | None = None,
+) -> str:
+    """Build an RFC 2822 message and return its base64url-encoded raw form.
+
+    Args:
+        attachments: Optional list of dicts with keys:
+            - filename (str)
+            - content_base64 (str): Base64-encoded file content
+            - mime_type (str): e.g. "application/pdf"
+    """
+    if attachments:
+        msg = MIMEMultipart("mixed")
+        msg.attach(MIMEText(body_text, "plain"))
+
+        for att in attachments:
+            try:
+                raw_data = base64.b64decode(att["content_base64"], validate=True)
+            except Exception as e:
+                raise ValueError(
+                    f"Invalid base64 data for attachment '{att.get('filename', 'unknown')}': {e}"
+                ) from e
+            mime_type = att.get("mime_type", "application/octet-stream")
+            mime_type = mime_type.replace("\r", "").replace("\n", "").strip()
+            mime_type = mime_type.split(";", 1)[0].strip()
+            maintype, subtype = mime_type.split("/", 1) if "/" in mime_type else ("application", "octet-stream")
+            maintype = maintype.strip() or "application"
+            subtype = subtype.strip() or "octet-stream"
+
+            part = MIMEBase(maintype, subtype)
+            part.set_payload(raw_data)
+            encoders.encode_base64(part)
+            safe_filename = att["filename"].replace("\r", "").replace("\n", "").strip()
+            part.add_header(
+                "Content-Disposition", "attachment",
+                filename=safe_filename,
+            )
+            msg.attach(part)
+    else:
+        msg = EmailMessage()
+        msg.set_content(body_text)
+
+    msg["To"] = to
+    msg["Subject"] = subject
+    if cc:
+        msg["Cc"] = cc
+    if bcc:
+        msg["Bcc"] = bcc
+    if in_reply_to:
+        msg["In-Reply-To"] = in_reply_to
+        msg["References"] = references or in_reply_to
+
+    return base64.urlsafe_b64encode(msg.as_bytes()).decode("utf-8")
+
+
 # ── Write ops ────────────────────────────────────────────────────────────────
 
 def send_email_op(
@@ -178,18 +256,10 @@ def send_email_op(
     body: str,
     cc: str = "",
     bcc: str = "",
+    attachments: list[dict] | None = None,
 ) -> dict:
-    """Send a new email. Returns {id, thread_id}."""
-    msg = EmailMessage()
-    msg["To"] = to
-    if cc:
-        msg["Cc"] = cc
-    if bcc:
-        msg["Bcc"] = bcc
-    msg["Subject"] = subject
-    msg.set_content(body)
-
-    raw = _encode_rfc2822(msg)
+    """Send a new email, optionally with file attachments. Returns {ok, id, thread_id}."""
+    raw = _build_mime(to, subject, body, cc=cc, bcc=bcc, attachments=attachments)
     sent = service.users().messages().send(userId="me", body={"raw": raw}).execute()
     return {
         "ok": True,
@@ -203,9 +273,9 @@ def reply_to_email_op(
     message_id: str,
     body: str,
     reply_all: bool = False,
+    attachments: list[dict] | None = None,
 ) -> dict:
     """Reply to an existing message, preserving threading headers."""
-    # Fetch the original to pull headers for proper threading
     original = service.users().messages().get(
         userId="me", id=message_id, format="full"
     ).execute()
@@ -217,24 +287,23 @@ def reply_to_email_op(
     if not subject.lower().startswith("re:"):
         subject = f"Re: {subject}"
 
-    reply = EmailMessage()
-    reply["To"] = headers.get("from", "")
+    to = headers.get("from", "")
+    cc = ""
     if reply_all:
-        # Include original to/cc minus our own address (Gmail's "me")
         cc_list = []
         if headers.get("to"):
             cc_list.append(headers["to"])
         if headers.get("cc"):
             cc_list.append(headers["cc"])
         if cc_list:
-            reply["Cc"] = ", ".join(cc_list)
-    reply["Subject"] = subject
-    if original_msg_id:
-        reply["In-Reply-To"] = original_msg_id
-        reply["References"] = f"{original_refs} {original_msg_id}".strip()
-    reply.set_content(body)
+            cc = ", ".join(cc_list)
 
-    raw = _encode_rfc2822(reply)
+    raw = _build_mime(
+        to, subject, body, cc=cc,
+        in_reply_to=original_msg_id,
+        references=f"{original_refs} {original_msg_id}".strip(),
+        attachments=attachments,
+    )
     sent = service.users().messages().send(
         userId="me",
         body={"raw": raw, "threadId": thread_id},
@@ -255,16 +324,7 @@ def create_draft_op(
     bcc: str = "",
 ) -> dict:
     """Create a Gmail draft. Returns {id}."""
-    msg = EmailMessage()
-    msg["To"] = to
-    if cc:
-        msg["Cc"] = cc
-    if bcc:
-        msg["Bcc"] = bcc
-    msg["Subject"] = subject
-    msg.set_content(body)
-
-    raw = _encode_rfc2822(msg)
+    raw = _build_mime(to, subject, body, cc=cc, bcc=bcc)
     draft = service.users().drafts().create(
         userId="me",
         body={"message": {"raw": raw}},

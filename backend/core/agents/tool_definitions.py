@@ -456,6 +456,76 @@ GMAIL_WRITE_TOOLS = [
         "kind": "gmail",
         "writes": True,
     },
+    {
+        "name": "mark_email_as_read",
+        "description": "Mark a specific email as read in Gmail. Usually not needed since get_email auto-marks emails as read, but useful for queuing held emails without reading them.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "message_id": {"type": "string", "description": "Gmail message ID to mark as read"},
+            },
+            "required": ["message_id"],
+        },
+        "kind": "gmail",
+        "writes": True,
+    },
+    {
+        "name": "send_email_with_attachment",
+        "description": "Send a new email with a file attachment. Pass the file_ref from download_odoo_pdf or download_email_attachment.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "to": {"type": "string", "description": "Recipient email address"},
+                "subject": {"type": "string", "description": "Email subject line"},
+                "body": {"type": "string", "description": "Plain text email body"},
+                "file_ref": {"type": "string", "description": "File reference from download_odoo_pdf or download_email_attachment (preferred)"},
+                "attachment_base64": {"type": "string", "description": "Base64-encoded file content (fallback — prefer file_ref)"},
+                "attachment_filename": {"type": "string", "description": "Filename for the attachment (e.g. 'PO00123.pdf'). Optional when using file_ref — defaults to the cached filename."},
+                "attachment_mime_type": {"type": "string", "description": "MIME type (default: application/pdf)"},
+                "cc": {"type": "string", "description": "CC recipients (comma-separated, optional)"},
+                "bcc": {"type": "string", "description": "BCC recipients (comma-separated, optional)"},
+            },
+            "required": ["to", "subject", "body"],
+        },
+        "kind": "gmail",
+        "writes": True,
+    },
+    {
+        "name": "reply_to_email_with_attachment",
+        "description": "Reply to an existing email thread with a file attachment, preserving Gmail threading. Use the message_id from search_emails or get_email. Pass the file_ref from a download tool to attach the original file.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "message_id": {"type": "string", "description": "Gmail message ID to reply to"},
+                "body": {"type": "string", "description": "Plain text reply body"},
+                "file_ref": {"type": "string", "description": "File reference from download_odoo_pdf or download_email_attachment (preferred)"},
+                "attachment_base64": {"type": "string", "description": "Base64-encoded file content (fallback — prefer file_ref)"},
+                "attachment_filename": {"type": "string", "description": "Filename for the attachment. Optional when using file_ref — defaults to the cached filename."},
+                "attachment_mime_type": {"type": "string", "description": "MIME type (default: application/pdf)"},
+                "reply_all": {"type": "boolean", "description": "Include all original recipients in CC", "default": False},
+            },
+            "required": ["message_id", "body"],
+        },
+        "kind": "gmail",
+        "writes": True,
+    },
+]
+
+GMAIL_ATTACHMENT_READ_TOOLS = [
+    {
+        "name": "download_email_attachment",
+        "description": "Download an attachment from an email by message ID and filename. Supports PDFs, Word docs (.docx), spreadsheets (.xlsx/.xls), CSV, text files, and images. Returns extracted text and a file_ref for forwarding the original via send/reply tools. Images are also shown for visual analysis.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "message_id": {"type": "string", "description": "Gmail message ID (from search_emails or get_email)"},
+                "filename": {"type": "string", "description": "Exact filename of the attachment to download"},
+            },
+            "required": ["message_id", "filename"],
+        },
+        "kind": "gmail",
+        "writes": False,
+    },
 ]
 
 
@@ -642,52 +712,27 @@ CALENDAR_WRITE_TOOLS = [
 
 DRIVE_READ_TOOLS = [
     {
-        "name": "list_drive_files",
-        "description": "List files in Google Drive, optionally filtered by a Drive search query or parent folder.",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "query": {
-                    "type": "string",
-                    "description": "Drive search query (e.g. \"name contains 'report' and mimeType = 'application/pdf'\")",
-                    "default": "",
-                },
-                "folder_id": {
-                    "type": "string",
-                    "description": "Optional parent folder ID to scope the listing",
-                    "default": "",
-                },
-                "max_results": {
-                    "type": "integer",
-                    "description": "Max files to return (default: 20)",
-                    "default": 20,
-                },
-            },
-            "required": [],
-        },
-        "kind": "drive",
-        "writes": False,
-    },
-    {
         "name": "search_drive_files",
-        "description": "Search Drive for files by name substring and/or MIME type.",
+        "description": "Search files in the user's Google Drive using Drive query syntax. Examples: \"name contains 'budget'\", \"mimeType = 'application/vnd.google-apps.spreadsheet'\", \"modifiedTime > '2026-01-01'\", \"'FOLDER_ID' in parents\". Combine conditions with 'and'/'or'.",
         "input_schema": {
             "type": "object",
             "properties": {
-                "name_contains": {
-                    "type": "string",
-                    "description": "Substring to match in the file name",
-                    "default": "",
-                },
-                "mime_type": {
-                    "type": "string",
-                    "description": "MIME type filter (e.g. 'application/pdf', 'application/vnd.google-apps.document')",
-                    "default": "",
-                },
-                "max_results": {
-                    "type": "integer",
-                    "default": 20,
-                },
+                "query": {"type": "string", "description": "Google Drive search query (Drive API q parameter syntax)"},
+                "max_results": {"type": "integer", "description": "Max files to return (default 20)"},
+            },
+            "required": ["query"],
+        },
+        "kind": "drive",
+        "writes": False,
+    },
+    {
+        "name": "list_drive_folder",
+        "description": "List contents of a Google Drive folder. Defaults to the root (My Drive). Use a folder ID from search results to browse into subfolders.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "folder_id": {"type": "string", "description": "Drive folder ID (default: 'root' = My Drive top level)"},
+                "max_results": {"type": "integer", "description": "Max items to return (default 50)"},
             },
             "required": [],
         },
@@ -695,17 +740,26 @@ DRIVE_READ_TOOLS = [
         "writes": False,
     },
     {
-        "name": "get_drive_file_content",
-        "description": "Fetch the text content of a Drive file. Google Docs are exported as plain text (or markdown); Sheets as CSV; binary files are returned as decoded text when possible.",
+        "name": "get_drive_file_info",
+        "description": "Get detailed metadata for a specific Google Drive file or folder: name, type, size, owner, sharing status, last modified, and a web link.",
         "input_schema": {
             "type": "object",
             "properties": {
-                "file_id": {"type": "string"},
-                "as_format": {
-                    "type": "string",
-                    "description": "Export format for Google-native files: 'txt', 'markdown', 'html', 'csv', or 'default'",
-                    "default": "default",
-                },
+                "file_id": {"type": "string", "description": "Google Drive file ID"},
+            },
+            "required": ["file_id"],
+        },
+        "kind": "drive",
+        "writes": False,
+    },
+    {
+        "name": "read_drive_file_content",
+        "description": "Read the text content of a Google Drive file. Google Docs are exported as plain text, Sheets as CSV (first sheet only), Slides as plain text. Plain text files are read directly. Binary files (PDF, images) cannot be read — use get_drive_file_info instead.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "file_id": {"type": "string", "description": "Google Drive file ID"},
+                "max_chars": {"type": "integer", "description": "Max characters to return (default 50000)"},
             },
             "required": ["file_id"],
         },
@@ -716,25 +770,74 @@ DRIVE_READ_TOOLS = [
 
 DRIVE_WRITE_TOOLS = [
     {
-        "name": "upload_drive_file",
-        "description": "Upload a new file to Google Drive. With drive.file scope, the file is created in the app's Drive folder. The user must approve before upload.",
+        "name": "create_drive_folder",
+        "description": "Create a new folder in Google Drive.",
         "input_schema": {
             "type": "object",
             "properties": {
-                "filename": {"type": "string", "description": "Name of the file to create"},
-                "content": {"type": "string", "description": "File content as a string (UTF-8 will be used)"},
-                "mime_type": {
-                    "type": "string",
-                    "description": "MIME type of the uploaded content",
-                    "default": "text/plain",
-                },
-                "parent_folder_id": {
-                    "type": "string",
-                    "description": "Optional parent folder ID",
-                    "default": "",
-                },
+                "name": {"type": "string", "description": "Folder name"},
+                "parent_folder_id": {"type": "string", "description": "Parent folder ID (default: 'root' = My Drive)"},
             },
-            "required": ["filename", "content"],
+            "required": ["name"],
+        },
+        "kind": "drive",
+        "writes": True,
+    },
+    {
+        "name": "create_drive_file",
+        "description": "Create a new file in Google Drive with text content. Set file_type to 'document' for a Google Doc or 'text' for a plain text file.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "name": {"type": "string", "description": "File name"},
+                "content": {"type": "string", "description": "Text content for the file"},
+                "file_type": {"type": "string", "enum": ["document", "text"], "description": "File type: 'document' (Google Doc) or 'text' (plain text). Default: 'document'"},
+                "folder_id": {"type": "string", "description": "Parent folder ID (default: 'root' = My Drive)"},
+            },
+            "required": ["name"],
+        },
+        "kind": "drive",
+        "writes": True,
+    },
+    {
+        "name": "move_drive_file",
+        "description": "Move a file or folder to a different parent folder in Google Drive.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "file_id": {"type": "string", "description": "ID of the file to move"},
+                "new_parent_id": {"type": "string", "description": "ID of the destination folder"},
+            },
+            "required": ["file_id", "new_parent_id"],
+        },
+        "kind": "drive",
+        "writes": True,
+    },
+    {
+        "name": "rename_drive_file",
+        "description": "Rename a file or folder in Google Drive.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "file_id": {"type": "string", "description": "ID of the file to rename"},
+                "new_name": {"type": "string", "description": "New name for the file"},
+            },
+            "required": ["file_id", "new_name"],
+        },
+        "kind": "drive",
+        "writes": True,
+    },
+    {
+        "name": "copy_drive_file",
+        "description": "Copy a file in Google Drive, optionally with a new name and/or into a different folder.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "file_id": {"type": "string", "description": "ID of the file to copy"},
+                "new_name": {"type": "string", "description": "Name for the copy (default: 'Copy of {original}')"},
+                "folder_id": {"type": "string", "description": "Folder for the copy (default: same as original)"},
+            },
+            "required": ["file_id"],
         },
         "kind": "drive",
         "writes": True,
@@ -1253,6 +1356,7 @@ def get_tool_definitions(
         gmail_read_enabled = gmail_enabled
     if gmail_read_enabled:
         tools.extend(GMAIL_READ_TOOLS)
+        tools.extend(GMAIL_ATTACHMENT_READ_TOOLS)
     if gmail_send_enabled:
         tools.extend(GMAIL_WRITE_TOOLS)
 

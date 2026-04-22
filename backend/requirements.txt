@@ -18,6 +18,7 @@ beautifulsoup4
 ddgs
 openpyxl
 pdfplumber
+python-docx
 xlrd
 apscheduler
 croniter
