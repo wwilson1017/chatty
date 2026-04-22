@@ -5,12 +5,14 @@ import { NavRail } from './NavRail';
 import { SettingsPanel } from '../dashboard/SettingsPanel';
 import { useIsMobile } from './useIsMobile';
 import { IconBot, IconFunnel, IconBook, IconSettings } from './icons';
-import type { BrandingConfig } from '../core/types';
+import { CrmVisibilityProvider } from './CrmVisibilityContext';
+import type { BrandingConfig, Integration } from '../core/types';
 
 export function AppShell() {
   const [branding, setBranding] = useState<BrandingConfig | null>(null);
   const [showSettings, setShowSettings] = useState(false);
   const [activeNavKey, setActiveNavKey] = useState<string | null>(null);
+  const [crmHidden, setCrmHidden] = useState(false);
   const isMobile = useIsMobile();
   const location = useLocation();
   const navigate = useNavigate();
@@ -29,6 +31,21 @@ export function AppShell() {
         document.documentElement.style.setProperty('--brand-color', data.accent_color);
       }
     }).catch(() => {});
+    api<{ integrations: Integration[] }>('/api/integrations').then(data => {
+      const crm = data.integrations.find(i => i.id === 'crm_lite');
+      setCrmHidden(!!crm?.hidden);
+    }).catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    const handler = () => {
+      api<{ integrations: Integration[] }>('/api/integrations').then(data => {
+        const crm = data.integrations.find(i => i.id === 'crm_lite');
+        setCrmHidden(!!crm?.hidden);
+      }).catch(() => {});
+    };
+    document.addEventListener('chatty:integrations-changed', handler);
+    return () => document.removeEventListener('chatty:integrations-changed', handler);
   }, []);
 
   const userInitial = branding?.company_name?.charAt(0) || 'C';
@@ -54,6 +71,7 @@ export function AppShell() {
   }
 
   return (
+    <CrmVisibilityProvider value={crmHidden}>
     <div style={{
       display: 'flex', width: '100%', height: '100vh',
       background: '#0A0C0F', color: '#EDF0F4',
@@ -74,7 +92,7 @@ export function AppShell() {
           height: 56, borderTop: '1px solid rgba(230,235,242,0.07)',
           background: '#0A0C0F', flexShrink: 0,
         }}>
-          {mobileNavItems.map(item => {
+          {mobileNavItems.filter(item => !(item.key === 'crm' && crmHidden)).map(item => {
             const active = activeNavKey === item.key || (!activeNavKey && item.match(location.pathname));
             const Icon = item.icon;
             return (
@@ -103,5 +121,6 @@ export function AppShell() {
         />
       )}
     </div>
+    </CrmVisibilityProvider>
   );
 }

@@ -37,7 +37,7 @@ export function SetupTokenEntry({ onConnected }: Props) {
       <p style={{ fontSize: 12, color: 'rgba(237,240,244,0.62)', margin: 0 }}>
         Run <code style={{
           fontFamily: "'JetBrains Mono', ui-monospace, monospace",
-          fontSize: 12, color: '#D4A85A',
+          fontSize: 12, color: 'var(--color-ch-accent, #C8D1D9)',
           background: 'rgba(34,40,48,0.55)', padding: '2px 6px', borderRadius: 3,
         }}>claude setup-token</code> in your terminal, then paste below.
       </p>
@@ -55,7 +55,7 @@ export function SetupTokenEntry({ onConnected }: Props) {
         disabled={loading || !token.trim()}
         style={{
           width: '100%', padding: '9px 16px', borderRadius: 4,
-          background: '#D4A85A', color: '#0E1013',
+          background: 'var(--color-ch-accent, #C8D1D9)', color: '#0E1013',
           border: 'none', fontSize: 13, fontWeight: 500,
           cursor: 'pointer', opacity: (loading || !token.trim()) ? 0.5 : 1,
         }}

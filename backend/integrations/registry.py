@@ -56,9 +56,10 @@ AVAILABLE_INTEGRATIONS = {
     },
     "crm_lite": {
         "name": "CRM",
-        "description": "Built-in CRM — contacts, deals, tasks, pipeline tracking",
+        "description": "Built-in CRM — always available. Hide from nav if not needed.",
         "icon": "📋",
         "auth_type": "none",
+        "always_on": True,
     },
     "telegram": {
         "name": "Telegram",
@@ -133,6 +134,26 @@ def disable(name: str) -> None:
     save_credentials(name, creds)
 
 
+def is_hidden(name: str) -> bool:
+    """Check if an integration is hidden from the UI."""
+    creds = get_credentials(name)
+    return bool(creds.get("hidden", False))
+
+
+def set_hidden(name: str, hidden: bool) -> None:
+    """Show or hide an integration in the UI."""
+    creds = get_credentials(name)
+    creds["hidden"] = hidden
+    save_credentials(name, creds)
+
+
+def ensure_crm_active() -> None:
+    """Ensure CRM Lite is always configured and enabled on startup."""
+    creds = get_credentials("crm_lite")
+    if not creds or not creds.get("enabled"):
+        save_credentials("crm_lite", {**creds, "enabled": True})
+
+
 def get_tool_mode(name: str) -> str:
     """Get the tool_mode ceiling for an integration. Default: 'normal' (approval)."""
     creds = get_credentials(name)
@@ -153,11 +174,13 @@ def list_integrations() -> list[dict]:
     result = []
     for key, meta in AVAILABLE_INTEGRATIONS.items():
         creds = get_credentials(key)
+        always_on = meta.get("always_on", False)
         entry = {
             "id": key,
             **meta,
-            "enabled": bool(creds.get("enabled", False)),
-            "configured": bool(creds),
+            "enabled": True if always_on else bool(creds.get("enabled", False)),
+            "configured": True if always_on else bool(creds),
+            "hidden": bool(creds.get("hidden", False)),
             "connection_status": creds.get("connection_status", "ok") if creds else "ok",
             "tool_mode": creds.get("tool_mode", "normal"),
         }

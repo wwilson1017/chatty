@@ -3,6 +3,7 @@ import { NavLink, Outlet, useNavigate } from 'react-router-dom';
 import { api } from '../core/api/client';
 import { useIsMobile } from '../shared/useIsMobile';
 import { MobileMenuDrawer } from '../shared/MobileMenuDrawer';
+import { INK, INK_SOFT, INK_MUTE, LINE, LINE_STRONG, ACCENT, FONT_DISPLAY } from '../shared/styles';
 
 const NAV_ITEMS = [
   { to: '/crm', label: 'Dashboard', end: true },
@@ -80,43 +81,49 @@ export function CrmLayout() {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
       <div style={{
-        borderBottom: '1px solid rgba(230,235,242,0.07)',
+        borderBottom: `1px solid ${LINE}`,
       }}>
         {/* Row 1: Title + nav tabs (desktop) or hamburger (mobile) */}
         <div style={{
-          height: 48, padding: isMobile ? '0 16px' : '0 28px',
-          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+          height: 52, padding: isMobile ? '0 16px' : '0 28px',
+          display: 'flex', alignItems: 'center',
         }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
             {isMobile && (
               <div
                 onClick={() => setShowMenu(!showMenu)}
-                style={{ cursor: 'pointer', color: 'rgba(237,240,244,0.62)', fontSize: 18 }}
+                style={{ cursor: 'pointer', color: INK_MUTE, fontSize: 18 }}
               >&#9776;</div>
             )}
             <div style={{
-              fontFamily: "'Fraunces', Georgia, serif",
-              fontSize: isMobile ? 20 : 16, letterSpacing: '-0.01em', color: '#EDF0F4',
+              fontFamily: FONT_DISPLAY,
+              fontSize: isMobile ? 20 : 18, letterSpacing: '-0.01em', color: INK,
             }}>CRM</div>
           </div>
           {!isMobile && (
-            <div style={{ display: 'flex', gap: 2 }}>
-              {NAV_ITEMS.map(item => (
-                <NavLink
-                  key={item.to}
-                  to={item.to}
-                  end={item.end}
-                  style={({ isActive }) => ({
-                    fontSize: 12, padding: '4px 12px',
-                    color: isActive ? '#EDF0F4' : 'rgba(237,240,244,0.62)',
-                    borderBottom: isActive ? '1px solid var(--color-ch-accent, #C8D1D9)' : '1px solid transparent',
-                    cursor: 'pointer', textDecoration: 'none',
-                  })}
-                >
-                  {item.label}
-                </NavLink>
-              ))}
-            </div>
+            <>
+              <div style={{
+                width: 1, height: 22, background: LINE_STRONG,
+                margin: '0 20px',
+              }} />
+              <div style={{ display: 'flex', gap: 4 }}>
+                {NAV_ITEMS.map(item => (
+                  <NavLink
+                    key={item.to}
+                    to={item.to}
+                    end={item.end}
+                    style={({ isActive }) => ({
+                      fontSize: 15, padding: '6px 14px',
+                      color: isActive ? INK : INK_SOFT,
+                      borderBottom: isActive ? `2px solid ${ACCENT}` : '2px solid transparent',
+                      cursor: 'pointer', textDecoration: 'none',
+                    })}
+                  >
+                    {item.label}
+                  </NavLink>
+                ))}
+              </div>
+            </>
           )}
         </div>
 
@@ -134,8 +141,8 @@ export function CrmLayout() {
                 end={item.end}
                 style={({ isActive }) => ({
                   fontSize: 12, padding: '8px 14px', whiteSpace: 'nowrap',
-                  color: isActive ? '#EDF0F4' : 'rgba(237,240,244,0.5)',
-                  borderBottom: isActive ? '2px solid var(--color-ch-accent, #C8D1D9)' : '2px solid transparent',
+                  color: isActive ? INK : INK_SOFT,
+                  borderBottom: isActive ? `2px solid ${ACCENT}` : '2px solid transparent',
                   cursor: 'pointer', textDecoration: 'none',
                 })}
               >

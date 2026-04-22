@@ -85,10 +85,11 @@ async def lifespan(app: FastAPI):
     from agents.db import init_db as init_agents_db
     _safe_init("agents", init_agents_db, critical=True)
 
-    from integrations.registry import is_enabled as integration_enabled
-    if integration_enabled("crm_lite"):
-        from integrations.crm_lite.db import init_db as init_crm_db
-        _safe_init("crm_lite", init_crm_db)
+    from integrations.crm_lite.db import init_db as init_crm_db
+    _safe_init("crm_lite", init_crm_db)
+
+    from integrations.registry import is_enabled as integration_enabled, ensure_crm_active
+    ensure_crm_active()
 
     if integration_enabled("qb_csv"):
         from integrations.qb_csv.db import init_db as init_qb_csv_db

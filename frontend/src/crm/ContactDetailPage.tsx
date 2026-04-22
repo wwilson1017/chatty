@@ -6,15 +6,20 @@ import { ContactForm } from './components/ContactForm';
 import { DealForm } from './components/DealForm';
 import { TaskForm } from './components/TaskForm';
 import { ActivityTimeline } from './components/ActivityTimeline';
+import { PriorityBadge } from './components/badges';
 import { STAGE_COLORS } from './constants';
 import { IconArrowLeft } from '../shared/icons';
 import { useIsMobile } from '../shared/useIsMobile';
-
-const mono = (size: number, color = 'rgba(237,240,244,0.38)') => ({
-  fontFamily: "'JetBrains Mono', ui-monospace, monospace",
-  fontSize: size, letterSpacing: '0.16em',
-  textTransform: 'uppercase' as const, color,
-});
+import {
+  INK, INK_MUTE, INK_DIM, LINE, LINE_STRONG, CORAL, SAGE,
+  ACCENT, ACCENT_INK,
+  FONT_DISPLAY, FONT_MONO,
+  mono, inputStyle,
+} from '../shared/styles';
+import {
+  cardStyle, stageCard,
+  btnSecondary, btnDanger, btnPrimary, btnSmall,
+} from './styles';
 
 export function ContactDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -68,13 +73,13 @@ export function ContactDetailPage() {
     );
   }
 
-  if (!contact) return <p style={{ color: 'rgba(237,240,244,0.62)', padding: 32 }}>Contact not found.</p>;
+  if (!contact) return <p style={{ color: INK_MUTE, padding: 32 }}>Contact not found.</p>;
 
   return (
     <div style={{ padding: isMobile ? '20px 16px' : '32px 44px', maxWidth: 900 }}>
       {/* Back link */}
       <button onClick={() => navigate('/crm/contacts')} style={{
-        background: 'none', border: 'none', color: 'rgba(237,240,244,0.38)',
+        background: 'none', border: 'none', color: INK_DIM,
         fontSize: 13, cursor: 'pointer', marginBottom: 16,
         display: 'flex', alignItems: 'center', gap: 6,
       }}>
@@ -85,32 +90,28 @@ export function ContactDetailPage() {
       <div style={{ marginBottom: isMobile ? 20 : 32 }}>
         <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }}>
           <h1 style={{
-            fontFamily: "'Fraunces', Georgia, serif",
+            fontFamily: FONT_DISPLAY,
             fontSize: isMobile ? 24 : 32, fontWeight: 400, letterSpacing: '-0.02em',
-            color: '#EDF0F4', margin: 0,
+            color: INK, margin: 0,
           }}>{contact.name}</h1>
           <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
             <button onClick={() => setShowEdit(true)} style={{
-              background: 'transparent', color: 'rgba(237,240,244,0.62)',
-              border: '1px solid rgba(230,235,242,0.14)',
-              padding: '6px 12px', borderRadius: 4, fontSize: 12, cursor: 'pointer',
+              ...btnSecondary, ...btnSmall,
             }}>Edit</button>
             <button onClick={handleDelete} style={{
-              background: 'transparent', color: '#D97757',
-              border: '1px solid rgba(217,119,87,0.2)',
-              padding: '6px 12px', borderRadius: 4, fontSize: 12, cursor: 'pointer',
+              ...btnDanger, ...btnSmall,
             }}>Delete</button>
           </div>
         </div>
         {contact.title && (
-          <p style={{ fontSize: 14, color: 'rgba(237,240,244,0.62)', marginTop: 4 }}>
+          <p style={{ fontSize: 14, color: INK_MUTE, marginTop: 4 }}>
             {contact.title}{contact.company ? ` at ${contact.company}` : ''}
           </p>
         )}
         {!contact.title && contact.company && (
-          <p style={{ fontSize: 14, color: 'rgba(237,240,244,0.62)', marginTop: 4 }}>{contact.company}</p>
+          <p style={{ fontSize: 14, color: INK_MUTE, marginTop: 4 }}>{contact.company}</p>
         )}
-        <div style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', gap: isMobile ? 4 : 16, marginTop: 8, fontSize: 13, color: 'rgba(237,240,244,0.62)' }}>
+        <div style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', gap: isMobile ? 4 : 16, marginTop: 8, fontSize: 13, color: INK_MUTE }}>
           {contact.email && <span>{contact.email}</span>}
           {contact.phone && <span>{contact.phone}</span>}
         </div>
@@ -119,8 +120,8 @@ export function ContactDetailPage() {
             {contact.tags.split(',').map(t => t.trim()).filter(Boolean).map(tag => (
               <span key={tag} style={{
                 fontSize: 10, padding: '2px 8px', borderRadius: 3,
-                background: 'rgba(245,239,227,0.06)', color: 'rgba(237,240,244,0.62)',
-                fontFamily: "'JetBrains Mono', ui-monospace, monospace",
+                background: 'rgba(245,239,227,0.06)', color: INK_MUTE,
+                fontFamily: FONT_MONO,
                 letterSpacing: '0.1em',
               }}>{tag}</span>
             ))}
@@ -131,11 +132,11 @@ export function ContactDetailPage() {
       {/* Notes */}
       {contact.notes && (
         <div style={{
-          background: 'rgba(20,24,30,0.78)', border: '1px solid rgba(230,235,242,0.07)',
-          borderRadius: 6, padding: isMobile ? 14 : 16, marginBottom: isMobile ? 20 : 24,
+          ...cardStyle,
+          padding: isMobile ? 14 : 16, marginBottom: isMobile ? 20 : 24,
         }}>
-          <p style={{ ...mono(9), marginBottom: 6 }}>Notes</p>
-          <p style={{ fontSize: 13, color: 'rgba(237,240,244,0.62)', whiteSpace: 'pre-wrap', lineHeight: 1.5, margin: 0 }}>{contact.notes}</p>
+          <p style={{ ...mono(10), marginBottom: 6 }}>Notes</p>
+          <p style={{ fontSize: 13, color: INK_MUTE, whiteSpace: 'pre-wrap', lineHeight: 1.5, margin: 0 }}>{contact.notes}</p>
         </div>
       )}
 
@@ -144,35 +145,35 @@ export function ContactDetailPage() {
         {/* Deals */}
         <div>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
-            <span style={mono(10, 'rgba(237,240,244,0.38)')}>Deals</span>
+            <span style={mono(10, INK_DIM)}>Deals</span>
             <button onClick={() => setShowAddDeal(true)} style={{
-              background: 'none', border: 'none', color: 'var(--color-ch-accent, #C8D1D9)',
+              background: 'none', border: 'none', color: ACCENT,
               fontSize: 12, cursor: 'pointer',
             }}>+ Add</button>
           </div>
-          <div style={{ borderTop: '1px solid rgba(230,235,242,0.07)' }}>
+          <div style={{ borderTop: `1px solid ${LINE}` }}>
             {!contact.deals?.length ? (
-              <p style={{ color: 'rgba(237,240,244,0.38)', fontSize: 12, padding: '16px 0' }}>No deals yet.</p>
+              <p style={{ color: INK_DIM, fontSize: 12, padding: '16px 0' }}>No deals yet.</p>
             ) : (
               contact.deals.map(d => (
                 <div key={d.id} style={{
+                  ...stageCard(
+                    STAGE_COLORS[d.stage]?.bg || 'rgba(20,24,30,0.78)',
+                    STAGE_COLORS[d.stage]?.color || 'rgba(230,235,242,0.14)',
+                  ),
                   padding: '12px 14px', marginBottom: 6,
-                  borderRadius: 6,
-                  background: STAGE_COLORS[d.stage]?.bg || 'rgba(20,24,30,0.78)',
-                  border: '1px solid rgba(230,235,242,0.07)',
-                  borderLeft: `3px solid ${STAGE_COLORS[d.stage]?.color || 'rgba(230,235,242,0.14)'}`,
                   display: 'flex', alignItems: 'center', justifyContent: 'space-between',
                 }}>
                   <div style={{ minWidth: 0, flex: 1 }}>
-                    <p style={{ fontSize: 14, color: '#EDF0F4', margin: 0 }}>{d.title}</p>
+                    <p style={{ fontSize: 14, color: INK, margin: 0 }}>{d.title}</p>
                     <span style={{
-                      ...mono(9), textTransform: 'capitalize', marginTop: 2, display: 'inline-block',
-                      color: STAGE_COLORS[d.stage]?.color || 'rgba(237,240,244,0.38)',
+                      ...mono(10), textTransform: 'capitalize', marginTop: 2, display: 'inline-block',
+                      color: STAGE_COLORS[d.stage]?.color || INK_DIM,
                     }}>{d.stage}</span>
                   </div>
                   <span style={{
-                    fontFamily: "'Fraunces', Georgia, serif",
-                    fontSize: 16, color: '#EDF0F4', flexShrink: 0, marginLeft: 12,
+                    fontFamily: FONT_DISPLAY,
+                    fontSize: 16, color: INK, flexShrink: 0, marginLeft: 12,
                   }}>${d.value.toLocaleString()}</span>
                 </div>
               ))
@@ -183,36 +184,36 @@ export function ContactDetailPage() {
         {/* Tasks */}
         <div>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
-            <span style={mono(10, 'rgba(237,240,244,0.38)')}>Tasks</span>
+            <span style={mono(10, INK_DIM)}>Tasks</span>
             <button onClick={() => setShowAddTask(true)} style={{
-              background: 'none', border: 'none', color: 'var(--color-ch-accent, #C8D1D9)',
+              background: 'none', border: 'none', color: ACCENT,
               fontSize: 12, cursor: 'pointer',
             }}>+ Add</button>
           </div>
-          <div style={{ borderTop: '1px solid rgba(230,235,242,0.07)' }}>
+          <div style={{ borderTop: `1px solid ${LINE}` }}>
             {!contact.tasks?.length ? (
-              <p style={{ color: 'rgba(237,240,244,0.38)', fontSize: 12, padding: '16px 0' }}>No tasks yet.</p>
+              <p style={{ color: INK_DIM, fontSize: 12, padding: '16px 0' }}>No tasks yet.</p>
             ) : (
               contact.tasks.map(t => (
                 <div key={t.id} style={{
-                  padding: '10px 0', borderBottom: '1px solid rgba(230,235,242,0.07)',
+                  padding: '10px 0', borderBottom: `1px solid ${LINE}`,
                   display: 'flex', alignItems: 'center', gap: 10,
                   opacity: t.completed ? 0.5 : 1,
                 }}>
                   <span style={{
                     width: 6, height: 6, borderRadius: '50%', flexShrink: 0,
-                    background: t.completed ? '#8EA589' : isOverdue(t.due_date) ? '#D97757' : 'rgba(237,240,244,0.38)',
+                    background: t.completed ? SAGE : isOverdue(t.due_date) ? CORAL : INK_DIM,
                   }} />
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <p style={{
                       fontSize: 13, margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-                      color: t.completed ? 'rgba(237,240,244,0.38)' : '#EDF0F4',
+                      color: t.completed ? INK_DIM : INK,
                       textDecoration: t.completed ? 'line-through' : 'none',
                     }}>{t.title}</p>
                     {t.due_date && (
                       <p style={{
                         fontSize: 11, marginTop: 2,
-                        color: isOverdue(t.due_date) && !t.completed ? '#D97757' : 'rgba(237,240,244,0.38)',
+                        color: isOverdue(t.due_date) && !t.completed ? CORAL : INK_DIM,
                       }}>{t.due_date}</p>
                     )}
                   </div>
@@ -226,16 +227,16 @@ export function ContactDetailPage() {
 
       {/* Log activity */}
       <div style={{
-        marginTop: 24, borderTop: '1px solid rgba(230,235,242,0.07)', paddingTop: 24,
+        marginTop: 24, borderTop: `1px solid ${LINE}`, paddingTop: 24,
       }}>
-        <span style={{ ...mono(10, 'rgba(237,240,244,0.38)'), display: 'block', marginBottom: 12 }}>Log Activity</span>
+        <span style={{ ...mono(10, INK_DIM), display: 'block', marginBottom: 12 }}>Log Activity</span>
         <div style={{ display: 'flex', gap: 8, marginBottom: logActivity ? 8 : 0, flexWrap: 'wrap' }}>
           {['call', 'email', 'meeting', 'note'].map(type => (
             <button key={type} onClick={() => setLogActivity(type)} style={{
               padding: '5px 12px', borderRadius: 4, fontSize: 12, textTransform: 'capitalize',
-              background: logActivity === type ? 'var(--color-ch-accent, #C8D1D9)' : 'transparent',
-              color: logActivity === type ? '#0E1013' : 'rgba(237,240,244,0.62)',
-              border: logActivity === type ? 'none' : '1px solid rgba(230,235,242,0.14)',
+              background: logActivity === type ? ACCENT : 'transparent',
+              color: logActivity === type ? ACCENT_INK : INK_MUTE,
+              border: logActivity === type ? 'none' : `1px solid ${LINE_STRONG}`,
               cursor: 'pointer',
             }}>{type}</button>
           ))}
@@ -244,15 +245,13 @@ export function ContactDetailPage() {
           <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
             <input placeholder="Add a note..." value={logNote} onChange={e => setLogNote(e.target.value)}
               style={{
-                flex: 1, background: 'rgba(34,40,48,0.55)',
-                border: '1px solid rgba(230,235,242,0.14)',
-                color: '#EDF0F4', borderRadius: 4, padding: '8px 12px', fontSize: 13, outline: 'none',
+                ...inputStyle,
+                flex: 1, width: undefined, fontSize: 13,
               }}
             />
             <button onClick={handleLogActivity} disabled={logging} style={{
-              background: 'var(--color-ch-accent, #C8D1D9)', color: '#0E1013',
-              border: 'none', padding: '8px 16px', borderRadius: 4,
-              fontSize: 13, fontWeight: 500, cursor: 'pointer',
+              ...btnPrimary,
+              padding: '8px 16px', fontSize: 13,
               opacity: logging ? 0.5 : 1,
             }}>{logging ? 'Saving...' : 'Log'}</button>
           </div>
@@ -260,8 +259,8 @@ export function ContactDetailPage() {
       </div>
 
       {/* Activity history */}
-      <div style={{ marginTop: 24, borderTop: '1px solid rgba(230,235,242,0.07)', paddingTop: 24 }}>
-        <span style={{ ...mono(10, 'rgba(237,240,244,0.38)'), display: 'block', marginBottom: 12 }}>Activity History</span>
+      <div style={{ marginTop: 24, borderTop: `1px solid ${LINE}`, paddingTop: 24 }}>
+        <span style={{ ...mono(10, INK_DIM), display: 'block', marginBottom: 12 }}>Activity History</span>
         <ActivityTimeline activities={contact.activity || []} onUpdate={load} />
       </div>
 
@@ -270,13 +269,6 @@ export function ContactDetailPage() {
       {showAddTask && <TaskForm contactId={contact.id} onClose={() => setShowAddTask(false)} onSaved={() => { setShowAddTask(false); load(); }} />}
     </div>
   );
-}
-
-function PriorityBadge({ priority }: { priority: string }) {
-  const colors: Record<string, string> = {
-    high: '#D97757', medium: '#D4A85A', low: 'rgba(237,240,244,0.38)',
-  };
-  return <span style={{ fontSize: 11, color: colors[priority] || 'rgba(237,240,244,0.38)' }}>{priority}</span>;
 }
 
 function isOverdue(date: string): boolean {

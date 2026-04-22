@@ -58,7 +58,7 @@ export function ApiKeyEntry({ provider, onConnected }: Props) {
           href={API_KEY_LINKS[provider].url}
           target="_blank"
           rel="noopener noreferrer"
-          style={{ fontSize: 12, color: '#D4A85A', textDecoration: 'none' }}
+          style={{ fontSize: 12, color: 'var(--color-ch-accent, #C8D1D9)', textDecoration: 'none' }}
         >
           {API_KEY_LINKS[provider].label} &rarr;
         </a>
@@ -68,7 +68,7 @@ export function ApiKeyEntry({ provider, onConnected }: Props) {
         disabled={loading || !key.trim()}
         style={{
           width: '100%', padding: '9px 16px', borderRadius: 4,
-          background: '#D4A85A', color: '#0E1013',
+          background: 'var(--color-ch-accent, #C8D1D9)', color: '#0E1013',
           border: 'none', fontSize: 13, fontWeight: 500,
           cursor: 'pointer', opacity: (loading || !key.trim()) ? 0.5 : 1,
         }}

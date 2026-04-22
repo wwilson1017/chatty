@@ -12,6 +12,7 @@
 
   --color-ch-ink: #EDF0F4;
   --color-ch-ink-mute: rgba(237, 240, 244, 0.62);
+  --color-ch-ink-soft: rgba(237, 240, 244, 0.50);
   --color-ch-ink-dim: rgba(237, 240, 244, 0.38);
 
   --color-ch-accent: var(--brand-color, #C8D1D9);

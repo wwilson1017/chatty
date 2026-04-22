@@ -1,3 +1,5 @@
+export const STAGE_ORDER = ['lead', 'qualified', 'proposal', 'negotiation', 'won', 'lost'];
+
 export const STAGE_COLORS: Record<string, { color: string; bg: string }> = {
   lead: { color: '#7B9EC4', bg: 'rgba(123,158,196,0.10)' },
   qualified: { color: '#C8D1D9', bg: 'rgba(200,209,217,0.10)' },

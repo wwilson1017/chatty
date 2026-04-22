@@ -4,16 +4,18 @@ import { api } from '../core/api/client';
 import type { CrmContact } from '../core/types';
 import { ContactForm } from './components/ContactForm';
 import { SmartImportModal } from './components/SmartImportModal';
+import { StatusBadge } from './components/badges';
 import { IconPlus, IconSearch } from '../shared/icons';
 import { useIsMobile } from '../shared/useIsMobile';
+import { INK, INK_MUTE, INK_DIM, LINE, BG_RAISED, FONT_SANS, mono } from '../shared/styles';
+import {
+  pageHeading, cardStyle, filterTab,
+  tableHeader, tableRow, btnPrimary, btnSecondary, btnSmall,
+} from './styles';
 
 const STATUS_TABS = ['all', 'active', 'inactive', 'archived'] as const;
 
-const mono = (size: number, color = 'rgba(237,240,244,0.38)') => ({
-  fontFamily: "'JetBrains Mono', ui-monospace, monospace",
-  fontSize: size, letterSpacing: '0.16em',
-  textTransform: 'uppercase' as const, color,
-});
+const COLS = '2fr 1.5fr 2fr 1.2fr 80px';
 
 export function ContactsPage() {
   const [contacts, setContacts] = useState<CrmContact[]>([]);
@@ -46,22 +48,13 @@ export function ContactsPage() {
   return (
     <div style={{ padding: isMobile ? '20px 16px' : '32px 44px', maxWidth: 1000 }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: isMobile ? 16 : 24 }}>
-        <h1 style={{
-          fontFamily: "'Fraunces', Georgia, serif",
-          fontSize: isMobile ? 24 : 32, fontWeight: 400, letterSpacing: '-0.02em',
-          color: '#EDF0F4', margin: 0,
-        }}>Contacts</h1>
+        <h1 style={pageHeading(isMobile)}>Contacts</h1>
         <div style={{ display: 'flex', gap: 8 }}>
           <button onClick={() => setShowImport(true)} style={{
-            background: 'transparent', color: 'rgba(237,240,244,0.62)',
-            border: '1px solid rgba(230,235,242,0.14)',
-            padding: '7px 14px', borderRadius: 4, fontSize: 13, cursor: 'pointer',
+            ...btnSecondary, ...btnSmall,
           }}>{isMobile ? 'Import' : 'Import Contacts'}</button>
           <button onClick={() => setShowCreate(true)} style={{
-            background: 'var(--color-ch-accent, #C8D1D9)', color: '#0E1013',
-            border: 'none', padding: '7px 14px', borderRadius: 4,
-            fontSize: 13, fontWeight: 500, cursor: 'pointer',
-            display: 'flex', alignItems: 'center', gap: 6,
+            ...btnPrimary, ...btnSmall,
           }}>
             <IconPlus size={13} strokeWidth={2.25} /> {isMobile ? 'Add' : 'Add Contact'}
           </button>
@@ -72,31 +65,27 @@ export function ContactsPage() {
       <div style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', gap: 12, marginBottom: isMobile ? 16 : 24 }}>
         <div style={{
           flex: 1, display: 'flex', alignItems: 'center', gap: 8,
-          background: 'rgba(34,40,48,0.55)', border: '1px solid rgba(230,235,242,0.07)',
+          background: BG_RAISED, border: `1px solid ${LINE}`,
           borderRadius: 4, padding: '0 12px',
         }}>
-          <IconSearch size={14} strokeWidth={1.85} style={{ color: 'rgba(237,240,244,0.38)' }} />
+          <IconSearch size={14} strokeWidth={1.85} style={{ color: INK_DIM }} />
           <input type="text" placeholder="Search contacts..." value={search} onChange={e => setSearch(e.target.value)}
             style={{
-              flex: 1, background: 'transparent', border: 'none', color: '#EDF0F4',
+              flex: 1, background: 'transparent', border: 'none', color: INK,
               padding: '9px 0', fontSize: 13, outline: 'none',
-              fontFamily: "'Inter Tight', system-ui, sans-serif",
+              fontFamily: FONT_SANS,
             }}
           />
         </div>
         <div style={{
-          display: 'flex', border: '1px solid rgba(230,235,242,0.07)',
-          borderRadius: 4, overflow: 'hidden', flexShrink: 0,
+          display: 'flex', gap: 0, flexShrink: 0,
         }}>
-          {STATUS_TABS.map(tab => (
-            <button key={tab} onClick={() => setStatus(tab)} style={{
-              padding: isMobile ? '8px 10px' : '8px 14px', fontSize: 11, textTransform: 'capitalize',
-              color: status === tab ? '#0E1013' : 'rgba(237,240,244,0.62)',
-              background: status === tab ? 'var(--color-ch-accent, #C8D1D9)' : 'transparent',
-              border: 'none', cursor: 'pointer', flex: isMobile ? 1 : undefined,
-              fontFamily: "'Inter Tight', system-ui, sans-serif",
-            }}>{tab}</button>
-          ))}
+          {STATUS_TABS.map(tab => {
+            const isActive = status === tab;
+            return (
+              <button key={tab} onClick={() => setStatus(tab)} style={filterTab(isMobile, isActive)}>{tab}</button>
+            );
+          })}
         </div>
       </div>
 
@@ -106,60 +95,49 @@ export function ContactsPage() {
         </div>
       ) : contacts.length === 0 ? (
         <div style={{ textAlign: 'center', padding: '64px 0' }}>
-          <p style={{ color: 'rgba(237,240,244,0.38)', fontSize: 14 }}>
+          <p style={{ color: INK_DIM, fontSize: 14 }}>
             {search ? 'No contacts match your search.' : 'No contacts yet. Add your first one!'}
           </p>
         </div>
       ) : (
         <>
-          <p style={{ ...mono(9), marginBottom: 12 }}>{total} contact{total !== 1 ? 's' : ''}</p>
+          <p style={{ ...mono(12), marginBottom: 12 }}>{total} contact{total !== 1 ? 's' : ''}</p>
           {isMobile ? (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
               {contacts.map(c => (
                 <div key={c.id} onClick={() => navigate(`/crm/contacts/${c.id}`)}
                   style={{
                     padding: '12px 14px', cursor: 'pointer',
-                    background: 'rgba(20,24,30,0.78)',
-                    border: '1px solid rgba(230,235,242,0.07)',
-                    borderRadius: 6,
+                    ...cardStyle,
                   }}
                 >
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
-                    <span style={{ fontSize: 14, color: '#EDF0F4' }}>{c.name}</span>
+                    <span style={{ fontSize: 16, color: INK }}>{c.name}</span>
                     <StatusBadge status={c.status} />
                   </div>
-                  {c.company && <div style={{ fontSize: 12, color: 'rgba(237,240,244,0.62)', marginBottom: 2 }}>{c.company}</div>}
-                  {c.email && <div style={{ fontSize: 12, color: 'rgba(237,240,244,0.38)' }}>{c.email}</div>}
+                  {c.company && <div style={{ fontSize: 14, color: INK_MUTE, marginBottom: 2 }}>{c.company}</div>}
+                  {c.email && <div style={{ fontSize: 14, color: INK_DIM }}>{c.email}</div>}
                 </div>
               ))}
             </div>
           ) : (
-            <div style={{ borderTop: '1px solid rgba(230,235,242,0.07)' }}>
-              <div style={{
-                display: 'grid', gridTemplateColumns: '2fr 1.5fr 2fr 1.2fr 80px',
-                gap: 16, padding: '10px 16px',
-                borderBottom: '1px solid rgba(230,235,242,0.07)',
-                ...mono(9),
-              }}>
+            <div style={{ borderTop: `1px solid ${LINE}` }}>
+              <div style={tableHeader(COLS)}>
                 <span>Name</span><span>Company</span><span>Email</span><span>Phone</span><span>Status</span>
               </div>
               {contacts.map(c => (
                 <div key={c.id} onClick={() => navigate(`/crm/contacts/${c.id}`)}
-                  style={{
-                    display: 'grid', gridTemplateColumns: '2fr 1.5fr 2fr 1.2fr 80px',
-                    gap: 16, padding: '12px 16px', cursor: 'pointer',
-                    borderBottom: '1px solid rgba(230,235,242,0.07)',
-                  }}
+                  style={tableRow(COLS)}
                   onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = 'rgba(200,209,217,0.04)'; }}
                   onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = 'transparent'; }}
                 >
                   <div>
-                    <p style={{ fontSize: 14, color: '#EDF0F4', margin: 0 }}>{c.name}</p>
-                    {c.title && <p style={{ fontSize: 11, color: 'rgba(237,240,244,0.38)', marginTop: 2 }}>{c.title}</p>}
+                    <p style={{ fontSize: 16, color: INK, margin: 0 }}>{c.name}</p>
+                    {c.title && <p style={{ fontSize: 13, color: INK_DIM, marginTop: 2 }}>{c.title}</p>}
                   </div>
-                  <span style={{ fontSize: 13, color: 'rgba(237,240,244,0.62)', alignSelf: 'center' }}>{c.company || '—'}</span>
-                  <span style={{ fontSize: 13, color: 'rgba(237,240,244,0.62)', alignSelf: 'center' }}>{c.email || '—'}</span>
-                  <span style={{ fontSize: 13, color: 'rgba(237,240,244,0.62)', alignSelf: 'center' }}>{c.phone || '—'}</span>
+                  <span style={{ fontSize: 15, color: INK_MUTE, alignSelf: 'center' }}>{c.company || '\u2014'}</span>
+                  <span style={{ fontSize: 15, color: INK_MUTE, alignSelf: 'center' }}>{c.email || '\u2014'}</span>
+                  <span style={{ fontSize: 15, color: INK_MUTE, alignSelf: 'center' }}>{c.phone || '\u2014'}</span>
                   <span style={{ alignSelf: 'center' }}><StatusBadge status={c.status} /></span>
                 </div>
               ))}
@@ -171,22 +149,5 @@ export function ContactsPage() {
       {showCreate && <ContactForm onClose={() => setShowCreate(false)} onSaved={() => { setShowCreate(false); load(); }} />}
       {showImport && <SmartImportModal onClose={() => setShowImport(false)} onImported={() => { setShowImport(false); load(); }} />}
     </div>
-  );
-}
-
-function StatusBadge({ status }: { status: string }) {
-  const colors: Record<string, { bg: string; color: string }> = {
-    active: { bg: 'rgba(142,165,137,0.12)', color: '#8EA589' },
-    inactive: { bg: 'rgba(230,235,242,0.06)', color: 'rgba(237,240,244,0.38)' },
-    archived: { bg: 'rgba(217,119,87,0.08)', color: '#D97757' },
-  };
-  const c = colors[status] || colors.inactive;
-  return (
-    <span style={{
-      fontSize: 10, padding: '2px 8px', borderRadius: 3,
-      background: c.bg, color: c.color, textTransform: 'capitalize',
-      fontFamily: "'JetBrains Mono', ui-monospace, monospace",
-      letterSpacing: '0.1em',
-    }}>{status}</span>
   );
 }

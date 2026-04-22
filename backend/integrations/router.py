@@ -16,7 +16,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
 from core.auth import get_current_user
-from .registry import list_integrations, enable, disable, is_enabled
+from .registry import list_integrations, enable, disable, is_enabled, set_hidden
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -70,8 +70,34 @@ async def disable_integration(name: str, user=Depends(get_current_user)):
     integrations = {i["id"]: i for i in list_integrations()}
     if name not in integrations:
         raise HTTPException(status_code=404, detail=f"Unknown integration: {name}")
+    if integrations[name].get("always_on"):
+        raise HTTPException(status_code=400, detail="Always-on integrations cannot be disabled")
     disable(name)
     return {"ok": True, "integration": name, "enabled": False}
+
+
+@router.post("/{name}/hide")
+async def hide_integration(name: str, user=Depends(get_current_user)):
+    """Hide an always-on integration from the UI."""
+    integrations = {i["id"]: i for i in list_integrations()}
+    if name not in integrations:
+        raise HTTPException(status_code=404, detail=f"Unknown integration: {name}")
+    if not integrations[name].get("always_on"):
+        raise HTTPException(status_code=400, detail="Only always-on integrations can be hidden")
+    set_hidden(name, True)
+    return {"ok": True, "integration": name, "hidden": True}
+
+
+@router.post("/{name}/show")
+async def show_integration(name: str, user=Depends(get_current_user)):
+    """Show a hidden always-on integration in the UI."""
+    integrations = {i["id"]: i for i in list_integrations()}
+    if name not in integrations:
+        raise HTTPException(status_code=404, detail=f"Unknown integration: {name}")
+    if not integrations[name].get("always_on"):
+        raise HTTPException(status_code=400, detail="Only always-on integrations can be shown")
+    set_hidden(name, False)
+    return {"ok": True, "integration": name, "hidden": False}
 
 
 @router.post("/{name}/tool-mode")
