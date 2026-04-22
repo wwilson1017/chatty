@@ -9,7 +9,7 @@ import { IconPlus, IconSearch } from '../shared/icons';
 import { useIsMobile } from '../shared/useIsMobile';
 import { INK, INK_MUTE, INK_DIM, LINE, BG_RAISED, FONT_SANS, mono } from '../shared/styles';
 import {
-  pageHeading, cardStyle, filterBar, filterTab,
+  pageHeading, cardStyle, filterTab,
   tableHeader, tableRow, btnPrimary, btnSecondary, btnSmall,
 } from './styles';
 

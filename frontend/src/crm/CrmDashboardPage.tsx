@@ -10,7 +10,7 @@ import { WarmHalo } from '../shared/WarmHalo';
 import { useIsMobile } from '../shared/useIsMobile';
 import {
   INK, INK_MUTE, INK_SOFT, INK_DIM, LINE,
-  GOLD, FONT_DISPLAY, FONT_SANS,
+  GOLD, FONT_DISPLAY,
   mono, formatNumber,
 } from '../shared/styles';
 import { sectionHeading, btnSecondary } from './styles';

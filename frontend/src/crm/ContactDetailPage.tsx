@@ -12,7 +12,7 @@ import { IconArrowLeft } from '../shared/icons';
 import { useIsMobile } from '../shared/useIsMobile';
 import {
   INK, INK_MUTE, INK_DIM, LINE, LINE_STRONG, CORAL, SAGE,
-  BG_RAISED, ACCENT, ACCENT_INK,
+  ACCENT, ACCENT_INK,
   FONT_DISPLAY, FONT_MONO,
   mono, inputStyle,
 } from '../shared/styles';

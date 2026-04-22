@@ -4,7 +4,7 @@ import { api } from '../../core/api/client';
 import { useIsMobile } from '../../shared/useIsMobile';
 import type { CrmActivity } from '../../core/types';
 import { IconPhone, IconMail, IconUsers, IconFile } from '../../shared/icons';
-import { mono, INK, INK_MUTE, INK_SOFT, INK_DIM, LINE, LINE_STRONG, BG_RAISED, ACCENT, ACCENT_INK, CORAL, FONT_DISPLAY, FONT_SANS } from '../../shared/styles';
+import { mono, INK, INK_MUTE, INK_SOFT, INK_DIM, LINE, LINE_STRONG, BG_RAISED, ACCENT, ACCENT_INK, FONT_DISPLAY, FONT_SANS } from '../../shared/styles';
 import { modalOverlay, modalContent, mobileDragHandle, btnDanger } from '../styles';
 
 const ACTIVITY_ICONS: Record<string, React.ComponentType<{ size?: number; strokeWidth?: number }>> = {

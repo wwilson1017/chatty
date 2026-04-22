@@ -70,6 +70,8 @@ async def disable_integration(name: str, user=Depends(get_current_user)):
     integrations = {i["id"]: i for i in list_integrations()}
     if name not in integrations:
         raise HTTPException(status_code=404, detail=f"Unknown integration: {name}")
+    if integrations[name].get("always_on"):
+        raise HTTPException(status_code=400, detail="Always-on integrations cannot be disabled")
     disable(name)
     return {"ok": True, "integration": name, "enabled": False}
 
