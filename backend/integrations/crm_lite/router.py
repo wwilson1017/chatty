@@ -140,7 +140,7 @@ class ActivityCreate(BaseModel):
 
 @router.get("/contacts")
 async def list_contacts(
-    q: str = "", status: str = "", limit: int = 50, offset: int = 0,
+    q: str = "", status: str = "", limit: int = Query(50, ge=1, le=1000), offset: int = Query(0, ge=0),
     user=Depends(_require_crm),
 ):
     if q:
@@ -227,7 +227,7 @@ async def update_deal(deal_id: int, body: DealUpdate, user=Depends(_require_crm)
 async def list_tasks(
     contact_id: int | None = None, deal_id: int | None = None,
     completed: bool | None = None, due_before: str = "",
-    priority: str = "", limit: int = 50,
+    priority: str = "", limit: int = Query(50, ge=1, le=1000),
     user=Depends(_require_crm),
 ):
     tasks = crm.list_tasks(
@@ -276,7 +276,7 @@ async def delete_task(task_id: int, user=Depends(_require_crm)):
 @router.get("/activity")
 async def get_activity(
     contact_id: int | None = None, deal_id: int | None = None,
-    limit: int = 20, user=Depends(_require_crm),
+    limit: int = Query(20, ge=1, le=1000), user=Depends(_require_crm),
 ):
     activities = crm.get_activity_log(contact_id=contact_id, deal_id=deal_id, limit=limit)
     return {"activities": activities, "count": len(activities)}
@@ -418,7 +418,8 @@ async def import_csv(file: UploadFile = File(...), user=Depends(_require_crm)):
             )
             imported += 1
         except Exception as e:
-            errors.append(f"Row {i}: {e}")
+            logger.debug("CSV import row %d failed: %s", i, e)
+            errors.append(f"Row {i}: could not import — check the data and try again")
             if len(errors) > 50:
                 break
 
@@ -490,7 +491,8 @@ async def smart_import_confirm(body: SmartImportConfirm, user=Depends(_require_c
             )
             imported += 1
         except Exception as e:
-            errors.append(f"Contact {i + 1}: {e}")
+            logger.debug("Smart import contact %d failed: %s", i + 1, e)
+            errors.append(f"Contact {i + 1}: could not import — check the data and try again")
             if len(errors) > 50:
                 break
 

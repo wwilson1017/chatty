@@ -55,6 +55,11 @@ def _check_ssrf(url: str) -> str | None:
     """Reject URLs that resolve to private/internal IPs. Returns error message or None."""
     parsed = urlparse(url)
     host = parsed.hostname or ""
+    return _validate_host(host)
+
+
+def _validate_host(host: str) -> str | None:
+    """Resolve host and reject private/internal IPs. Returns error or None."""
     try:
         addrs = socket.getaddrinfo(host, None)
     except socket.gaierror:
@@ -101,6 +106,9 @@ class _TimeoutSafeTransport(xmlrpc.client.SafeTransport):
 def _try_xmlrpc_db_list(url: str) -> list[str] | None:
     """Returns None if unavailable."""
     try:
+        host = urlparse(url).hostname or ""
+        if _validate_host(host):
+            return None
         transport = _TimeoutSafeTransport(5) if url.startswith("https") else _TimeoutTransport(5)
         proxy = xmlrpc.client.ServerProxy(f"{url}/xmlrpc/2/db", transport=transport)
         result = proxy.list()
@@ -119,6 +127,9 @@ def _try_xmlrpc_db_list(url: str) -> list[str] | None:
 def _try_jsonrpc_db_list(url: str) -> list[str] | None:
     """Returns None if unavailable."""
     try:
+        host = urlparse(url).hostname or ""
+        if _validate_host(host):
+            return None
         resp = httpx.post(
             f"{url}/web/database/list",
             json={"jsonrpc": "2.0", "method": "call", "params": {}},

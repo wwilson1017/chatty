@@ -61,10 +61,7 @@ export function modalContent(isMobile: boolean, maxWidth = 480): CSSProperties {
   };
 }
 
-export const formModalOverlay: CSSProperties = {
-  position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)',
-  display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50,
-};
+export const formModalOverlay: CSSProperties = modalOverlay(false);
 
 export function formModalContent(maxWidth = 420): CSSProperties {
   return {
