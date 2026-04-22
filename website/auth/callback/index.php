@@ -2,9 +2,10 @@
 /**
  * Chatty OAuth Callback Proxy
  *
- * Receives Google's OAuth callback and redirects the auth code to the
- * originating Chatty instance. The instance's callback URL is encoded
- * in the state parameter as: {flow_id}:{base64url(callback_url)}
+ * Universal callback proxy for all OAuth providers (Google, Intuit/QuickBooks,
+ * OpenAI). Receives the provider's callback and redirects the auth code to the
+ * originating Chatty instance. The instance's callback URL is encoded in the
+ * state parameter as: {flow_id}:{base64url(callback_url)}
  */
 
 $ALLOWED_DOMAIN_PATTERNS = [

@@ -6,8 +6,9 @@ authorizes. Exchanges the authorization code for tokens server-side, then
 stashes them on an OAuthFlow object keyed by state/flow_id. The frontend
 polls `/api/oauth/flows/{flow_id}/status` to know when to proceed.
 
-This replaces the old localhost:9876 HTTP server pattern so OAuth works
-on cloud deployments (Railway) as well as local dev.
+All OAuth flows route through the auth.mechatty.com proxy by default,
+which forwards the callback here. This works for both local dev and
+cloud deployments.
 """
 
 import html

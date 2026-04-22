@@ -31,11 +31,11 @@ This guide walks you through connecting your QuickBooks Online account to Chatty
 1. On the Keys and credentials page, click the **redirect urls** link (or go to **Settings** in the left sidebar)
 2. Add the following redirect URI:
    ```
-   http://localhost:9876/oauth/callback
+   https://auth.mechatty.com/callback
    ```
 3. Click **Save**
 
-> **Note:** If you've deployed Chatty to Railway or another host, you still use the localhost redirect URI. The OAuth flow opens a browser on your local machine and captures the callback locally.
+> **Note:** This is the same redirect URI for all Chatty instances — local dev and Railway. The auth.mechatty.com proxy securely forwards the OAuth callback to your specific instance. If you're hosting on a different platform, see [Domain Allowlist](#domain-allowlist) below.
 
 ## Step 5: Add Credentials to Chatty
 
@@ -100,3 +100,24 @@ You're likely using Development credentials with the production API URL (or vice
 
 ### Token expired
 QuickBooks access tokens expire after 1 hour. Chatty automatically refreshes them using the refresh token. If refresh fails, reconnect QuickBooks through Settings > Integrations.
+
+## Domain Allowlist
+
+The auth.mechatty.com OAuth proxy validates that callbacks are only forwarded to trusted domains. Currently allowed:
+
+- `*.up.railway.app` — Railway deployments
+- `localhost` / `127.0.0.1` — local development
+
+If you're hosting Chatty on a different domain, the proxy will reject the callback with "Callback domain not allowed." To add your domain, open a pull request adding your domain pattern to `website/auth/callback/index.php`, or message Will directly on [WhatsApp](https://wa.me/qr/TX3OGA6ME6LHD1).
+
+### Advanced: Direct OAuth (bypassing the proxy)
+
+If you prefer not to use the proxy, you can configure QuickBooks OAuth to redirect directly to your instance:
+
+1. In the Intuit developer portal, create your own app and set the redirect URI to `https://your-domain.com/api/oauth/callback`
+2. In your `.env` file, set:
+   ```env
+   OAUTH_REDIRECT_URI=https://your-domain.com/api/oauth/callback
+   ```
+
+This bypasses the proxy entirely — your Intuit app redirects directly to your backend.
