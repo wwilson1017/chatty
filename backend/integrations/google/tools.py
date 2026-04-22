@@ -75,7 +75,7 @@ def download_email_attachment(message_id: str, filename: str, cache_dir: str | N
     import base64 as b64
 
     from integrations.google.client import get_gmail_service as _get_svc, call_with_refresh, GoogleAuthError
-    from integrations.odoo.tools.pdf_tools import (
+    from core.agents.tools.text_extraction import (
         classify_mimetype, is_text_extractable, extract_text,
         MAX_FILE_SIZE,
     )
