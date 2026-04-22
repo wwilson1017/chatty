@@ -20,11 +20,15 @@ from core.agents.tools.context_tools import (
 from integrations.google.tools import (
     # Gmail
     create_draft,
+    download_email_attachment,
     get_email,
     get_email_thread,
+    mark_email_as_read,
     reply_to_email,
+    reply_to_email_with_attachment,
     search_emails,
     send_email,
+    send_email_with_attachment,
     # Calendar
     create_calendar_event,
     delete_calendar_event,
@@ -34,10 +38,15 @@ from integrations.google.tools import (
     search_calendar_events,
     update_calendar_event,
     # Drive
-    get_drive_file_content,
-    list_drive_files,
+    copy_drive_file,
+    create_drive_file,
+    create_drive_folder,
+    get_drive_file_info,
+    list_drive_folder,
+    move_drive_file,
+    read_drive_file_content,
+    rename_drive_file,
     search_drive_files,
-    upload_drive_file,
 )
 from core.agents.tools.web_tools import web_search, web_fetch
 from core.agents.tools.real_tools import (
@@ -81,6 +90,7 @@ class ToolRegistry:
         self.agent_data_dir = agent_data_dir
         self.real_tools_dir = str(Path(agent_data_dir) / "real_tools")
         self.reports_dir = str(Path(agent_data_dir) / "reports")
+        self.file_cache_dir = str(Path(agent_data_dir) / "file_cache")
 
         # Shared context data dir
         self.shared_data_dir = str(Path(agent_data_dir).parent.parent / "shared")
@@ -249,6 +259,33 @@ class ToolRegistry:
                 to=args["to"], subject=args["subject"], body=args["body"],
                 cc=args.get("cc", ""), bcc=args.get("bcc", ""),
             )
+        elif tool_name == "mark_email_as_read":
+            return mark_email_as_read(message_id=args["message_id"])
+        elif tool_name == "download_email_attachment":
+            return download_email_attachment(
+                message_id=args["message_id"], filename=args["filename"],
+                cache_dir=self.file_cache_dir,
+            )
+        elif tool_name == "send_email_with_attachment":
+            return send_email_with_attachment(
+                to=args["to"], subject=args["subject"], body=args["body"],
+                attachment_filename=args.get("attachment_filename", ""),
+                attachment_base64=args.get("attachment_base64", ""),
+                attachment_mime_type=args.get("attachment_mime_type", "application/pdf"),
+                cc=args.get("cc", ""), bcc=args.get("bcc", ""),
+                file_ref=args.get("file_ref", ""),
+                cache_dir=self.file_cache_dir,
+            )
+        elif tool_name == "reply_to_email_with_attachment":
+            return reply_to_email_with_attachment(
+                message_id=args["message_id"], body=args["body"],
+                attachment_filename=args.get("attachment_filename", ""),
+                attachment_base64=args.get("attachment_base64", ""),
+                attachment_mime_type=args.get("attachment_mime_type", "application/pdf"),
+                reply_all=args.get("reply_all", False),
+                file_ref=args.get("file_ref", ""),
+                cache_dir=self.file_cache_dir,
+            )
         return {"error": f"Unknown gmail tool: {tool_name}"}
 
     def _execute_calendar(self, tool_name: str, args: dict) -> dict:
@@ -308,28 +345,50 @@ class ToolRegistry:
         if not self.google_connected:
             return {"error": "Google not connected. Connect at Settings → Integrations → Google.",
                     "needs_reconnect": True}
-        if tool_name == "list_drive_files":
-            return list_drive_files(
-                query=args.get("query", ""),
-                folder_id=args.get("folder_id", ""),
-                max_results=args.get("max_results", 20),
-            )
-        elif tool_name == "search_drive_files":
+        if tool_name == "search_drive_files":
             return search_drive_files(
-                name_contains=args.get("name_contains", ""),
-                mime_type=args.get("mime_type", ""),
+                query=args["query"],
                 max_results=args.get("max_results", 20),
             )
-        elif tool_name == "get_drive_file_content":
-            return get_drive_file_content(
-                file_id=args["file_id"],
-                as_format=args.get("as_format", "default"),
+        elif tool_name == "list_drive_folder":
+            return list_drive_folder(
+                folder_id=args.get("folder_id", "root"),
+                max_results=args.get("max_results", 50),
             )
-        elif tool_name == "upload_drive_file":
-            return upload_drive_file(
-                filename=args["filename"], content=args["content"],
-                mime_type=args.get("mime_type", "text/plain"),
-                parent_folder_id=args.get("parent_folder_id", ""),
+        elif tool_name == "get_drive_file_info":
+            return get_drive_file_info(file_id=args["file_id"])
+        elif tool_name == "read_drive_file_content":
+            return read_drive_file_content(
+                file_id=args["file_id"],
+                max_chars=args.get("max_chars", 50000),
+            )
+        elif tool_name == "create_drive_folder":
+            return create_drive_folder(
+                name=args["name"],
+                parent_folder_id=args.get("parent_folder_id", "root"),
+            )
+        elif tool_name == "create_drive_file":
+            return create_drive_file(
+                name=args["name"],
+                content=args.get("content", ""),
+                file_type=args.get("file_type", "document"),
+                folder_id=args.get("folder_id", "root"),
+            )
+        elif tool_name == "move_drive_file":
+            return move_drive_file(
+                file_id=args["file_id"],
+                new_parent_id=args["new_parent_id"],
+            )
+        elif tool_name == "rename_drive_file":
+            return rename_drive_file(
+                file_id=args["file_id"],
+                new_name=args["new_name"],
+            )
+        elif tool_name == "copy_drive_file":
+            return copy_drive_file(
+                file_id=args["file_id"],
+                new_name=args.get("new_name"),
+                folder_id=args.get("folder_id"),
             )
         return {"error": f"Unknown drive tool: {tool_name}"}
 
@@ -479,11 +538,17 @@ class ToolRegistry:
             results.append(entry)
         return {"integrations": results}
 
+    _CACHE_AWARE_TOOLS = {
+        "download_odoo_pdf", "create_odoo_attachment",
+    }
+
     async def _execute_integration(self, tool_name: str, args: dict) -> dict:
         executor = self.integration_executors.get(tool_name)
         if not executor:
             return {"error": f"Integration tool not available: {tool_name}"}
         if callable(executor):
+            if tool_name in self._CACHE_AWARE_TOOLS:
+                args = {**args, "cache_dir": self.file_cache_dir}
             import asyncio
             if asyncio.iscoroutinefunction(executor):
                 return await executor(**args)
