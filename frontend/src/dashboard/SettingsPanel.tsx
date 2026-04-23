@@ -59,11 +59,11 @@ export function SettingsPanel({ branding, onBrandingUpdate, onClose }: Props) {
   ];
 
   return (
-    <div style={{
+    <div onClick={onClose} style={{
       position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)',
       display: 'flex', justifyContent: 'flex-end', zIndex: 50,
     }}>
-      <div style={{
+      <div onClick={e => e.stopPropagation()} style={{
         background: '#11141A', borderLeft: '1px solid rgba(230,235,242,0.07)',
         width: '100%', maxWidth: 520, height: '100%',
         display: 'flex', flexDirection: 'column',
