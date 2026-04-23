@@ -1,6 +1,6 @@
 # <img src="docs/chatty-logo.svg" alt="" width="28" /> Chatty
 
-A free, open-source browser-based personal AI agent platform built for professionals and small business owners.
+A free, open-source browser-based personal AI agent platform built for professionals and small business owners. Learn more at [mechatty.ai](https://mechatty.ai).
 
 Create custom AI agents with their own personality, knowledge, and tools — powered by your own API keys or local AI model. No SaaS fees, no vendor lock-in. You only pay for the AI usage you consume.
 
@@ -79,7 +79,7 @@ Chatty connects to your existing business tools so your agents can answer questi
 | [Google Drive](docs/google-drive-setup.md) | Google sign-in | Search, read, and upload files |
 | [QuickBooks Online](docs/quickbooks-setup.md) | Intuit OAuth | Invoices, estimates, payments, customers, vendors, and financial reports |
 | [QuickBooks CSV](docs/quickbooks-csv-setup.md) | One-click | Analyze exported QuickBooks CSV files — no OAuth required |
-| [CRM Lite](docs/crm-lite-setup.md) | One-click | Manage contacts, deals, tasks, and activities — built in |
+| [CRM Lite](docs/crm-lite-setup.md) | One-click | Manage contacts, deals, tasks, and activities — built in, ships with demo data you can clear when ready |
 | [Telegram](docs/telegram-setup.md) | Bot token | Chat with your agent from Telegram |
 | [WhatsApp](docs/whatsapp-setup.md) | QR code scan | Chat with your agent from WhatsApp |
 | [Odoo](docs/odoo-setup.md) | API key | Sales, inventory, accounting, HR, and more from your Odoo ERP |

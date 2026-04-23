@@ -18,6 +18,12 @@ CRM Lite is Chatty's built-in contact and deal management system. No external ac
 
 No environment variables or external credentials needed for either setup. You can also access the CRM directly from the **CRM** tab in the Chatty dashboard.
 
+## Demo Data
+
+When you first enable CRM Lite, Chatty seeds it with realistic example data — 8 contacts, 7 deals, 8 tasks, and 11 activity log entries — so you can see what a populated CRM looks like before entering your own data. The demo data uses a fictional bakery business with sample customers, suppliers, and deals at various pipeline stages.
+
+While demo data is active, a banner appears in the CRM view. Click **Clear demo data** to wipe it and start fresh with an empty CRM. Once cleared, the demo data is gone permanently — your real data is never mixed with it.
+
 ## What Your Agents Can Do
 
 Your agents can manage your full sales pipeline through conversation:
