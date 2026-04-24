@@ -85,6 +85,10 @@ def execute_import_tool(
             return _read_existing_context(args, ctx_manager)
         elif tool_name == "write_import_context":
             return _write_import_context(args, ctx_manager)
+        elif tool_name == "extract_zip":
+            return _extract_zip(args, session)
+        elif tool_name == "import_openclaw_agent":
+            return _import_openclaw_agent(args, session)
         elif tool_name == "finalize_import":
             return _finalize_import(session, ctx_manager)
         else:
@@ -149,6 +153,82 @@ def _ingest_pasted_text(
     return {
         "found": len(files),
         "files": [{"path": f.path, "size_bytes": f.size_bytes} for f in files],
+    }
+
+
+def _extract_zip(
+    args: dict,
+    session: sessions.ImportSession | None,
+) -> dict:
+    if not session:
+        return {"error": "No active import session. Please restart the import."}
+
+    filename = args.get("filename", "")
+    if not filename:
+        return {"error": "No filename provided"}
+
+    agent = None
+    try:
+        from agents import db as agent_db
+        agent = agent_db.get_agent(session.agent_id)
+    except Exception:
+        pass
+
+    if not agent:
+        return {"error": "Agent not found"}
+
+    file_cache_dir = Path(__file__).resolve().parent.parent.parent / "data" / "agents" / agent["slug"] / "file_cache"
+    zip_path = file_cache_dir / filename
+    if not zip_path.is_file():
+        return {"error": f"Zip file '{filename}' not found in uploads. Make sure you dragged a .zip file into the chat."}
+
+    from .adapters.zip import ZipSourceAdapter
+    adapter = ZipSourceAdapter(zip_path)
+
+    try:
+        session.adapter.close()
+    except Exception:
+        pass
+    session.adapter = adapter
+
+    files = adapter.list_files()
+    return {
+        "found": len(files),
+        "files": [{"path": f.path, "size_bytes": f.size_bytes} for f in files],
+        "source": f"zip:{filename}",
+    }
+
+
+def _import_openclaw_agent(
+    args: dict,
+    session: sessions.ImportSession | None,
+) -> dict:
+    if not session:
+        return {"error": "No active import session. Please restart the import."}
+
+    agent_id = args.get("agent_id", "")
+    if not agent_id:
+        return {"error": "No agent_id provided"}
+
+    from .adapters.openclaw import OpenClawFolderAdapter
+    try:
+        adapter = OpenClawFolderAdapter(agent_id)
+    except (ValueError, FileNotFoundError) as e:
+        return {"error": str(e)}
+
+    try:
+        session.adapter.close()
+    except Exception:
+        pass
+    session.adapter = adapter
+
+    info = adapter.discover()
+    files = adapter.list_files()
+    return {
+        "found": len(files),
+        "agent_name": info.agent_name,
+        "files": [{"path": f.path, "size_bytes": f.size_bytes} for f in files],
+        "source": f"openclaw:{agent_id}",
     }
 
 

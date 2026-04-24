@@ -117,6 +117,38 @@ IMPORT_TOOLS = [
         "writes": True,
     },
     {
+        "name": "extract_zip",
+        "description": "Extract a zip file of markdown files uploaded by the user. Call this when a .zip file is attached to the chat. Provide the filename of the attachment.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "filename": {
+                    "type": "string",
+                    "description": "The filename of the uploaded zip attachment",
+                },
+            },
+            "required": ["filename"],
+        },
+        "kind": "import",
+        "writes": False,
+    },
+    {
+        "name": "import_openclaw_agent",
+        "description": "Import knowledge from a specific OpenClaw agent. Use when the user picks an OpenClaw agent to import from. The agent must have been discovered via the OpenClaw auto-detection in the opening message.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "agent_id": {
+                    "type": "string",
+                    "description": "The OpenClaw agent ID (e.g. 'default', 'research-bot')",
+                },
+            },
+            "required": ["agent_id"],
+        },
+        "kind": "import",
+        "writes": False,
+    },
+    {
         "name": "finalize_import",
         "description": "Complete the import process. Call this after all files have been written. Creates a fresh conversation with a primed opener greeting and marks the agent as ready.",
         "input_schema": {

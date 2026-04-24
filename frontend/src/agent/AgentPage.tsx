@@ -73,7 +73,7 @@ export function AgentPage() {
     convs.loadConversations();
   }, [convs]);
 
-  const importCompleteRef = useRef<(id: string) => void>();
+  const importCompleteRef = useRef<((id: string) => void) | null>(null);
 
   const chat = useAgentChat(apiPrefix, {
     onTitleUpdate: handleTitleUpdate,
@@ -145,6 +145,22 @@ export function AgentPage() {
   useEffect(() => {
     convs.loadConversations();
   }, [agentId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Handle conversation from URL search params (used by import flow)
+  const importConvHandled = useRef(false);
+  useEffect(() => {
+    const convId = searchParams.get('conversation');
+    if (convId && !importConvHandled.current) {
+      importConvHandled.current = true;
+      searchParams.delete('conversation');
+      setSearchParams(searchParams, { replace: true });
+      (async () => {
+        await convs.loadConversations();
+        const msgs = await convs.selectConversation(convId);
+        if (msgs) chat.loadMessages(msgs, convId);
+      })();
+    }
+  }, [searchParams]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Handle tab from URL search params
   useEffect(() => {

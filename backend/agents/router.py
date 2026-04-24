@@ -763,17 +763,40 @@ async def agent_chat_upload(
     if not messages:
         raise HTTPException(status_code=400, detail="No messages provided")
 
+    # Detect import mode for zip support
+    import_mode = False
+    conv_id = body.get("conversation_id")
+    if conv_id:
+        chat_svc = get_chat_service(agent["slug"])
+        conv = chat_svc.get_conversation(conv_id)
+        if conv and conv.get("mode") == "import":
+            import_mode = True
+
+    allowed_ext = _ALLOWED_EXTENSIONS | ({"zip"} if import_mode else set())
+
     # Process uploaded files
     file_texts = []
     for f in files[:_MAX_FILES]:
         ext = (f.filename or "").rsplit(".", 1)[-1].lower()
-        if ext not in _ALLOWED_EXTENSIONS:
+        if ext not in allowed_ext:
             raise HTTPException(status_code=400, detail=f"File type '.{ext}' not allowed")
 
         content_bytes = await f.read()
         if len(content_bytes) > _MAX_FILE_SIZE:
             raise HTTPException(status_code=400, detail=f"File '{f.filename}' exceeds 10 MB limit")
         if not content_bytes:
+            continue
+
+        # Save zip to file_cache for extract_zip tool (import mode only)
+        if ext == "zip" and import_mode:
+            file_cache_dir = DATA_DIR / agent["slug"] / "file_cache"
+            file_cache_dir.mkdir(parents=True, exist_ok=True)
+            zip_path = file_cache_dir / (f.filename or "upload.zip")
+            zip_path.write_bytes(content_bytes)
+            file_texts.append(
+                f"[Attached zip file: {f.filename}] "
+                f"Call extract_zip with filename=\"{f.filename}\" to process it."
+            )
             continue
 
         # Convert XLSX to CSV
@@ -835,6 +858,7 @@ async def agent_chat_upload(
         agent, messages, body.get("training_mode", False), body.get("conversation_id"),
         training_type=body.get("training_type"), plan_mode=body.get("plan_mode", False),
         tool_mode=body.get("tool_mode", "normal"), approved_tool=body.get("approved_tool"),
+        import_mode=import_mode,
     )
 
 

@@ -34,6 +34,7 @@ async def start_import(body: StartImportRequest, user=Depends(get_current_user))
         raise HTTPException(status_code=400, detail="agent_name is required")
 
     agent = agent_db.create_agent(name)
+    agent_db.update_agent(agent["id"], onboarding_complete=1)
 
     # Seed only the import bootstrap file (not the full template set)
     context_dir = DATA_DIR / agent["slug"] / "context"
