@@ -79,6 +79,7 @@ export interface ContextUsage {
 
 interface Options {
   onTitleUpdate?: (convId: string, title: string) => void;
+  onImportComplete?: (newConversationId: string) => void;
 }
 
 export function useAgentChat(apiPrefix: string, options?: Options) {
@@ -274,6 +275,14 @@ export function useAgentChat(apiPrefix: string, options?: Options) {
                     : tc;
                 }),
               }));
+              if (event.tool === 'finalize_import' && event.result) {
+                try {
+                  const result = typeof event.result === 'string' ? JSON.parse(event.result) : event.result;
+                  if (result.new_conversation_id && options?.onImportComplete) {
+                    setTimeout(() => options.onImportComplete!(result.new_conversation_id), 2000);
+                  }
+                } catch { /* ignore parse errors */ }
+              }
             } else if (event.type === 'confirm' && event.tool) {
               flushPendingText();
               updateLastAssistant(last => ({

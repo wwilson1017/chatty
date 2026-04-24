@@ -22,21 +22,30 @@ class ChatHistoryService:
     def __init__(self, db: ChatHistoryDB):
         self._db = db
 
-    def create_conversation(self, source: str | None = None) -> dict:
+    def create_conversation(
+        self,
+        source: str | None = None,
+        title: str | None = None,
+        mode: str = "normal",
+    ) -> dict:
         """Create a new conversation and return it.
 
         Args:
             source: Optional platform identifier ('telegram', 'whatsapp').
                     Messaging conversations are auto-pinned.
+            title: Optional custom title. Defaults based on source.
+            mode: 'normal' or 'import'. Import-mode conversations expose
+                  import tools to the agent.
         """
         conv_id = str(uuid.uuid4())
         pinned = 1 if source else 0
-        title = {"telegram": "Telegram", "telegram-group": "Telegram Group", "whatsapp": "WhatsApp"}.get(source or "", "New conversation")
+        if title is None:
+            title = {"telegram": "Telegram", "telegram-group": "Telegram Group", "whatsapp": "WhatsApp"}.get(source or "", "New conversation")
         db = self._db.get_db()
         with self._db.write_lock():
             db.execute(
-                "INSERT INTO conversations (id, title, title_edited_by_user, source, pinned) VALUES (?, ?, ?, ?, ?)",
-                (conv_id, title, 1 if source else 0, source, pinned),
+                "INSERT INTO conversations (id, title, title_edited_by_user, source, pinned, mode) VALUES (?, ?, ?, ?, ?, ?)",
+                (conv_id, title, 1 if source else 0, source, pinned, mode),
             )
             db.commit()
         row = db.execute("SELECT * FROM conversations WHERE id = ?", (conv_id,)).fetchone()

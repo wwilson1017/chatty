@@ -469,7 +469,8 @@ async def get_avatar(agent_id: str, request: Request, token: str | None = None):
 
 def _stream_chat(agent: dict, messages: list, training_mode: bool, conversation_id: str | None,
                   training_type: str | None = None, plan_mode: bool = False,
-                  tool_mode: str = "normal", approved_tool: dict | None = None):
+                  tool_mode: str = "normal", approved_tool: dict | None = None,
+                  import_mode: bool = False):
     """Build provider, registry, and return a StreamingResponse for agent chat."""
     config = build_agent_config(agent)
     ctx_manager = get_context_manager(agent["slug"])
@@ -509,6 +510,12 @@ def _stream_chat(agent: dict, messages: list, training_mode: bool, conversation_
         scheduled_action_handlers=sa_handlers,
     )
 
+    if import_mode and conversation_id:
+        from agents.import_service.sessions import get_session_by_conversation
+        import_session = get_session_by_conversation(conversation_id)
+        if import_session:
+            registry._import_session = import_session
+
     _, anthropic_profile = store.get_active_profile(provider_override="anthropic")
     anthropic_api_key = (anthropic_profile or {}).get("key", "")
 
@@ -522,6 +529,7 @@ def _stream_chat(agent: dict, messages: list, training_mode: bool, conversation_
             training_mode=training_mode,
             training_type=training_type,
             plan_mode=plan_mode,
+            import_mode=import_mode,
             conversation_id=conversation_id,
             chat_service=chat_service,
             anthropic_api_key=anthropic_api_key,
@@ -547,9 +555,18 @@ def _stream_chat(agent: dict, messages: list, training_mode: bool, conversation_
 async def agent_chat(agent_id: str, req: ChatRequest, user=Depends(get_current_user)):
     """Stream a chat response for a specific agent."""
     agent = _get_agent_or_404(agent_id)
+
+    import_mode = False
+    if req.conversation_id:
+        chat_svc = get_chat_service(agent["slug"])
+        conv = chat_svc.get_conversation(req.conversation_id)
+        if conv and conv.get("mode") == "import":
+            import_mode = True
+
     return _stream_chat(agent, req.messages, req.training_mode, req.conversation_id,
                         training_type=req.training_type, plan_mode=req.plan_mode,
-                        tool_mode=req.tool_mode, approved_tool=req.approved_tool)
+                        tool_mode=req.tool_mode, approved_tool=req.approved_tool,
+                        import_mode=import_mode)
 
 
 # ── Per-agent: Plan mode approve/iterate ──────────────────────────────────────

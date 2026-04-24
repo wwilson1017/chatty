@@ -73,7 +73,18 @@ export function AgentPage() {
     convs.loadConversations();
   }, [convs]);
 
-  const chat = useAgentChat(apiPrefix, { onTitleUpdate: handleTitleUpdate });
+  const importCompleteRef = useRef<(id: string) => void>();
+
+  const chat = useAgentChat(apiPrefix, {
+    onTitleUpdate: handleTitleUpdate,
+    onImportComplete: (id) => importCompleteRef.current?.(id),
+  });
+
+  importCompleteRef.current = async (newConversationId: string) => {
+    await convs.loadConversations();
+    const msgs = await convs.selectConversation(newConversationId);
+    if (msgs) chat.loadMessages(msgs, newConversationId);
+  };
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const topBarVisible = useScrollDirection(scrollRef);
@@ -480,6 +491,19 @@ export function AgentPage() {
                 onSearch={convs.searchConversations}
                 onRename={convs.renameConversation}
               />
+            )}
+            {convs.conversations.find(c => c.id === convs.activeId)?.mode === 'import' && (
+              <div style={{
+                padding: '8px 16px',
+                background: 'rgba(212,168,90,0.12)',
+                borderBottom: '1px solid rgba(212,168,90,0.25)',
+                display: 'flex', alignItems: 'center', gap: 8,
+                fontFamily: "'Inter Tight', system-ui, sans-serif",
+                fontSize: 12, color: '#D4A85A',
+              }}>
+                <span style={{ fontSize: 14 }}>&#8615;</span>
+                <span>Import Mode — Your agent is importing knowledge from another system</span>
+              </div>
             )}
             <AgentChatPanel
               messages={chat.messages}

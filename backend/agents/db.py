@@ -85,6 +85,16 @@ def _setup_connection() -> None:
         except sqlite3.OperationalError:
             pass
 
+    _connection.execute("""
+        CREATE TABLE IF NOT EXISTS import_sources (
+            agent_id          TEXT PRIMARY KEY REFERENCES agents(id),
+            adapter_type      TEXT NOT NULL,
+            source_config     TEXT NOT NULL DEFAULT '{}',
+            last_imported_at  TEXT,
+            file_hashes       TEXT NOT NULL DEFAULT '{}'
+        );
+    """)
+
     _connection.commit()
     logger.info("Agent registry DB initialized at %s", DB_PATH)
 
@@ -198,6 +208,33 @@ def delete_agent(agent_id: str) -> bool:
         cursor = _get_db().execute("DELETE FROM agents WHERE id = ?", (agent_id,))
         _get_db().commit()
     return cursor.rowcount > 0
+
+
+def get_import_source(agent_id: str) -> dict | None:
+    row = _get_db().execute(
+        "SELECT * FROM import_sources WHERE agent_id = ?", (agent_id,)
+    ).fetchone()
+    return dict(row) if row else None
+
+
+def upsert_import_source(
+    agent_id: str,
+    adapter_type: str,
+    source_config: str = "{}",
+    file_hashes: str = "{}",
+) -> None:
+    with _write_lock:
+        _get_db().execute(
+            """INSERT INTO import_sources (agent_id, adapter_type, source_config, last_imported_at, file_hashes)
+               VALUES (?, ?, ?, datetime('now'), ?)
+               ON CONFLICT(agent_id) DO UPDATE SET
+                   adapter_type = excluded.adapter_type,
+                   source_config = excluded.source_config,
+                   last_imported_at = datetime('now'),
+                   file_hashes = excluded.file_hashes""",
+            (agent_id, adapter_type, source_config, file_hashes),
+        )
+        _get_db().commit()
 
 
 def close_db() -> None:

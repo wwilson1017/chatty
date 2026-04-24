@@ -492,6 +492,7 @@ async def chat(
     training_mode: bool = False,
     training_type: str | None = None,
     plan_mode: bool = False,
+    import_mode: bool = False,
     conversation_id: str | None = None,
     chat_service=None,
     anthropic_api_key: str = "",
@@ -529,6 +530,10 @@ async def chat(
     if training_mode:
         tool_mode = "power"
 
+    # Import mode forces power (user opted in at wizard start)
+    if import_mode:
+        tool_mode = "power"
+
     # Plan mode forces read-only
     if plan_mode:
         tool_mode = "read-only"
@@ -545,6 +550,7 @@ async def chat(
     tool_defs = get_tool_definitions(
         integration_tools=integration_tool_defs,
         dynamic_real_tools=dynamic_real_tools or None,
+        import_mode=import_mode,
         **google_caps,
     )
     kind_map = _build_kind_map(tool_defs)
