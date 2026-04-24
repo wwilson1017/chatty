@@ -7,6 +7,7 @@ import json
 import logging
 import os
 import re
+import uuid
 from pathlib import Path
 
 from core.agents.context_manager import ContextManager
@@ -44,7 +45,7 @@ def _safe_import_filename(filename: str) -> bool:
         return True
     if _DAILY_RE.match(filename):
         return True
-    if filename.startswith("imported-") and filename.endswith(".md"):
+    if filename.startswith("imported-") and filename.endswith(".md") and "/" not in filename:
         return True
     return False
 
@@ -53,7 +54,7 @@ def _safe_scan_path(path: str) -> Path:
     """Resolve and validate a path for scan_directory. Must be under user's home."""
     home = Path.home()
     resolved = Path(path).expanduser().resolve()
-    if not str(resolved).startswith(str(home)):
+    if not resolved.is_relative_to(home):
         raise ValueError(f"Path must be under your home directory ({home})")
     for blocked in ("/etc", "/var", "/usr", "/System", "/Library"):
         if str(resolved).startswith(blocked):
@@ -71,9 +72,9 @@ def execute_import_tool(
 ) -> dict:
     try:
         if tool_name == "scan_directory":
-            return _scan_directory(args, session, ctx_manager)
+            return _scan_directory(args, session)
         elif tool_name == "ingest_pasted_text":
-            return _ingest_pasted_text(args, session, ctx_manager)
+            return _ingest_pasted_text(args, session)
         elif tool_name == "list_import_files":
             return _list_import_files(session)
         elif tool_name == "read_import_file":
@@ -88,15 +89,20 @@ def execute_import_tool(
             return _finalize_import(session, ctx_manager)
         else:
             return {"error": f"Unknown import tool: {tool_name}"}
+    except FileNotFoundError as e:
+        logger.warning("Import tool %s: file not found: %s", tool_name, e)
+        return {"error": "File or directory not found."}
+    except ValueError as e:
+        logger.warning("Import tool %s: validation error: %s", tool_name, e)
+        return {"error": str(e)}
     except Exception as e:
         logger.exception("Import tool %s failed", tool_name)
-        return {"error": str(e)}
+        return {"error": "An unexpected error occurred. Check the server logs."}
 
 
 def _scan_directory(
     args: dict,
     session: sessions.ImportSession | None,
-    ctx_manager: ContextManager,
 ) -> dict:
     path_str = args.get("path", "")
     resolved = _safe_scan_path(path_str)
@@ -123,7 +129,6 @@ def _scan_directory(
 def _ingest_pasted_text(
     args: dict,
     session: sessions.ImportSession | None,
-    ctx_manager: ContextManager,
 ) -> dict:
     text = args.get("text", "")
     if not text.strip():
@@ -190,9 +195,11 @@ def _read_existing_context(args: dict, ctx_manager: ContextManager) -> dict:
     filename = args.get("filename", "")
     if not filename.endswith(".md"):
         return {"error": "Filename must end with .md"}
+    if "/" in filename or "\\" in filename or ".." in filename:
+        return {"error": "Filename must not contain path separators"}
 
     content = ctx_manager.read_context(filename)
-    if content is None:
+    if not content:
         return {"error": f"File '{filename}' does not exist yet."}
     return {"filename": filename, "content": content}
 
@@ -256,7 +263,6 @@ def _finalize_import(
             new_conv = chat_svc.create_conversation(title="(just getting started)")
             new_conversation_id = new_conv["id"]
 
-            import uuid
             chat_svc.save_message(
                 conversation_id=new_conversation_id,
                 msg_id=str(uuid.uuid4()),

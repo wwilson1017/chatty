@@ -34,8 +34,15 @@ class ZipSourceAdapter(SourceAdapter):
                 members = zf.namelist()
                 if len(members) > MAX_FILES:
                     raise ValueError(f"Zip contains {len(members)} files (max {MAX_FILES})")
-                # Skip entries that look like path traversal
-                safe = [m for m in members if not m.startswith("/") and ".." not in m]
+                safe = [
+                    m for m in members
+                    if not m.startswith("/") and ".." not in m and "\\" not in m
+                    and not zf.getinfo(m).is_dir()
+                    and not (zf.getinfo(m).external_attr >> 16) & 0o120000 == 0o120000
+                ]
+                total_uncompressed = sum(zf.getinfo(m).file_size for m in safe)
+                if total_uncompressed > 100 * 1024 * 1024:
+                    raise ValueError(f"Uncompressed size {total_uncompressed // (1024*1024)} MB exceeds 100 MB limit")
                 zf.extractall(self._tmp, members=safe)
         except Exception:
             shutil.rmtree(self._tmp, ignore_errors=True)

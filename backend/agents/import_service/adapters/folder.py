@@ -6,11 +6,8 @@ import os
 import re
 from pathlib import Path
 
-from ..scrubber import scrub, should_skip_file
+from ..scrubber import scrub, should_skip_file, FRONT_MATTER_RE
 from .base import FileEntry, SourceAdapter, SourceInfo
-
-_FRONT_MATTER_RE = re.compile(r"^---\n[\s\S]*?\n---\n?")
-_BINARY_EXTENSIONS = {".png", ".jpg", ".jpeg", ".gif", ".ico", ".db", ".sqlite", ".wasm", ".zip", ".tar", ".gz"}
 
 
 class FolderSourceAdapter(SourceAdapter):
@@ -42,8 +39,6 @@ class FolderSourceAdapter(SourceAdapter):
                 full = Path(dirpath) / fname
                 rel = str(full.relative_to(self._root))
 
-                if full.suffix.lower() in _BINARY_EXTENSIONS:
-                    continue
                 if not full.suffix.lower() == ".md":
                     continue
                 if should_skip_file(rel):
@@ -59,14 +54,16 @@ class FolderSourceAdapter(SourceAdapter):
         return entries
 
     def read_file(self, path: str) -> str:
-        if ".." in path or path.startswith("/"):
+        if ".." in path or path.startswith("/") or "\\" in path or "\0" in path:
             raise ValueError(f"Unsafe path: {path}")
 
         full = self._root / path
+        if not full.resolve().is_relative_to(self._root.resolve()):
+            raise ValueError(f"Path escapes source directory: {path}")
         if not full.is_file():
             raise FileNotFoundError(f"File not found: {path}")
 
         raw = full.read_text(encoding="utf-8", errors="replace")
-        stripped = _FRONT_MATTER_RE.sub("", raw, count=1)
+        stripped = FRONT_MATTER_RE.sub("", raw, count=1)
         scrubbed, _ = scrub(stripped)
         return scrubbed

@@ -56,13 +56,16 @@ def get_session(token: str) -> ImportSession | None:
 
 
 def get_session_by_conversation(conversation_id: str) -> ImportSession | None:
+    expired_token: str | None = None
     with _lock:
         for s in _sessions.values():
             if s.conversation_id == conversation_id:
                 if (time.time() - s.started_at) > SESSION_TTL:
-                    _sessions.pop(s.token, None)
-                    return None
+                    expired_token = s.token
+                    break
                 return s
+    if expired_token:
+        remove_session(expired_token)
     return None
 
 

@@ -4,12 +4,10 @@ from __future__ import annotations
 
 import re
 
-from ..scrubber import scrub
+from ..scrubber import scrub, FRONT_MATTER_RE
 from .base import FileEntry, SourceAdapter, SourceInfo
 
 MAX_PASTE_BYTES = 500 * 1024  # 500 KB
-
-_FRONT_MATTER_RE = re.compile(r"^---\n[\s\S]*?\n---\n?")
 _HEADING_RE = re.compile(r"^#\s+(.+)", re.MULTILINE)
 
 
@@ -28,7 +26,7 @@ class PasteSourceAdapter(SourceAdapter):
                 "Use a file or zip instead."
             )
 
-        stripped = _FRONT_MATTER_RE.sub("", text, count=1)
+        stripped = FRONT_MATTER_RE.sub("", text, count=1)
         scrubbed, _ = scrub(stripped)
         self._files = self._split_sections(scrubbed)
 

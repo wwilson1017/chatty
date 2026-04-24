@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 
 REPLACEMENT = "[REDACTED:credential]"
+FRONT_MATTER_RE = re.compile(r"^---\n[\s\S]*?\n---\n?")
 
 _PATTERNS: list[re.Pattern] = [
     re.compile(r"sk-ant-[A-Za-z0-9_-]{20,}"),
