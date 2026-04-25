@@ -63,7 +63,8 @@ async def setup_from_oauth(
     if scope_grants.get("calendar", "none") != "none":
         timezone = await _resolve_calendar_timezone(access_token)
 
-    save_credentials("google", {
+    existing = get_credentials("google")
+    existing.update({
         "enabled": True,
         "email": email,
         "access_token": access_token,
@@ -73,6 +74,7 @@ async def setup_from_oauth(
         "calendar_timezone": timezone,
         "connection_status": "ok",
     })
+    save_credentials("google", existing)
 
     logger.info("Google connected: email=%s scope_grants=%s", email, scope_grants)
     return {
@@ -106,9 +108,13 @@ async def disconnect() -> dict:
         except Exception as e:
             logger.warning("Google token revoke failed: %s", e)
 
+    preserved_app = creds.get("app")
     creds_path = Path(__file__).resolve().parent.parent.parent / "data" / "integrations" / "google.json"
     if creds_path.exists():
         creds_path.unlink()
         logger.info("Removed google.json")
+
+    if preserved_app:
+        save_credentials("google", {"app": preserved_app})
 
     return {"ok": True}

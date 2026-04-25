@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { api } from '../core/api/client';
 import { useOAuthFlow } from '../core/hooks/useOAuthFlow';
+import { AppCredentialsForm } from './AppCredentialsForm';
 import type {
   Integration,
   GmailScopeLevel,
@@ -39,6 +40,20 @@ export function GoogleIntegrationCard({ integration, onChanged }: Props) {
   const [drive, setDrive]       = useState<DriveScopeLevel>(integration.scope_grants?.drive ?? 'none');
   const [disconnecting, setDisconnecting] = useState(false);
   const [localError, setLocalError] = useState<string>('');
+  const [showCredForm, setShowCredForm] = useState(false);
+  const [existingCreds, setExistingCreds] = useState<{ client_id?: string; redirect_uri?: string; source?: 'stored' | 'env' }>({});
+  const hasAppCreds = integration.has_app_credentials !== false;
+
+  async function openCredForm() {
+    setLocalError('');
+    try {
+      const existing = await api<{ configured: boolean; client_id?: string; redirect_uri?: string; source?: 'stored' | 'env' }>('/api/integrations/google/app-credentials');
+      setExistingCreds(existing.configured
+        ? { client_id: existing.client_id, redirect_uri: existing.redirect_uri, source: existing.source }
+        : { redirect_uri: existing.redirect_uri });
+    } catch { setExistingCreds({}); }
+    setShowCredForm(true);
+  }
 
   useEffect(() => {
     setGmail(integration.scope_grants?.gmail ?? 'none');
@@ -120,22 +135,26 @@ export function GoogleIntegrationCard({ integration, onChanged }: Props) {
             <>
               <span className="text-xs text-red-400 bg-red-900/20 px-2 py-1 rounded">Connection lost</span>
               <button
-                onClick={() => setPickerOpen(true)}
+                onClick={() => hasAppCreds ? setPickerOpen(true) : openCredForm()}
                 disabled={isRunning}
                 className="text-xs px-3 py-1.5 rounded-lg bg-red-600 text-white hover:bg-red-500 transition disabled:opacity-50"
               >
-                Reconnect
+                {hasAppCreds ? 'Reconnect' : 'Setup credentials'}
               </button>
             </>
           )}
 
           {!integration.configured && (
             <button
-              onClick={() => { setLocalError(''); setPickerOpen(true); }}
+              onClick={() => {
+                setLocalError('');
+                if (hasAppCreds) setPickerOpen(true);
+                else openCredForm();
+              }}
               disabled={isRunning}
               className="text-xs px-3 py-1.5 rounded-lg bg-gray-700 text-gray-300 hover:bg-gray-600 transition disabled:opacity-50"
             >
-              {isRunning ? 'Connecting...' : 'Setup'}
+              {isRunning ? 'Connecting...' : hasAppCreds ? 'Connect' : 'Setup'}
             </button>
           )}
 
@@ -147,6 +166,12 @@ export function GoogleIntegrationCard({ integration, onChanged }: Props) {
                 className="text-xs px-3 py-1.5 rounded-lg bg-gray-700 text-gray-300 hover:bg-gray-600 transition disabled:opacity-50"
               >
                 Change scopes
+              </button>
+              <button
+                onClick={openCredForm}
+                className="text-xs px-2 py-1.5 rounded-lg text-gray-500 hover:text-gray-300 hover:bg-gray-700 transition"
+              >
+                Edit credentials
               </button>
               <button
                 onClick={disconnect}
@@ -171,6 +196,17 @@ export function GoogleIntegrationCard({ integration, onChanged }: Props) {
           {oauth.state.status === 'awaiting_user' && 'Complete authorization in the popup...'}
           {oauth.state.status === 'completing' && 'Finalizing connection...'}
         </p>
+      )}
+
+      {showCredForm && (
+        <AppCredentialsForm
+          integration="google"
+          currentClientId={existingCreds.client_id}
+          redirectUri={existingCreds.redirect_uri}
+          source={existingCreds.source}
+          onSaved={() => { setShowCredForm(false); onChanged(); }}
+          onCancel={() => setShowCredForm(false)}
+        />
       )}
 
       {pickerOpen && (

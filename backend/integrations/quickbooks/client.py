@@ -14,10 +14,8 @@ import httpx
 
 logger = logging.getLogger(__name__)
 
-QBO_BASE_URL = os.getenv(
-    "QUICKBOOKS_API_BASE_URL",
-    "https://quickbooks.api.intuit.com/v3/company",
-)
+QBO_PRODUCTION_URL = "https://quickbooks.api.intuit.com/v3/company"
+QBO_SANDBOX_URL = "https://sandbox-quickbooks.api.intuit.com/v3/company"
 QBO_AUTH_URL = "https://appcenter.intuit.com/connect/oauth2"
 QBO_TOKEN_URL = "https://oauth.platform.intuit.com/oauth2/v1/tokens/bearer"
 QBO_SCOPES = "com.intuit.quickbooks.accounting"
@@ -34,13 +32,21 @@ class QuickBooksClient:
     """Client for QuickBooks Online v3 REST API."""
 
     def __init__(self, company_id: str, access_token: str, refresh_token: str,
-                 client_id: str, client_secret: str, token_expires_at: float = 0):
+                 client_id: str, client_secret: str, token_expires_at: float = 0,
+                 environment: str = "production"):
         self.company_id = company_id
         self.access_token = access_token
         self.refresh_token = refresh_token
         self.client_id = client_id
         self.client_secret = client_secret
         self.token_expires_at = token_expires_at
+        env_override = os.getenv("QUICKBOOKS_API_BASE_URL", "")
+        if env_override:
+            self.base_url = env_override
+        elif environment == "sandbox":
+            self.base_url = QBO_SANDBOX_URL
+        else:
+            self.base_url = QBO_PRODUCTION_URL
 
     def _headers(self) -> dict:
         self._maybe_refresh()
@@ -132,7 +138,7 @@ class QuickBooksClient:
         try:
             resp = self._request(
                 "GET",
-                f"{QBO_BASE_URL}/{self.company_id}/query",
+                f"{self.base_url}/{self.company_id}/query",
                 params={"query": sql, "minorversion": "65"},
             )
             data = resp.json()
@@ -152,7 +158,7 @@ class QuickBooksClient:
         try:
             resp = self._request(
                 "GET",
-                f"{QBO_BASE_URL}/{self.company_id}/reports/ProfitAndLoss",
+                f"{self.base_url}/{self.company_id}/reports/ProfitAndLoss",
                 params={"start_date": start_date, "end_date": end_date, "minorversion": "65"},
             )
             return resp.json()
@@ -166,7 +172,7 @@ class QuickBooksClient:
         """Fetch Balance Sheet report."""
         try:
             resp = httpx.get(
-                f"{QBO_BASE_URL}/{self.company_id}/reports/BalanceSheet",
+                f"{self.base_url}/{self.company_id}/reports/BalanceSheet",
                 headers=self._headers(),
                 params={"start_date": start_date, "end_date": end_date, "minorversion": "65"},
                 timeout=15,
@@ -182,7 +188,7 @@ class QuickBooksClient:
     def _entity_url(self, entity_type: str, entity_id: str = "") -> str:
         """Build QBO API URL for an entity type."""
         path = entity_type.lower()
-        base = f"{QBO_BASE_URL}/{self.company_id}/{path}"
+        base = f"{self.base_url}/{self.company_id}/{path}"
         if entity_id:
             base = f"{base}/{entity_id}"
         return base
@@ -302,15 +308,17 @@ class QuickBooksClient:
 def get_client() -> QuickBooksClient | None:
     """Return a configured QBO client from stored credentials, or None."""
     from integrations.registry import get_credentials, is_enabled
-    from core.config import settings
+    from integrations.app_credentials import get_app_credentials
     if not is_enabled("quickbooks"):
         return None
     creds = get_credentials("quickbooks")
+    app = get_app_credentials("quickbooks")
     return QuickBooksClient(
         company_id=creds.get("company_id", ""),
         access_token=creds.get("access_token", ""),
         refresh_token=creds.get("refresh_token", ""),
-        client_id=settings.quickbooks_oauth.client_id,
-        client_secret=settings.quickbooks_oauth.client_secret,
+        client_id=app.get("client_id", ""),
+        client_secret=app.get("client_secret", ""),
         token_expires_at=float(creds.get("token_expires_at", 0)),
+        environment=app.get("environment", "production"),
     )

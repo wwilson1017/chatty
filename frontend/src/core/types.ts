@@ -85,6 +85,7 @@ export interface Integration {
   tool_mode?: string;
   email?: string;
   scope_grants?: GoogleScopeGrants;
+  has_app_credentials?: boolean;
 }
 
 // CRM types

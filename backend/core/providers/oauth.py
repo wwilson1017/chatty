@@ -40,14 +40,23 @@ from core.config import settings
 
 logger = logging.getLogger(__name__)
 
+
+# ── Credential resolver ──────────────────────────────────────────────────────
+
+def _resolve_cred(integration: str, field: str) -> str:
+    """Read a BYO app credential, falling back to env vars."""
+    from integrations.app_credentials import get_app_credentials
+    return get_app_credentials(integration).get(field, "")
+
+
 # ── Provider OAuth config ─────────────────────────────────────────────────────
 
 OAUTH_CONFIG = {
     "google": {
         "auth_url": "https://accounts.google.com/o/oauth2/v2/auth",
         "token_url": "https://oauth2.googleapis.com/token",
-        "client_id": lambda: settings.google_oauth.client_id,
-        "client_secret": lambda: settings.google_oauth.client_secret,
+        "client_id": lambda: _resolve_cred("google", "client_id"),
+        "client_secret": lambda: _resolve_cred("google", "client_secret"),
         "scopes": lambda: settings.google_oauth.scopes,
         "use_pkce": True,
         "use_basic_auth": False,
@@ -56,8 +65,8 @@ OAUTH_CONFIG = {
     "openai": {
         "auth_url": "https://auth.openai.com/authorize",
         "token_url": "https://auth.openai.com/oauth/token",
-        "client_id": lambda: settings.openai_oauth.client_id,
-        "client_secret": lambda: settings.openai_oauth.client_secret,
+        "client_id": lambda: _resolve_cred("openai", "client_id"),
+        "client_secret": lambda: _resolve_cred("openai", "client_secret"),
         "scopes": lambda: ["openid", "email", "profile", "model.request"],
         "use_pkce": True,
         "use_basic_auth": False,
@@ -66,8 +75,8 @@ OAUTH_CONFIG = {
     "quickbooks": {
         "auth_url": "https://appcenter.intuit.com/connect/oauth2",
         "token_url": "https://oauth.platform.intuit.com/oauth2/v1/tokens/bearer",
-        "client_id": lambda: settings.quickbooks_oauth.client_id,
-        "client_secret": lambda: settings.quickbooks_oauth.client_secret,
+        "client_id": lambda: _resolve_cred("quickbooks", "client_id"),
+        "client_secret": lambda: _resolve_cred("quickbooks", "client_secret"),
         "scopes": lambda: ["com.intuit.quickbooks.accounting"],
         "use_pkce": False,
         "use_basic_auth": True,
