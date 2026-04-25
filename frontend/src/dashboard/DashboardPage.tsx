@@ -3,8 +3,9 @@ import { useNavigate, useOutletContext } from 'react-router-dom';
 import { api } from '../core/api/client';
 import { AgentCard } from './AgentCard';
 import { CreateAgentModal } from './CreateAgentModal';
+import { ImportAgentModal } from './ImportAgentModal';
 import { WarmHalo } from '../shared/WarmHalo';
-import { IconSearch, IconPlus } from '../shared/icons';
+import { IconSearch, IconPlus, IconDownload } from '../shared/icons';
 import { MobileMenuDrawer } from '../shared/MobileMenuDrawer';
 import { useIsMobile } from '../shared/useIsMobile';
 import type { Agent, BrandingConfig, ProviderStatus } from '../core/types';
@@ -33,6 +34,7 @@ const mono = (size: number, color = 'rgba(237,240,244,0.38)') => ({
 export function DashboardPage() {
   const [agents, setAgents] = useState<Agent[]>([]);
   const [showCreate, setShowCreate] = useState(false);
+  const [showImport, setShowImport] = useState(false);
   const [suggestedTitle, setSuggestedTitle] = useState('');
   const [loading, setLoading] = useState(true);
   const navigate = useNavigate();
@@ -55,11 +57,6 @@ export function DashboardPage() {
     }).finally(() => setLoading(false));
   }, [navigate]);
 
-  async function handleDelete(id: string) {
-    if (!confirm('Delete this agent? This cannot be undone.')) return;
-    await api(`/api/agents/${id}`, { method: 'DELETE' });
-    setAgents(prev => prev.filter(a => a.id !== id));
-  }
 
   const isMobile = useIsMobile();
   const [showMenu, setShowMenu] = useState(false);
@@ -160,18 +157,32 @@ export function DashboardPage() {
           <div style={mono(10, 'rgba(237,240,244,0.38)')}>
             Your agents · {agents.length}
           </div>
-          <button
-            onClick={() => setShowCreate(true)}
-            style={{
-              background: 'transparent', color: '#EDF0F4',
-              border: '1px solid rgba(230,235,242,0.14)',
-              fontSize: 12, padding: '6px 12px', borderRadius: 4,
-              display: 'flex', alignItems: 'center', gap: 6,
-              cursor: 'pointer', fontFamily: "'Inter Tight', system-ui, sans-serif",
-            }}
-          >
-            <IconPlus size={13} strokeWidth={2.25} /> Commission agent
-          </button>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button
+              onClick={() => setShowImport(true)}
+              style={{
+                background: 'transparent', color: 'rgba(237,240,244,0.62)',
+                border: '1px solid rgba(230,235,242,0.14)',
+                fontSize: 12, padding: '6px 12px', borderRadius: 4,
+                display: 'flex', alignItems: 'center', gap: 6,
+                cursor: 'pointer', fontFamily: "'Inter Tight', system-ui, sans-serif",
+              }}
+            >
+              <IconDownload size={13} strokeWidth={2.25} /> Import agent
+            </button>
+            <button
+              onClick={() => setShowCreate(true)}
+              style={{
+                background: 'transparent', color: '#EDF0F4',
+                border: '1px solid rgba(230,235,242,0.14)',
+                fontSize: 12, padding: '6px 12px', borderRadius: 4,
+                display: 'flex', alignItems: 'center', gap: 6,
+                cursor: 'pointer', fontFamily: "'Inter Tight', system-ui, sans-serif",
+              }}
+            >
+              <IconPlus size={13} strokeWidth={2.25} /> Commission agent
+            </button>
+          </div>
         </div>
 
         {loading ? (
@@ -220,7 +231,7 @@ export function DashboardPage() {
         ) : (
           <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'repeat(3, 1fr)', gap: 8 }}>
             {agents.map(agent => (
-              <AgentCard key={agent.id} agent={agent} onDelete={handleDelete} />
+              <AgentCard key={agent.id} agent={agent} />
             ))}
           </div>
         )}
@@ -274,6 +285,11 @@ export function DashboardPage() {
           }}
         />
       )}
+
+      {showImport && (
+        <ImportAgentModal onClose={() => setShowImport(false)} />
+      )}
+
     </div>
   );
 }

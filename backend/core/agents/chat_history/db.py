@@ -104,5 +104,7 @@ class ChatHistoryDB:
             conn.execute("ALTER TABLE conversations ADD COLUMN source TEXT DEFAULT NULL")
         if "pinned" not in conv_cols:
             conn.execute("ALTER TABLE conversations ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0")
+        if "mode" not in conv_cols:
+            conn.execute("ALTER TABLE conversations ADD COLUMN mode TEXT NOT NULL DEFAULT 'normal'")
 
         conn.commit()

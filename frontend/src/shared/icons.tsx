@@ -28,6 +28,7 @@ export function IconPhone(p: IconProps) { return <Ico d="M22 16.9v3a2 2 0 0 1-2.
 export function IconUsers(p: IconProps) { return <Ico {...p}><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /><path d="M22 21v-2a4 4 0 0 0-3-3.9M16 3.1a4 4 0 0 1 0 7.8" /></Ico>; }
 export function IconFunnel(p: IconProps) { return <Ico {...p}><path d="M22 3H2l8 9.5V19l4 2v-8.5L22 3z" /></Ico>; }
 export function IconUser(p: IconProps) { return <Ico {...p}><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" /><circle cx="12" cy="7" r="4" /></Ico>; }
+export function IconDownload(p: IconProps) { return <Ico d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3" {...p} />; }
 export function IconBot({ size = 18, strokeWidth = 1.75, className, style }: IconProps) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round" className={className} style={{ flexShrink: 0, ...style }}>

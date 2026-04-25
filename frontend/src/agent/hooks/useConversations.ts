@@ -13,6 +13,7 @@ export interface Conversation {
   title_edited_by_user: boolean;
   source?: string | null;
   pinned?: number;
+  mode?: 'normal' | 'import';
   created_at: string;
   updated_at: string;
   message_count?: number;
