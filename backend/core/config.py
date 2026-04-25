@@ -39,7 +39,7 @@ class GoogleOAuthSettings:
     # the user's chosen access levels — see build_google_scopes().
     scopes: list[str] = [
         "https://www.googleapis.com/auth/generative-language",
-        "https://www.googleapis.com/auth/gmail.modify",
+        "https://www.googleapis.com/auth/gmail.readonly",
         "https://www.googleapis.com/auth/gmail.send",
         "https://www.googleapis.com/auth/calendar",
         "openid",
