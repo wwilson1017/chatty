@@ -150,6 +150,9 @@ async def lifespan(app: FastAPI):
     from core.auth_2fa import cleanup_expired_devices
     _scheduler.add_job(cleanup_expired_devices, "interval", hours=24, id="2fa_device_cleanup")
 
+    from agents.import_service.sessions import sweep_expired as _sweep_import_sessions
+    _scheduler.add_job(_sweep_import_sessions, "interval", seconds=600, id="import_session_sweep")
+
     _scheduler.start()
     logger.info("APScheduler started (reminder heartbeat + scheduled actions + nightly jobs)")
 

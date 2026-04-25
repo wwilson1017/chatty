@@ -38,7 +38,7 @@ class ZipSourceAdapter(SourceAdapter):
                     m for m in members
                     if not m.startswith("/") and ".." not in m and "\\" not in m
                     and not zf.getinfo(m).is_dir()
-                    and not (zf.getinfo(m).external_attr >> 16) & 0o120000 == 0o120000
+                    and ((zf.getinfo(m).external_attr >> 16) & 0o120000) != 0o120000
                 ]
                 total_uncompressed = sum(zf.getinfo(m).file_size for m in safe)
                 if total_uncompressed > 100 * 1024 * 1024:

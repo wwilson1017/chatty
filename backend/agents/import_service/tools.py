@@ -53,6 +53,8 @@ def _safe_import_filename(filename: str) -> bool:
 def _safe_scan_path(path: str) -> Path:
     """Resolve and validate a path for scan_directory. Must be under user's home."""
     home = Path.home()
+    if home == Path("/"):
+        raise ValueError("Cannot determine safe home directory — running as root is not supported for directory scanning")
     resolved = Path(path).expanduser().resolve()
     if not resolved.is_relative_to(home):
         raise ValueError(f"Path must be under your home directory ({home})")
@@ -364,7 +366,14 @@ def _finalize_import(
     if bootstrap_path.exists():
         bootstrap_path.unlink()
 
-    # 6. Clean up session
+    # 6. Clean up file_cache (uploaded zips)
+    if agent:
+        import shutil
+        file_cache = Path(ctx_manager.data_dir).parent / "file_cache"
+        if file_cache.is_dir():
+            shutil.rmtree(file_cache, ignore_errors=True)
+
+    # 7. Clean up session
     sessions.remove_session(session.token)
 
     return {
