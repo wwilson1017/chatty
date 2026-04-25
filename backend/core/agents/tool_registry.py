@@ -475,7 +475,7 @@ class ToolRegistry:
         from core.agents.context_manager import ContextManager
 
         session = getattr(self, "_import_session", None)
-        ctx_manager = ContextManager(self.context_dir, gcs_prefix=self.gcs_prefix)
+        ctx_manager = ContextManager(Path(self.context_dir), gcs_prefix=self.gcs_prefix)
         return execute_import_tool(tool_name, args, session, ctx_manager)
 
     def _mark_setup_complete(self, integration_name: str) -> None:
