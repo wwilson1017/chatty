@@ -7,6 +7,8 @@ and JWT-protected admin endpoints for bot token management and registration.
 import asyncio
 import hmac
 import logging
+import threading
+import time
 from concurrent.futures import ThreadPoolExecutor
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -23,6 +25,12 @@ logger = logging.getLogger(__name__)
 router = APIRouter(tags=["telegram"])
 
 _executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="telegram-webhook")
+
+# Per-chat busy tracking: maps (agent_slug, chat_id) → start timestamp.
+# Entries older than _BUSY_TTL are treated as stale (hung request).
+_busy_chats: dict[tuple[str, int], float] = {}
+_busy_lock = threading.Lock()
+_BUSY_TTL = 300  # 5 minutes
 
 from pathlib import Path as _Path
 _AGENTS_DIR = _Path(__file__).resolve().parent.parent.parent / "data" / "agents"
@@ -147,28 +155,62 @@ def _safe_process_telegram(
             if is_bot:
                 group.record_bot_message(chat_id)
 
-            loop = asyncio.new_event_loop()
-            try:
-                response = loop.run_until_complete(
-                    service.process_group_message(
-                        chat_id=chat_id,
+            # Busy check — save message to history but skip AI if already processing
+            busy_key = (agent_slug, chat_id)
+            busy_started = time.monotonic()
+            with _busy_lock:
+                existing = _busy_chats.get(busy_key)
+                if existing is not None and (busy_started - existing) < _BUSY_TTL:
+                    is_busy = True
+                else:
+                    _busy_chats[busy_key] = busy_started
+                    is_busy = False
+
+            if is_busy:
+                logger.info("Telegram busy (group): agent=%s chat=%s — saving without reply", agent_slug, chat_id)
+                prefix = group.build_group_prefix(group_name, sender_name, is_bot)
+                loop = asyncio.new_event_loop()
+                try:
+                    loop.run_until_complete(service.save_message_only(
                         agent_id=agent["id"],
-                        sender_name=sender_name,
-                        sender_is_bot=is_bot,
-                        group_name=group_name,
-                        message_text=message,
-                    )
-                )
-            finally:
-                loop.close()
+                        agent_slug=agent_slug,
+                        sender_id=f"group:{chat_id}",
+                        content=prefix + message,
+                        source="telegram-group",
+                    ))
+                except Exception:
+                    logger.warning("Failed to save busy-skipped group message for chat=%s", chat_id, exc_info=True)
+                finally:
+                    loop.close()
+                return
 
             try:
-                send_message(chat_id, response, bot_token)
+                loop = asyncio.new_event_loop()
+                try:
+                    response = loop.run_until_complete(
+                        service.process_group_message(
+                            chat_id=chat_id,
+                            agent_id=agent["id"],
+                            sender_name=sender_name,
+                            sender_is_bot=is_bot,
+                            group_name=group_name,
+                            message_text=message,
+                        )
+                    )
+                finally:
+                    loop.close()
+
+                try:
+                    send_message(chat_id, response, bot_token)
+                finally:
+                    group.record_response(chat_id, agent["id"])
             finally:
-                group.record_response(chat_id, agent["id"])
+                with _busy_lock:
+                    if _busy_chats.get(busy_key) == busy_started:
+                        del _busy_chats[busy_key]
             return
 
-        # ── Private chat path (unchanged) ────────────────────────────
+        # ── Private chat path ────────────────────────────────────────
         # Check if sender has a mapping
         mapping = state.get_mapping_by_sender("telegram", user_id)
         if not mapping:
@@ -176,6 +218,7 @@ def _safe_process_telegram(
             if lifecycle.try_auto_register(agent["id"], user_id, sender_name):
                 logger.info("Auto-registered Telegram user %s for agent %s", user_id, agent["agent_name"])
                 _mark_telegram_configured(agent["slug"])
+                mapping = state.get_mapping_by_sender("telegram", user_id)
             else:
                 send_message(
                     chat_id,
@@ -184,16 +227,50 @@ def _safe_process_telegram(
                 )
                 return
 
-        # Process the message via async service
-        loop = asyncio.new_event_loop()
-        try:
-            response = loop.run_until_complete(
-                service.process_message(user_id, sender_name, message)
-            )
-        finally:
-            loop.close()
+        # Busy check — save message to history but skip AI if already processing
+        mapped_agent_id = mapping["agent_id"] if mapping else agent["id"]
+        busy_key = (agent_slug, chat_id)
+        busy_started = time.monotonic()
+        with _busy_lock:
+            existing = _busy_chats.get(busy_key)
+            if existing is not None and (busy_started - existing) < _BUSY_TTL:
+                is_busy = True
+            else:
+                _busy_chats[busy_key] = busy_started
+                is_busy = False
 
-        send_message(chat_id, response, bot_token)
+        if is_busy:
+            logger.info("Telegram busy (private): agent=%s chat=%s — saving without reply", agent_slug, chat_id)
+            prefix = f"[via Telegram from {sender_name}] "
+            loop = asyncio.new_event_loop()
+            try:
+                loop.run_until_complete(service.save_message_only(
+                    agent_id=mapped_agent_id,
+                    agent_slug=agent_slug,
+                    sender_id=user_id,
+                    content=prefix + message,
+                ))
+            except Exception:
+                logger.warning("Failed to save busy-skipped message for chat=%s", chat_id, exc_info=True)
+            finally:
+                loop.close()
+            return
+
+        # Process the message via async service
+        try:
+            loop = asyncio.new_event_loop()
+            try:
+                response = loop.run_until_complete(
+                    service.process_message(user_id, sender_name, message)
+                )
+            finally:
+                loop.close()
+
+            send_message(chat_id, response, bot_token)
+        finally:
+            with _busy_lock:
+                if _busy_chats.get(busy_key) == busy_started:
+                    del _busy_chats[busy_key]
     except Exception:
         logger.exception("Telegram processing failed (slug=%s, user_id=%s)", agent_slug, user_id)
         try:
