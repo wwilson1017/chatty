@@ -160,4 +160,4 @@ The benefits:
 - No third-party infrastructure sits in the OAuth path
 - The project stays free to run, with no centralized cost to fund
 
-The trade-off is the 10 minutes of one-time setup above. If that ever becomes a barrier, see the project README for the optional managed hosted service that handles this for you.
+The trade-off is the 10 minutes of one-time setup above.

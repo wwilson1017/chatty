@@ -173,4 +173,4 @@ The benefits:
 - The project stays free to run, with no centralized cost to fund
 - Whatever Google data your agents access flows directly between Google and your Chatty instance — Chatty's project does not see it
 
-The trade-off is the 15 minutes of one-time setup above and the weekly re-auth in Testing mode. If that ever becomes a barrier, see the project README for the optional managed hosted service that handles this for you.
+The trade-off is the 15 minutes of one-time setup above and the weekly re-auth in Testing mode.
