@@ -178,6 +178,15 @@ def mark_as_read_op(service, message_id: str) -> dict:
     return {"ok": True, "id": message_id, "is_unread": "UNREAD" in result.get("labelIds", [])}
 
 
+def batch_mark_as_read_op(service, message_ids: list[str]) -> dict:
+    """Mark multiple messages as read in a single API call."""
+    service.users().messages().batchModify(
+        userId="me",
+        body={"ids": message_ids, "removeLabelIds": ["UNREAD"]},
+    ).execute()
+    return {"ok": True, "count": len(message_ids)}
+
+
 def get_attachment_content_op(service, message_id: str, attachment_id: str) -> bytes:
     """Download attachment content from a Gmail message. Returns raw bytes."""
     result = service.users().messages().attachments().get(
