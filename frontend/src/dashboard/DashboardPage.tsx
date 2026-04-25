@@ -4,7 +4,6 @@ import { api } from '../core/api/client';
 import { AgentCard } from './AgentCard';
 import { CreateAgentModal } from './CreateAgentModal';
 import { ImportAgentModal } from './ImportAgentModal';
-import { DeleteAgentModal } from './DeleteAgentModal';
 import { WarmHalo } from '../shared/WarmHalo';
 import { IconSearch, IconPlus, IconDownload } from '../shared/icons';
 import { MobileMenuDrawer } from '../shared/MobileMenuDrawer';
@@ -36,7 +35,6 @@ export function DashboardPage() {
   const [agents, setAgents] = useState<Agent[]>([]);
   const [showCreate, setShowCreate] = useState(false);
   const [showImport, setShowImport] = useState(false);
-  const [deleteAgent, setDeleteAgent] = useState<Agent | null>(null);
   const [suggestedTitle, setSuggestedTitle] = useState('');
   const [loading, setLoading] = useState(true);
   const navigate = useNavigate();
@@ -59,10 +57,6 @@ export function DashboardPage() {
     }).finally(() => setLoading(false));
   }, [navigate]);
 
-  function handleDelete(id: string) {
-    const agent = agents.find(a => a.id === id);
-    if (agent) setDeleteAgent(agent);
-  }
 
   const isMobile = useIsMobile();
   const [showMenu, setShowMenu] = useState(false);
@@ -237,7 +231,7 @@ export function DashboardPage() {
         ) : (
           <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'repeat(3, 1fr)', gap: 8 }}>
             {agents.map(agent => (
-              <AgentCard key={agent.id} agent={agent} onDelete={handleDelete} />
+              <AgentCard key={agent.id} agent={agent} />
             ))}
           </div>
         )}
@@ -296,16 +290,6 @@ export function DashboardPage() {
         <ImportAgentModal onClose={() => setShowImport(false)} />
       )}
 
-      {deleteAgent && (
-        <DeleteAgentModal
-          agent={deleteAgent}
-          onClose={() => setDeleteAgent(null)}
-          onDeleted={id => {
-            setAgents(prev => prev.filter(a => a.id !== id));
-            setDeleteAgent(null);
-          }}
-        />
-      )}
     </div>
   );
 }

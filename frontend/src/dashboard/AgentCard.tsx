@@ -5,10 +5,9 @@ import type { Agent } from '../core/types';
 
 interface Props {
   agent: Agent;
-  onDelete: (id: string) => void;
 }
 
-export function AgentCard({ agent, onDelete }: Props) {
+export function AgentCard({ agent }: Props) {
   const navigate = useNavigate();
   const letter = agent.agent_name.charAt(0);
   const avatarUrl = agent.avatar_url
@@ -56,21 +55,6 @@ export function AgentCard({ agent, onDelete }: Props) {
         )}
       </div>
 
-      <button
-        onClick={e => { e.stopPropagation(); onDelete(agent.id); }}
-        style={{
-          position: 'absolute', top: 6, right: 6,
-          background: 'transparent', border: 'none',
-          color: 'rgba(237,240,244,0.38)', fontSize: 14,
-          cursor: 'pointer', opacity: 0, transition: 'opacity 0.15s',
-          padding: '2px 4px',
-        }}
-        title="Delete agent"
-        onMouseEnter={e => { (e.currentTarget as HTMLElement).style.opacity = '1'; }}
-        onMouseLeave={e => { (e.currentTarget as HTMLElement).style.opacity = '0'; }}
-      >
-        ×
-      </button>
     </div>
   );
 }

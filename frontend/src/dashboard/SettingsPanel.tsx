@@ -1,10 +1,12 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { api } from '../core/api/client';
-import type { BrandingConfig } from '../core/types';
+import type { Agent, BrandingConfig } from '../core/types';
 import { ProviderSetup } from '../setup/ProviderSetup';
 import { IntegrationsTab } from './IntegrationsTab';
 import { DataTab } from './DataTab';
 import { SecurityTab } from './SecurityTab';
+import { DeleteAgentModal } from './DeleteAgentModal';
+import { AgentMark } from '../shared/AgentMark';
 
 interface Props {
   branding: BrandingConfig | null;
@@ -12,10 +14,18 @@ interface Props {
   onClose: () => void;
 }
 
-type Tab = 'providers' | 'branding' | 'integrations' | 'chat' | 'data' | 'security';
+type Tab = 'providers' | 'branding' | 'integrations' | 'chat' | 'data' | 'security' | 'danger';
 
 export function SettingsPanel({ branding, onBrandingUpdate, onClose }: Props) {
   const [tab, setTab] = useState<Tab>('providers');
+  const [deleteAgent, setDeleteAgent] = useState<Agent | null>(null);
+  const [dangerAgents, setDangerAgents] = useState<Agent[]>([]);
+
+  useEffect(() => {
+    if (tab === 'danger') {
+      api<{ agents: Agent[] }>('/api/agents').then(d => setDangerAgents(d.agents)).catch(() => {});
+    }
+  }, [tab]);
   const [companyName, setCompanyName] = useState(branding?.company_name || '');
   const [accentColor, setAccentColor] = useState(branding?.accent_color || '#C8D1D9');
   const [saving, setSaving] = useState(false);
@@ -56,6 +66,7 @@ export function SettingsPanel({ branding, onBrandingUpdate, onClose }: Props) {
     { id: 'chat', label: 'Chat' },
     { id: 'data', label: 'Data' },
     { id: 'security', label: 'Security' },
+    { id: 'danger', label: 'Danger' },
   ];
 
   return (
@@ -98,8 +109,12 @@ export function SettingsPanel({ branding, onBrandingUpdate, onClose }: Props) {
                   flex: 1, padding: '10px 0', textAlign: 'center',
                   fontSize: 12,
                   fontFamily: "'Inter Tight', system-ui, sans-serif",
-                  color: active ? '#EDF0F4' : 'rgba(237,240,244,0.62)',
-                  borderBottom: active ? '1px solid #D4A85A' : '1px solid rgba(230,235,242,0.07)',
+                  color: t.id === 'danger'
+                    ? (active ? '#D97757' : 'rgba(217,119,87,0.6)')
+                    : (active ? '#EDF0F4' : 'rgba(237,240,244,0.62)'),
+                  borderBottom: active
+                    ? (t.id === 'danger' ? '1px solid #D97757' : '1px solid #D4A85A')
+                    : '1px solid rgba(230,235,242,0.07)',
                   cursor: 'pointer',
                 }}
               >
@@ -230,6 +245,80 @@ export function SettingsPanel({ branding, onBrandingUpdate, onClose }: Props) {
           {tab === 'data' && <DataTab />}
 
           {tab === 'security' && <SecurityTab />}
+
+          {tab === 'danger' && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
+              <div style={{
+                background: 'rgba(217,119,87,0.06)',
+                border: '1px solid rgba(217,119,87,0.15)',
+                borderRadius: 6, padding: '14px 16px',
+              }}>
+                <p style={{ fontSize: 13, color: '#D97757', margin: 0, lineHeight: 1.5 }}>
+                  Actions here are permanent and cannot be undone. Deleted agents lose all knowledge, conversations, and memory.
+                </p>
+              </div>
+
+              <div>
+                <h3 style={{
+                  fontFamily: "'JetBrains Mono', ui-monospace, monospace",
+                  fontSize: 9, letterSpacing: '0.16em', textTransform: 'uppercase',
+                  color: 'rgba(237,240,244,0.38)', marginBottom: 12,
+                }}>Delete agents</h3>
+
+                {dangerAgents.length === 0 ? (
+                  <p style={{ fontSize: 13, color: 'rgba(237,240,244,0.38)' }}>No agents to delete.</p>
+                ) : (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                    {dangerAgents.map(agent => (
+                      <div key={agent.id} style={{
+                        display: 'flex', alignItems: 'center', gap: 12,
+                        padding: '10px 14px', borderRadius: 6,
+                        background: 'rgba(20,24,30,0.78)',
+                        border: '1px solid rgba(230,235,242,0.07)',
+                      }}>
+                        <AgentMark
+                          letter={agent.agent_name.charAt(0)}
+                          size={28}
+                          avatarUrl={agent.avatar_url
+                            ? `${agent.avatar_url}${agent.avatar_url.includes('?') ? '&' : '?'}token=${sessionStorage.getItem('chatty_token') || ''}`
+                            : undefined}
+                        />
+                        <span style={{
+                          flex: 1, fontSize: 14, color: '#EDF0F4',
+                          fontFamily: "'Inter Tight', system-ui, sans-serif",
+                        }}>{agent.agent_name}</span>
+                        <button
+                          onClick={() => setDeleteAgent(agent)}
+                          style={{
+                            background: 'transparent',
+                            border: '1px solid rgba(217,119,87,0.3)',
+                            color: '#D97757', borderRadius: 4,
+                            padding: '5px 12px', fontSize: 12,
+                            cursor: 'pointer',
+                            fontFamily: "'Inter Tight', system-ui, sans-serif",
+                          }}
+                        >
+                          Delete
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {deleteAgent && (
+            <DeleteAgentModal
+              agent={deleteAgent}
+              onClose={() => setDeleteAgent(null)}
+              onDeleted={id => {
+                setDangerAgents(prev => prev.filter(a => a.id !== id));
+                setDeleteAgent(null);
+                window.location.reload();
+              }}
+            />
+          )}
         </div>
       </div>
     </div>
