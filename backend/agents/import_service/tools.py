@@ -177,10 +177,16 @@ def _extract_zip(
     if not agent:
         return {"error": "Agent not found"}
 
+    safe_name = Path(filename).name
+    if not safe_name.endswith(".zip") or ".." in safe_name or "/" in safe_name or "\\" in safe_name or "\0" in safe_name:
+        return {"error": "Invalid zip filename"}
+
     file_cache_dir = Path(__file__).resolve().parent.parent.parent / "data" / "agents" / agent["slug"] / "file_cache"
-    zip_path = file_cache_dir / filename
+    zip_path = (file_cache_dir / safe_name).resolve()
+    if not zip_path.is_relative_to(file_cache_dir.resolve()):
+        return {"error": "Invalid zip filename"}
     if not zip_path.is_file():
-        return {"error": f"Zip file '{filename}' not found in uploads. Make sure you dragged a .zip file into the chat."}
+        return {"error": "Zip file not found in uploads. Make sure you dragged a .zip file into the chat."}
 
     from .adapters.zip import ZipSourceAdapter
     adapter = ZipSourceAdapter(zip_path)

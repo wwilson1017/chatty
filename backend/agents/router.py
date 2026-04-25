@@ -791,11 +791,16 @@ async def agent_chat_upload(
         if ext == "zip" and import_mode:
             file_cache_dir = DATA_DIR / agent["slug"] / "file_cache"
             file_cache_dir.mkdir(parents=True, exist_ok=True)
-            zip_path = file_cache_dir / (f.filename or "upload.zip")
+            safe_name = Path(f.filename or "upload.zip").name
+            if not safe_name.endswith(".zip") or ".." in safe_name or "/" in safe_name or "\\" in safe_name or "\0" in safe_name:
+                safe_name = "upload.zip"
+            zip_path = (file_cache_dir / safe_name).resolve()
+            if not zip_path.is_relative_to(file_cache_dir.resolve()):
+                raise HTTPException(status_code=400, detail="Invalid zip filename")
             zip_path.write_bytes(content_bytes)
             file_texts.append(
-                f"[Attached zip file: {f.filename}] "
-                f"Call extract_zip with filename=\"{f.filename}\" to process it."
+                f"[Attached zip file: {safe_name}] "
+                f"Call extract_zip with filename=\"{safe_name}\" to process it."
             )
             continue
 
