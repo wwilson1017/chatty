@@ -510,19 +510,6 @@ export function AgentPage() {
                 onRename={convs.renameConversation}
               />
             )}
-            {convs.conversations.find(c => c.id === convs.activeId)?.mode === 'import' && (
-              <div style={{
-                padding: '8px 16px',
-                background: 'rgba(212,168,90,0.12)',
-                borderBottom: '1px solid rgba(212,168,90,0.25)',
-                display: 'flex', alignItems: 'center', gap: 8,
-                fontFamily: "'Inter Tight', system-ui, sans-serif",
-                fontSize: 12, color: '#D4A85A',
-              }}>
-                <span style={{ fontSize: 14 }}>&#8615;</span>
-                <span>Import Mode — Your agent is importing knowledge from another system</span>
-              </div>
-            )}
             <AgentChatPanel
               messages={chat.messages}
               isStreaming={chat.isStreaming}
@@ -538,6 +525,7 @@ export function AgentPage() {
               onToolModeChange={handleToolModeChange}
               agentName={agent.agent_name}
               conversationSource={convs.conversations.find(c => c.id === convs.activeId)?.source}
+              importMode={convs.conversations.find(c => c.id === convs.activeId)?.mode === 'import'}
             />
           </>
         ) : activeTab === 'knowledge' ? (

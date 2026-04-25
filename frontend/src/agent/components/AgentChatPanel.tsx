@@ -28,6 +28,7 @@ interface Props {
   onToolModeChange?: (mode: ToolMode) => void;
   agentName?: string;
   conversationSource?: string | null;
+  importMode?: boolean;
 }
 
 const TOOL_MODES: { key: ToolMode; label: string }[] = [
@@ -39,7 +40,7 @@ const TOOL_MODES: { key: ToolMode; label: string }[] = [
 export function AgentChatPanel({
   messages, isStreaming, onSend, onStop, onApprove, onDeny,
   onApprovePlan, onIteratePlan, scrollRef: externalScrollRef,
-  contextUsage, toolMode, onToolModeChange, agentName, conversationSource,
+  contextUsage, toolMode, onToolModeChange, agentName, conversationSource, importMode,
 }: Props) {
   const [input, setInput] = useState('');
   const [pendingFiles, setPendingFiles] = useState<File[]>([]);
@@ -82,8 +83,9 @@ export function AgentChatPanel({
 
     for (const f of incoming) {
       const ext = getExtension(f.name);
-      if (!ALLOWED_EXTENSIONS.has(ext)) { errors.push(`${f.name}: unsupported type (.${ext})`); continue; }
-      const maxSize = ext === 'pdf' ? MAX_PDF_SIZE : MAX_FILE_SIZE;
+      const allowed = importMode ? new Set([...ALLOWED_EXTENSIONS, 'zip']) : ALLOWED_EXTENSIONS;
+      if (!allowed.has(ext)) { errors.push(`${f.name}: unsupported type (.${ext})`); continue; }
+      const maxSize = ext === 'zip' ? 25 * 1024 * 1024 : ext === 'pdf' ? MAX_PDF_SIZE : MAX_FILE_SIZE;
       const maxLabel = ext === 'pdf' ? '10 MB' : '1 MB';
       if (f.size > maxSize) { errors.push(`${f.name}: exceeds ${maxLabel}`); continue; }
       if (f.size === 0) { errors.push(`${f.name}: empty file`); continue; }
@@ -348,6 +350,20 @@ export function AgentChatPanel({
                 </span>
                 <span style={{ fontSize: 11, color: 'rgba(237,240,244,0.4)' }}>
                   Messages from {conversationSource?.startsWith('telegram') ? 'Telegram' : 'WhatsApp'} appear here
+                </span>
+              </div>
+            )}
+            {importMode && (
+              <div style={{
+                display: 'flex', alignItems: 'center', gap: 8,
+                padding: '8px 14px', borderRadius: 8,
+                background: 'rgba(212,168,90,0.08)', border: '1px solid rgba(212,168,90,0.2)',
+              }}>
+                <span style={{ fontSize: 11, fontWeight: 600, letterSpacing: '0.05em', color: '#D4A85A' }}>
+                  Import Mode
+                </span>
+                <span style={{ fontSize: 11, color: 'rgba(237,240,244,0.4)' }}>
+                  Importing knowledge from another system
                 </span>
               </div>
             )}
