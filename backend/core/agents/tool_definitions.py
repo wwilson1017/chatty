@@ -470,6 +470,23 @@ GMAIL_WRITE_TOOLS = [
         "writes": True,
     },
     {
+        "name": "batch_mark_emails_as_read",
+        "description": "Mark multiple emails as read in Gmail in a single operation. More efficient than calling mark_email_as_read repeatedly. Use after search_emails to bulk-clear unread messages.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "message_ids": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "List of Gmail message IDs to mark as read (max 50)",
+                },
+            },
+            "required": ["message_ids"],
+        },
+        "kind": "gmail",
+        "writes": True,
+    },
+    {
         "name": "send_email_with_attachment",
         "description": "Send a new email with a file attachment. Pass the file_ref from download_odoo_pdf or download_email_attachment.",
         "input_schema": {

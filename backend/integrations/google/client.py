@@ -158,6 +158,20 @@ def get_drive_service():
 
 # ── Retry wrapper for tool handlers ──────────────────────────────────────────
 
+_SCOPE_ERROR_REASONS = {"insufficientpermissions", "forbidden", "insufficient permission"}
+
+
+def _maybe_raise_scope_error(err):
+    """Raise GoogleAuthError for 403s caused by missing scopes; re-raise others."""
+    reason = getattr(err, "reason", "") or ""
+    if reason.lower().strip() in _SCOPE_ERROR_REASONS:
+        raise GoogleAuthError(
+            "Insufficient Google permissions. Disconnect and reconnect Google "
+            "at Settings → Integrations → Google to grant the required scopes."
+        ) from err
+    raise err
+
+
 def call_with_refresh(service_factory, operation, *args, **kwargs):
     """Run `operation(service, *args, **kwargs)` with one automatic 401 retry.
 
@@ -193,5 +207,9 @@ def call_with_refresh(service_factory, operation, *args, **kwargs):
                     raise GoogleAuthError(
                         "Google connection expired. Reconnect at Settings → Integrations → Google."
                     ) from retry_err
+                if retry_status == 403:
+                    _maybe_raise_scope_error(retry_err)
                 raise
+        if status == 403:
+            _maybe_raise_scope_error(e)
         raise

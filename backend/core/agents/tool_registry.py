@@ -23,6 +23,7 @@ from integrations.google.tools import (
     download_email_attachment,
     get_email,
     get_email_thread,
+    batch_mark_emails_as_read,
     mark_email_as_read,
     reply_to_email,
     reply_to_email_with_attachment,
@@ -263,6 +264,8 @@ class ToolRegistry:
             )
         elif tool_name == "mark_email_as_read":
             return mark_email_as_read(message_id=args["message_id"])
+        elif tool_name == "batch_mark_emails_as_read":
+            return batch_mark_emails_as_read(message_ids=args["message_ids"])
         elif tool_name == "download_email_attachment":
             return download_email_attachment(
                 message_id=args["message_id"], filename=args["filename"],

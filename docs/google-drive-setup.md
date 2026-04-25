@@ -5,41 +5,24 @@ Connect your Google Drive so your Chatty agents can search, read, and upload fil
 ## Prerequisites
 
 - A Google account with Drive enabled
+- Google OAuth credentials configured for Chatty — see [Google OAuth Setup](google-oauth-setup.md)
 
-## Local Setup
+> Google Drive uses the same Google connection as Gmail and Calendar. If you've already done the OAuth setup for one of those, you do not need to do it again — just enable the Google Drive API in the same Google Cloud project.
 
-1. Start Chatty with `python run.py`
-2. Go to **Settings** > **Integrations** and click **Connect Google**
-3. Sign in with your Google account and choose the access level you want to grant:
-   - **Readonly** — browse and read files
-   - **File** — read access plus upload new files (can only access files created by Chatty)
-   - **Full** — complete Drive access including all files
+## Setup
 
-## Railway Setup
+1. In your Google Cloud project, enable the **Google Drive API** under **APIs & Services → Library** (skip if already enabled)
+2. In your OAuth consent screen → **Scopes**, add the Drive scopes for the level of access you want:
+   - **File** — `drive.file` (read/write only files Chatty creates or you explicitly open with it)
+   - **Readonly** — `drive.readonly` (browse and read all your Drive files)
+   - **Full** — `drive` (complete Drive access — read, write, and delete)
+3. In Chatty, go to **Settings → Integrations** and click **Connect Google**
+4. Sign in and choose the Drive access level you want — Chatty will request the matching scopes from Google
+5. Approve and you're connected
 
-1. Open your Chatty instance
-2. Go to **Settings** > **Integrations** and click **Connect Google**
-3. Sign in with your Google account and choose your access levels
+> **Note on scopes:** `drive.file` is a "Recommended" scope and works without verification. `drive.readonly` and `drive` are "Restricted" scopes — for self-hosted personal use, Testing mode with yourself as a test user sidesteps the CASA assessment requirement. See [Google OAuth Setup](google-oauth-setup.md#scopes--the-most-important-part) for details.
 
-That's it — Chatty handles the OAuth flow through its hosted service at `auth.mechatty.com`, so there's no Google Cloud project or credentials to configure.
-
-> **Note:** Google Drive uses the same Google connection as Gmail and Google Calendar. You choose the access level for each service during the same sign-in flow.
-
-### Self-hosted OAuth (advanced)
-
-If you prefer to use your own Google OAuth credentials instead of the hosted service:
-
-1. Create a project in the [Google Cloud Console](https://console.cloud.google.com/apis/credentials) and enable the **Google Drive API**
-2. Create OAuth 2.0 credentials (Client ID and Client Secret)
-3. Add your redirect URI (e.g., `http://localhost:8000/api/oauth/callback` for local)
-4. Set these in your `.env` file:
-   ```env
-   GOOGLE_CLIENT_ID=your-client-id
-   GOOGLE_CLIENT_SECRET=your-client-secret
-   ```
-5. Remove or leave `OAUTH_REDIRECT_URI` unset
-
-## What Your Agents Can Do
+## What your agents can do
 
 Once connected, your agents can:
 
@@ -59,6 +42,6 @@ Example questions you can ask:
 
 ## Notes
 
-- You choose the access level during setup — **Readonly** for browsing, **File** for read + upload (Chatty's own files only), or **Full** for complete access
+- You choose the access level during setup — **File** for Chatty's own files only, **Readonly** for browsing all files, or **Full** for complete access including delete
 - Google Docs, Sheets, and Slides are automatically exported to readable formats
-- Google Drive uses the same Google connection as Gmail and Calendar
+- Google Drive uses the same Google connection as Gmail and Calendar — connect once, use everywhere

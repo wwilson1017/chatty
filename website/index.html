@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Chatty — Free AI Agent Platform for Small Business</title>
-  <meta name="description" content="A free, open-source browser-based personal AI agent platform built for professionals and small business owners. Create custom AI agents powered by your own API keys.">
+  <meta name="description" content="A free, open-source browser-based AI agent platform built for professionals and small business owners. Create custom AI agents powered by your own API keys.">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300..600;1,9..144,300..600&family=Geist:wght@300..600&family=JetBrains+Mono:wght@300..500&display=swap" rel="stylesheet">
@@ -63,7 +63,7 @@
 
     <h1 class="hero-heading">Your own AI agents,<br><em>on your own machine.</em></h1>
 
-    <p class="hero-sub">A free, open-source browser-based personal AI agent platform built for professionals and small business owners.</p>
+    <p class="hero-sub">A free, open-source browser-based AI agent platform built for professionals and small business owners.</p>
 
     <div class="hero-actions">
       <a href="#install" class="btn btn-primary">
@@ -76,7 +76,7 @@
       </a>
     </div>
 
-    <div class="hero-meta">Local-first &middot; SQLite &middot; Runs anywhere Python does</div>
+    <div class="hero-meta">One-click deploy to the cloud, or run it fully local on your own hardware.</div>
 
     <!-- Product screenshot chrome -->
     <div class="screenshot-chrome">
@@ -145,14 +145,14 @@
     <div class="section-header">
       <div class="eyebrow">The product</div>
       <h2>Chat + Tools + <em>Integrated.</em></h2>
-      <p class="section-sub">Your data, tools, and approvals wrap around a single conversation. Nothing feels bolted on because nothing is.</p>
+      <p class="section-sub">Your data, tools, and approvals wrap around a single conversation.</p>
     </div>
 
     <div class="showcase-item">
       <div class="showcase-text">
         <div class="showcase-label">01 &mdash; Chat</div>
-        <h3>Built to be read, not scrolled.</h3>
-        <p>A centered column, clear typography, and tool calls shown inline as footnotes. Switch between Power and Read modes to change the model without breaking your flow.</p>
+        <h3>Simple design, easy to read and navigate.</h3>
+        <p>Control read, tool approvals, and power mode all right in the chat box.</p>
       </div>
       <div class="showcase-preview">
         <div class="preview-chat">
@@ -184,7 +184,7 @@
     <div class="showcase-item">
       <div class="showcase-text">
         <div class="showcase-label">02 &mdash; CRM</div>
-        <h3>Your agents run your pipeline.</h3>
+        <h3>Agent-Managed CRM built in.</h3>
         <p>The CRM isn't a separate app &mdash; it's built in. Your agents read it, update it, and manage your deals directly. They log calls, move stages, create tasks, and follow up on stalled opportunities without you lifting a finger.</p>
       </div>
       <div class="showcase-preview">
@@ -449,7 +449,8 @@
     <div class="section-header">
       <div class="eyebrow">Agents</div>
       <h2>Start with one, <em>build a team.</em></h2>
-      <p class="section-sub">Pick a template, rename it, reshape it. Each agent gets its own monogram &mdash; a small piece of identity for something doing real work.</p>
+      <p class="section-sub">Create an agent with just a name, then give it a role, that's it. Your agent will guide you through the training process, or you can import existing agent training knowledge.</p>
+      <p class="section-sub"><strong>You own everything your agents learn.</strong> Every conversation, every memory, every piece of knowledge lives on your machine or your server &mdash; not in someone else's cloud. Switch providers, move hosts, or go offline. Your agents and everything they know come with you.</p>
     </div>
     <div class="chat-demo" id="chat-demo" role="region" aria-label="Demo conversation with Parker">
       <div class="chat-demo-header">
@@ -559,25 +560,36 @@
     <div class="section-header center">
       <div class="eyebrow">Get started</div>
       <h2>Up and running in <em>5 minutes.</em></h2>
-      <p class="section-sub">Three lines. The launcher sets up a virtualenv, installs deps, and starts the server.</p>
     </div>
-    <div class="code-block">
-      <span class="dim">$ </span>git clone https://github.com/WWilson1017/chatty.git<br>
-      <span class="dim">$ </span>cd chatty<br>
-      <span class="dim">$ </span>python run.py<br>
-      <span class="sage">&rarr; Chatty is running at http://localhost:8000</span>
+
+    <div class="install-grid" style="display:grid; grid-template-columns: 1fr 1fr; gap: 32px; margin-top: 8px;">
+      <div>
+        <h3 style="font-family: 'Fraunces', Georgia, serif; font-size: 18px; font-weight: 400; color: var(--gold); margin: 0 0 8px;">Recommended</h3>
+        <p class="section-sub" style="margin: 0 0 16px;">Deploy to Railway and get a cloud URL you can access from your phone, laptop, or anywhere. No terminal, no Python install, no server to maintain. Click the button, set a password, and you're live.</p>
+        <a href="https://railway.com/deploy/chatty?referralCode=HMgK-M" target="_blank" rel="noopener" class="btn" style="background: linear-gradient(135deg, #B63BCE, #5016A1); color: #fff; border: none;">
+          Deploy on Railway
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 5l7 7-7 7"/></svg>
+        </a>
+      </div>
+      <div>
+        <h3 style="font-family: 'Fraunces', Georgia, serif; font-size: 18px; font-weight: 400; color: var(--ink); margin: 0 0 8px;">For developers &amp; tinkerers</h3>
+        <p class="section-sub" style="margin: 0 0 16px;">Run Chatty on your own machine &mdash; full control, no cloud dependency. Three commands and you're up.</p>
+        <div class="code-block" style="margin-bottom: 12px;">
+          <span class="dim">$ </span>git clone https://github.com/WWilson1017/chatty.git<br>
+          <span class="dim">$ </span>cd chatty<br>
+          <span class="dim">$ </span>python run.py<br>
+          <span class="sage">&rarr; Chatty is running at http://localhost:8000</span>
+        </div>
+        <div class="install-meta">Requires Python 3.10+ and Node 18+</div>
+      </div>
     </div>
-    <div class="install-actions">
-      <a href="https://github.com/WWilson1017/chatty" target="_blank" rel="noopener" class="btn btn-primary">
+
+    <div class="install-actions" style="margin-top: 24px;">
+      <a href="https://github.com/WWilson1017/chatty" target="_blank" rel="noopener" class="btn btn-outline">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2a10 10 0 0 0-3.16 19.49c.5.09.68-.22.68-.48v-1.7c-2.78.6-3.37-1.34-3.37-1.34-.45-1.15-1.11-1.46-1.11-1.46-.91-.62.07-.6.07-.6 1 .07 1.53 1.03 1.53 1.03.89 1.53 2.34 1.09 2.91.83.09-.65.35-1.09.63-1.34-2.22-.25-4.55-1.11-4.55-4.94 0-1.09.39-1.98 1.03-2.68-.1-.25-.45-1.27.1-2.65 0 0 .84-.27 2.75 1.02a9.58 9.58 0 0 1 5 0c1.91-1.29 2.75-1.02 2.75-1.02.55 1.38.2 2.4.1 2.65.64.7 1.03 1.59 1.03 2.68 0 3.84-2.34 4.68-4.57 4.93.36.31.68.92.68 1.85v2.74c0 .27.18.58.69.48A10 10 0 0 0 12 2z"/></svg>
         View on GitHub
       </a>
-      <a href="https://github.com/WWilson1017/chatty#deploy-to-railway" target="_blank" rel="noopener" class="btn btn-outline">
-        One-click deploy to Railway
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 5l7 7-7 7"/></svg>
-      </a>
     </div>
-    <div class="install-meta">Requires Python 3.10+ and Node 18+</div>
   </div>
 </section>
 

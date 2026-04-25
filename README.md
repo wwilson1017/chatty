@@ -1,6 +1,6 @@
 # <img src="docs/chatty-logo.svg" alt="" width="28" /> Chatty
 
-A free, open-source browser-based personal AI agent platform built for professionals and small business owners.
+A free, open-source browser-based personal AI agent platform built for professionals and small business owners. Learn more at [mechatty.ai](https://mechatty.ai).
 
 Create custom AI agents with their own personality, knowledge, and tools — powered by your own API keys or local AI model. No SaaS fees, no vendor lock-in. You only pay for the AI usage you consume.
 
@@ -74,12 +74,12 @@ Chatty connects to your existing business tools so your agents can answer questi
 
 | Integration | Setup | What your agent can do |
 |---|---|---|
-| [Gmail](docs/gmail-setup.md) | Google sign-in | Search, read, send, reply to, and draft emails |
-| [Google Calendar](docs/google-calendar-setup.md) | Google sign-in | View, create, update, and delete calendar events |
-| [Google Drive](docs/google-drive-setup.md) | Google sign-in | Search, read, and upload files |
-| [QuickBooks Online](docs/quickbooks-setup.md) | Intuit OAuth | Invoices, estimates, payments, customers, vendors, and financial reports |
+| [Gmail](docs/gmail-setup.md) | Your own Google OAuth app — see [Google OAuth Setup](docs/google-oauth-setup.md) | Search, read, send, reply to, and draft emails |
+| [Google Calendar](docs/google-calendar-setup.md) | Your own Google OAuth app — see [Google OAuth Setup](docs/google-oauth-setup.md) | View, create, update, and delete calendar events |
+| [Google Drive](docs/google-drive-setup.md) | Your own Google OAuth app — see [Google OAuth Setup](docs/google-oauth-setup.md) | Search, read, and upload files |
+| [QuickBooks Online](docs/quickbooks-setup.md) | Your own Intuit OAuth app — see [QuickBooks Setup](docs/quickbooks-setup.md) | Invoices, estimates, payments, customers, vendors, and financial reports |
 | [QuickBooks CSV](docs/quickbooks-csv-setup.md) | One-click | Analyze exported QuickBooks CSV files — no OAuth required |
-| [CRM Lite](docs/crm-lite-setup.md) | One-click | Manage contacts, deals, tasks, and activities — built in |
+| [CRM Lite](docs/crm-lite-setup.md) | One-click | Manage contacts, deals, tasks, and activities — built in, ships with demo data you can clear when ready |
 | [Telegram](docs/telegram-setup.md) | Bot token | Chat with your agent from Telegram |
 | [WhatsApp](docs/whatsapp-setup.md) | QR code scan | Chat with your agent from WhatsApp |
 | [Odoo](docs/odoo-setup.md) | API key | Sales, inventory, accounting, HR, and more from your Odoo ERP |

@@ -1109,6 +1109,7 @@ em { font-style: italic; }
   .sales-activity-header { padding: 14px 16px; }
   .agents-grid { grid-template-columns: 1fr; }
   .featured-grid { grid-template-columns: 1fr; }
+  .install-grid { grid-template-columns: 1fr !important; }
   .integrations-grid { grid-template-columns: 1fr; }
   .section { padding: 80px 0 60px; }
   .section-header h2 { font-size: 32px; }
