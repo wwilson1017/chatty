@@ -92,6 +92,10 @@ export function useAgentChat(apiPrefix: string, options?: Options) {
   const [toolMode, setToolMode] = useState<ToolMode>('normal');
   const [contextUsage, setContextUsage] = useState<ContextUsage | null>(null);
   const abortRef = useRef<AbortController | null>(null);
+  const streamInIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  useEffect(() => () => {
+    if (streamInIntervalRef.current) clearInterval(streamInIntervalRef.current);
+  }, []);
   const savedToolModeRef = useRef<ToolMode>('normal');
   const savedToolModeForPlanRef = useRef<ToolMode>('normal');
   const trainingKickoffRef = useRef(false);
@@ -484,6 +488,11 @@ export function useAgentChat(apiPrefix: string, options?: Options) {
   }, []);
 
   const loadMessages = useCallback((msgs: ChatMessage[], id: string, streamIn?: boolean) => {
+    if (streamInIntervalRef.current) {
+      clearInterval(streamInIntervalRef.current);
+      streamInIntervalRef.current = null;
+    }
+
     if (!streamIn || !msgs.length || msgs[msgs.length - 1].role !== 'assistant') {
       setMessages(msgs);
       setConversationId(id);
@@ -499,7 +508,7 @@ export function useAgentChat(apiPrefix: string, options?: Options) {
     setMessages([...preceding, { ...lastMsg, content: '', isStreaming: true }]);
 
     let i = 0;
-    const interval = setInterval(() => {
+    streamInIntervalRef.current = setInterval(() => {
       const chunkEnd = Math.min(i + 3, fullText.length);
       const soFar = fullText.slice(0, chunkEnd);
       i = chunkEnd;
@@ -509,7 +518,8 @@ export function useAgentChat(apiPrefix: string, options?: Options) {
         return [...prev.slice(0, -1), { ...last, content: soFar }];
       });
       if (i >= fullText.length) {
-        clearInterval(interval);
+        if (streamInIntervalRef.current) clearInterval(streamInIntervalRef.current);
+        streamInIntervalRef.current = null;
         setIsStreaming(false);
         setMessages(prev => prev.map(m => m.isStreaming ? { ...m, isStreaming: false } : m));
       }

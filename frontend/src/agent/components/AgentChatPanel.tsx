@@ -29,6 +29,7 @@ interface Props {
   agentName?: string;
   conversationSource?: string | null;
   importMode?: boolean;
+  onCancelImport?: () => void;
 }
 
 const TOOL_MODES: { key: ToolMode; label: string }[] = [
@@ -40,7 +41,7 @@ const TOOL_MODES: { key: ToolMode; label: string }[] = [
 export function AgentChatPanel({
   messages, isStreaming, onSend, onStop, onApprove, onDeny,
   onApprovePlan, onIteratePlan, scrollRef: externalScrollRef,
-  contextUsage, toolMode, onToolModeChange, agentName, conversationSource, importMode,
+  contextUsage, toolMode, onToolModeChange, agentName, conversationSource, importMode, onCancelImport,
 }: Props) {
   const [input, setInput] = useState('');
   const [pendingFiles, setPendingFiles] = useState<File[]>([]);
@@ -362,9 +363,22 @@ export function AgentChatPanel({
                 <span style={{ fontSize: 11, fontWeight: 600, letterSpacing: '0.05em', color: '#D4A85A' }}>
                   Import Mode
                 </span>
-                <span style={{ fontSize: 11, color: 'rgba(237,240,244,0.4)' }}>
+                <span style={{ flex: 1, fontSize: 11, color: 'rgba(237,240,244,0.4)' }}>
                   Importing knowledge from another system
                 </span>
+                {onCancelImport && (
+                  <button
+                    onClick={onCancelImport}
+                    style={{
+                      background: 'transparent', border: '1px solid rgba(212,168,90,0.3)',
+                      color: '#D4A85A', borderRadius: 4,
+                      padding: '3px 10px', fontSize: 11, cursor: 'pointer',
+                      fontFamily: "'Inter Tight', system-ui, sans-serif",
+                    }}
+                  >
+                    Cancel
+                  </button>
+                )}
               </div>
             )}
             {messages.filter(msg => !msg.hidden).map(msg => {

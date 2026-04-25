@@ -148,11 +148,20 @@ export function AgentPage() {
     convs.loadConversations();
   }, [agentId]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Auto-redirect to active import conversation if user navigates away
+  // Auto-redirect to active import conversation if user navigates away.
+  // If the import conversation is older than 35 minutes (session TTL is 30min),
+  // treat it as orphaned and delete it instead of trapping the user.
   useEffect(() => {
     if (!convs.conversations.length) return;
     const importConv = convs.conversations.find(c => c.mode === 'import');
     if (!importConv) return;
+
+    const ageMs = Date.now() - new Date(importConv.created_at).getTime();
+    if (ageMs > 35 * 60 * 1000) {
+      convs.deleteConversation(importConv.id);
+      return;
+    }
+
     if (convs.activeId === importConv.id) return;
     (async () => {
       const msgs = await convs.selectConversation(importConv.id);
@@ -538,6 +547,13 @@ export function AgentPage() {
               agentName={agent.agent_name}
               conversationSource={convs.conversations.find(c => c.id === convs.activeId)?.source}
               importMode={convs.conversations.find(c => c.id === convs.activeId)?.mode === 'import'}
+              onCancelImport={async () => {
+                if (!confirm('Cancel this import? The agent and all progress will be deleted.')) return;
+                try {
+                  await api(`/api/agents/${agentId}`, { method: 'DELETE' });
+                } catch { /* ignore */ }
+                navigate('/');
+              }}
             />
           </>
         ) : activeTab === 'knowledge' ? (
