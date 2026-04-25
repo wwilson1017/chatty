@@ -50,9 +50,9 @@ These auto-generate if not set. You can override them for extra control:
 
 | Variable | Description |
 |----------|-------------|
-| `GOOGLE_CLIENT_ID` | Google OAuth client ID (for Gmail + Calendar + Drive). Defaults to the Chatty-owned OAuth app provided by the Railway template. |
+| `GOOGLE_CLIENT_ID` | Google OAuth client ID (for Gmail + Calendar + Drive). Required if you want to use any Google integration — you must create your own OAuth client. See [Google integration](#google-integration-gmail--calendar--drive) below. |
 | `GOOGLE_CLIENT_SECRET` | Google OAuth client secret (paired with `GOOGLE_CLIENT_ID`) |
-| `OAUTH_REDIRECT_URI` | Override the OAuth callback URL. Defaults to `https://auth.mechatty.com/callback` (the shared OAuth proxy). Only set this if you run your own proxy or want direct-to-instance OAuth. |
+| `OAUTH_REDIRECT_URI` | The OAuth callback URL registered with your provider. Set this to `{your-chatty-url}/api/oauth/callback` (e.g. `https://chatty-production-xxxx.up.railway.app/api/oauth/callback`). Required for Google integrations. |
 | `QUICKBOOKS_CLIENT_ID` | QuickBooks OAuth client ID |
 | `QUICKBOOKS_CLIENT_SECRET` | QuickBooks OAuth client secret |
 | `WHATSAPP_BRIDGE_URL` | WhatsApp Baileys bridge URL (advanced) |
@@ -68,29 +68,21 @@ authorize Chatty once from **Dashboard → Integrations → Google** and pick ex
 which scopes (read vs send, read-only vs full Drive access, etc.) you want to
 grant.
 
-You need a Google OAuth client (a **client ID** and **client secret** pair) for
-this to work. There are two paths:
+**Chatty does not ship with a bundled Google OAuth app.** To use Gmail, Calendar,
+or Drive, you must create your own Google Cloud OAuth client and provide the
+client ID and secret as environment variables. This keeps you in full control of
+your data, your verification status, and your usage quotas — and means Google
+sees your own app name on the consent screen instead of a third-party one.
 
-### Path 1: Use the bundled Chatty OAuth client (default, easiest)
+### Create your Google Cloud OAuth client
 
-The Railway template ships with `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET`
-pre-populated, pointing at a Chatty-owned Google Cloud OAuth app. If you deployed
-via the "Deploy on Railway" button in the README, you already have this — you
-can go straight to **Dashboard → Integrations → Google** and connect.
-
-The bundled app is subject to Google's verification limits for sensitive scopes
-(Gmail, Drive). Early adopters will see a warning screen; the Chatty maintainers
-submit the app for verification as user count grows.
-
-### Path 2: Bring your own Google Cloud OAuth client (recommended for production)
-
-If you want full control, your own verification status, or a separate app for
-your organization, create your own Google Cloud project:
-
-1. Go to [console.cloud.google.com](https://console.cloud.google.com) → create a project
-2. **APIs & Services → Library** → enable **Gmail API**, **Google Calendar API**, and **Google Drive API**
-3. **OAuth consent screen** → choose *External* → fill in app name, support email, and developer contact
-4. Add these scopes (only add what you plan to actually use):
+1. Go to [console.cloud.google.com](https://console.cloud.google.com) → create a project (or select an existing one)
+2. **APIs & Services → Library** → enable each API you plan to use:
+   - **Gmail API** (for Gmail integration)
+   - **Google Calendar API** (for Calendar integration)
+   - **Google Drive API** (for Drive integration)
+3. **APIs & Services → OAuth consent screen** → choose *External* → fill in app name, support email, and developer contact
+4. Add the scopes you plan to use (only add what you'll actually use):
    - `openid`, `email`, `profile`
    - `https://www.googleapis.com/auth/gmail.readonly`
    - `https://www.googleapis.com/auth/gmail.send`
@@ -100,17 +92,25 @@ your organization, create your own Google Cloud project:
    - `https://www.googleapis.com/auth/drive.file`
    - `https://www.googleapis.com/auth/drive.readonly`
    - `https://www.googleapis.com/auth/drive`
-5. **Credentials → Create Credentials → OAuth client ID** → *Web application*
-6. Under **Authorized redirect URIs**, add `https://auth.mechatty.com/callback`
-7. Copy the **Client ID** and **Client secret**
-8. In Railway, set the `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` env vars to the new values
-9. Trigger a redeploy so the new values take effect
-10. Open Chatty → **Dashboard → Integrations → Google** → pick your scopes → click **Connect Google**
+5. **APIs & Services → Credentials → Create Credentials → OAuth client ID** → choose *Web application*
+6. Under **Authorized redirect URIs**, add your Chatty instance's callback URL:
+   - **Railway:** `https://your-chatty-url.up.railway.app/api/oauth/callback`
+   - **Custom domain:** `https://your-domain.com/api/oauth/callback`
+   - **Local dev:** `http://localhost:8000/api/oauth/callback`
+7. Click **Create** and copy the **Client ID** and **Client secret**
+8. In Railway, set these three environment variables under **Variables**:
+   - `GOOGLE_CLIENT_ID` — your client ID
+   - `GOOGLE_CLIENT_SECRET` — your client secret
+   - `OAUTH_REDIRECT_URI` — the same callback URL you registered (e.g. `https://your-chatty-url.up.railway.app/api/oauth/callback`)
+9. Railway will automatically redeploy. Open Chatty → **Dashboard → Integrations → Google** → pick your scopes → click **Connect Google**.
 
 **Sensitive-scope verification:** Gmail and Drive scopes are "sensitive" or
 "restricted" in Google's classification. Unverified apps can serve up to 100
-test users; for more than that, submit your OAuth app for Google's verification
-review (takes a few days to a few weeks).
+test users — fine for personal/single-user use. For wider distribution, submit
+your OAuth app for Google's verification review (takes a few days to a few
+weeks for sensitive scopes; restricted scopes also require a security
+assessment). While unverified, you'll see a "Google hasn't verified this app"
+warning when connecting — click *Advanced → Go to (your app)* to proceed.
 
 ### Server Configuration
 

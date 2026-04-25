@@ -5,38 +5,51 @@ Connect your Gmail account so your Chatty agents can search, read, send, reply t
 ## Prerequisites
 
 - A Google account with Gmail enabled
+- **Your own Google Cloud OAuth client** (client ID + client secret) — Chatty does not ship with a bundled OAuth app. See [Google OAuth Setup](#google-oauth-setup) below.
 
-## Local Setup
+## Google OAuth Setup
 
-1. Start Chatty with `python run.py`
-2. Go to **Settings** > **Integrations** and click **Connect Google**
-3. Sign in with your Google account and choose the access level you want to grant:
-   - **Read** — search and read emails
-   - **Send** — read access plus send, reply, and draft emails
+You only need to do this once — the same OAuth client is used for Gmail, Google Calendar, and Google Drive.
 
-## Railway Setup
-
-1. Open your Chatty instance
-2. Go to **Settings** > **Integrations** and click **Connect Google**
-3. Sign in with your Google account and choose your access levels
-
-That's it — Chatty handles the OAuth flow through its hosted service at `auth.mechatty.com`, so there's no Google Cloud project or credentials to configure.
-
-> **Note:** Gmail uses the same Google connection as Google Calendar and Google Drive. You choose the access level for each service during the same sign-in flow.
-
-### Self-hosted OAuth (advanced)
-
-If you prefer to use your own Google OAuth credentials instead of the hosted service:
-
-1. Create a project in the [Google Cloud Console](https://console.cloud.google.com/apis/credentials) and enable the **Gmail API**
-2. Create OAuth 2.0 credentials (Client ID and Client Secret)
-3. Add your redirect URI (e.g., `http://localhost:8000/api/oauth/callback` for local)
-4. Set these in your `.env` file:
+1. Go to the [Google Cloud Console](https://console.cloud.google.com) and create (or select) a project
+2. **APIs & Services → Library** → enable each API you plan to use:
+   - **Gmail API** (required for this guide)
+   - **Google Calendar API** (if you'll connect Calendar)
+   - **Google Drive API** (if you'll connect Drive)
+3. **APIs & Services → OAuth consent screen** → choose *External* → fill in app name, support email, and developer contact
+4. Add the scopes you plan to grant (only add what you'll actually use):
+   - `openid`, `email`, `profile`
+   - `https://www.googleapis.com/auth/gmail.readonly` — read emails
+   - `https://www.googleapis.com/auth/gmail.send` — send emails
+   - `https://www.googleapis.com/auth/gmail.compose` — create drafts
+5. **APIs & Services → Credentials → Create Credentials → OAuth client ID** → choose *Web application*
+6. Under **Authorized redirect URIs**, add your Chatty instance's callback URL:
+   - **Local dev:** `http://localhost:8000/api/oauth/callback`
+   - **Railway:** `https://your-chatty-url.up.railway.app/api/oauth/callback` (replace with your actual Railway URL)
+   - **Custom domain:** `https://your-domain.com/api/oauth/callback`
+7. Click **Create** and copy the **Client ID** and **Client secret**
+8. Set these as environment variables on your Chatty instance:
    ```env
    GOOGLE_CLIENT_ID=your-client-id
    GOOGLE_CLIENT_SECRET=your-client-secret
+   OAUTH_REDIRECT_URI=https://your-chatty-url/api/oauth/callback
    ```
-5. Remove or leave `OAUTH_REDIRECT_URI` unset
+   On Railway, add them under **Variables**. Locally, add them to `.env`.
+9. Restart Chatty (Railway redeploys automatically when you change variables)
+
+> **Sensitive-scope verification:** Gmail scopes are classified as "sensitive" by Google. Unverified apps can serve up to 100 test users — fine for personal use. For wider distribution, submit your OAuth app for Google's verification review (takes a few days to a few weeks). While unverified, you'll see a "Google hasn't verified this app" warning when connecting; click *Advanced → Go to (your app)* to proceed.
+
+## Connect in Chatty
+
+1. Open your Chatty instance and log in
+2. Go to **Settings → Integrations** and click **Connect Google**
+3. Sign in with your Google account
+4. Choose the access level you want to grant for Gmail:
+   - **Read** — search and read emails
+   - **Send** — read access plus send, reply, and draft emails
+5. Click **Allow** — you'll be redirected back to Chatty with the integration enabled
+
+> **Note:** Gmail uses the same Google connection as Google Calendar and Google Drive. You choose the access level for each service during the same sign-in flow.
 
 ## What Your Agents Can Do
 
@@ -62,4 +75,4 @@ Example questions you can ask:
 - You choose the access level during setup — **Read** for search/read only, or **Send** for full email capabilities
 - Gmail search filters work the same as in Gmail itself (`from:`, `subject:`, `is:unread`, `has:attachment`, etc.)
 - HTML emails are automatically converted to readable text
-- Gmail uses the same Google connection as Calendar and Drive
+- Gmail uses the same Google connection as Calendar and Drive — one OAuth client covers all three services
