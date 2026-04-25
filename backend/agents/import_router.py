@@ -102,11 +102,24 @@ Present these options clearly in your first message:
 - **Drop a zip** — They can drag a .zip file of markdown files into the chat
 {openclaw_line}
 
+## Handling backups with multiple agents
+
+If the scan finds a backup folder with multiple agents (subdirectories like data/jamie/,
+data/connor/, databases/connor/, etc.), list the agent names you found and ask which one
+to import. Once the user picks one, call scan_directory again with the specific agent's
+subdirectory path (e.g. ~/Downloads/backup/data/connor/) to narrow down to just that
+agent's files.
+
+Look in BOTH data/{name}/ and databases/{name}/ — markdown knowledge files may be in
+either location. The data/ folder typically has context files (soul.md, MEMORY.md, etc.)
+and the databases/ folder may have additional ones.
+
 ## Step 2: Walk through files
 
 Read files ONE AT A TIME with read_import_file. After each, narrate what you found in 2-3 sentences.
 
-Order: IDENTITY.md first, then SOUL.md, USER.md, TOOLS.md, MEMORY.md, daily logs.
+Order: soul.md first, then IDENTITY.md, SOUL.md, USER.md, TOOLS.md, MEMORY.md, daily logs.
+If none of those exact names exist, read whatever .md files are available.
 
 After reading IDENTITY.md (or the first personality file), ask:
 "Do you want me to carry this identity forward (same name, vibe, personality), or start fresh —

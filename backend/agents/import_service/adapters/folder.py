@@ -27,7 +27,7 @@ class FolderSourceAdapter(SourceAdapter):
         total = sum(f.size_bytes for f in files)
         return SourceInfo(agent_name=None, file_count=len(files), total_bytes=total)
 
-    MAX_FILES = 200
+    MAX_FILES = 1000
 
     def list_files(self) -> list[FileEntry]:
         entries: list[FileEntry] = []
