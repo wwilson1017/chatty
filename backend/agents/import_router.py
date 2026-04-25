@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import uuid
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -39,12 +40,21 @@ async def start_import(body: StartImportRequest, user=Depends(get_current_user))
     # Seed only the import bootstrap file (not the full template set)
     context_dir = DATA_DIR / agent["slug"] / "context"
     context_dir.mkdir(parents=True, exist_ok=True)
-    _seed_import_bootstrap(context_dir, name)
+    openclaw_agents = discover_openclaw_agents()
+    _seed_import_bootstrap(context_dir, name, openclaw_agents)
 
-    # Create an import-mode conversation
+    # Create an import-mode conversation with a seeded opening message
     from .engine import get_chat_service
     chat_svc = get_chat_service(agent["slug"])
     conv = chat_svc.create_conversation(title="Knowledge Import", mode="import")
+    opener = _build_import_opener(name, openclaw_agents)
+    chat_svc.save_message(
+        conversation_id=conv["id"],
+        msg_id=str(uuid.uuid4()),
+        role="assistant",
+        content=opener,
+        seq=0,
+    )
 
     # Create a placeholder session (adapter will be set by scan_directory or ingest_pasted_text)
     placeholder = PasteSourceAdapter("(awaiting source)")
@@ -127,8 +137,9 @@ Ask "Anything to adjust before I wrap up?" Then call finalize_import().
 """
 
 
-def _seed_import_bootstrap(context_dir: Path, agent_name: str) -> None:
-    openclaw_agents = discover_openclaw_agents()
+def _seed_import_bootstrap(context_dir: Path, agent_name: str, openclaw_agents: list[dict] | None = None) -> None:
+    if openclaw_agents is None:
+        openclaw_agents = discover_openclaw_agents()
     if openclaw_agents:
         names = ", ".join(f"*{a['name']}*" for a in openclaw_agents)
         openclaw_line = f"- **OpenClaw** — I found an OpenClaw installation with agents: {names}. Just tell me which one."
@@ -137,3 +148,28 @@ def _seed_import_bootstrap(context_dir: Path, agent_name: str) -> None:
 
     content = _IMPORT_BOOTSTRAP.format(openclaw_line=openclaw_line)
     (context_dir / "_import-bootstrap.md").write_text(content, encoding="utf-8")
+
+
+def _build_import_opener(agent_name: str, openclaw_agents: list[dict]) -> str:
+    """Build the agent's opening message for the import conversation."""
+    lines = [
+        f"Hey! I'm {agent_name} — a brand new agent ready to learn. "
+        "Let's bring your knowledge over from another system.\n",
+        "Here's how you can get your files to me:\n",
+        "**Paste it** — Copy and paste markdown content right here in the chat. "
+        "Works great for a single file or a quick dump.\n",
+        "**Point me at a folder** — Give me a path like `~/Downloads/agent-files/` "
+        "and I'll scan it for markdown files.\n",
+        "**Drop a zip** — Drag a `.zip` file of markdown files into the chat window.",
+    ]
+
+    if openclaw_agents:
+        names = ", ".join(f"**{a['name']}**" for a in openclaw_agents)
+        lines.append(
+            f"\n**OpenClaw** — I found an OpenClaw installation on this machine "
+            f"with agents: {names}. Just tell me which one and I'll pull the files automatically."
+        )
+
+    lines.append("\nWhat works best for you?")
+
+    return "\n\n".join(lines)
