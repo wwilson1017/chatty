@@ -80,11 +80,13 @@ export function AgentPage() {
     onImportComplete: (id) => importCompleteRef.current?.(id),
   });
 
-  importCompleteRef.current = async (newConversationId: string) => {
-    await convs.loadConversations();
-    const msgs = await convs.selectConversation(newConversationId);
-    if (msgs) chat.loadMessages(msgs, newConversationId);
-  };
+  useEffect(() => {
+    importCompleteRef.current = async (newConversationId: string) => {
+      await convs.loadConversations();
+      const msgs = await convs.selectConversation(newConversationId);
+      if (msgs) chat.loadMessages(msgs, newConversationId);
+    };
+  }); // intentionally no deps — always tracks latest convs/chat
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const topBarVisible = useScrollDirection(scrollRef);
