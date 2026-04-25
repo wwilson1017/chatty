@@ -2,68 +2,110 @@
 
 This guide walks you through connecting your QuickBooks Online account to Chatty so your AI agents can query invoices, customers, bills, and financial reports.
 
+## How this works
+
+Because Chatty is self-hosted, **you must create your own Intuit Developer app and bring your own Client ID and Client Secret.** The project does not provide a shared QuickBooks app, Client ID, or Client Secret — every Chatty user is the operator of their own private app, which authorizes their own Chatty instance against their own QuickBooks company.
+
+This is a one-time setup. Once your app is created, your agents can talk to your QuickBooks data indefinitely.
+
+You will:
+
+1. Create a free Intuit Developer account
+2. Create an app in their dashboard (this is your private app, not published anywhere)
+3. Copy your Client ID, Client Secret, and Redirect URI into Chatty's `.env`
+4. Click **Connect QuickBooks** in Chatty and authorize your own app
+
 ## Prerequisites
 
-- A QuickBooks Online account (any plan)
+- A QuickBooks Online account (Simple Start or higher — Self-Employed plans don't expose the v3 Accounting API)
 - A running Chatty instance (local or deployed on Railway)
+- The public URL where your Chatty instance is reachable (e.g. `http://localhost:8000`, your Railway URL, or your custom domain)
 
-## Step 1: Create an Intuit Developer Account
+## Step 1: Create an Intuit Developer account
 
 1. Go to [developer.intuit.com](https://developer.intuit.com/)
-2. Sign in with your existing QuickBooks/Intuit credentials (or create a new account)
+2. Sign in with your existing QuickBooks/Intuit credentials, or create a new account
 
-## Step 2: Create an App
+The developer account is free and separate from your QuickBooks subscription. You can use the same email.
+
+## Step 2: Create your app
 
 1. From the Intuit Developer dashboard, click **Create an app**
 2. Select **QuickBooks Online and Payments**
-3. Name your app (e.g. "Chatty")
-4. Select the **com.intuit.quickbooks.accounting** scope
+3. Name your app — `Chatty` is fine, but it can be anything (e.g. `Acme Co Chatty`). Only you will see this name.
+4. Under scopes, select **com.intuit.quickbooks.accounting**
 5. Click **Create app**
 
-## Step 3: Get Your Credentials
+Because this app is for your own private use, you do **not** need to submit it for Intuit App Review or publish it to the App Store. App Review is only required if you want to distribute the app to other QuickBooks users — which a self-hoster doesn't.
 
-1. In your app, go to **Keys and credentials** in the left sidebar
-2. Select the **Development** tab (for testing with sandbox data) or **Production** tab (for your real QuickBooks data)
-3. Toggle **Show credentials** and copy your **Client ID** and **Client Secret**
+## Step 3: Get your credentials
+
+Intuit gives every app two sets of credentials — keep them straight, this trips people up:
+
+| Tab | What it does | When to use |
+|---|---|---|
+| **Development** | Connects only to Intuit's *sandbox* (a fake test company) | Trying things out before touching real books |
+| **Production** | Connects to your real QuickBooks company data | Actual day-to-day use |
+
+For real use:
+
+1. In your app, open **Keys and credentials** in the left sidebar
+2. Switch to the **Production** tab
+3. Toggle **Show credentials** and copy the **Client ID** and **Client Secret**
+
+> Intuit may ask you to complete a short security questionnaire before issuing Production keys (data handling, where the app runs, etc.). For a personal self-hosted instance the answers are straightforward — the app runs on your own machine or your own Railway deployment, data is stored locally, and you are the only user.
 
 ## Step 4: Set the Redirect URI
 
-1. On the Keys and credentials page, click the **redirect urls** link (or go to **Settings** in the left sidebar)
-2. Add the following redirect URI:
-   ```
-   https://auth.mechatty.com/callback
-   ```
-3. Click **Save**
+The Redirect URI is the URL Intuit sends users to after they approve the connection. It must match **exactly** between your Intuit app and your Chatty config.
 
-> **Note:** This is the same redirect URI for all Chatty instances — local dev and Railway. The auth.mechatty.com proxy securely forwards the OAuth callback to your specific instance. If you're hosting on a different platform, see [Domain Allowlist](#domain-allowlist) below.
+Use the URL where your Chatty instance is reachable, with `/api/oauth/callback` appended:
 
-## Step 5: Add Credentials to Chatty
+| Where Chatty runs | Redirect URI |
+|---|---|
+| Local development | `http://localhost:8000/api/oauth/callback` |
+| Railway | `https://your-app.up.railway.app/api/oauth/callback` |
+| Custom domain | `https://chatty.yourdomain.com/api/oauth/callback` |
 
-Add these environment variables to your Chatty `.env` file (in the `backend/` directory):
+In your Intuit app, on the **Keys and credentials** page, click **redirect urls** (or open **Settings**), paste your URL, and click **Save**.
+
+Your Intuit app talks directly to your Chatty backend — there is no Chatty-operated proxy or shared callback URL.
+
+## Step 5: Add credentials to Chatty
+
+In your Chatty `backend/.env` file:
 
 ```env
 QUICKBOOKS_CLIENT_ID=your-client-id-here
 QUICKBOOKS_CLIENT_SECRET=your-client-secret-here
 ```
 
-If you're using your real QuickBooks account (not sandbox), also set:
+If you're using **Production** credentials (real QuickBooks data), also set:
 
 ```env
 QUICKBOOKS_API_BASE_URL=https://quickbooks.api.intuit.com/v3/company
 ```
 
-Restart the Chatty backend after updating the `.env` file.
+If you're using **Development** credentials (sandbox), leave that line out — Chatty defaults to the sandbox URL.
+
+Set the Redirect URI to match what you configured in your Intuit app in Step 4:
+
+```env
+OAUTH_REDIRECT_URI=https://your-app.up.railway.app/api/oauth/callback
+```
+
+Restart the Chatty backend so it picks up the new `.env`.
 
 ## Step 6: Connect QuickBooks in Chatty
 
 1. Open Chatty in your browser
-2. Go to **Settings** (gear icon) > **Integrations** tab, or run through the onboarding wizard
+2. Go to **Settings** (gear icon) → **Integrations**, or run through the onboarding wizard
 3. Click **Connect QuickBooks**
-4. A browser window will open to Intuit's login page
-5. Sign in and authorize Chatty to access your QuickBooks data
+4. A browser window opens to Intuit's login page
+5. Sign in (or pick the QuickBooks company you want to authorize) and approve the connection
 6. You'll see a "Connected!" confirmation — the window can be closed
 
-## What Your Agents Can Do
+## What your agents can do
 
 Once connected, your AI agents can:
 
@@ -77,6 +119,7 @@ Once connected, your AI agents can:
 - **Send documents** — email invoices and estimates directly to customers from QuickBooks
 
 Example questions you can ask your agent:
+
 - "Show me all unpaid invoices"
 - "Who are my top 5 customers by revenue?"
 - "What's my profit and loss for Q1 2026?"
@@ -88,36 +131,33 @@ Example questions you can ask your agent:
 ## Troubleshooting
 
 ### "OAuth not configured for quickbooks: missing client_id in .env"
-Your `QUICKBOOKS_CLIENT_ID` is not set. Check your `.env` file in the `backend/` directory and restart the backend.
+Your `QUICKBOOKS_CLIENT_ID` is not set. Check your `.env` file in `backend/` and restart the backend.
+
+### "redirect_uri did not match" / "invalid_redirect_uri"
+The URL in your Intuit app's Redirect URIs list does not match what Chatty is sending. They must match character-for-character, including `http` vs `https` and the trailing `/api/oauth/callback`. Update one or the other so they line up exactly.
 
 ### "QuickBooks did not return a company ID (realmId)"
-The OAuth flow completed but QuickBooks didn't return a company ID. Try disconnecting and reconnecting.
+The OAuth flow completed but Intuit didn't return a company ID. Disconnect and reconnect; if it persists, confirm your app has the **com.intuit.quickbooks.accounting** scope enabled.
 
 ### 403 Forbidden errors on API calls
-You're likely using Development credentials with the production API URL (or vice versa). Make sure:
-- **Development credentials** → don't set `QUICKBOOKS_API_BASE_URL` (defaults to sandbox)
+You're likely mixing Development credentials with the production API URL (or vice versa):
+- **Development credentials** → leave `QUICKBOOKS_API_BASE_URL` unset (defaults to sandbox)
 - **Production credentials** → set `QUICKBOOKS_API_BASE_URL=https://quickbooks.api.intuit.com/v3/company`
 
 ### Token expired
-QuickBooks access tokens expire after 1 hour. Chatty automatically refreshes them using the refresh token. If refresh fails, reconnect QuickBooks through Settings > Integrations.
+QuickBooks access tokens expire after 1 hour. Chatty automatically refreshes them using the refresh token. Refresh tokens themselves last 100 days and rotate on each use, so as long as you connect at least once every 100 days you'll stay connected. If refresh fails, just reconnect from **Settings → Integrations**.
 
-## Domain Allowlist
+### "Sandbox not found" or empty data
+Your Development app needs a sandbox company attached. In the Intuit Developer dashboard, go to **Sandboxes** and create one. Then re-authorize from Chatty.
 
-The auth.mechatty.com OAuth proxy validates that callbacks are only forwarded to trusted domains. Currently allowed:
+## Why does Chatty work this way?
 
-- `*.up.railway.app` — Railway deployments
-- `localhost` / `127.0.0.1` — local development
+Most consumer SaaS products hide all of this — you click "Connect QuickBooks" and it just works, because the company runs a single shared Intuit app on your behalf. Chatty is open source and self-hosted, so **there is no shared QuickBooks app, Client ID, or Client Secret provided by the project**. Every Chatty user creates their own Intuit Developer app and uses their own credentials.
 
-If you're hosting Chatty on a different domain, the proxy will reject the callback with "Callback domain not allowed." To add your domain, open a pull request adding your domain pattern to `website/auth/callback/index.php`, or message Will directly on [WhatsApp](https://wa.me/qr/TX3OGA6ME6LHD1).
+The benefits:
 
-### Advanced: Direct OAuth (bypassing the proxy)
+- You have full control over your QuickBooks credentials — they live in your `.env` and never leave your machine
+- No third-party infrastructure sits in the OAuth path
+- The project stays free to run, with no centralized cost to fund
 
-If you prefer not to use the proxy, you can configure QuickBooks OAuth to redirect directly to your instance:
-
-1. In the Intuit developer portal, create your own app and set the redirect URI to `https://your-domain.com/api/oauth/callback`
-2. In your `.env` file, set:
-   ```env
-   OAUTH_REDIRECT_URI=https://your-domain.com/api/oauth/callback
-   ```
-
-This bypasses the proxy entirely — your Intuit app redirects directly to your backend.
+The trade-off is the 10 minutes of one-time setup above.

@@ -5,40 +5,23 @@ Connect your Google Calendar so your Chatty agents can view, search, create, upd
 ## Prerequisites
 
 - A Google account with Calendar enabled
+- Google OAuth credentials configured for Chatty — see [Google OAuth Setup](google-oauth-setup.md)
 
-## Local Setup
+> Google Calendar uses the same Google connection as Gmail and Drive. If you've already done the OAuth setup for one of those, you do not need to do it again — just enable the Google Calendar API in the same Google Cloud project.
 
-1. Start Chatty with `python run.py`
-2. Go to **Settings** > **Integrations** and click **Connect Google**
-3. Sign in with your Google account and choose the access level you want to grant:
-   - **Read** — view and search events
-   - **Full** — read access plus create, update, and delete events
+## Setup
 
-## Railway Setup
+1. In your Google Cloud project, enable the **Google Calendar API** under **APIs & Services → Library** (skip if already enabled)
+2. In your OAuth consent screen → **Scopes**, add the Calendar scopes for the level of access you want:
+   - **Read** — `calendar.readonly`
+   - **Full** — `calendar` (read + create/update/delete events)
+3. In Chatty, go to **Settings → Integrations** and click **Connect Google**
+4. Sign in and choose the Calendar access level you want — Chatty will request the matching scopes from Google
+5. Approve and you're connected
 
-1. Open your Chatty instance
-2. Go to **Settings** > **Integrations** and click **Connect Google**
-3. Sign in with your Google account and choose your access levels
+> **Note on scopes:** Both Calendar scopes are Google "Sensitive" scopes (not Restricted), which means they don't require the CASA security assessment if you ever submit for verification. For self-hosted personal use, Testing mode with yourself as a test user is fine.
 
-That's it — Chatty handles the OAuth flow through its hosted service at `auth.mechatty.com`, so there's no Google Cloud project or credentials to configure.
-
-> **Note:** Google Calendar uses the same Google connection as Gmail and Google Drive. You choose the access level for each service during the same sign-in flow.
-
-### Self-hosted OAuth (advanced)
-
-If you prefer to use your own Google OAuth credentials instead of the hosted service:
-
-1. Create a project in the [Google Cloud Console](https://console.cloud.google.com/apis/credentials) and enable the **Google Calendar API**
-2. Create OAuth 2.0 credentials (Client ID and Client Secret)
-3. Add your redirect URI (e.g., `http://localhost:8000/api/oauth/callback` for local)
-4. Set these in your `.env` file:
-   ```env
-   GOOGLE_CLIENT_ID=your-client-id
-   GOOGLE_CLIENT_SECRET=your-client-secret
-   ```
-5. Remove or leave `OAUTH_REDIRECT_URI` unset
-
-## What Your Agents Can Do
+## What your agents can do
 
 Once connected, your agents can:
 
@@ -65,4 +48,4 @@ Example questions you can ask:
 - Uses your primary calendar by default (other calendars can be specified by ID)
 - All-day events and timed events are both supported
 - Attendee response status (accepted, declined, tentative) is included in event details
-- Google Calendar uses the same Google connection as Gmail and Drive
+- Google Calendar uses the same Google connection as Gmail and Drive — connect once, use everywhere

@@ -5,40 +5,24 @@ Connect your Gmail account so your Chatty agents can search, read, send, reply t
 ## Prerequisites
 
 - A Google account with Gmail enabled
+- Google OAuth credentials configured for Chatty — see [Google OAuth Setup](google-oauth-setup.md)
 
-## Local Setup
+> Gmail uses the same Google connection as Calendar and Drive. If you've already done the OAuth setup for one of those, you do not need to do it again — just enable the Gmail API in the same Google Cloud project.
 
-1. Start Chatty with `python run.py`
-2. Go to **Settings** > **Integrations** and click **Connect Google**
-3. Sign in with your Google account and choose the access level you want to grant:
-   - **Read** — search and read emails
-   - **Send** — read access plus send, reply, and draft emails
+## Setup
 
-## Railway Setup
+1. In your Google Cloud project, enable the **Gmail API** under **APIs & Services → Library** (skip if already enabled)
+2. In your OAuth consent screen → **Scopes**, add the Gmail scopes for the level of access you want:
+   - **Read** — `gmail.readonly`
+   - **Send** — `gmail.readonly` + `gmail.send` + `gmail.compose`
+   - **Modify** — `gmail.readonly` + `gmail.send` + `gmail.compose` + `gmail.modify`
+3. In Chatty, go to **Settings → Integrations** and click **Connect Google**
+4. Sign in and choose the Gmail access level you want — Chatty will request the matching scopes from Google
+5. Approve and you're connected
 
-1. Open your Chatty instance
-2. Go to **Settings** > **Integrations** and click **Connect Google**
-3. Sign in with your Google account and choose your access levels
+> **Note on scopes:** `gmail.readonly` and `gmail.modify` are Google "Restricted" scopes. For self-hosted personal use, this is fine — keep your OAuth app in Testing mode and add yourself as a test user. See the [Google OAuth Setup guide](google-oauth-setup.md#scopes--the-most-important-part) for the full picture.
 
-That's it — Chatty handles the OAuth flow through its hosted service at `auth.mechatty.com`, so there's no Google Cloud project or credentials to configure.
-
-> **Note:** Gmail uses the same Google connection as Google Calendar and Google Drive. You choose the access level for each service during the same sign-in flow.
-
-### Self-hosted OAuth (advanced)
-
-If you prefer to use your own Google OAuth credentials instead of the hosted service:
-
-1. Create a project in the [Google Cloud Console](https://console.cloud.google.com/apis/credentials) and enable the **Gmail API**
-2. Create OAuth 2.0 credentials (Client ID and Client Secret)
-3. Add your redirect URI (e.g., `http://localhost:8000/api/oauth/callback` for local)
-4. Set these in your `.env` file:
-   ```env
-   GOOGLE_CLIENT_ID=your-client-id
-   GOOGLE_CLIENT_SECRET=your-client-secret
-   ```
-5. Remove or leave `OAUTH_REDIRECT_URI` unset
-
-## What Your Agents Can Do
+## What your agents can do
 
 Once connected, your agents can:
 
@@ -48,6 +32,7 @@ Once connected, your agents can:
 - **Send emails** — compose and send new emails to any recipient
 - **Reply to emails** — reply to a specific message, or reply-all to the thread
 - **Create drafts** — draft an email for you to review and send later
+- **Mark as read/unread** — modify message read status (requires `gmail.modify` scope)
 
 Example questions you can ask:
 
@@ -59,7 +44,7 @@ Example questions you can ask:
 
 ## Notes
 
-- You choose the access level during setup — **Read** for search/read only, or **Send** for full email capabilities
+- You choose the access level during setup — **Read** for search/read only, **Send** for full email composition, or **Modify** for everything plus marking read/unread
 - Gmail search filters work the same as in Gmail itself (`from:`, `subject:`, `is:unread`, `has:attachment`, etc.)
 - HTML emails are automatically converted to readable text
-- Gmail uses the same Google connection as Calendar and Drive
+- Gmail uses the same Google connection as Calendar and Drive — connect once, use everywhere
