@@ -1,7 +1,7 @@
 """Chatty — QuickBooks Online OAuth2 setup flow."""
 
 import logging
-from integrations.registry import save_credentials
+from integrations.registry import get_credentials, save_credentials
 
 logger = logging.getLogger(__name__)
 
@@ -14,7 +14,8 @@ def setup_from_oauth(
 ) -> dict:
     """Save QBO OAuth2 credentials after completing the OAuth flow."""
     import time
-    save_credentials("quickbooks", {
+    existing = get_credentials("quickbooks")
+    existing.update({
         "company_id": company_id,
         "access_token": access_token,
         "refresh_token": refresh_token,
@@ -22,4 +23,5 @@ def setup_from_oauth(
         "connection_status": "ok",
         "enabled": True,
     })
+    save_credentials("quickbooks", existing)
     return {"ok": True}

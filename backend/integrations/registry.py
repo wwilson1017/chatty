@@ -162,11 +162,17 @@ def list_integrations() -> list[dict]:
     for key, meta in AVAILABLE_INTEGRATIONS.items():
         creds = get_credentials(key)
         always_on = meta.get("always_on", False)
+        # For OAuth integrations, "configured" means tokens exist (not just app creds)
+        if meta.get("auth_type") in ("oauth2", "oauth2_scoped"):
+            is_configured = bool(creds.get("access_token") or creds.get("refresh_token"))
+        else:
+            is_configured = bool(creds)
+
         entry = {
             "id": key,
             **meta,
             "enabled": True if always_on else bool(creds.get("enabled", False)),
-            "configured": True if always_on else bool(creds),
+            "configured": True if always_on else is_configured,
             "hidden": False,
             "connection_status": creds.get("connection_status", "ok") if creds else "ok",
             "tool_mode": creds.get("tool_mode", "normal"),
@@ -174,5 +180,8 @@ def list_integrations() -> list[dict]:
         if key == "google" and creds:
             entry["email"] = creds.get("email", "")
             entry["scope_grants"] = creds.get("scope_grants", {})
+        if meta.get("auth_type") in ("oauth2", "oauth2_scoped"):
+            from .app_credentials import has_app_credentials
+            entry["has_app_credentials"] = has_app_credentials(key)
         result.append(entry)
     return result
