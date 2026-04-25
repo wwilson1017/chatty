@@ -156,11 +156,11 @@ def _build_import_opener(agent_name: str, openclaw_agents: list[dict]) -> str:
         f"Hey! I'm {agent_name} — a brand new agent ready to learn. "
         "Let's bring your knowledge over from another system.\n",
         "Here's how you can get your files to me:\n",
-        "**Paste it** — Copy and paste markdown content right here in the chat. "
-        "Works great for a single file or a quick dump.\n",
+        "**Drop files** — Drag and drop `.md`, `.txt`, or `.zip` files right into the chat window.\n",
+        "**Paste it** — Copy and paste markdown content directly into the chat. "
+        "Works great for a quick dump.\n",
         "**Point me at a folder** — Give me a path like `~/Downloads/agent-files/` "
-        "and I'll scan it for markdown files.\n",
-        "**Drop a zip** — Drag a `.zip` file of markdown files into the chat window.",
+        "and I'll scan it for markdown files.",
     ]
 
     if openclaw_agents:
