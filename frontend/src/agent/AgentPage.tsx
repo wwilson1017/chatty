@@ -148,6 +148,18 @@ export function AgentPage() {
     convs.loadConversations();
   }, [agentId]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Auto-redirect to active import conversation if user navigates away
+  useEffect(() => {
+    if (!convs.conversations.length) return;
+    const importConv = convs.conversations.find(c => c.mode === 'import');
+    if (!importConv) return;
+    if (convs.activeId === importConv.id) return;
+    (async () => {
+      const msgs = await convs.selectConversation(importConv.id);
+      if (msgs) chat.loadMessages(msgs, importConv.id);
+    })();
+  }, [convs.conversations, convs.activeId]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // Handle conversation from URL search params (used by import flow)
   const importConvHandled = useRef<string | null>(null);
   useEffect(() => {
