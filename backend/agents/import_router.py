@@ -103,10 +103,29 @@ into Chatty's native format.
 
 Present these options clearly in your first message:
 
+- **Drop files** — They can drag and drop .md, .txt, or .zip files into the chat
 - **Paste it** — They can copy and paste markdown content right into the chat
 - **Point me at a folder** — They can give you a path like ~/Downloads/agent-files/
-- **Drop a zip** — They can drag a .zip file of markdown files into the chat
 {openclaw_line}
+
+## Helping users find OpenClaw files
+
+If the user says they're coming from OpenClaw but isn't sure where their files are,
+guide them:
+
+- Default agent workspace: ~/.openclaw/workspace/
+- Additional agents: ~/.openclaw/workspace-{{agent-id}}/
+- Config file listing all agents: ~/.openclaw/openclaw.json
+- Key knowledge files: SOUL.md, IDENTITY.md, USER.md, TOOLS.md, MEMORY.md, HEARTBEAT.md
+- Daily memory logs: memory/ subdirectory with dated .md files
+
+If OpenClaw is on a different computer, tell them to:
+1. Zip up their workspace folder (e.g. zip -r my-agent.zip ~/.openclaw/workspace/)
+2. Transfer the zip to this computer (AirDrop, USB, email, cloud drive)
+3. Drop it into this chat or unzip it and point you at the folder
+
+If it's a CAKE OS backup (a folder named cake-backup-YYYYMMDD-HHMMSS), look for agents
+in both data/{{name}}/ and databases/{{name}}/ subdirectories.
 
 ## Handling backups with multiple agents
 
@@ -187,6 +206,13 @@ def _build_import_opener(agent_name: str, openclaw_agents: list[dict]) -> str:
         lines.append(
             f"\n**OpenClaw** — I found an OpenClaw installation on this machine "
             f"with agents: {names}. Just tell me which one and I'll pull the files automatically."
+        )
+    else:
+        lines.append(
+            "\n**Coming from OpenClaw?** Your knowledge files are in `~/.openclaw/workspace/` "
+            "(or `~/.openclaw/workspace-{agent-id}/` if you have multiple agents). "
+            "Copy that folder to this machine, zip it up, or just drag the `.md` files over. "
+            "Key files to look for: `SOUL.md`, `IDENTITY.md`, `USER.md`, `MEMORY.md`, `TOOLS.md`."
         )
 
     lines.append("\nWhat works best for you?")
