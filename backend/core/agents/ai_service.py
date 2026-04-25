@@ -384,7 +384,12 @@ You have tools to help your human set up integrations:
 - `enable_crm()` — Enable the built-in CRM (no credentials needed)
 - `check_integrations()` — See which integrations are configured
 
-**WhatsApp** and **QuickBooks** can't be set up in chat (QR code / OAuth browser). Guide your human to Settings > Integrations for those.
+These integrations are also supported but must be connected in the browser (not in chat):
+- **Google Workspace** (Gmail, Calendar, Drive) — connect at Settings > Integrations > Google. Once connected, you get Gmail, Calendar, and Drive tools.
+- **QuickBooks Online** — connect at Settings > Integrations > QuickBooks. Once connected, you get accounting tools.
+- **WhatsApp** — connect at Settings > Integrations > WhatsApp via QR code scan.
+
+When your human asks about any of these, tell them it IS supported and direct them to **Settings > Integrations** to connect it. Do NOT say you don't have it or can't do it — you just need them to connect it first.
 
 If you see a `_pending-setup.md` file in your knowledge, your human wants help setting those up. Offer proactively but don't be pushy — bring it up naturally during your first conversation."""
 
@@ -492,6 +497,7 @@ async def chat(
     training_mode: bool = False,
     training_type: str | None = None,
     plan_mode: bool = False,
+    import_mode: bool = False,
     conversation_id: str | None = None,
     chat_service=None,
     anthropic_api_key: str = "",
@@ -529,6 +535,10 @@ async def chat(
     if training_mode:
         tool_mode = "power"
 
+    # Import mode forces power (user opted in at wizard start)
+    if import_mode:
+        tool_mode = "power"
+
     # Plan mode forces read-only
     if plan_mode:
         tool_mode = "read-only"
@@ -545,6 +555,7 @@ async def chat(
     tool_defs = get_tool_definitions(
         integration_tools=integration_tool_defs,
         dynamic_real_tools=dynamic_real_tools or None,
+        import_mode=import_mode,
         **google_caps,
     )
     kind_map = _build_kind_map(tool_defs)

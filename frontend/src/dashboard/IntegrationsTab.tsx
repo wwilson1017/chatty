@@ -3,6 +3,7 @@ import { api } from '../core/api/client';
 import { getToken } from '../core/auth/tokenUtils';
 import { useOAuthFlow } from '../core/hooks/useOAuthFlow';
 import { GoogleIntegrationCard } from './GoogleIntegrationCard';
+import { AppCredentialsForm } from './AppCredentialsForm';
 import type { Integration, Agent } from '../core/types';
 import { IconGlobe, IconUsers, IconFile, IconPhone, IconMail, IconChart, IconBook, IconZap } from '../shared/icons';
 import { TelegramSettings } from '../agent/components/TelegramSettings';
@@ -43,6 +44,8 @@ export function IntegrationsTab() {
   const [bambooKey, setBambooKey] = useState('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  const [showQbCredForm, setShowQbCredForm] = useState(false);
+  const [qbExistingCreds, setQbExistingCreds] = useState<{ client_id?: string; environment?: string; redirect_uri?: string; source?: 'stored' | 'env' }>({});
 
   const [agents, setAgents] = useState<Agent[]>([]);
   const [waSelectedAgent, setWaSelectedAgent] = useState<string>('');
@@ -258,6 +261,19 @@ export function IntegrationsTab() {
     setIntegrations(data.integrations);
   }
 
+  async function openQbCredForm() {
+    setError('');
+    try {
+      const existing = await api<{ configured: boolean; client_id?: string; environment?: string; redirect_uri?: string; source?: 'stored' | 'env' }>(
+        '/api/integrations/quickbooks/app-credentials'
+      );
+      setQbExistingCreds(existing.configured
+        ? { client_id: existing.client_id, environment: existing.environment, redirect_uri: existing.redirect_uri, source: existing.source }
+        : { redirect_uri: existing.redirect_uri });
+    } catch { setQbExistingCreds({}); }
+    setShowQbCredForm(true);
+  }
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
       {integrations.filter(i => !i.always_on).map(integration => {
@@ -299,6 +315,8 @@ export function IntegrationsTab() {
                   const isConfigured = integration.configured;
                   const isBroken = isConfigured && integration.connection_status === 'broken';
                   const isHealthy = isConfigured && !isBroken;
+                  const hasAppCreds = integration.has_app_credentials !== false;
+                  const isOAuth = integration.auth_type === 'oauth2';
 
                   return (
                     <>
@@ -306,18 +324,21 @@ export function IntegrationsTab() {
                       {isBroken && integration.id === 'quickbooks' && (
                         <>
                           <span style={{ fontSize: 11, color: '#D97757', background: 'rgba(217,119,87,0.08)', padding: '2px 8px', borderRadius: 4 }}>Connection lost</span>
-                          <button onClick={reconnectQuickBooks} disabled={saving} style={{
+                          <button onClick={() => hasAppCreds ? reconnectQuickBooks() : openQbCredForm()} disabled={saving} style={{
                             fontSize: 11, padding: '4px 12px', borderRadius: 4,
                             background: 'transparent', color: '#D97757', border: '1px solid rgba(217,119,87,0.25)', cursor: 'pointer',
                             opacity: saving ? 0.5 : 1,
-                          }}>Reconnect</button>
+                          }}>{hasAppCreds ? 'Reconnect' : 'Setup credentials'}</button>
                         </>
                       )}
 
                       {/* Setup button — only when not configured */}
                       {!isConfigured && (
                         <button onClick={() => {
-                          if (integration.id === 'quickbooks') setupQuickBooks();
+                          if (integration.id === 'quickbooks') {
+                            if (hasAppCreds) setupQuickBooks();
+                            else openQbCredForm();
+                          }
                           else if (integration.id === 'qb_csv') setupQbCsv();
                           else { setSetupFor(integration.id); setError(''); }
                         }} disabled={saving || (integration.id === 'quickbooks' && qbConnecting)} style={{
@@ -326,7 +347,8 @@ export function IntegrationsTab() {
                           border: '1px solid rgba(230,235,242,0.14)', cursor: 'pointer',
                           opacity: saving ? 0.5 : 1,
                         }}>
-                          {integration.id === 'quickbooks' && qbConnecting ? 'Connecting...' : 'Setup'}
+                          {integration.id === 'quickbooks' && qbConnecting ? 'Connecting...'
+                            : integration.id === 'quickbooks' && hasAppCreds ? 'Connect' : 'Setup'}
                         </button>
                       )}
 
@@ -358,13 +380,20 @@ export function IntegrationsTab() {
                         </button>
                       )}
 
-                      {/* Disconnect for OAuth */}
-                      {isHealthy && integration.auth_type === 'oauth2' && integration.id === 'quickbooks' && (
-                        <button onClick={disconnectQuickBooks} disabled={saving} style={{
-                          fontSize: 11, padding: '4px 8px', borderRadius: 4,
-                          background: 'transparent', color: 'rgba(237,240,244,0.38)',
-                          border: 'none', cursor: 'pointer',
-                        }}>Disconnect</button>
+                      {/* Disconnect + edit creds for OAuth */}
+                      {isHealthy && isOAuth && integration.id === 'quickbooks' && (
+                        <>
+                          <button onClick={openQbCredForm} style={{
+                            fontSize: 11, padding: '4px 8px', borderRadius: 4,
+                            background: 'transparent', color: 'rgba(237,240,244,0.38)',
+                            border: 'none', cursor: 'pointer',
+                          }}>Edit credentials</button>
+                          <button onClick={disconnectQuickBooks} disabled={saving} style={{
+                            fontSize: 11, padding: '4px 8px', borderRadius: 4,
+                            background: 'transparent', color: 'rgba(237,240,244,0.38)',
+                            border: 'none', cursor: 'pointer',
+                          }}>Disconnect</button>
+                        </>
                       )}
                     </>
                   );
@@ -424,6 +453,19 @@ export function IntegrationsTab() {
 
             {error && integration.id === 'quickbooks' && !setupFor && (
               <p style={{ marginTop: 8, color: '#D97757', fontSize: 12 }}>{error}</p>
+            )}
+
+            {/* QuickBooks BYO credentials form */}
+            {integration.id === 'quickbooks' && showQbCredForm && (
+              <AppCredentialsForm
+                integration="quickbooks"
+                currentClientId={qbExistingCreds.client_id}
+                currentEnvironment={qbExistingCreds.environment}
+                redirectUri={qbExistingCreds.redirect_uri}
+                source={qbExistingCreds.source}
+                onSaved={() => { setShowQbCredForm(false); refreshIntegrations(); }}
+                onCancel={() => setShowQbCredForm(false)}
+              />
             )}
 
             {/* WhatsApp panel */}

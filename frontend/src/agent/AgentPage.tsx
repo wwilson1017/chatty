@@ -73,7 +73,20 @@ export function AgentPage() {
     convs.loadConversations();
   }, [convs]);
 
-  const chat = useAgentChat(apiPrefix, { onTitleUpdate: handleTitleUpdate });
+  const importCompleteRef = useRef<((id: string) => void) | null>(null);
+
+  const chat = useAgentChat(apiPrefix, {
+    onTitleUpdate: handleTitleUpdate,
+    onImportComplete: (id) => importCompleteRef.current?.(id),
+  });
+
+  useEffect(() => {
+    importCompleteRef.current = async (newConversationId: string) => {
+      await convs.loadConversations();
+      const msgs = await convs.selectConversation(newConversationId);
+      if (msgs) chat.loadMessages(msgs, newConversationId);
+    };
+  }); // intentionally no deps — always tracks latest convs/chat
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const topBarVisible = useScrollDirection(scrollRef);
@@ -134,6 +147,43 @@ export function AgentPage() {
   useEffect(() => {
     convs.loadConversations();
   }, [agentId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Auto-redirect to active import conversation if user navigates away.
+  // If the import conversation is older than 35 minutes (session TTL is 30min),
+  // treat it as orphaned and delete it instead of trapping the user.
+  useEffect(() => {
+    if (!convs.conversations.length) return;
+    const importConv = convs.conversations.find(c => c.mode === 'import');
+    if (!importConv) return;
+
+    const ageMs = Date.now() - new Date(importConv.created_at).getTime();
+    if (ageMs > 35 * 60 * 1000) {
+      convs.deleteConversation(importConv.id);
+      return;
+    }
+
+    if (convs.activeId === importConv.id) return;
+    (async () => {
+      const msgs = await convs.selectConversation(importConv.id);
+      if (msgs) chat.loadMessages(msgs, importConv.id);
+    })();
+  }, [convs.conversations, convs.activeId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Handle conversation from URL search params (used by import flow)
+  const importConvHandled = useRef<string | null>(null);
+  useEffect(() => {
+    const convId = searchParams.get('conversation');
+    if (convId && importConvHandled.current !== convId) {
+      importConvHandled.current = convId;
+      searchParams.delete('conversation');
+      setSearchParams(searchParams, { replace: true });
+      (async () => {
+        await convs.loadConversations();
+        const msgs = await convs.selectConversation(convId);
+        if (msgs) chat.loadMessages(msgs, convId, true);
+      })();
+    }
+  }, [searchParams, agentId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Handle tab from URL search params
   useEffect(() => {
@@ -496,6 +546,14 @@ export function AgentPage() {
               onToolModeChange={handleToolModeChange}
               agentName={agent.agent_name}
               conversationSource={convs.conversations.find(c => c.id === convs.activeId)?.source}
+              importMode={convs.conversations.find(c => c.id === convs.activeId)?.mode === 'import'}
+              onCancelImport={async () => {
+                if (!confirm('Cancel this import? The agent and all progress will be deleted.')) return;
+                try {
+                  await api(`/api/agents/${agentId}`, { method: 'DELETE' });
+                } catch { /* ignore */ }
+                navigate('/');
+              }}
             />
           </>
         ) : activeTab === 'knowledge' ? (

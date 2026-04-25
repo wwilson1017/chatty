@@ -1353,6 +1353,7 @@ def get_tool_definitions(
     shared_context_enabled: bool = True,
     integration_tools: list[dict] | None = None,
     dynamic_real_tools: list[dict] | None = None,
+    import_mode: bool = False,
 ) -> list[dict]:
     """Return the full list of tool definitions for the given feature flags.
 
@@ -1362,6 +1363,11 @@ def get_tool_definitions(
     granular flags by intersecting global scope grants (from google.json)
     with the agent's per-capability toggles.
     """
+    if import_mode:
+        from agents.import_service.tool_defs import IMPORT_TOOLS
+        read_only_context = [t for t in CONTEXT_TOOLS if not t.get("writes", False)]
+        return read_only_context + list(IMPORT_TOOLS)
+
     tools = list(CONTEXT_TOOLS)
     if memory_enabled:
         tools.extend(MEMORY_TOOLS)

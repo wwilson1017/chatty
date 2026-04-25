@@ -42,6 +42,7 @@ export interface Conversation {
   title_edited_by_user: boolean;
   source?: string | null;
   pinned?: number;
+  mode?: 'normal' | 'import';
   created_at: string;
   updated_at: string;
   message_count?: number;
@@ -84,6 +85,7 @@ export interface Integration {
   tool_mode?: string;
   email?: string;
   scope_grants?: GoogleScopeGrants;
+  has_app_credentials?: boolean;
 }
 
 // CRM types

@@ -132,6 +132,8 @@ class ToolRegistry:
                 return await self._execute_integration(tool_name, tool_args)
             elif kind == "setup":
                 return self._execute_setup(tool_name, tool_args)
+            elif kind == "import":
+                return self._execute_import(tool_name, tool_args)
             else:
                 return {"error": f"Unknown tool kind: {kind}"}
         except Exception as e:
@@ -469,6 +471,15 @@ class ToolRegistry:
         elif tool_name == "check_integrations":
             return self._check_integrations()
         return {"error": f"Unknown setup tool: {tool_name}"}
+
+    def _execute_import(self, tool_name: str, args: dict) -> dict:
+        from agents.import_service import sessions
+        from agents.import_service.tools import execute_import_tool
+        from core.agents.context_manager import ContextManager
+
+        session = getattr(self, "_import_session", None)
+        ctx_manager = ContextManager(Path(self.context_dir), gcs_prefix=self.gcs_prefix)
+        return execute_import_tool(tool_name, args, session, ctx_manager)
 
     def _mark_setup_complete(self, integration_name: str) -> None:
         """Auto-update _pending-setup.md to check off a completed integration."""

@@ -172,20 +172,21 @@ async def setup_quickbooks_complete(body: CompleteSetupRequest, user=Depends(get
 @router.post("/quickbooks/disconnect")
 async def disconnect_quickbooks(user=Depends(get_current_user)):
     """Disconnect QuickBooks: revoke tokens with Intuit and remove stored credentials."""
-    from core.config import settings
-    from .registry import get_credentials
+    from .registry import get_credentials, save_credentials
+    from .app_credentials import get_app_credentials
     from .quickbooks.client import QBO_REVOKE_URL
 
     creds = get_credentials("quickbooks")
     refresh_token = creds.get("refresh_token", "")
+    app = get_app_credentials("quickbooks")
 
     # Revoke token with Intuit
-    if refresh_token:
+    if refresh_token and app.get("client_id") and app.get("client_secret"):
         try:
             resp = httpx.post(
                 QBO_REVOKE_URL,
                 json={"token": refresh_token},
-                auth=(settings.quickbooks_oauth.client_id, settings.quickbooks_oauth.client_secret),
+                auth=(app["client_id"], app["client_secret"]),
                 timeout=10,
             )
             if resp.status_code == 200:
@@ -195,11 +196,16 @@ async def disconnect_quickbooks(user=Depends(get_current_user)):
         except Exception as e:
             logger.warning("QBO token revoke failed: %s", e)
 
-    # Remove stored credentials
+    # Keep app credentials (BYO creds), remove everything else
+    preserved_app = creds.get("app")
     creds_path = Path(__file__).resolve().parent.parent / "data" / "integrations" / "quickbooks.json"
     if creds_path.exists():
         creds_path.unlink()
         logger.info("Removed quickbooks.json credentials")
+
+    # Restore app credentials so user doesn't have to re-enter them
+    if preserved_app:
+        save_credentials("quickbooks", {"app": preserved_app})
 
     return {"ok": True}
 
@@ -342,6 +348,111 @@ async def get_pending_setup(user=Depends(get_current_user)):
     from .pending_setup import load_pending
     data = load_pending()
     return data or {"messaging": [], "integrations": []}
+
+
+_OAUTH_INTEGRATIONS = {"quickbooks", "google"}
+
+
+class AppCredentialsRequest(BaseModel):
+    client_id: str
+    client_secret: str | None = None
+    environment: str | None = None
+
+
+@router.get("/{name}/app-credentials")
+async def get_app_creds(name: str, user=Depends(get_current_user)):
+    """Return app credential status (never the secret)."""
+    if name not in _OAUTH_INTEGRATIONS:
+        raise HTTPException(status_code=400, detail="App credentials only apply to OAuth integrations")
+    from .app_credentials import get_app_credentials
+    from .registry import get_credentials
+    from core.providers.oauth import redirect_uri
+
+    app = get_app_credentials(name)
+    stored_app = get_credentials(name).get("app")
+    is_stored = isinstance(stored_app, dict) and bool(stored_app.get("client_id"))
+
+    base = {"redirect_uri": redirect_uri()}
+    if not app:
+        return {**base, "configured": False}
+    return {
+        **base,
+        "configured": True,
+        "source": "stored" if is_stored else "env",
+        "client_id": app.get("client_id", ""),
+        "environment": app.get("environment"),
+    }
+
+
+@router.put("/{name}/app-credentials")
+async def save_app_creds(name: str, body: AppCredentialsRequest, user=Depends(get_current_user)):
+    """Save BYO OAuth app credentials (encrypted at rest).
+
+    client_secret can be omitted on update to keep the existing value.
+    """
+    if name not in _OAUTH_INTEGRATIONS:
+        raise HTTPException(status_code=400, detail="App credentials only apply to OAuth integrations")
+    if not body.client_id.strip():
+        raise HTTPException(status_code=400, detail="Client ID is required")
+    if name == "quickbooks" and body.environment and body.environment not in ("sandbox", "production"):
+        raise HTTPException(status_code=400, detail="Environment must be 'sandbox' or 'production'")
+
+    from .app_credentials import save_app_credentials
+    from .registry import get_credentials
+
+    creds = get_credentials(name)
+
+    # Preserve existing secret only from stored app creds (not env fallback)
+    secret = body.client_secret.strip() if body.client_secret else ""
+    if not secret:
+        stored_app = creds.get("app")
+        if isinstance(stored_app, dict):
+            secret = stored_app.get("client_secret", "")
+    if not secret:
+        raise HTTPException(status_code=400, detail="Client Secret is required")
+
+    # If connected and credentials changed, disconnect first
+    did_disconnect = False
+    has_tokens = bool(creds.get("access_token") or creds.get("refresh_token"))
+    if has_tokens:
+        old_app = creds.get("app") or {}
+        changed = (
+            old_app.get("client_id") != body.client_id.strip()
+            or (body.client_secret and old_app.get("client_secret") != secret)
+            or (name == "quickbooks" and body.environment and old_app.get("environment") != body.environment)
+        )
+        if changed:
+            if name == "quickbooks":
+                await disconnect_quickbooks()
+            elif name == "google":
+                await disconnect_google()
+            did_disconnect = True
+
+    save_app_credentials(
+        name,
+        client_id=body.client_id.strip(),
+        client_secret=secret,
+        environment=body.environment if name == "quickbooks" else None,
+    )
+    return {"ok": True, "disconnected": did_disconnect}
+
+
+@router.delete("/{name}/app-credentials")
+async def delete_app_creds(name: str, user=Depends(get_current_user)):
+    """Clear BYO app credentials. Disconnects first if connected."""
+    if name not in _OAUTH_INTEGRATIONS:
+        raise HTTPException(status_code=400, detail="App credentials only apply to OAuth integrations")
+    from .registry import get_credentials
+    creds = get_credentials(name)
+    has_tokens = bool(creds.get("access_token") or creds.get("refresh_token"))
+    if has_tokens:
+        if name == "quickbooks":
+            await disconnect_quickbooks()
+        elif name == "google":
+            await disconnect_google()
+    from .app_credentials import clear_app_credentials
+    clear_app_credentials(name)
+    return {"ok": True}
 
 
 @router.get("/{name}/tool-defs")
