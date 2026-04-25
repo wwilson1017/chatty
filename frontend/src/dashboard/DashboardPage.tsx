@@ -4,6 +4,7 @@ import { api } from '../core/api/client';
 import { AgentCard } from './AgentCard';
 import { CreateAgentModal } from './CreateAgentModal';
 import { ImportAgentModal } from './ImportAgentModal';
+import { DeleteAgentModal } from './DeleteAgentModal';
 import { WarmHalo } from '../shared/WarmHalo';
 import { IconSearch, IconPlus, IconDownload } from '../shared/icons';
 import { MobileMenuDrawer } from '../shared/MobileMenuDrawer';
@@ -35,6 +36,7 @@ export function DashboardPage() {
   const [agents, setAgents] = useState<Agent[]>([]);
   const [showCreate, setShowCreate] = useState(false);
   const [showImport, setShowImport] = useState(false);
+  const [deleteAgent, setDeleteAgent] = useState<Agent | null>(null);
   const [suggestedTitle, setSuggestedTitle] = useState('');
   const [loading, setLoading] = useState(true);
   const navigate = useNavigate();
@@ -57,10 +59,9 @@ export function DashboardPage() {
     }).finally(() => setLoading(false));
   }, [navigate]);
 
-  async function handleDelete(id: string) {
-    if (!confirm('Delete this agent? This cannot be undone.')) return;
-    await api(`/api/agents/${id}`, { method: 'DELETE' });
-    setAgents(prev => prev.filter(a => a.id !== id));
+  function handleDelete(id: string) {
+    const agent = agents.find(a => a.id === id);
+    if (agent) setDeleteAgent(agent);
   }
 
   const isMobile = useIsMobile();
@@ -293,6 +294,17 @@ export function DashboardPage() {
 
       {showImport && (
         <ImportAgentModal onClose={() => setShowImport(false)} />
+      )}
+
+      {deleteAgent && (
+        <DeleteAgentModal
+          agent={deleteAgent}
+          onClose={() => setDeleteAgent(null)}
+          onDeleted={id => {
+            setAgents(prev => prev.filter(a => a.id !== id));
+            setDeleteAgent(null);
+          }}
+        />
       )}
     </div>
   );
