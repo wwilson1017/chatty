@@ -4,7 +4,7 @@ This guide walks you through connecting your QuickBooks Online account to Chatty
 
 ## How this works
 
-Because Chatty is self-hosted, **you create your own private Intuit Developer app** and use it to authorize your own Chatty instance against your own QuickBooks company. Chatty does not have a shared, central QuickBooks app that all installations connect through — every self-hosted user is the operator of their own app.
+Because Chatty is self-hosted, **you must create your own Intuit Developer app and bring your own Client ID and Client Secret.** The project does not provide a shared QuickBooks app, Client ID, or Client Secret — every Chatty user is the operator of their own private app, which authorizes their own Chatty instance against their own QuickBooks company.
 
 This is a one-time setup. Once your app is created, your agents can talk to your QuickBooks data indefinitely.
 
@@ -59,11 +59,7 @@ For real use:
 
 The Redirect URI is the URL Intuit sends users to after they approve the connection. It must match **exactly** between your Intuit app and your Chatty config.
 
-Pick the option that matches how you're running Chatty:
-
-### Option A — Direct to your Chatty instance (recommended for self-hosters)
-
-Use the URL where Chatty is reachable, with `/api/oauth/callback` appended:
+Use the URL where your Chatty instance is reachable, with `/api/oauth/callback` appended:
 
 | Where Chatty runs | Redirect URI |
 |---|---|
@@ -71,27 +67,9 @@ Use the URL where Chatty is reachable, with `/api/oauth/callback` appended:
 | Railway | `https://your-app.up.railway.app/api/oauth/callback` |
 | Custom domain | `https://chatty.yourdomain.com/api/oauth/callback` |
 
-In your Intuit app, on the **Keys and credentials** page, click **redirect urls** (or open **Settings**), paste the URL, and click **Save**.
+In your Intuit app, on the **Keys and credentials** page, click **redirect urls** (or open **Settings**), paste your URL, and click **Save**.
 
-Then in your Chatty `.env`:
-
-```env
-OAUTH_REDIRECT_URI=https://your-app.up.railway.app/api/oauth/callback
-```
-
-This is the cleanest setup — your Intuit app talks directly to your Chatty backend, no third party in between.
-
-### Option B — Use the auth.mechatty.com proxy (Railway convenience option)
-
-If you're on Railway and don't want to keep updating the Intuit app every time your Railway URL changes, you can use Chatty's shared callback proxy. Set the redirect URI in your Intuit app to:
-
-```
-https://auth.mechatty.com/callback
-```
-
-Leave `OAUTH_REDIRECT_URI` **unset** in your `.env`. The proxy receives the callback from Intuit and forwards it to your Chatty instance based on the state parameter. No customer data flows through it — only the short-lived authorization code.
-
-Allowed forwarding destinations: `*.up.railway.app`, `localhost`, `127.0.0.1`. See [Domain Allowlist](#domain-allowlist) below to add your own.
+Your Intuit app talks directly to your Chatty backend — there is no Chatty-operated proxy or shared callback URL.
 
 ## Step 5: Add credentials to Chatty
 
@@ -110,7 +88,7 @@ QUICKBOOKS_API_BASE_URL=https://quickbooks.api.intuit.com/v3/company
 
 If you're using **Development** credentials (sandbox), leave that line out — Chatty defaults to the sandbox URL.
 
-If you chose **Option A** above, also set:
+Set the Redirect URI to match what you configured in your Intuit app in Step 4:
 
 ```env
 OAUTH_REDIRECT_URI=https://your-app.up.railway.app/api/oauth/callback
@@ -172,21 +150,14 @@ QuickBooks access tokens expire after 1 hour. Chatty automatically refreshes the
 ### "Sandbox not found" or empty data
 Your Development app needs a sandbox company attached. In the Intuit Developer dashboard, go to **Sandboxes** and create one. Then re-authorize from Chatty.
 
-## Domain Allowlist
-
-If you're using **Option B** (the `auth.mechatty.com` proxy), the proxy only forwards callbacks to a known list of trusted destinations. Currently allowed:
-
-- `*.up.railway.app` — Railway deployments
-- `localhost` / `127.0.0.1` — local development
-
-If you're hosting Chatty on a different domain and want to keep using the proxy, open a pull request adding your domain pattern to `website/auth/callback/index.php`, or just switch to **Option A** (Direct to your Chatty instance) — that approach has no domain restrictions because there's no proxy involved.
-
 ## Why does Chatty work this way?
 
-Most consumer SaaS products hide all of this — you click "Connect QuickBooks" and it just works, because the company runs a single shared Intuit app on your behalf. Chatty is open source and self-hosted, so there is no central operator. You become the operator of your own private app, which:
+Most consumer SaaS products hide all of this — you click "Connect QuickBooks" and it just works, because the company runs a single shared Intuit app on your behalf. Chatty is open source and self-hosted, so **there is no shared QuickBooks app, Client ID, or Client Secret provided by the project**. Every Chatty user creates their own Intuit Developer app and uses their own credentials.
 
-- Gives you full control over your QuickBooks credentials (they never leave your machine)
-- Avoids any per-user data passing through a third party
-- Keeps the project free — there's no centralized cost to fund
+The benefits:
+
+- You have full control over your QuickBooks credentials — they live in your `.env` and never leave your machine
+- No third-party infrastructure sits in the OAuth path
+- The project stays free to run, with no centralized cost to fund
 
 The trade-off is the 10 minutes of one-time setup above. If that ever becomes a barrier, see the project README for the optional managed hosted service that handles this for you.
