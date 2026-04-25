@@ -171,7 +171,7 @@ export function AgentPage() {
       (async () => {
         await convs.loadConversations();
         const msgs = await convs.selectConversation(convId);
-        if (msgs) chat.loadMessages(msgs, convId);
+        if (msgs) chat.loadMessages(msgs, convId, true);
       })();
     }
   }, [searchParams, agentId]); // eslint-disable-line react-hooks/exhaustive-deps

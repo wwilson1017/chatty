@@ -483,9 +483,37 @@ export function useAgentChat(apiPrefix: string, options?: Options) {
     setContextUsage(null);
   }, []);
 
-  const loadMessages = useCallback((msgs: ChatMessage[], id: string) => {
-    setMessages(msgs);
+  const loadMessages = useCallback((msgs: ChatMessage[], id: string, streamIn?: boolean) => {
+    if (!streamIn || !msgs.length || msgs[msgs.length - 1].role !== 'assistant') {
+      setMessages(msgs);
+      setConversationId(id);
+      return;
+    }
+
+    const lastMsg = msgs[msgs.length - 1];
+    const fullText = lastMsg.content;
+    const preceding = msgs.slice(0, -1);
+
     setConversationId(id);
+    setIsStreaming(true);
+    setMessages([...preceding, { ...lastMsg, content: '', isStreaming: true }]);
+
+    let i = 0;
+    const interval = setInterval(() => {
+      const chunkEnd = Math.min(i + 3, fullText.length);
+      const soFar = fullText.slice(0, chunkEnd);
+      i = chunkEnd;
+      setMessages(prev => {
+        const last = prev[prev.length - 1];
+        if (last?.role !== 'assistant') return prev;
+        return [...prev.slice(0, -1), { ...last, content: soFar }];
+      });
+      if (i >= fullText.length) {
+        clearInterval(interval);
+        setIsStreaming(false);
+        setMessages(prev => prev.map(m => m.isStreaming ? { ...m, isStreaming: false } : m));
+      }
+    }, 12);
   }, []);
 
   return {
