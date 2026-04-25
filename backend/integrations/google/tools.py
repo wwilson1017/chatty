@@ -70,6 +70,18 @@ def mark_email_as_read(message_id: str) -> dict:
                  message_id=message_id)
 
 
+_MAX_BATCH_MARK_READ = 50
+
+
+def batch_mark_emails_as_read(message_ids: list[str]) -> dict:
+    if not message_ids:
+        return {"error": "message_ids must be a non-empty list"}
+    if len(message_ids) > _MAX_BATCH_MARK_READ:
+        return {"error": f"Too many message IDs ({len(message_ids)}). Maximum is {_MAX_BATCH_MARK_READ}."}
+    return _wrap(get_gmail_service, gmail_ops.batch_mark_as_read_op,
+                 message_ids=message_ids)
+
+
 def download_email_attachment(message_id: str, filename: str, cache_dir: str | None = None) -> dict:
     """Download an email attachment, extract text, and cache for forwarding."""
     import base64 as b64
