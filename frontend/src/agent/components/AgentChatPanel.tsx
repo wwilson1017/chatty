@@ -4,7 +4,7 @@ import { AgentMessageBubble } from './AgentMessageBubble';
 import { IconAttach, IconArrowUp } from '../../shared/icons';
 import { useIsMobile } from '../../shared/useIsMobile';
 
-const ALLOWED_EXTENSIONS = new Set(['csv', 'xlsx', 'md', 'txt', 'pdf']);
+const ALLOWED_EXTENSIONS = new Set(['csv', 'xlsx', 'md', 'txt', 'pdf', 'docx']);
 const MAX_FILE_SIZE = 1 * 1024 * 1024;
 const MAX_PDF_SIZE = 10 * 1024 * 1024;
 const MAX_FILES = 5;
@@ -86,8 +86,8 @@ export function AgentChatPanel({
       const ext = getExtension(f.name);
       const allowed = importMode ? new Set([...ALLOWED_EXTENSIONS, 'zip']) : ALLOWED_EXTENSIONS;
       if (!allowed.has(ext)) { errors.push(`${f.name}: unsupported type (.${ext})`); continue; }
-      const maxSize = ext === 'zip' ? 25 * 1024 * 1024 : ext === 'pdf' ? MAX_PDF_SIZE : MAX_FILE_SIZE;
-      const maxLabel = ext === 'pdf' ? '10 MB' : '1 MB';
+      const maxSize = ext === 'zip' ? 25 * 1024 * 1024 : (ext === 'pdf' || ext === 'docx') ? MAX_PDF_SIZE : MAX_FILE_SIZE;
+      const maxLabel = ext === 'zip' ? '25 MB' : (ext === 'pdf' || ext === 'docx') ? '10 MB' : '1 MB';
       if (f.size > maxSize) { errors.push(`${f.name}: exceeds ${maxLabel}`); continue; }
       if (f.size === 0) { errors.push(`${f.name}: empty file`); continue; }
       if (pendingFiles.some(p => p.name === f.name)) { errors.push(`${f.name}: already attached`); continue; }
@@ -209,7 +209,7 @@ export function AgentChatPanel({
                 ref={fileInputRef}
                 type="file"
                 multiple
-                accept=".csv,.xlsx,.md,.txt,.pdf"
+                accept=".csv,.xlsx,.md,.txt,.pdf,.docx"
                 style={{ display: 'none' }}
                 onChange={e => {
                   if (e.target.files?.length) {

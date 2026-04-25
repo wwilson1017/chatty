@@ -739,7 +739,7 @@ async def update_title(
 
 # ── Per-agent: File upload chat ──────────────────────────────────────────────
 
-_ALLOWED_EXTENSIONS = {"csv", "xlsx", "md", "txt"}
+_ALLOWED_EXTENSIONS = {"csv", "xlsx", "md", "txt", "pdf", "docx"}
 _MAX_FILE_SIZE = 10 * 1024 * 1024  # 10 MB
 _MAX_FILES = 5
 
@@ -803,6 +803,32 @@ async def agent_chat_upload(
                 f"[Attached zip file: {safe_name}] "
                 f"Call extract_zip with filename=\"{safe_name}\" to process it."
             )
+            continue
+
+        # Extract text from PDF / DOCX and cache raw bytes for forwarding
+        if ext in ("pdf", "docx"):
+            from core.agents.tools.file_cache import cache_file
+            from core.agents.tools.text_extraction import extract_text
+
+            _meta = {
+                "pdf": ("PDF", "upload.pdf", "application/pdf"),
+                "docx": ("DOCX", "upload.docx",
+                         "application/vnd.openxmlformats-officedocument.wordprocessingml.document"),
+            }
+            label, fallback, mime = _meta[ext]
+            safe_name = Path((f.filename or fallback).replace("\\", "/")).name
+
+            extracted, truncated = extract_text(content_bytes, ext, 50_000)
+            file_ref = cache_file(str(DATA_DIR / agent["slug"] / "file_cache"),
+                                  content_bytes, safe_name, mime)
+
+            footer = f"[End of {label}]"
+            if not extracted.strip():
+                extracted = "(No extractable text found. Use file_ref to forward the original.)"
+            elif truncated:
+                footer = f"(truncated at 50,000 characters)\n{footer}"
+
+            file_texts.append(f"[Attached {label}: {safe_name} — file_ref={file_ref}]\n{extracted}\n{footer}")
             continue
 
         # Convert XLSX to CSV
