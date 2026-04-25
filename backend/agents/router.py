@@ -818,9 +818,12 @@ async def agent_chat_upload(
             label, fallback, mime = _meta[ext]
             safe_name = Path((f.filename or fallback).replace("\\", "/")).name
 
-            extracted, truncated = extract_text(content_bytes, ext, 50_000)
-            file_ref = cache_file(str(DATA_DIR / agent["slug"] / "file_cache"),
-                                  content_bytes, safe_name, mime)
+            try:
+                extracted, truncated = extract_text(content_bytes, ext, 50_000)
+                file_ref = cache_file(str(DATA_DIR / agent["slug"] / "file_cache"),
+                                      content_bytes, safe_name, mime)
+            except Exception as e:
+                raise HTTPException(status_code=400, detail=f"Failed to parse '{f.filename}': {e}")
 
             footer = f"[End of {label}]"
             if not extracted.strip():
