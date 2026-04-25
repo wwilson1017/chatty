@@ -149,11 +149,11 @@ export function AgentPage() {
   }, [agentId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Handle conversation from URL search params (used by import flow)
-  const importConvHandled = useRef(false);
+  const importConvHandled = useRef<string | null>(null);
   useEffect(() => {
     const convId = searchParams.get('conversation');
-    if (convId && !importConvHandled.current) {
-      importConvHandled.current = true;
+    if (convId && importConvHandled.current !== convId) {
+      importConvHandled.current = convId;
       searchParams.delete('conversation');
       setSearchParams(searchParams, { replace: true });
       (async () => {
@@ -162,7 +162,7 @@ export function AgentPage() {
         if (msgs) chat.loadMessages(msgs, convId);
       })();
     }
-  }, [searchParams]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [searchParams, agentId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Handle tab from URL search params
   useEffect(() => {

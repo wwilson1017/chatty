@@ -87,7 +87,7 @@ def _setup_connection() -> None:
 
     _connection.execute("""
         CREATE TABLE IF NOT EXISTS import_sources (
-            agent_id          TEXT PRIMARY KEY REFERENCES agents(id),
+            agent_id          TEXT PRIMARY KEY REFERENCES agents(id) ON DELETE CASCADE,
             adapter_type      TEXT NOT NULL,
             source_config     TEXT NOT NULL DEFAULT '{}',
             last_imported_at  TEXT,

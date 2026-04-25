@@ -782,8 +782,9 @@ async def agent_chat_upload(
             raise HTTPException(status_code=400, detail=f"File type '.{ext}' not allowed")
 
         content_bytes = await f.read()
-        if len(content_bytes) > _MAX_FILE_SIZE:
-            raise HTTPException(status_code=400, detail=f"File '{f.filename}' exceeds 10 MB limit")
+        max_size = 25 * 1024 * 1024 if (ext == "zip" and import_mode) else _MAX_FILE_SIZE
+        if len(content_bytes) > max_size:
+            raise HTTPException(status_code=400, detail=f"File '{f.filename}' exceeds {max_size // (1024*1024)} MB limit")
         if not content_bytes:
             continue
 

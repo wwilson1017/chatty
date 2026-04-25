@@ -45,7 +45,9 @@ def discover_openclaw_agents(
 
         workspace = entry.get("workspace")
         if not workspace:
-            if agent_id == "default":
+            if default_workspace:
+                workspace = str(Path(default_workspace).expanduser())
+            elif agent_id == "default":
                 workspace = str(state_dir / "workspace")
             else:
                 workspace = str(state_dir / f"workspace-{agent_id}")

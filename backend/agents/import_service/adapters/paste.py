@@ -40,9 +40,14 @@ class PasteSourceAdapter(SourceAdapter):
         for i, m in enumerate(headings):
             end = headings[i + 1].start() if i + 1 < len(headings) else len(text)
             title = m.group(1).strip()
-            slug = re.sub(r"[^a-z0-9]+", "-", title.lower()).strip("-")[:60]
+            slug = re.sub(r"[^a-z0-9]+", "-", title.lower()).strip("-")[:60] or "section"
             content = text[m.start():end].strip()
-            files[f"{slug}.md"] = content
+            key = f"{slug}.md"
+            n = 2
+            while key in files:
+                key = f"{slug}-{n}.md"
+                n += 1
+            files[key] = content
         return files
 
     def discover(self) -> SourceInfo:

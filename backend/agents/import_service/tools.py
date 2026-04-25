@@ -373,7 +373,15 @@ def _finalize_import(
         if file_cache.is_dir():
             shutil.rmtree(file_cache, ignore_errors=True)
 
-    # 7. Clean up session
+    # 7. Reindex memory DB so imported context is searchable
+    if agent:
+        try:
+            from agents.engine import ensure_memory_db
+            ensure_memory_db(agent["slug"])
+        except Exception:
+            logger.warning("Could not reindex memory DB after import")
+
+    # 8. Clean up session
     sessions.remove_session(session.token)
 
     return {

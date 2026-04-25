@@ -1348,7 +1348,8 @@ def get_tool_definitions(
     """
     if import_mode:
         from agents.import_service.tool_defs import IMPORT_TOOLS
-        return list(CONTEXT_TOOLS) + list(IMPORT_TOOLS)
+        read_only_context = [t for t in CONTEXT_TOOLS if not t.get("writes", False)]
+        return read_only_context + list(IMPORT_TOOLS)
 
     tools = list(CONTEXT_TOOLS)
     if memory_enabled:

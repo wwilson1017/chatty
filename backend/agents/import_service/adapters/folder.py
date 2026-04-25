@@ -27,10 +27,14 @@ class FolderSourceAdapter(SourceAdapter):
         total = sum(f.size_bytes for f in files)
         return SourceInfo(agent_name=None, file_count=len(files), total_bytes=total)
 
+    MAX_FILES = 200
+
     def list_files(self) -> list[FileEntry]:
         entries: list[FileEntry] = []
-        for dirpath, _dirs, filenames in os.walk(self._root):
-            # Skip hidden directories and common junk
+        _PRUNE_DIRS = {"node_modules", "__pycache__", ".venv", "venv", "dist", "build"}
+        for dirpath, dirs, filenames in os.walk(self._root):
+            dirs[:] = [d for d in dirs if d not in _PRUNE_DIRS and not d.startswith(".")]
+
             rel_dir = Path(dirpath).relative_to(self._root)
             if any(part.startswith(".") for part in rel_dir.parts):
                 continue
@@ -49,6 +53,10 @@ class FolderSourceAdapter(SourceAdapter):
                 except OSError:
                     continue
                 entries.append(FileEntry(path=rel, size_bytes=stat.st_size, mtime=stat.st_mtime))
+                if len(entries) >= self.MAX_FILES:
+                    break
+            if len(entries) >= self.MAX_FILES:
+                break
 
         entries.sort(key=lambda e: e.path)
         return entries
