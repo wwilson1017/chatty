@@ -87,7 +87,7 @@ Chatty connects to your existing business tools so your agents can answer questi
 
 ## Deploy to Railway
 
-[![Deploy on Railway](https://railway.com/button.svg)](https://railway.com/deploy/chatty?referralCode=HMgK-M)
+[![Deploy on Railway](docs/railway-deploy-button.svg)](https://railway.com/deploy/chatty?referralCode=HMgK-M)
 
 1. Click the button above and set your `AUTH_PASSWORD` (the only required input)
 2. Railway builds and deploys your instance automatically
