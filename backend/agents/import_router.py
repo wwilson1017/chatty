@@ -35,34 +35,40 @@ async def start_import(body: StartImportRequest, user=Depends(get_current_user))
         raise HTTPException(status_code=400, detail="agent_name is required")
 
     agent = agent_db.create_agent(name)
-    agent_db.update_agent(agent["id"], onboarding_complete=1)
 
-    # Seed only the import bootstrap file (not the full template set)
-    context_dir = DATA_DIR / agent["slug"] / "context"
-    context_dir.mkdir(parents=True, exist_ok=True)
-    openclaw_agents = discover_openclaw_agents()
-    _seed_import_bootstrap(context_dir, name, openclaw_agents)
+    try:
+        agent_db.update_agent(agent["id"], onboarding_complete=1)
 
-    # Create an import-mode conversation with a seeded opening message
-    from .engine import get_chat_service
-    chat_svc = get_chat_service(agent["slug"])
-    conv = chat_svc.create_conversation(title="Knowledge Import", mode="import")
-    opener = _build_import_opener(name, openclaw_agents)
-    chat_svc.save_message(
-        conversation_id=conv["id"],
-        msg_id=str(uuid.uuid4()),
-        role="assistant",
-        content=opener,
-        seq=0,
-    )
+        context_dir = DATA_DIR / agent["slug"] / "context"
+        context_dir.mkdir(parents=True, exist_ok=True)
+        openclaw_agents = discover_openclaw_agents()
+        _seed_import_bootstrap(context_dir, name, openclaw_agents)
 
-    # Create a placeholder session (adapter will be set by scan_directory or ingest_pasted_text)
-    placeholder = PasteSourceAdapter("(awaiting source)")
-    session = sessions.create_session(
-        adapter=placeholder,
-        agent_id=agent["id"],
-        conversation_id=conv["id"],
-    )
+        from .engine import get_chat_service
+        chat_svc = get_chat_service(agent["slug"])
+        conv = chat_svc.create_conversation(title="Knowledge Import", mode="import")
+        opener = _build_import_opener(name, openclaw_agents)
+        chat_svc.save_message(
+            conversation_id=conv["id"],
+            msg_id=str(uuid.uuid4()),
+            role="assistant",
+            content=opener,
+            seq=0,
+        )
+
+        placeholder = PasteSourceAdapter("(awaiting source)")
+        session = sessions.create_session(
+            adapter=placeholder,
+            agent_id=agent["id"],
+            conversation_id=conv["id"],
+        )
+    except Exception:
+        agent_db.delete_agent(agent["id"])
+        import shutil
+        agent_dir = DATA_DIR / agent["slug"]
+        if agent_dir.is_dir():
+            shutil.rmtree(agent_dir, ignore_errors=True)
+        raise
 
     return {
         "agent_id": agent["id"],
@@ -110,7 +116,7 @@ to import. Once the user picks one, call scan_directory again with the specific 
 subdirectory path (e.g. ~/Downloads/backup/data/connor/) to narrow down to just that
 agent's files.
 
-Look in BOTH data/{name}/ and databases/{name}/ — markdown knowledge files may be in
+Look in BOTH data/{{name}}/ and databases/{{name}}/ — markdown knowledge files may be in
 either location. The data/ folder typically has context files (soul.md, MEMORY.md, etc.)
 and the databases/ folder may have additional ones.
 
