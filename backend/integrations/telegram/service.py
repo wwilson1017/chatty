@@ -39,6 +39,43 @@ logger = logging.getLogger(__name__)
 # Maximum recent messages to include for context
 MAX_CONTEXT_MESSAGES = 20
 
+
+async def save_message_only(
+    agent_id: str,
+    agent_slug: str,
+    sender_id: str,
+    content: str,
+    source: str = "telegram",
+) -> None:
+    """Save a user message to chat history without running the AI.
+
+    Used when the agent is already busy processing a message for this chat.
+    The message is preserved so it appears in context for the next AI turn.
+    Never raises — logs failures internally.
+    """
+    try:
+        chat_service = get_chat_service(agent_slug)
+        if not chat_service:
+            logger.warning("save_message_only: no chat service for %s", agent_slug)
+            return
+
+        conv = state.get_or_create_conversation(sender_id, agent_id)
+        chatty_conv_id = conv.get("chatty_conversation_id")
+        if not chatty_conv_id:
+            # Don't create a new conversation here — the active request will
+            # create it.  Skip saving to avoid a race on conversation creation.
+            return
+
+        chat_service.save_message(
+            conversation_id=chatty_conv_id,
+            msg_id=str(uuid.uuid4()),
+            role="user",
+            content=content,
+        )
+        logger.info("save_message_only: saved busy-skipped message for %s", agent_slug)
+    except Exception:
+        logger.warning("save_message_only: failed for agent=%s sender=%s", agent_slug, sender_id, exc_info=True)
+
 # Integration module registry (same as agents/router.py)
 _INTEGRATION_MODULES = {
     "crm_lite": ("integrations.crm_lite.tools", "CRM_LITE_TOOL_DEFS"),
