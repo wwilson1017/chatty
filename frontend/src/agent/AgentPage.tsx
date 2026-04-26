@@ -545,6 +545,7 @@ export function AgentPage() {
               toolMode={chat.toolMode}
               onToolModeChange={handleToolModeChange}
               agentName={agent.agent_name}
+              agentSlug={agent.slug}
               conversationSource={convs.conversations.find(c => c.id === convs.activeId)?.source}
               importMode={convs.conversations.find(c => c.id === convs.activeId)?.mode === 'import'}
               onCancelImport={async () => {

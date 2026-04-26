@@ -1,8 +1,11 @@
 import { useState, useRef, useEffect, useCallback, type RefObject, type KeyboardEvent, type DragEvent, type MouseEvent } from 'react';
 import type { ChatMessage, ContextUsage, ToolMode } from '../hooks/useAgentChat';
+import type { AgentAlert } from '../../core/types';
 import { AgentMessageBubble } from './AgentMessageBubble';
+import AlertBanner from './AlertBanner';
 import { IconAttach, IconArrowUp } from '../../shared/icons';
 import { useIsMobile } from '../../shared/useIsMobile';
+import { api } from '../../core/api/client';
 
 const ALLOWED_EXTENSIONS = new Set(['csv', 'xlsx', 'md', 'txt', 'pdf', 'docx']);
 const MAX_FILE_SIZE = 1 * 1024 * 1024;
@@ -27,6 +30,7 @@ interface Props {
   toolMode?: ToolMode;
   onToolModeChange?: (mode: ToolMode) => void;
   agentName?: string;
+  agentSlug?: string;
   conversationSource?: string | null;
   importMode?: boolean;
   onCancelImport?: () => void;
@@ -41,13 +45,26 @@ const TOOL_MODES: { key: ToolMode; label: string }[] = [
 export function AgentChatPanel({
   messages, isStreaming, onSend, onStop, onApprove, onDeny,
   onApprovePlan, onIteratePlan, scrollRef: externalScrollRef,
-  contextUsage, toolMode, onToolModeChange, agentName, conversationSource, importMode, onCancelImport,
+  contextUsage, toolMode, onToolModeChange, agentName, agentSlug, conversationSource, importMode, onCancelImport,
 }: Props) {
   const [input, setInput] = useState('');
   const [pendingFiles, setPendingFiles] = useState<File[]>([]);
   const [dragOver, setDragOver] = useState(false);
   const [fileError, setFileError] = useState<string | null>(null);
+  const [alerts, setAlerts] = useState<AgentAlert[]>([]);
   const internalScrollRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!agentSlug) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await api<{ alerts: AgentAlert[] }>(`/api/alerts?agent=${agentSlug}`);
+        if (!cancelled) setAlerts(res.alerts);
+      } catch { /* alerts are supplementary */ }
+    })();
+    return () => { cancelled = true; };
+  }, [agentSlug]);
   const scrollContainerRef = externalScrollRef || internalScrollRef;
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -381,6 +398,21 @@ export function AgentChatPanel({
                 )}
               </div>
             )}
+            <AlertBanner
+              alerts={alerts}
+              onDismiss={async (alertId) => {
+                try {
+                  await api(`/api/alerts/${alertId}/acknowledge`, { method: 'POST' });
+                  setAlerts(prev => prev.filter(a => a.id !== alertId));
+                } catch { /* ignore */ }
+              }}
+              onDiscuss={(alertId) => {
+                const alert = alerts.find(a => a.id === alertId);
+                if (alert) {
+                  onSend(`Tell me about this alert: "${alert.title}" — ${alert.message}`);
+                }
+              }}
+            />
             {messages.filter(msg => !msg.hidden).map(msg => {
               const displayMsg = (msg.role === 'user' && msg.content.match(/^\[via (Telegram|WhatsApp) from [^\]]+\] /))
                 ? { ...msg, content: msg.content.replace(/^\[via (?:Telegram|WhatsApp) from [^\]]+\] /, '') }

@@ -17,6 +17,7 @@ MIN_INTERVAL_MINUTES = 5
 MAX_INTERVAL_MINUTES = 1440
 MAX_TOOL_ITERATIONS_CAP = 10
 DEFAULT_INTERVAL_MINUTES = 30
+_DEFAULT_LEASE_MINUTES = 15
 
 
 def _now_utc() -> str:
@@ -259,13 +260,158 @@ def delete_action(action_id: str) -> dict:
 
 
 def get_due_actions() -> list[dict]:
+    """Get due actions (non-leased). Used as fallback; prefer claim_due_actions."""
     conn = db.get_db()
     now = _now_utc()
     rows = conn.execute(
-        "SELECT * FROM scheduled_actions WHERE enabled = 1 AND next_run IS NOT NULL AND next_run <= ? ORDER BY next_run ASC",
-        (now,),
+        """SELECT * FROM scheduled_actions
+           WHERE enabled = 1 AND next_run IS NOT NULL AND next_run <= ?
+           AND (lease_id IS NULL OR leased_until <= ?)
+           ORDER BY next_run ASC""",
+        (now, now),
     ).fetchall()
     return [dict(r) for r in rows]
+
+
+def claim_due_actions(
+    available_capacity: int,
+    exclude_agents: set[str] | None = None,
+) -> list[dict]:
+    """Atomically claim due actions. At most one action per agent."""
+    if available_capacity <= 0:
+        return []
+
+    conn = db.get_db()
+    now = _now_utc()
+    lease_id = str(uuid.uuid4())
+    lease_until = (datetime.now(timezone.utc) + timedelta(minutes=_DEFAULT_LEASE_MINUTES)).strftime("%Y-%m-%dT%H:%M:%S")
+
+    with db.write_lock():
+        query = """SELECT * FROM scheduled_actions
+                   WHERE enabled = 1
+                     AND next_run IS NOT NULL
+                     AND next_run <= ?
+                     AND (lease_id IS NULL OR leased_until <= ?)"""
+        params: list = [now, now]
+
+        if exclude_agents:
+            placeholders = ",".join("?" * len(exclude_agents))
+            query += f" AND agent NOT IN ({placeholders})"
+            params.extend(exclude_agents)
+
+        query += " ORDER BY next_run ASC"
+        rows = conn.execute(query, params).fetchall()
+
+        if not rows:
+            return []
+
+        seen_agents: set[str] = set()
+        filtered: list[dict] = []
+        for r in rows:
+            agent = r["agent"]
+            if agent not in seen_agents:
+                seen_agents.add(agent)
+                filtered.append(dict(r))
+                if len(filtered) >= available_capacity:
+                    break
+
+        if not filtered:
+            return []
+
+        ids = [a["id"] for a in filtered]
+        placeholders = ",".join("?" * len(ids))
+        conn.execute(
+            f"UPDATE scheduled_actions SET lease_id = ?, leased_until = ? WHERE id IN ({placeholders})",
+            [lease_id, lease_until] + ids,
+        )
+        conn.commit()
+
+    for a in filtered:
+        a["lease_id"] = lease_id
+        a["leased_until"] = lease_until
+    return filtered
+
+
+def claim_single_action(action_id: str) -> dict | None:
+    """Atomically claim a single action for manual execution."""
+    conn = db.get_db()
+    now = _now_utc()
+    lease_id = str(uuid.uuid4())
+    lease_until = (datetime.now(timezone.utc) + timedelta(minutes=_DEFAULT_LEASE_MINUTES)).strftime("%Y-%m-%dT%H:%M:%S")
+
+    with db.write_lock():
+        row = conn.execute("SELECT * FROM scheduled_actions WHERE id = ?", (action_id,)).fetchone()
+        if not row:
+            return None
+        if row["lease_id"] is not None and row["leased_until"] and row["leased_until"] > now:
+            return None
+        sibling = conn.execute(
+            "SELECT 1 FROM scheduled_actions WHERE agent = ? AND id != ? AND lease_id IS NOT NULL AND leased_until > ? LIMIT 1",
+            (row["agent"], action_id, now),
+        ).fetchone()
+        if sibling:
+            return None
+        conn.execute(
+            "UPDATE scheduled_actions SET lease_id = ?, leased_until = ? WHERE id = ?",
+            (lease_id, lease_until, action_id),
+        )
+        conn.commit()
+
+    action = dict(row)
+    action["lease_id"] = lease_id
+    action["leased_until"] = lease_until
+    return action
+
+
+def release_lease(action_id: str, lease_id: str, advance_next_run: bool = False) -> None:
+    """Release a lease. Only clears if lease_id matches."""
+    conn = db.get_db()
+    with db.write_lock():
+        if advance_next_run:
+            row = conn.execute(
+                "SELECT * FROM scheduled_actions WHERE id = ? AND lease_id = ?",
+                (action_id, lease_id),
+            ).fetchone()
+            if not row:
+                return
+            action = dict(row)
+            next_run = compute_next_run(action)
+            conn.execute(
+                "UPDATE scheduled_actions SET lease_id = NULL, leased_until = NULL, next_run = ? WHERE id = ? AND lease_id = ?",
+                (next_run, action_id, lease_id),
+            )
+        else:
+            conn.execute(
+                "UPDATE scheduled_actions SET lease_id = NULL, leased_until = NULL WHERE id = ? AND lease_id = ?",
+                (action_id, lease_id),
+            )
+        conn.commit()
+
+
+def renew_lease(action_id: str, lease_id: str, extra_minutes: int = 15) -> bool:
+    """Extend a lease. Returns True if renewed, False if reclaimed."""
+    conn = db.get_db()
+    new_until = (datetime.now(timezone.utc) + timedelta(minutes=extra_minutes)).strftime("%Y-%m-%dT%H:%M:%S")
+    with db.write_lock():
+        cursor = conn.execute(
+            "UPDATE scheduled_actions SET leased_until = ? WHERE id = ? AND lease_id = ?",
+            (new_until, action_id, lease_id),
+        )
+        conn.commit()
+        return cursor.rowcount > 0
+
+
+def release_expired_leases() -> int:
+    """Clear leases that have expired (process died mid-execution)."""
+    conn = db.get_db()
+    now = _now_utc()
+    with db.write_lock():
+        cursor = conn.execute(
+            "UPDATE scheduled_actions SET lease_id = NULL, leased_until = NULL WHERE lease_id IS NOT NULL AND leased_until <= ?",
+            (now,),
+        )
+        conn.commit()
+        return cursor.rowcount
 
 
 def mark_executed(
@@ -275,14 +421,27 @@ def mark_executed(
     duration_ms: int = 0,
     input_tokens: int = 0,
     output_tokens: int = 0,
-) -> None:
+    lease_id: str | None = None,
+) -> bool:
+    """Mark an action as executed and schedule its next run.
+
+    Returns True if completed, False if lease mismatch (stale worker).
+    """
     conn = db.get_db()
     now = _now_utc()
 
     with db.write_lock():
         row = conn.execute("SELECT * FROM scheduled_actions WHERE id = ?", (action_id,)).fetchone()
         if not row:
-            return
+            return False
+
+        if lease_id is not None:
+            if row["lease_id"] != lease_id:
+                logger.warning("Lease mismatch for %s: expected %s, got %s", action_id, row["lease_id"], lease_id)
+                return False
+        elif row["lease_id"] is not None:
+            logger.warning("Unleased caller for %s but row has lease %s", action_id, row["lease_id"])
+            return False
 
         action = dict(row)
         action["last_run"] = now
@@ -311,7 +470,8 @@ def mark_executed(
                consecutive_errors = ?, total_runs = total_runs + 1,
                total_input_tokens = total_input_tokens + ?,
                total_output_tokens = total_output_tokens + ?,
-               next_run = ?, enabled = ?, updated_at = ?
+               next_run = ?, enabled = ?, updated_at = ?,
+               lease_id = NULL, leased_until = NULL
                WHERE id = ?""",
             (
                 now, status, result[:2000],
@@ -323,3 +483,55 @@ def mark_executed(
             ),
         )
         conn.commit()
+    return True
+
+
+def ensure_default_actions(agent_slug: str) -> None:
+    """Create a default heartbeat action for an agent if none exists."""
+    existing = list_actions(agent=agent_slug, action_type="heartbeat")
+    if existing:
+        return
+
+    create_action(
+        agent=agent_slug,
+        schedule_type="interval",
+        name="Heartbeat",
+        description="Periodic check against HEARTBEAT.md checklist",
+        interval_minutes=30,
+        active_hours_start="06:00",
+        active_hours_end="20:00",
+        active_hours_tz="America/Chicago",
+        prompt="Perform your heartbeat check now.",
+        action_type="heartbeat",
+    )
+    logger.info("Created default heartbeat for agent %s", agent_slug)
+
+
+def ensure_default_actions_all() -> None:
+    """Ensure all onboarded agents have default actions. Called by sweeper/startup."""
+    try:
+        from agents.db import list_agents
+        agents = list_agents()
+        for agent in agents:
+            if agent.get("onboarding_complete"):
+                ensure_default_actions(agent["slug"])
+    except Exception as e:
+        logger.debug("ensure_default_actions_all: %s", e)
+
+
+def get_heartbeat_stats() -> dict:
+    conn = db.get_db()
+    rows = conn.execute(
+        "SELECT agent, last_run, last_status, last_duration_ms, consecutive_errors, enabled "
+        "FROM scheduled_actions WHERE action_type = 'heartbeat'"
+    ).fetchall()
+    return {"heartbeats": [dict(r) for r in rows]}
+
+
+def get_token_usage_summary() -> dict:
+    conn = db.get_db()
+    row = conn.execute(
+        "SELECT SUM(total_input_tokens) as total_input, SUM(total_output_tokens) as total_output, "
+        "SUM(total_runs) as total_runs FROM scheduled_actions"
+    ).fetchone()
+    return dict(row) if row else {"total_input": 0, "total_output": 0, "total_runs": 0}

@@ -22,8 +22,22 @@ export interface Agent {
   telegram_group_enabled: boolean;
   telegram_respond_to_bots: boolean;
   telegram_max_bot_turns: number;
+  alert_count?: number;
   created_at: string;
   updated_at: string;
+}
+
+export interface AgentAlert {
+  id: string;
+  agent: string;
+  source: string;
+  source_id: string | null;
+  title: string;
+  message: string;
+  status: 'active' | 'acknowledged' | 'resolved';
+  created_at: string;
+  acknowledged_at: string | null;
+  resolved_at: string | null;
 }
 
 export type GmailScopeLevel = 'none' | 'read' | 'send';

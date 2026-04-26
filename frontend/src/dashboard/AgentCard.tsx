@@ -42,7 +42,27 @@ export function AgentCard({ agent }: Props) {
           }}>
             {agent.agent_name}
           </div>
-          <StatusDot status="idle" showLabel={false} />
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            {(agent.alert_count ?? 0) > 0 && (
+              <span style={{
+                background: '#D97757',
+                color: '#fff',
+                fontSize: 10,
+                fontWeight: 700,
+                minWidth: 18,
+                height: 18,
+                borderRadius: 9,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                padding: '0 5px',
+                fontFamily: "'JetBrains Mono', monospace",
+              }}>
+                {agent.alert_count}
+              </span>
+            )}
+            <StatusDot status="idle" showLabel={false} />
+          </div>
         </div>
         {capabilities.length > 0 && (
           <div style={{

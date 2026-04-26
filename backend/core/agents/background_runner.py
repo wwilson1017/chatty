@@ -8,7 +8,8 @@ OpenAI, Gemini).
 import asyncio
 import json
 import logging
-from dataclasses import dataclass
+import time
+from dataclasses import dataclass, field
 
 from core.providers import get_ai_provider
 from core.providers.credentials import CredentialStore
@@ -22,6 +23,9 @@ class BackgroundResult:
     text: str
     input_tokens: int = 0
     output_tokens: int = 0
+    tool_log: list[dict] = field(default_factory=list)
+    model_used: str = ""
+    error: bool = False
 
 
 async def _run_turn(
@@ -31,14 +35,18 @@ async def _run_turn(
     registry: ToolRegistry,
     max_iterations: int = 5,
     model_override: str | None = None,
+    provider_override: str | None = None,
 ) -> BackgroundResult:
     """Run a single AI turn asynchronously, executing tools as needed."""
     store = CredentialStore()
     provider = get_ai_provider(
+        agent_provider=provider_override,
         agent_model=model_override,
     )
     if not provider:
-        return BackgroundResult(text="No AI provider configured")
+        return BackgroundResult(text="No AI provider configured", error=True)
+
+    model_used = getattr(provider, "model", "") or ""
 
     # Convert tool defs to provider format (strip 'kind')
     provider_tools = []
@@ -53,6 +61,7 @@ async def _run_turn(
 
     messages = [{"role": "user", "content": user_message}]
     accumulated_text = ""
+    tool_log: list[dict] = []
 
     for _ in range(max_iterations):
         tool_calls_this_turn = []
@@ -68,11 +77,27 @@ async def _run_turn(
                 tool_calls_this_turn = event.get("tool_calls", [])
                 stop_reason = event.get("stop_reason", "stop")
 
+                if stop_reason == "error":
+                    return BackgroundResult(
+                        text=accumulated_text or "(provider error)",
+                        model_used=model_used,
+                        tool_log=tool_log,
+                        error=True,
+                    )
+
                 if stop_reason != "tool_use" or not tool_calls_this_turn:
-                    return BackgroundResult(text=accumulated_text or "(no response)")
+                    return BackgroundResult(
+                        text=accumulated_text or "(no response)",
+                        model_used=model_used,
+                        tool_log=tool_log,
+                    )
 
         if not tool_calls_this_turn:
-            return BackgroundResult(text=accumulated_text or "(no response)")
+            return BackgroundResult(
+                text=accumulated_text or "(no response)",
+                model_used=model_used,
+                tool_log=tool_log,
+            )
 
         # Execute tools
         results = []
@@ -80,16 +105,32 @@ async def _run_turn(
             tool_name = tc.get("name", "")
             tool_args = tc.get("args", {})
             kind = kind_map.get(tool_name, "context")
+
+            t0 = time.monotonic()
             result = await registry.execute_tool(tool_name, tool_args, kind)
+            duration_ms = int((time.monotonic() - t0) * 1000)
+
+            result_str = json.dumps(result)
+            tool_log.append({
+                "tool": tool_name,
+                "args": json.dumps(tool_args)[:200],
+                "result": result_str[:500],
+                "duration_ms": duration_ms,
+            })
+
             results.append({
                 "tool_use_id": tc.get("id", ""),
                 "tool_name": tool_name,
-                "content": json.dumps(result),
+                "content": result_str,
             })
 
         messages = provider.add_tool_results(messages, tool_calls_this_turn, results)
 
-    return BackgroundResult(text=accumulated_text or "(max iterations reached)")
+    return BackgroundResult(
+        text=accumulated_text or "(max iterations reached)",
+        model_used=model_used,
+        tool_log=tool_log,
+    )
 
 
 def run_background_turn(
@@ -99,6 +140,7 @@ def run_background_turn(
     registry: ToolRegistry,
     max_iterations: int = 5,
     model_override: str | None = None,
+    provider_override: str | None = None,
 ) -> BackgroundResult:
     """Synchronous wrapper for running a background AI turn.
 
@@ -110,15 +152,16 @@ def run_background_turn(
         loop = None
 
     if loop and loop.is_running():
-        # We're inside an existing event loop — run in a new thread
         import concurrent.futures
         with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
             future = pool.submit(
                 asyncio.run,
-                _run_turn(system_prompt, user_message, tool_defs, registry, max_iterations, model_override)
+                _run_turn(system_prompt, user_message, tool_defs, registry,
+                          max_iterations, model_override, provider_override)
             )
             return future.result(timeout=300)
     else:
         return asyncio.run(
-            _run_turn(system_prompt, user_message, tool_defs, registry, max_iterations, model_override)
+            _run_turn(system_prompt, user_message, tool_defs, registry,
+                      max_iterations, model_override, provider_override)
         )

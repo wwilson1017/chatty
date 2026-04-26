@@ -112,7 +112,60 @@ def _setup_connection() -> None:
             created_at TEXT NOT NULL DEFAULT (datetime('now'))
         );
         CREATE INDEX IF NOT EXISTS idx_dreaming_agent ON dreaming_runs(agent, created_at);
+
+        CREATE TABLE IF NOT EXISTS execution_history (
+            id TEXT PRIMARY KEY,
+            action_id TEXT NOT NULL,
+            agent TEXT NOT NULL,
+            action_type TEXT NOT NULL,
+            started_at TEXT NOT NULL,
+            completed_at TEXT,
+            status TEXT NOT NULL DEFAULT 'running',
+            result_summary TEXT,
+            result_full TEXT,
+            tool_calls TEXT,
+            model_used TEXT,
+            input_tokens INTEGER DEFAULT 0,
+            output_tokens INTEGER DEFAULT 0,
+            duration_ms INTEGER DEFAULT 0,
+            notification_sent INTEGER DEFAULT 0,
+            created_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+        CREATE INDEX IF NOT EXISTS idx_eh_action ON execution_history(action_id, started_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_eh_agent ON execution_history(agent, started_at DESC);
+
+        CREATE TABLE IF NOT EXISTS alerts (
+            id TEXT PRIMARY KEY,
+            agent TEXT NOT NULL,
+            source TEXT NOT NULL DEFAULT 'heartbeat',
+            source_id TEXT,
+            title TEXT NOT NULL,
+            message TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'active'
+                CHECK(status IN ('active', 'acknowledged', 'resolved')),
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            acknowledged_at TEXT,
+            resolved_at TEXT
+        );
+        CREATE INDEX IF NOT EXISTS idx_alerts_agent ON alerts(agent, status);
+        CREATE INDEX IF NOT EXISTS idx_alerts_status ON alerts(status, created_at DESC);
     """)
+
+    # Migration: add columns to scheduled_actions if missing
+    cols = {r[1] for r in _connection.execute("PRAGMA table_info(scheduled_actions)").fetchall()}
+    if "triage_enabled" not in cols:
+        _connection.execute("ALTER TABLE scheduled_actions ADD COLUMN triage_enabled INTEGER NOT NULL DEFAULT 1")
+    if "always_on" not in cols:
+        _connection.execute("ALTER TABLE scheduled_actions ADD COLUMN always_on INTEGER NOT NULL DEFAULT 0")
+    if "notify_on_action" not in cols:
+        _connection.execute("ALTER TABLE scheduled_actions ADD COLUMN notify_on_action INTEGER NOT NULL DEFAULT 0")
+    if "lease_id" not in cols:
+        _connection.execute("ALTER TABLE scheduled_actions ADD COLUMN lease_id TEXT")
+    if "leased_until" not in cols:
+        _connection.execute("ALTER TABLE scheduled_actions ADD COLUMN leased_until TEXT")
+    _connection.execute("CREATE INDEX IF NOT EXISTS idx_sa_lease ON scheduled_actions(lease_id, leased_until)")
+    _connection.commit()
+
     logger.info("Reminders DB initialized at %s", DB_PATH)
 
 

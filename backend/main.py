@@ -153,8 +153,11 @@ async def lifespan(app: FastAPI):
     from agents.import_service.sessions import sweep_expired as _sweep_import_sessions
     _scheduler.add_job(_sweep_import_sessions, "interval", seconds=600, id="import_session_sweep")
 
+    from core.agents.scheduled_actions.sweeper import sweep as _scheduled_sweep
+    _scheduler.add_job(_scheduled_sweep, "interval", seconds=300, id="scheduled_actions_sweeper")
+
     _scheduler.start()
-    logger.info("APScheduler started (reminder heartbeat + scheduled actions + nightly jobs)")
+    logger.info("APScheduler started (reminder heartbeat + scheduled actions + sweeper + nightly jobs)")
 
     # Log WhatsApp session status on startup
     if settings.whatsapp.is_configured:
@@ -200,9 +203,14 @@ async def lifespan(app: FastAPI):
     logger.info("Chatty backend started. Data dir: %s", data_root)
     yield
 
-    # Shutdown scheduler
+    # Shutdown scheduler + executor
     if _scheduler:
         _scheduler.shutdown(wait=False)
+    try:
+        from core.agents.scheduled_actions.processor import shutdown_executor
+        shutdown_executor()
+    except Exception:
+        pass
     logger.info("Chatty backend shutting down.")
 
 
@@ -250,6 +258,9 @@ app.include_router(crm_router, prefix="/api/crm", tags=["crm"])
 app.include_router(qb_csv_router, prefix="/api/qb-csv", tags=["qb-csv"])
 app.include_router(webby_router, tags=["webby"])
 app.include_router(scheduled_actions_router, prefix="/api/scheduled-actions", tags=["scheduled-actions"])
+
+from core.agents.alerts.router import router as alerts_router
+app.include_router(alerts_router, prefix="/api/alerts", tags=["alerts"])
 app.include_router(setup_router, prefix="/api/setup", tags=["setup"])
 app.include_router(backup_router, prefix="/api/backup", tags=["backup"])
 app.include_router(telegram_router, prefix="/api/telegram", tags=["telegram"])
