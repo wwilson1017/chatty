@@ -91,6 +91,7 @@ export function useAgentChat(apiPrefix: string, options?: Options) {
   const [planMode, setPlanModeState] = useState(false);
   const [toolMode, setToolMode] = useState<ToolMode>('normal');
   const [contextUsage, setContextUsage] = useState<ContextUsage | null>(null);
+  const [greetingPending, setGreetingPending] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
   const streamInIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   useEffect(() => () => {
@@ -415,12 +416,14 @@ export function useAgentChat(apiPrefix: string, options?: Options) {
       setTrainingType(type || 'topic');
       trainingKickoffMessageRef.current = kickoff || 'Hey there!';
       trainingKickoffRef.current = true;
+      setGreetingPending(true);
       setTrainingModeState(true);
     } else {
       setToolMode(savedToolModeRef.current);
       setMessages([]);
       setConversationId(null);
       setTrainingType('topic');
+      setGreetingPending(false);
       setTrainingModeState(false);
     }
   }, [toolMode]);
@@ -430,6 +433,7 @@ export function useAgentChat(apiPrefix: string, options?: Options) {
     const msg = trainingKickoffMessageRef.current;
     trainingKickoffRef.current = false;
     const timer = setTimeout(() => {
+      setGreetingPending(false);
       sendMessage(msg, undefined, undefined, { hidden: true });
     }, 50);
     return () => clearTimeout(timer);
@@ -536,6 +540,8 @@ export function useAgentChat(apiPrefix: string, options?: Options) {
     toolMode,
     setToolMode,
     setTrainingMode,
+    greetingPending,
+    setGreetingPending,
     planMode,
     setPlanMode,
     approvePlan,

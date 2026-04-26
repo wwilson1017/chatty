@@ -140,9 +140,31 @@ export function AgentPage() {
     prevOnboardingComplete.current = agent.onboarding_complete;
     if (wasIncomplete && agent.onboarding_complete) {
       if (chat.trainingMode) chat.setTrainingMode(false);
+      chat.setGreetingPending(true);
       if (!agent.avatar_url) queueMicrotask(() => setShowAvatarPicker(true));
     }
   }, [agent]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Auto-greet on first real chat after onboarding (or page refresh of fresh agent)
+  const autoGreetRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!agent || !agent.onboarding_complete || agent.id !== agentId) return;
+    if (autoGreetRef.current === agentId) return;
+    if (showAvatarPicker) return;
+    if (chat.messages.length > 0 || chat.isStreaming || chat.trainingMode) return;
+    if (!convs.loaded) return;
+    if (convs.conversations.length > 0) {
+      chat.setGreetingPending(false);
+      return;
+    }
+
+    autoGreetRef.current = agentId!;
+    chat.setGreetingPending(false);
+    chat.sendMessage(
+      '[Start the conversation. Greet the user warmly based on your personality and role. Keep it brief — 1-2 sentences.]',
+      undefined, undefined, { hidden: true },
+    );
+  }, [agentId, agent, showAvatarPicker, chat.messages.length, chat.isStreaming, chat.trainingMode, convs.loaded, convs.conversations.length]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     convs.loadConversations();
@@ -547,6 +569,7 @@ export function AgentPage() {
               agentName={agent.agent_name}
               conversationSource={convs.conversations.find(c => c.id === convs.activeId)?.source}
               importMode={convs.conversations.find(c => c.id === convs.activeId)?.mode === 'import'}
+              greetingPending={chat.greetingPending}
               onCancelImport={async () => {
                 if (!confirm('Cancel this import? The agent and all progress will be deleted.')) return;
                 try {
