@@ -1121,8 +1121,9 @@ SCHEDULED_ACTION_TOOLS = [
                 "interval_minutes": {"type": "integer", "description": "Interval in minutes (for schedule_type='interval', min 5)"},
                 "run_at": {"type": "string", "description": "ISO 8601 datetime (for schedule_type='once')"},
                 "prompt": {"type": "string", "description": "The prompt to execute on each run"},
-                "active_hours_start": {"type": "integer", "description": "Start hour for active window (0-23, default: 6)"},
-                "active_hours_end": {"type": "integer", "description": "End hour for active window (0-23, default: 22)"},
+                "active_hours_start": {"type": "integer", "description": "Start hour for active window (0-23, default: 6). Actions only run during this window."},
+                "active_hours_end": {"type": "integer", "description": "End hour for active window (0-23, default: 20). Actions only run during this window."},
+                "always_on": {"type": "boolean", "description": "Set true for 24/7 operation, bypassing active hours. Default: false"},
             },
             "required": ["name", "prompt", "schedule_type"],
         },
@@ -1151,8 +1152,9 @@ SCHEDULED_ACTION_TOOLS = [
                 "prompt": {"type": "string", "description": "Updated prompt"},
                 "cron_expression": {"type": "string", "description": "Updated cron expression"},
                 "interval_minutes": {"type": "integer", "description": "Updated interval"},
-                "active_hours_start": {"type": "integer"},
-                "active_hours_end": {"type": "integer"},
+                "active_hours_start": {"type": "integer", "description": "Start hour for active window (0-23)"},
+                "active_hours_end": {"type": "integer", "description": "End hour for active window (0-23)"},
+                "always_on": {"type": "boolean", "description": "Set true for 24/7 operation, bypassing active hours"},
             },
             "required": ["action_id"],
         },
@@ -1199,16 +1201,29 @@ Guidelines:
 def get_scheduling_instructions() -> str:
     """Instructions for the AI on how to use reminders and scheduled actions."""
     return """## Scheduling & Reminders
-You can set reminders and create scheduled actions:
 
-- **Reminders**: Use `create_reminder` to set a follow-up for yourself. When the reminder fires, you'll receive the context and can take action. Use ISO 8601 format for due_at.
-- **Scheduled Actions**: Use `create_scheduled_action` to create recurring tasks. These run automatically on a cron schedule with your tools available. Use for periodic checks, reports, or maintenance tasks.
+### Reminders
+Use `create_reminder` to set a follow-up for yourself. When the reminder fires, you'll receive the context and can take action. Use ISO 8601 format for due_at.
+
+### Heartbeat (your main recurring loop)
+You already have a **heartbeat** that runs every 30 minutes and checks your HEARTBEAT.md file. This is your primary mechanism for recurring work.
+
+To add a recurring task, **add it to your HEARTBEAT.md checklist** with time conditions (e.g., "Every weekday at 9 AM: send morning brief"). The heartbeat will pick it up automatically on its next pulse. Do NOT create a separate scheduled action for something the heartbeat can handle.
+
+### Scheduled Actions
+Use `create_scheduled_action` only when you need a task with its own independent schedule that doesn't fit the heartbeat pattern (e.g., a one-time future task with `schedule_type="once"`).
+
+### Active Hours
+- Scheduled actions have an **active hours window** — they only run during this window.
+- Default is 6 AM to 8 PM. To change, set `active_hours_start` and `active_hours_end` (integers 0-23).
+- For 24/7 operation, set `always_on=true` — this bypasses active hours entirely.
+- Your heartbeat runs 24/7 by default (`always_on`). Time-gating belongs in your HEARTBEAT.md checklist items, not on the heartbeat itself.
 
 Guidelines:
 - Always confirm with the user before creating scheduled actions
 - Use descriptive names for scheduled actions
-- Set reasonable active hours to avoid running during off-hours
-- Prefer cron expressions for recurring tasks, 'once' for one-time future tasks
+- Prefer adding items to HEARTBEAT.md over creating new scheduled actions
+- For one-time future tasks, use `schedule_type="once"` with `run_at`
 """
 
 

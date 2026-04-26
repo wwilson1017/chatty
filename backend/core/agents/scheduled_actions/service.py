@@ -20,6 +20,25 @@ DEFAULT_INTERVAL_MINUTES = 30
 _DEFAULT_LEASE_MINUTES = 15
 
 
+def _normalize_hour(value, default: str = "06:00") -> str:
+    """Convert integer hour (0-23) or 'HH:MM' string to canonical 'HH:MM' format."""
+    if value is None:
+        return default
+    try:
+        if isinstance(value, int) or str(value).isdigit():
+            hour = int(value)
+            if 0 <= hour <= 23:
+                return f"{hour:02d}:00"
+            return default
+        hour_s, minute_s = str(value).split(":", 1)
+        hour, minute = int(hour_s), int(minute_s)
+        if 0 <= hour <= 23 and 0 <= minute <= 59:
+            return f"{hour:02d}:{minute:02d}"
+    except (ValueError, TypeError):
+        pass
+    return default
+
+
 def _now_utc() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S")
 
@@ -86,6 +105,7 @@ def create_action(
     model_override: str | None = None,
     max_tool_iterations: int = 5,
     enabled: bool = True,
+    always_on: bool = False,
     created_by_email: str = "user",
     action_type: str = "cron",
 ) -> dict:
@@ -115,6 +135,8 @@ def create_action(
             return {"error": f"run_at must be a valid ISO 8601 datetime, got: {run_at}"}
 
     max_tool_iterations = min(max(max_tool_iterations, 1), MAX_TOOL_ITERATIONS_CAP)
+    active_hours_start = _normalize_hour(active_hours_start, "06:00")
+    active_hours_end = _normalize_hour(active_hours_end, "20:00")
 
     action_id = str(uuid.uuid4())
     action_dict = {
@@ -134,14 +156,15 @@ def create_action(
                (id, agent, created_by_email, action_type, name, description,
                 schedule_type, cron_expression, interval_minutes, run_at,
                 active_hours_start, active_hours_end, active_hours_tz,
-                prompt, model_override, max_tool_iterations, enabled, next_run)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                prompt, model_override, max_tool_iterations, enabled, always_on,
+                next_run)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 action_id, agent, created_by_email, action_type, name, description,
                 schedule_type, cron_expression, interval_minutes, run_at,
                 active_hours_start, active_hours_end, active_hours_tz,
                 prompt, model_override, max_tool_iterations,
-                1 if enabled else 0, next_run,
+                1 if enabled else 0, 1 if always_on else 0, next_run,
             ),
         )
         conn.commit()
@@ -224,6 +247,11 @@ def update_action(action_id: str, **fields) -> dict:
 
         if "max_tool_iterations" in updates:
             updates["max_tool_iterations"] = min(max(updates["max_tool_iterations"], 1), MAX_TOOL_ITERATIONS_CAP)
+
+        if "active_hours_start" in updates:
+            updates["active_hours_start"] = _normalize_hour(updates["active_hours_start"], "06:00")
+        if "active_hours_end" in updates:
+            updates["active_hours_end"] = _normalize_hour(updates["active_hours_end"], "20:00")
 
         for bool_field in ("enabled", "triage_enabled", "notify_on_action", "always_on"):
             if bool_field in updates:
@@ -492,6 +520,9 @@ def ensure_default_actions(agent_slug: str) -> None:
     """Create a default heartbeat action for an agent if none exists."""
     existing = list_actions(agent=agent_slug, action_type="heartbeat")
     if existing:
+        for action in existing:
+            if not action.get("always_on"):
+                update_action(action["id"], always_on=True)
         return
 
     create_action(
@@ -500,11 +531,10 @@ def ensure_default_actions(agent_slug: str) -> None:
         name="Heartbeat",
         description="Periodic check against HEARTBEAT.md checklist",
         interval_minutes=30,
-        active_hours_start="06:00",
-        active_hours_end="20:00",
         active_hours_tz="America/Chicago",
         prompt="Perform your heartbeat check now.",
         action_type="heartbeat",
+        always_on=True,
     )
     logger.info("Created default heartbeat for agent %s", agent_slug)
 
