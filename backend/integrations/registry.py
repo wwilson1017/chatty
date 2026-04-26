@@ -73,6 +73,12 @@ AVAILABLE_INTEGRATIONS = {
         "icon": "💬",
         "auth_type": "qr_session",
     },
+    "paperclip": {
+        "name": "Paperclip",
+        "description": "AI company orchestration — org chart, tasks, budgets, governance",
+        "icon": "📎",
+        "auth_type": "api_key",
+    },
 }
 
 
