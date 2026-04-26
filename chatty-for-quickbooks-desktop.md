@@ -50,7 +50,7 @@ Companies like **Conductor** sell exactly this: you install their small program 
 
 ### Option 3 — A custom local connector (the path we'd actually recommend)
 
-Build a small program — call it the **Chatty Bridge** — that runs on your QuickBooks machine. It speaks QuickBooks's language and Fishbowl's language locally, and quietly phones home to your Chatty in the cloud.
+Build a small program — call it the **App Bridge** — that runs on your QuickBooks machine. It speaks QuickBooks's language and Fishbowl's language locally, and quietly phones home to your Chatty in the cloud.
 
 Here's what this would look like for you in practice.
 
