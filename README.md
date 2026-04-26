@@ -4,6 +4,8 @@ A free, open-source browser-based personal AI agent platform built for professio
 
 Create custom AI agents with their own personality, knowledge, and tools — powered by your own API keys or local AI model. No SaaS fees, no vendor lock-in. You only pay for the AI usage you consume.
 
+> **New to AI agents?** Read our [plain-English guide](docs/what-is-chatty.md) — no technical knowledge required.
+
 ## Features
 
 - **Multi-agent** — Create and manage multiple AI agents, each with its own name, personality, and knowledge base
