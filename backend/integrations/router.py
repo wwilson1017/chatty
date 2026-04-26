@@ -12,7 +12,7 @@ import logging
 from pathlib import Path
 
 import httpx
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from core.auth import get_current_user
@@ -79,8 +79,8 @@ async def disable_integration(name: str, user=Depends(get_current_user)):
 @router.post("/{name}/tool-mode")
 async def set_integration_tool_mode(name: str, body: ToolModeRequest, user=Depends(get_current_user)):
     """Set the tool_mode permission ceiling for an integration."""
-    if name not in ("odoo", "quickbooks"):
-        raise HTTPException(status_code=400, detail="Tool mode is only supported for Odoo and QuickBooks")
+    if name not in ("odoo", "quickbooks", "paperclip"):
+        raise HTTPException(status_code=400, detail="Tool mode is only supported for Odoo, QuickBooks, and Paperclip")
     if body.tool_mode not in ("read-only", "normal", "power"):
         raise HTTPException(status_code=400, detail=f"Invalid tool_mode: {body.tool_mode}")
     integrations = {i["id"]: i for i in list_integrations()}
@@ -476,5 +476,80 @@ async def get_tool_defs(name: str, user=Depends(get_current_user)):
     elif name == "qb_csv":
         from .qb_csv.tools import QB_CSV_TOOL_DEFS
         return {"tools": QB_CSV_TOOL_DEFS}
+    elif name == "paperclip":
+        from .paperclip.tools import PAPERCLIP_TOOL_DEFS
+        return {"tools": PAPERCLIP_TOOL_DEFS}
     else:
         return {"tools": []}
+
+
+# ── Paperclip ────────────────────────────────────────────────────────────────
+
+
+class PaperclipSetupRequest(BaseModel):
+    url: str = Field(..., max_length=2048)
+    email: str
+    password: str
+    company_id: str = ""
+
+
+class PaperclipMappingRequest(BaseModel):
+    agent_mapping: dict[str, str]
+    chatty_base_url: str = ""
+
+
+@router.post("/paperclip/setup")
+async def setup_paperclip(body: PaperclipSetupRequest, user=Depends(get_current_user)):
+    """Login to Paperclip with email/password and configure the integration."""
+    from .paperclip.onboarding import setup
+    result = setup(url=body.url, email=body.email, password=body.password, company_id=body.company_id)
+    if "error" in result:
+        raise HTTPException(status_code=400, detail=result["error"])
+    return result
+
+
+@router.post("/paperclip/disconnect")
+async def disconnect_paperclip(user=Depends(get_current_user)):
+    """Disconnect Paperclip: remove stored credentials."""
+    from .registry import save_credentials
+    save_credentials("paperclip", {})
+    return {"ok": True}
+
+
+@router.get("/paperclip/agents")
+async def list_paperclip_agents(user=Depends(get_current_user)):
+    """Proxy: list agents in the connected Paperclip company (for mapping UI)."""
+    from .paperclip.client import get_client
+    client = get_client()
+    if not client:
+        raise HTTPException(status_code=400, detail="Paperclip not configured")
+    result = client.list_agents()
+    if "error" in result:
+        raise HTTPException(status_code=502, detail=result["error"])
+    return result
+
+
+@router.post("/paperclip/agent-mapping")
+async def save_paperclip_mapping(body: PaperclipMappingRequest, user=Depends(get_current_user)):
+    """Save Paperclip-agent → Chatty-agent mapping and auto-configure agents."""
+    from .registry import get_credentials, save_credentials
+    creds = get_credentials("paperclip")
+    creds["agent_mapping"] = body.agent_mapping
+    save_credentials("paperclip", creds)
+
+    config_result = {}
+    if body.chatty_base_url:
+        from .paperclip.onboarding import configure_mapped_agents
+        config_result = configure_mapped_agents(chatty_base_url=body.chatty_base_url)
+
+    return {"ok": True, **config_result}
+
+
+@router.post("/paperclip/heartbeat")
+async def paperclip_heartbeat(request: Request):
+    """Receive heartbeat from Paperclip's HTTP adapter.
+
+    NO JWT auth — authenticates via shared secret header only.
+    """
+    from .paperclip.webhook import handle_heartbeat
+    return await handle_heartbeat(request)

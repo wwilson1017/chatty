@@ -19,6 +19,7 @@ const INTEGRATION_ICONS: Record<string, React.ComponentType<{ size?: number; cla
   telegram: IconMail,
   gmail: IconMail,
   calendar: IconBook,
+  paperclip: IconZap,
 };
 
 const mono = (size: number, color = 'rgba(237,240,244,0.38)') => ({
@@ -42,6 +43,12 @@ export function IntegrationsTab() {
   const [odooManualMode, setOdooManualMode] = useState(false);
   const [bambooSubdomain, setBambooSubdomain] = useState('');
   const [bambooKey, setBambooKey] = useState('');
+  const [pcUrl, setPcUrl] = useState('');
+  const [pcEmail, setPcEmail] = useState('');
+  const [pcPassword, setPcPassword] = useState('');
+  const [pcAgentMapping, setPcAgentMapping] = useState<Record<string, string>>({});
+  const [pcPaperclipAgents, setPcPaperclipAgents] = useState<{ id: string; name: string; role: string }[]>([]);
+  const [pcMappingExpanded, setPcMappingExpanded] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [showQbCredForm, setShowQbCredForm] = useState(false);
@@ -199,6 +206,54 @@ export function IntegrationsTab() {
       const data = await api<{ integrations: Integration[] }>('/api/integrations');
       setIntegrations(data.integrations);
     } catch (err: unknown) { setError(err instanceof Error ? err.message : 'Setup failed'); }
+    finally { setSaving(false); }
+  }
+
+  async function setupPaperclip() {
+    setSaving(true); setError('');
+    try {
+      await api('/api/integrations/paperclip/setup', {
+        method: 'POST',
+        body: JSON.stringify({ url: pcUrl, email: pcEmail, password: pcPassword }),
+      });
+      setPcPassword('');
+      setSetupFor(null);
+      const data = await api<{ integrations: Integration[] }>('/api/integrations');
+      setIntegrations(data.integrations);
+    } catch (err: unknown) { setError(err instanceof Error ? err.message : 'Setup failed'); }
+    finally { setSaving(false); }
+  }
+
+  async function loadPaperclipAgents() {
+    try {
+      const data = await api<{ ok: boolean; agents: { id: string; name: string; role: string }[] }>('/api/integrations/paperclip/agents');
+      setPcPaperclipAgents(data.agents || []);
+    } catch { setPcPaperclipAgents([]); }
+  }
+
+  async function savePaperclipMapping() {
+    setSaving(true); setError('');
+    try {
+      const chattyBaseUrl = window.location.origin;
+      await api('/api/integrations/paperclip/agent-mapping', {
+        method: 'POST',
+        body: JSON.stringify({ agent_mapping: pcAgentMapping, chatty_base_url: chattyBaseUrl }),
+      });
+      setError('');
+    } catch (err: unknown) { setError(err instanceof Error ? err.message : 'Failed to save mapping'); }
+    finally { setSaving(false); }
+  }
+
+  async function disconnectPaperclip() {
+    setSaving(true); setError('');
+    try {
+      await api('/api/integrations/paperclip/disconnect', { method: 'POST' });
+      setPcMappingExpanded(false);
+      setPcPaperclipAgents([]);
+      setPcAgentMapping({});
+      const data = await api<{ integrations: Integration[] }>('/api/integrations');
+      setIntegrations(data.integrations);
+    } catch (err: unknown) { setError(err instanceof Error ? err.message : 'Disconnect failed'); }
     finally { setSaving(false); }
   }
 
@@ -419,7 +474,7 @@ export function IntegrationsTab() {
             </div>
 
             {/* Permission level selector for Odoo and QuickBooks */}
-            {(integration.id === 'odoo' || integration.id === 'quickbooks') && integration.enabled && integration.configured && integration.connection_status !== 'broken' && (
+            {(integration.id === 'odoo' || integration.id === 'quickbooks' || integration.id === 'paperclip') && integration.enabled && integration.configured && integration.connection_status !== 'broken' && (
               <div style={{ marginTop: 10, display: 'flex', alignItems: 'center', gap: 10 }}>
                 <span style={{ ...mono(9), whiteSpace: 'nowrap' }}>Permissions</span>
                 <div style={{
@@ -448,6 +503,81 @@ export function IntegrationsTab() {
                     </div>
                   ))}
                 </div>
+              </div>
+            )}
+
+            {/* Paperclip disconnect + reconfigure */}
+            {integration.id === 'paperclip' && integration.configured && (
+              <div style={{ marginTop: 8, display: 'flex', gap: 8, alignItems: 'center' }}>
+                <button onClick={() => setSetupFor('paperclip')} style={{
+                  fontSize: 11, padding: '4px 8px', borderRadius: 4,
+                  background: 'transparent', color: 'rgba(237,240,244,0.38)',
+                  border: 'none', cursor: 'pointer',
+                }}>Reconfigure</button>
+                <button onClick={disconnectPaperclip} disabled={saving} style={{
+                  fontSize: 11, padding: '4px 8px', borderRadius: 4,
+                  background: 'transparent', color: '#D97757',
+                  border: 'none', cursor: 'pointer', opacity: saving ? 0.5 : 1,
+                }}>Disconnect</button>
+              </div>
+            )}
+
+            {/* Paperclip agent mapping */}
+            {integration.id === 'paperclip' && integration.enabled && integration.configured && (
+              <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px solid rgba(230,235,242,0.07)' }}>
+                <div
+                  onClick={() => {
+                    const next = !pcMappingExpanded;
+                    setPcMappingExpanded(next);
+                    if (next) {
+                      loadPaperclipAgents();
+                      api<{ agents: Agent[] }>('/api/agents').then(d => setAgents(d.agents));
+                    }
+                  }}
+                  style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}
+                >
+                  <span style={{ ...mono(9), color: 'rgba(237,240,244,0.62)' }}>
+                    {pcMappingExpanded ? '▾' : '▸'} Agent Mapping
+                  </span>
+                  <span style={{ fontSize: 10, color: 'rgba(237,240,244,0.38)' }}>
+                    (required for heartbeats)
+                  </span>
+                </div>
+                {pcMappingExpanded && (
+                  <div style={{ marginTop: 8, display: 'flex', flexDirection: 'column', gap: 6 }}>
+                    {pcPaperclipAgents.length === 0 ? (
+                      <p style={{ color: 'rgba(237,240,244,0.38)', fontSize: 12 }}>No Paperclip agents found. Create agents in the Paperclip UI first.</p>
+                    ) : (
+                      <>
+                        {pcPaperclipAgents.map(pa => (
+                          <div key={pa.id} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                            <span style={{ fontSize: 12, color: 'rgba(237,240,244,0.62)', minWidth: 120, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                              {pa.name} ({pa.role})
+                            </span>
+                            <span style={{ fontSize: 11, color: 'rgba(237,240,244,0.38)' }}>→</span>
+                            <select
+                              value={pcAgentMapping[pa.id] || ''}
+                              onChange={e => setPcAgentMapping(prev => ({ ...prev, [pa.id]: e.target.value }))}
+                              style={{ flex: 1, padding: '4px 8px', fontSize: 12, borderRadius: 4, border: '1px solid rgba(230,235,242,0.14)', background: 'rgba(230,235,242,0.04)', color: 'rgba(237,240,244,0.86)' }}
+                            >
+                              <option value="">Not mapped</option>
+                              {agents.map(a => (
+                                <option key={a.slug} value={a.slug}>{a.agent_name}</option>
+                              ))}
+                            </select>
+                          </div>
+                        ))}
+                        <button
+                          onClick={savePaperclipMapping}
+                          disabled={saving}
+                          style={{ alignSelf: 'flex-end', padding: '4px 14px', fontSize: 11, borderRadius: 3, background: 'var(--color-ch-accent, #C8D1D9)', color: '#0E1013', border: 'none', cursor: 'pointer', fontWeight: 500, opacity: saving ? 0.5 : 1, marginTop: 4 }}
+                        >
+                          {saving ? 'Saving...' : 'Save Mapping'}
+                        </button>
+                      </>
+                    )}
+                  </div>
+                )}
               </div>
             )}
 
@@ -685,6 +815,20 @@ export function IntegrationsTab() {
                     <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
                       <button onClick={() => setSetupFor(null)} style={{ flex: 1, padding: '8px 16px', fontSize: 13, borderRadius: 4, border: '1px solid rgba(230,235,242,0.14)', background: 'transparent', color: 'rgba(237,240,244,0.62)', cursor: 'pointer' }}>Cancel</button>
                       <button onClick={setupBambooHR} disabled={saving} style={{ flex: 1, padding: '8px 16px', fontSize: 13, borderRadius: 4, background: 'var(--color-ch-accent, #C8D1D9)', color: '#0E1013', border: 'none', cursor: 'pointer', fontWeight: 500, opacity: saving ? 0.5 : 1 }}>{saving ? 'Connecting...' : 'Connect'}</button>
+                    </div>
+                  </>
+                )}
+                {integration.id === 'paperclip' && (
+                  <>
+                    <p style={{ fontSize: 12, color: 'rgba(237,240,244,0.50)', lineHeight: 1.5, marginBottom: 4 }}>
+                      Sign in to your Paperclip instance. Chatty will auto-detect your company.
+                    </p>
+                    <input placeholder="Paperclip URL (https://your-instance.up.railway.app)" value={pcUrl} onChange={e => setPcUrl(e.target.value)} style={inputStyle} />
+                    <input placeholder="Email" value={pcEmail} onChange={e => setPcEmail(e.target.value)} style={inputStyle} />
+                    <input placeholder="Password" type="password" value={pcPassword} onChange={e => setPcPassword(e.target.value)} style={inputStyle} />
+                    <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
+                      <button onClick={() => setSetupFor(null)} style={{ flex: 1, padding: '8px 16px', fontSize: 13, borderRadius: 4, border: '1px solid rgba(230,235,242,0.14)', background: 'transparent', color: 'rgba(237,240,244,0.62)', cursor: 'pointer' }}>Cancel</button>
+                      <button onClick={setupPaperclip} disabled={saving || !pcUrl.trim() || !pcEmail.trim() || !pcPassword.trim()} style={{ flex: 1, padding: '8px 16px', fontSize: 13, borderRadius: 4, background: 'var(--color-ch-accent, #C8D1D9)', color: '#0E1013', border: 'none', cursor: 'pointer', fontWeight: 500, opacity: saving || !pcUrl.trim() || !pcEmail.trim() || !pcPassword.trim() ? 0.5 : 1 }}>{saving ? 'Connecting...' : 'Connect'}</button>
                     </div>
                   </>
                 )}

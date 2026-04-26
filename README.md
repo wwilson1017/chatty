@@ -12,7 +12,8 @@ Create custom AI agents with their own personality, knowledge, and tools — pow
 - **Multi-provider AI** — Anthropic, OpenAI, Google Gemini, Ollama (local models), and Together AI
 - **Brandable** — Upload your logo, company name, and accent color to make it yours
 - **Built-in CRM** — Manage your pipeline: contacts, companies, tasks and deals all with your AI agent
-- **Integrations** — Gmail, Google Calendar, Google Drive, QuickBooks Online, WhatsApp, Telegram, Odoo, BambooHR
+- **Integrations** — Gmail, Google Calendar, Google Drive, QuickBooks Online, WhatsApp, Telegram, Odoo, BambooHR, Paperclip
+- **Agent orchestration** — Connect to [Paperclip](https://github.com/paperclipai/paperclip) for org charts, task management, and multi-agent coordination
 - **Local-first** — SQLite database, no external services required
 - **One-click deploy** — Deploy to Railway for access from any device
 
@@ -98,6 +99,25 @@ Chatty connects to your existing business tools so your agents can answer questi
 `JWT_SECRET` and `ENCRYPTION_KEY` auto-generate if not set. Your data persists on a Railway volume.
 
 For detailed instructions, custom domains, and troubleshooting, see [DEPLOY.md](DEPLOY.md).
+
+## Agent Orchestration with Paperclip
+
+Run a coordinated team of AI agents with [Paperclip](https://github.com/paperclipai/paperclip) — the open-source orchestration control plane for AI agent companies.
+
+Chatty gives each agent a brain. Paperclip gives the team structure: **org charts**, **task assignments**, **budget tracking**, and **governance**. Together, your agents can assign work to each other, track progress through issues, and communicate through structured task threads.
+
+[![Deploy Paperclip on Railway](https://railway.com/button.svg)](https://railway.com/deploy/ZLeQVd?referralCode=HMgK-M)
+
+**Getting started:**
+
+1. Deploy Paperclip on Railway (button above) and create your company
+2. In Chatty, go to **Settings** > **Integrations** > **Paperclip** and sign in with your Paperclip credentials
+3. Map your Chatty agents to Paperclip agents
+4. Chat with any agent: *"Check Paperclip for my tasks"*
+
+Your agents get tools to list issues, claim tasks, update status, and post comments — all from within the chat. Paperclip can also trigger agents automatically via heartbeat webhooks.
+
+For the full setup guide, see [PAPERCLIP.md](PAPERCLIP.md).
 
 ## Contributing
 
