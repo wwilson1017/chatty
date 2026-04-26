@@ -34,6 +34,7 @@ interface Props {
   conversationSource?: string | null;
   importMode?: boolean;
   onCancelImport?: () => void;
+  greetingPending?: boolean;
 }
 
 const TOOL_MODES: { key: ToolMode; label: string }[] = [
@@ -46,6 +47,7 @@ export function AgentChatPanel({
   messages, isStreaming, onSend, onStop, onApprove, onDeny,
   onApprovePlan, onIteratePlan, scrollRef: externalScrollRef,
   contextUsage, toolMode, onToolModeChange, agentName, agentSlug, conversationSource, importMode, onCancelImport,
+  greetingPending,
 }: Props) {
   const [input, setInput] = useState('');
   const [pendingFiles, setPendingFiles] = useState<File[]>([]);
@@ -166,6 +168,7 @@ export function AgentChatPanel({
 
   const isMobile = useIsMobile();
   const isEmpty = messages.length === 0;
+  const showEmptyState = isEmpty && !isStreaming && !greetingPending;
 
   function renderInputBox() {
     return (
@@ -306,6 +309,8 @@ export function AgentChatPanel({
   }
 
   return (
+    <>
+    {greetingPending && <style>{`@keyframes chatty-dot-pulse { 0%,80%,100% { opacity: 0.3; } 40% { opacity: 1; } }`}</style>}
     <div
       style={{ flex: 1, display: 'flex', flexDirection: 'column', position: 'relative', overflow: 'hidden' }}
       onDragOver={handleDragOver}
@@ -329,11 +334,11 @@ export function AgentChatPanel({
         ref={scrollContainerRef}
         style={{
           flex: 1, overflowY: 'auto',
-          paddingBottom: isEmpty && !isStreaming ? 0 : 180,
+          paddingBottom: showEmptyState ? 0 : 180,
         }}
         onClick={handleMessagesClick}
       >
-        {isEmpty && !isStreaming ? (
+        {showEmptyState ? (
           <div style={{
             display: 'flex', flexDirection: 'column', alignItems: 'center',
             justifyContent: 'center', minHeight: '100%', padding: isMobile ? '24px 16px' : 24,
@@ -413,6 +418,22 @@ export function AgentChatPanel({
                 }
               }}
             />
+            {greetingPending && isEmpty && !isStreaming && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 0' }}>
+                <span style={{
+                  display: 'inline-flex', gap: 4, alignItems: 'center',
+                  color: 'rgba(237,240,244,0.38)', fontSize: 13,
+                }}>
+                  {[0, 1, 2].map(i => (
+                    <span key={i} style={{
+                      width: 5, height: 5, borderRadius: '50%',
+                      background: 'rgba(237,240,244,0.38)',
+                      animation: `chatty-dot-pulse 1.2s ease-in-out ${i * 0.2}s infinite`,
+                    }} />
+                  ))}
+                </span>
+              </div>
+            )}
             {messages.filter(msg => !msg.hidden).map(msg => {
               const displayMsg = (msg.role === 'user' && msg.content.match(/^\[via (Telegram|WhatsApp) from [^\]]+\] /))
                 ? { ...msg, content: msg.content.replace(/^\[via (?:Telegram|WhatsApp) from [^\]]+\] /, '') }
@@ -446,7 +467,7 @@ export function AgentChatPanel({
       )}
 
       {/* Floating input */}
-      {(!isEmpty || isStreaming) && (
+      {(!showEmptyState) && (
         <div style={{
           position: 'absolute', bottom: 0, left: 0, right: 0,
           padding: isMobile ? '40px 12px 12px' : '60px 40px 22px',
@@ -459,5 +480,6 @@ export function AgentChatPanel({
         </div>
       )}
     </div>
+    </>
   );
 }
