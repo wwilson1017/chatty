@@ -211,7 +211,11 @@ def _process_heartbeat(action: dict) -> None:
         service.mark_executed(action["id"], "skipped", "no checklist content", 0, lease_id=lease_id)
         return
 
-    execution_id = history.record_start(action["id"], agent_slug, "heartbeat")
+    execution_id = None
+    try:
+        execution_id = history.record_start(action["id"], agent_slug, "heartbeat")
+    except Exception as e:
+        logger.error("Failed to record heartbeat start for %s: %s", agent_slug, e)
     provider_override = agent.get("provider_override") or None
     model_override = action.get("model_override") or agent.get("model_override") or None
 
@@ -260,22 +264,23 @@ def _process_heartbeat(action: dict) -> None:
                 "input_tokens": triage_result.input_tokens,
                 "output_tokens": triage_result.output_tokens,
             }
-            if "NEEDS_ACTION" not in triage_result.text.upper():
+            if not triage_result.error and "NEEDS_ACTION" not in triage_result.text.upper():
                 duration_ms = int((time.monotonic() - start_time) * 1000)
-                service.mark_executed(
+                completed = service.mark_executed(
                     action["id"], "ok", "Triage: all clear", duration_ms,
                     triage_result.input_tokens, triage_result.output_tokens, lease_id=lease_id,
                 )
-                history.record_complete(
-                    execution_id, status="ok",
-                    result_summary="Triage: all clear",
-                    result_full="Triage returned ALL_CLEAR — skipping full check.",
-                    tool_calls=[{"triage": triage_data}],
-                    model_used=triage_result.model_used,
-                    input_tokens=triage_result.input_tokens,
-                    output_tokens=triage_result.output_tokens,
-                    duration_ms=duration_ms,
-                )
+                if completed and execution_id:
+                    history.record_complete(
+                        execution_id, status="ok",
+                        result_summary="Triage: all clear",
+                        result_full="Triage returned ALL_CLEAR — skipping full check.",
+                        tool_calls=[{"triage": triage_data}],
+                        model_used=triage_result.model_used,
+                        input_tokens=triage_result.input_tokens,
+                        output_tokens=triage_result.output_tokens,
+                        duration_ms=duration_ms,
+                    )
                 logger.info("Heartbeat %s: triage ALL_CLEAR (%dms)", agent_slug, duration_ms)
                 return
 
@@ -318,30 +323,36 @@ def _process_heartbeat(action: dict) -> None:
         total_out = result.output_tokens + (triage_data["output_tokens"] if triage_data else 0)
         full_tool_log = ([{"triage": triage_data}] if triage_data else []) + result.tool_log
 
-        service.mark_executed(
+        completed = service.mark_executed(
             action["id"], status, result.text[:2000], duration_ms, total_inp, total_out, lease_id=lease_id,
         )
 
+        if not completed:
+            logger.warning("Heartbeat %s: lease lost — discarding result", agent_slug)
+            return
+
         notified = notifications.evaluate_and_notify(action, status, result.text[:300], agent_slug)
 
-        history.record_complete(
-            execution_id, status=status,
-            result_summary=result.text[:500],
-            result_full=result.text,
-            tool_calls=full_tool_log,
-            model_used=result.model_used,
-            input_tokens=total_inp,
-            output_tokens=total_out,
-            duration_ms=duration_ms,
-            notification_sent=notified,
-        )
+        if execution_id:
+            history.record_complete(
+                execution_id, status=status,
+                result_summary=result.text[:500],
+                result_full=result.text,
+                tool_calls=full_tool_log,
+                model_used=result.model_used,
+                input_tokens=total_inp,
+                output_tokens=total_out,
+                duration_ms=duration_ms,
+                notification_sent=notified,
+            )
         logger.info("Heartbeat %s: %s (%dms, tools: %d)", agent_slug, status, duration_ms, len(result.tool_log))
 
     except Exception as e:
         duration_ms = int((time.monotonic() - start_time) * 1000)
         logger.error("Heartbeat %s failed: %s", agent_slug, e)
         service.mark_executed(action["id"], "error", str(e)[:2000], duration_ms, lease_id=lease_id)
-        history.record_complete(execution_id, status="error", result_summary=str(e)[:500], result_full=str(e), duration_ms=duration_ms)
+        if execution_id:
+            history.record_complete(execution_id, status="error", result_summary=str(e)[:500], result_full=str(e), duration_ms=duration_ms)
 
 
 def _process_cron(action: dict) -> None:
@@ -358,7 +369,11 @@ def _process_cron(action: dict) -> None:
         service.mark_executed(action["id"], "error", f"Agent '{agent_slug}' not found", 0, lease_id=lease_id)
         return
 
-    execution_id = history.record_start(action["id"], agent_slug, "cron")
+    execution_id = None
+    try:
+        execution_id = history.record_start(action["id"], agent_slug, "cron")
+    except Exception as e:
+        logger.error("Failed to record cron start for %s: %s", agent_slug, e)
 
     from agents.engine import get_context_manager, DATA_DIR
     ctx_manager = get_context_manager(agent["slug"])
@@ -396,26 +411,28 @@ def _process_cron(action: dict) -> None:
         duration_ms = int((time.monotonic() - start_time) * 1000)
 
         status = "error" if result.error else "ok"
-        service.mark_executed(
+        completed = service.mark_executed(
             action["id"], status, result.text[:2000], duration_ms,
             result.input_tokens, result.output_tokens, lease_id=lease_id,
         )
-        history.record_complete(
-            execution_id, status=status,
-            result_summary=result.text[:500],
-            result_full=result.text,
-            tool_calls=result.tool_log,
-            model_used=result.model_used,
-            input_tokens=result.input_tokens,
-            output_tokens=result.output_tokens,
-            duration_ms=duration_ms,
-        )
+        if completed and execution_id:
+            history.record_complete(
+                execution_id, status=status,
+                result_summary=result.text[:500],
+                result_full=result.text,
+                tool_calls=result.tool_log,
+                model_used=result.model_used,
+                input_tokens=result.input_tokens,
+                output_tokens=result.output_tokens,
+                duration_ms=duration_ms,
+            )
         logger.info("Cron %s/%s: %s (%dms)", agent_slug, action["id"][:8], status, duration_ms)
     except Exception as e:
         duration_ms = int((time.monotonic() - start_time) * 1000)
         logger.error("Cron %s failed: %s", agent_slug, e)
         service.mark_executed(action["id"], "error", str(e)[:2000], duration_ms, lease_id=lease_id)
-        history.record_complete(execution_id, status="error", result_summary=str(e)[:500], result_full=str(e), duration_ms=duration_ms)
+        if execution_id:
+            history.record_complete(execution_id, status="error", result_summary=str(e)[:500], result_full=str(e), duration_ms=duration_ms)
 
 
 def _is_effectively_empty(content: str) -> bool:

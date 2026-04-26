@@ -196,7 +196,7 @@ def update_action(action_id: str, **fields) -> dict:
         "name", "description", "schedule_type", "cron_expression",
         "interval_minutes", "run_at", "active_hours_start", "active_hours_end",
         "active_hours_tz", "prompt", "model_override", "max_tool_iterations",
-        "enabled",
+        "enabled", "triage_enabled", "notify_on_action", "always_on",
     }
 
     updates = {k: v for k, v in fields.items() if k in allowed and v is not None}
@@ -225,10 +225,11 @@ def update_action(action_id: str, **fields) -> dict:
         if "max_tool_iterations" in updates:
             updates["max_tool_iterations"] = min(max(updates["max_tool_iterations"], 1), MAX_TOOL_ITERATIONS_CAP)
 
-        if "enabled" in updates:
-            updates["enabled"] = 1 if updates["enabled"] else 0
-            if updates["enabled"] == 1 and action.get("consecutive_errors", 0) >= 5:
-                updates["consecutive_errors"] = 0
+        for bool_field in ("enabled", "triage_enabled", "notify_on_action", "always_on"):
+            if bool_field in updates:
+                updates[bool_field] = 1 if updates[bool_field] else 0
+        if "enabled" in updates and updates["enabled"] == 1 and action.get("consecutive_errors", 0) >= 5:
+            updates["consecutive_errors"] = 0
 
         updates["updated_at"] = _now_utc()
 
@@ -375,6 +376,7 @@ def release_lease(action_id: str, lease_id: str, advance_next_run: bool = False)
             if not row:
                 return
             action = dict(row)
+            action["last_run"] = _now_utc()
             next_run = compute_next_run(action)
             conn.execute(
                 "UPDATE scheduled_actions SET lease_id = NULL, leased_until = NULL, next_run = ? WHERE id = ? AND lease_id = ?",

@@ -27,6 +27,18 @@ def create_alert(
     alert_id = str(uuid.uuid4())
     conn = db.get_db()
     with db.write_lock():
+        if source_id:
+            existing = conn.execute(
+                "SELECT id FROM alerts WHERE agent = ? AND source_id = ? AND status = 'active'",
+                (agent, source_id),
+            ).fetchone()
+            if existing:
+                conn.execute(
+                    "UPDATE alerts SET message = ?, title = ? WHERE id = ?",
+                    (message[:500], title, existing["id"]),
+                )
+                conn.commit()
+                return {"ok": True, "id": existing["id"], "agent": agent, "deduplicated": True}
         conn.execute(
             """INSERT INTO alerts (id, agent, source, source_id, title, message)
                VALUES (?, ?, ?, ?, ?, ?)""",

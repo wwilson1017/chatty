@@ -62,6 +62,8 @@ async def _run_turn(
     messages = [{"role": "user", "content": user_message}]
     accumulated_text = ""
     tool_log: list[dict] = []
+    total_input_tokens = 0
+    total_output_tokens = 0
 
     for _ in range(max_iterations):
         tool_calls_this_turn = []
@@ -77,9 +79,15 @@ async def _run_turn(
                 tool_calls_this_turn = event.get("tool_calls", [])
                 stop_reason = event.get("stop_reason", "stop")
 
+                usage = event.get("usage", {})
+                total_input_tokens += usage.get("input_tokens", 0)
+                total_output_tokens += usage.get("output_tokens", 0)
+
                 if stop_reason == "error":
                     return BackgroundResult(
                         text=accumulated_text or "(provider error)",
+                        input_tokens=total_input_tokens,
+                        output_tokens=total_output_tokens,
                         model_used=model_used,
                         tool_log=tool_log,
                         error=True,
@@ -88,6 +96,8 @@ async def _run_turn(
                 if stop_reason != "tool_use" or not tool_calls_this_turn:
                     return BackgroundResult(
                         text=accumulated_text or "(no response)",
+                        input_tokens=total_input_tokens,
+                        output_tokens=total_output_tokens,
                         model_used=model_used,
                         tool_log=tool_log,
                     )
@@ -95,6 +105,8 @@ async def _run_turn(
         if not tool_calls_this_turn:
             return BackgroundResult(
                 text=accumulated_text or "(no response)",
+                input_tokens=total_input_tokens,
+                output_tokens=total_output_tokens,
                 model_used=model_used,
                 tool_log=tool_log,
             )
@@ -128,6 +140,8 @@ async def _run_turn(
 
     return BackgroundResult(
         text=accumulated_text or "(max iterations reached)",
+        input_tokens=total_input_tokens,
+        output_tokens=total_output_tokens,
         model_used=model_used,
         tool_log=tool_log,
     )

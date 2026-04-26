@@ -54,8 +54,9 @@ def _fix_next_run_drift() -> int:
         rows = conn.execute(
             """SELECT id, interval_minutes FROM scheduled_actions
                WHERE enabled = 1 AND next_run IS NOT NULL AND next_run < ?
-               AND schedule_type = 'interval'""",
-            (cutoff,),
+               AND schedule_type = 'interval'
+               AND (lease_id IS NULL OR leased_until <= ?)""",
+            (cutoff, now),
         ).fetchall()
 
         fixed = 0

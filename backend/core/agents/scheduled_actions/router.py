@@ -81,7 +81,7 @@ async def delete_action(action_id: str, user=Depends(get_current_user)):
 
 
 @router.post("/{action_id}/run-now")
-async def run_action_now(action_id: str, user=Depends(get_current_user)):
+def run_action_now(action_id: str, user=Depends(get_current_user)):
     from .processor import run_action_now_with_tracking
 
     try:

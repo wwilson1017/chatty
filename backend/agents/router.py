@@ -239,8 +239,8 @@ async def list_agents(user=Depends(get_current_user)):
         counts = get_alert_counts()
         for a in agents:
             a["alert_count"] = counts.get(a["slug"], 0)
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug("alert_count enrichment skipped: %s", e)
     return {"agents": agents}
 
 

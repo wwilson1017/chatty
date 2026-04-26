@@ -1,6 +1,8 @@
 """Chatty — Alerts REST endpoints."""
 
 import logging
+from typing import Literal
+
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from core.auth import get_current_user
@@ -13,7 +15,7 @@ router = APIRouter()
 @router.get("")
 async def list_alerts(
     agent: str | None = Query(None),
-    status: str = Query("active"),
+    status: Literal["active", "acknowledged", "resolved"] = Query("active"),
     user=Depends(get_current_user),
 ):
     alerts = service.list_alerts(agent=agent, status=status)
