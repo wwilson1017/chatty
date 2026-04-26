@@ -1,8 +1,11 @@
 import { useState, useRef, useEffect, useCallback, type RefObject, type KeyboardEvent, type DragEvent, type MouseEvent } from 'react';
 import type { ChatMessage, ContextUsage, ToolMode } from '../hooks/useAgentChat';
+import type { AgentAlert } from '../../core/types';
 import { AgentMessageBubble } from './AgentMessageBubble';
+import AlertBanner from './AlertBanner';
 import { IconAttach, IconArrowUp } from '../../shared/icons';
 import { useIsMobile } from '../../shared/useIsMobile';
+import { api } from '../../core/api/client';
 
 const ALLOWED_EXTENSIONS = new Set(['csv', 'xlsx', 'md', 'txt', 'pdf', 'docx']);
 const MAX_FILE_SIZE = 1 * 1024 * 1024;
@@ -27,9 +30,11 @@ interface Props {
   toolMode?: ToolMode;
   onToolModeChange?: (mode: ToolMode) => void;
   agentName?: string;
+  agentSlug?: string;
   conversationSource?: string | null;
   importMode?: boolean;
   onCancelImport?: () => void;
+  greetingPending?: boolean;
 }
 
 const TOOL_MODES: { key: ToolMode; label: string }[] = [
@@ -41,13 +46,27 @@ const TOOL_MODES: { key: ToolMode; label: string }[] = [
 export function AgentChatPanel({
   messages, isStreaming, onSend, onStop, onApprove, onDeny,
   onApprovePlan, onIteratePlan, scrollRef: externalScrollRef,
-  contextUsage, toolMode, onToolModeChange, agentName, conversationSource, importMode, onCancelImport,
+  contextUsage, toolMode, onToolModeChange, agentName, agentSlug, conversationSource, importMode, onCancelImport,
+  greetingPending,
 }: Props) {
   const [input, setInput] = useState('');
   const [pendingFiles, setPendingFiles] = useState<File[]>([]);
   const [dragOver, setDragOver] = useState(false);
   const [fileError, setFileError] = useState<string | null>(null);
+  const [alerts, setAlerts] = useState<AgentAlert[]>([]);
   const internalScrollRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!agentSlug) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await api<{ alerts: AgentAlert[] }>(`/api/alerts?agent=${agentSlug}`);
+        if (!cancelled) setAlerts(res.alerts);
+      } catch { /* alerts are supplementary */ }
+    })();
+    return () => { cancelled = true; };
+  }, [agentSlug]);
   const scrollContainerRef = externalScrollRef || internalScrollRef;
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -149,6 +168,7 @@ export function AgentChatPanel({
 
   const isMobile = useIsMobile();
   const isEmpty = messages.length === 0;
+  const showEmptyState = isEmpty && !isStreaming && !greetingPending;
 
   function renderInputBox() {
     return (
@@ -289,6 +309,8 @@ export function AgentChatPanel({
   }
 
   return (
+    <>
+    {greetingPending && <style>{`@keyframes chatty-dot-pulse { 0%,80%,100% { opacity: 0.3; } 40% { opacity: 1; } }`}</style>}
     <div
       style={{ flex: 1, display: 'flex', flexDirection: 'column', position: 'relative', overflow: 'hidden' }}
       onDragOver={handleDragOver}
@@ -312,11 +334,11 @@ export function AgentChatPanel({
         ref={scrollContainerRef}
         style={{
           flex: 1, overflowY: 'auto',
-          paddingBottom: isEmpty && !isStreaming ? 0 : 180,
+          paddingBottom: showEmptyState ? 0 : 180,
         }}
         onClick={handleMessagesClick}
       >
-        {isEmpty && !isStreaming ? (
+        {showEmptyState ? (
           <div style={{
             display: 'flex', flexDirection: 'column', alignItems: 'center',
             justifyContent: 'center', minHeight: '100%', padding: isMobile ? '24px 16px' : 24,
@@ -381,6 +403,37 @@ export function AgentChatPanel({
                 )}
               </div>
             )}
+            <AlertBanner
+              alerts={alerts}
+              onDismiss={async (alertId) => {
+                try {
+                  await api(`/api/alerts/${alertId}/acknowledge`, { method: 'POST' });
+                  setAlerts(prev => prev.filter(a => a.id !== alertId));
+                } catch { /* ignore */ }
+              }}
+              onDiscuss={(alertId) => {
+                const alert = alerts.find(a => a.id === alertId);
+                if (alert) {
+                  onSend(`Tell me about this alert: "${alert.title}" — ${alert.message}`);
+                }
+              }}
+            />
+            {greetingPending && isEmpty && !isStreaming && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 0' }}>
+                <span style={{
+                  display: 'inline-flex', gap: 4, alignItems: 'center',
+                  color: 'rgba(237,240,244,0.38)', fontSize: 13,
+                }}>
+                  {[0, 1, 2].map(i => (
+                    <span key={i} style={{
+                      width: 5, height: 5, borderRadius: '50%',
+                      background: 'rgba(237,240,244,0.38)',
+                      animation: `chatty-dot-pulse 1.2s ease-in-out ${i * 0.2}s infinite`,
+                    }} />
+                  ))}
+                </span>
+              </div>
+            )}
             {messages.filter(msg => !msg.hidden).map(msg => {
               const displayMsg = (msg.role === 'user' && msg.content.match(/^\[via (Telegram|WhatsApp) from [^\]]+\] /))
                 ? { ...msg, content: msg.content.replace(/^\[via (?:Telegram|WhatsApp) from [^\]]+\] /, '') }
@@ -414,7 +467,7 @@ export function AgentChatPanel({
       )}
 
       {/* Floating input */}
-      {(!isEmpty || isStreaming) && (
+      {(!showEmptyState) && (
         <div style={{
           position: 'absolute', bottom: 0, left: 0, right: 0,
           padding: isMobile ? '40px 12px 12px' : '60px 40px 22px',
@@ -427,5 +480,6 @@ export function AgentChatPanel({
         </div>
       )}
     </div>
+    </>
   );
 }

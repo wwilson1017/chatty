@@ -3,7 +3,7 @@
  * Adapted from CAKE OS — sender_email/sender_name removed (single-user).
  */
 
-import { useState, useCallback, useRef } from 'react';
+import { useState, useCallback, useRef, useEffect } from 'react';
 import { api } from '../../core/api/client';
 import type { ChatMessage } from './useAgentChat';
 
@@ -24,6 +24,8 @@ export function useConversations(apiPrefix: string) {
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [loaded, setLoaded] = useState(false);
+  useEffect(() => { setLoaded(false); setConversations([]); setActiveId(null); }, [apiPrefix]);
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<{ id: string; title: string; snippet: string }[]>([]);
   const [isSearching, setIsSearching] = useState(false);
@@ -34,6 +36,7 @@ export function useConversations(apiPrefix: string) {
       const data = await api<{ conversations: Conversation[] }>(`${apiPrefix}/conversations`);
       setConversations(data.conversations);
     } catch { /* silent */ }
+    finally { setLoaded(true); }
   }, [apiPrefix]);
 
   const selectConversation = useCallback(async (id: string): Promise<ChatMessage[]> => {
@@ -135,6 +138,7 @@ export function useConversations(apiPrefix: string) {
     activeId,
     setActiveId,
     loading,
+    loaded,
     searchQuery,
     searchResults,
     isSearching,

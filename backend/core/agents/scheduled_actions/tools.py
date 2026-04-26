@@ -16,10 +16,11 @@ def create_scheduled_action_handler(agent_name: str, **kwargs) -> dict:
         cron_expression=kwargs.get("cron_expression"),
         interval_minutes=kwargs.get("interval_minutes"),
         run_at=kwargs.get("run_at"),
-        active_hours_start=str(kwargs.get("active_hours_start", "06:00")),
-        active_hours_end=str(kwargs.get("active_hours_end", "20:00")),
+        active_hours_start=kwargs.get("active_hours_start"),
+        active_hours_end=kwargs.get("active_hours_end"),
         prompt=kwargs.get("prompt", ""),
         action_type="cron",
+        always_on=kwargs.get("always_on", False),
     )
 
 
