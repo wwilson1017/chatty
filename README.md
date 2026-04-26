@@ -12,7 +12,8 @@ Create custom AI agents with their own personality, knowledge, and tools — pow
 - **Multi-provider AI** — Anthropic, OpenAI, Google Gemini, Ollama (local models), and Together AI
 - **Brandable** — Upload your logo, company name, and accent color to make it yours
 - **Built-in CRM** — Manage your pipeline: contacts, companies, tasks and deals all with your AI agent
-- **Integrations** — Gmail, Google Calendar, Google Drive, QuickBooks Online, WhatsApp, Telegram, Odoo, BambooHR
+- **Integrations** — Gmail, Google Calendar, Google Drive, QuickBooks Online, WhatsApp, Telegram, Odoo, BambooHR, [Paperclip](PAPERCLIP.md)
+- **Agent orchestration** — Connect to [Paperclip](PAPERCLIP.md) for org charts, task management, and multi-agent coordination
 - **Local-first** — SQLite database, no external services required
 - **One-click deploy** — Deploy to Railway for access from any device
 
