@@ -30,7 +30,7 @@ import shutil
 import logging
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile, File, Form
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, UploadFile, File, Form
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
@@ -232,8 +232,16 @@ class AvatarSelectRequest(BaseModel):
 
 @router.get("")
 async def list_agents(user=Depends(get_current_user)):
-    """List all agents."""
-    return {"agents": agent_db.list_agents()}
+    """List all agents with alert counts."""
+    agents = agent_db.list_agents()
+    try:
+        from core.agents.alerts.service import get_alert_counts
+        counts = get_alert_counts()
+        for a in agents:
+            a["alert_count"] = counts.get(a["slug"], 0)
+    except Exception as e:
+        logger.debug("alert_count enrichment skipped: %s", e)
+    return {"agents": agents}
 
 
 @router.post("")
@@ -298,10 +306,19 @@ async def update_agent(agent_id: str, body: UpdateAgentRequest, user=Depends(get
     ):
         if field in updates:
             updates[field] = int(updates[field])
+    was_complete = _get_agent_or_404(agent_id).get("onboarding_complete")
     agent = agent_db.update_agent(agent_id, **updates)
     if not agent:
         raise HTTPException(status_code=404, detail="Agent not found")
     invalidate_cache(agent["slug"])
+
+    if not was_complete and agent.get("onboarding_complete"):
+        try:
+            from core.agents.scheduled_actions.service import ensure_default_actions
+            ensure_default_actions(agent["slug"])
+        except Exception as e:
+            logger.warning("Failed to create default actions for %s: %s", agent["slug"], e)
+
     return agent
 
 
@@ -980,3 +997,17 @@ async def delete_agent_report(agent_id: str, report_id: str, user=Depends(get_cu
     if not delete_report(reports_dir, report_id):
         raise HTTPException(status_code=404, detail="Report not found")
     return {"deleted": True}
+
+
+# ── Per-agent: Activity (heartbeat execution history) ─────────────────────
+
+@router.get("/{agent_id}/activity")
+async def get_agent_activity(
+    agent_id: str,
+    limit: int = Query(20, ge=1, le=100),
+    user=Depends(get_current_user),
+):
+    agent = _get_agent_or_404(agent_id)
+    from core.agents.scheduled_actions.history import get_history
+    records = get_history(agent=agent["slug"], limit=limit)
+    return {"activities": records}
