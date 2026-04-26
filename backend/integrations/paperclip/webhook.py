@@ -106,13 +106,14 @@ async def handle_heartbeat(request: Request):
     except Exception:
         return JSONResponse({"status": "error", "error": "Invalid JSON"}, status_code=400)
 
-    # 1. Validate shared secret
+    # 1. Validate shared secret (required — auto-generated during setup)
     creds = get_credentials("paperclip")
     expected_secret = creds.get("webhook_secret", "")
-    if expected_secret:
-        actual_secret = request.headers.get("X-Webhook-Secret", "")
-        if actual_secret != expected_secret:
-            return JSONResponse({"status": "error", "error": "Unauthorized"}, status_code=403)
+    actual_secret = request.headers.get("X-Webhook-Secret", "")
+    if not expected_secret:
+        return JSONResponse({"status": "error", "error": "Webhook secret not configured"}, status_code=403)
+    if actual_secret != expected_secret:
+        return JSONResponse({"status": "error", "error": "Unauthorized"}, status_code=403)
 
     # 2. Map Paperclip agent → Chatty agent
     agent_id = payload.get("agentId", "")

@@ -234,9 +234,10 @@ export function IntegrationsTab() {
   async function savePaperclipMapping() {
     setSaving(true); setError('');
     try {
+      const chattyBaseUrl = window.location.origin;
       await api('/api/integrations/paperclip/agent-mapping', {
         method: 'POST',
-        body: JSON.stringify({ agent_mapping: pcAgentMapping }),
+        body: JSON.stringify({ agent_mapping: pcAgentMapping, chatty_base_url: chattyBaseUrl }),
       });
       setError('');
     } catch (err: unknown) { setError(err instanceof Error ? err.message : 'Failed to save mapping'); }

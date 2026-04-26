@@ -236,6 +236,36 @@ class PaperclipClient:
         except Exception as e:
             return {"error": str(e)}
 
+    def update_agent(self, agent_id: str, updates: dict) -> dict:
+        headers = self._headers(mutating=True)
+        headers["Origin"] = self.base_url
+        headers["Referer"] = f"{self.base_url}/"
+        try:
+            resp = httpx.patch(
+                f"{self.base_url}/api/agents/{agent_id}",
+                headers=headers,
+                json=updates,
+                timeout=TIMEOUT,
+            )
+            resp.raise_for_status()
+            return {"ok": True, "agent": resp.json()}
+        except httpx.HTTPStatusError as e:
+            return {"error": f"HTTP {e.response.status_code}: {e.response.text[:200]}"}
+        except Exception as e:
+            return {"error": str(e)}
+
+    def configure_agent_webhook(self, agent_id: str, webhook_url: str, webhook_secret: str) -> dict:
+        """Switch an agent to HTTP adapter with the Chatty webhook URL and secret."""
+        return self.update_agent(agent_id, {
+            "adapterType": "http",
+            "adapterConfig": {
+                "url": webhook_url,
+                "method": "POST",
+                "timeoutMs": 120000,
+                "headers": {"X-Webhook-Secret": webhook_secret},
+            },
+        })
+
 
 def get_client() -> PaperclipClient | None:
     """Return a configured client from stored credentials, or None."""

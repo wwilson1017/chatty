@@ -495,6 +495,7 @@ class PaperclipSetupRequest(BaseModel):
 
 class PaperclipMappingRequest(BaseModel):
     agent_mapping: dict[str, str]
+    chatty_base_url: str = ""
 
 
 @router.post("/paperclip/setup")
@@ -530,12 +531,18 @@ async def list_paperclip_agents(user=Depends(get_current_user)):
 
 @router.post("/paperclip/agent-mapping")
 async def save_paperclip_mapping(body: PaperclipMappingRequest, user=Depends(get_current_user)):
-    """Save Paperclip-agent → Chatty-agent mapping."""
+    """Save Paperclip-agent → Chatty-agent mapping and auto-configure agents."""
     from .registry import get_credentials, save_credentials
     creds = get_credentials("paperclip")
     creds["agent_mapping"] = body.agent_mapping
     save_credentials("paperclip", creds)
-    return {"ok": True}
+
+    config_result = {}
+    if body.chatty_base_url:
+        from .paperclip.onboarding import configure_mapped_agents
+        config_result = configure_mapped_agents(chatty_base_url=body.chatty_base_url)
+
+    return {"ok": True, **config_result}
 
 
 @router.post("/paperclip/heartbeat")
