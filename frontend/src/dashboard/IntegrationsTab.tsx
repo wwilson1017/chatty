@@ -43,9 +43,9 @@ export function IntegrationsTab() {
   const [odooManualMode, setOdooManualMode] = useState(false);
   const [bambooSubdomain, setBambooSubdomain] = useState('');
   const [bambooKey, setBambooKey] = useState('');
-  const [pcUrl, setPcUrl] = useState('http://localhost:3100');
-  const [pcCompanyId, setPcCompanyId] = useState('');
-  const [pcApiKey, setPcApiKey] = useState('');
+  const [pcUrl, setPcUrl] = useState('');
+  const [pcEmail, setPcEmail] = useState('');
+  const [pcPassword, setPcPassword] = useState('');
   const [pcAgentMapping, setPcAgentMapping] = useState<Record<string, string>>({});
   const [pcPaperclipAgents, setPcPaperclipAgents] = useState<{ id: string; name: string; role: string }[]>([]);
   const [pcMappingExpanded, setPcMappingExpanded] = useState(false);
@@ -214,8 +214,9 @@ export function IntegrationsTab() {
     try {
       await api('/api/integrations/paperclip/setup', {
         method: 'POST',
-        body: JSON.stringify({ url: pcUrl, company_id: pcCompanyId, api_key: pcApiKey }),
+        body: JSON.stringify({ url: pcUrl, email: pcEmail, password: pcPassword }),
       });
+      setPcPassword('');
       setSetupFor(null);
       const data = await api<{ integrations: Integration[] }>('/api/integrations');
       setIntegrations(data.integrations);
@@ -239,6 +240,19 @@ export function IntegrationsTab() {
       });
       setError('');
     } catch (err: unknown) { setError(err instanceof Error ? err.message : 'Failed to save mapping'); }
+    finally { setSaving(false); }
+  }
+
+  async function disconnectPaperclip() {
+    setSaving(true); setError('');
+    try {
+      await api('/api/integrations/paperclip/disconnect', { method: 'POST' });
+      setPcMappingExpanded(false);
+      setPcPaperclipAgents([]);
+      setPcAgentMapping({});
+      const data = await api<{ integrations: Integration[] }>('/api/integrations');
+      setIntegrations(data.integrations);
+    } catch (err: unknown) { setError(err instanceof Error ? err.message : 'Disconnect failed'); }
     finally { setSaving(false); }
   }
 
@@ -488,6 +502,22 @@ export function IntegrationsTab() {
                     </div>
                   ))}
                 </div>
+              </div>
+            )}
+
+            {/* Paperclip disconnect + reconfigure */}
+            {integration.id === 'paperclip' && integration.configured && (
+              <div style={{ marginTop: 8, display: 'flex', gap: 8, alignItems: 'center' }}>
+                <button onClick={() => setSetupFor('paperclip')} style={{
+                  fontSize: 11, padding: '4px 8px', borderRadius: 4,
+                  background: 'transparent', color: 'rgba(237,240,244,0.38)',
+                  border: 'none', cursor: 'pointer',
+                }}>Reconfigure</button>
+                <button onClick={disconnectPaperclip} disabled={saving} style={{
+                  fontSize: 11, padding: '4px 8px', borderRadius: 4,
+                  background: 'transparent', color: '#D97757',
+                  border: 'none', cursor: 'pointer', opacity: saving ? 0.5 : 1,
+                }}>Disconnect</button>
               </div>
             )}
 
@@ -790,14 +820,14 @@ export function IntegrationsTab() {
                 {integration.id === 'paperclip' && (
                   <>
                     <p style={{ fontSize: 12, color: 'rgba(237,240,244,0.50)', lineHeight: 1.5, marginBottom: 4 }}>
-                      Connect to a Paperclip instance to orchestrate your agents with org charts, task management, and governance.
+                      Sign in to your Paperclip instance. Chatty will auto-detect your company.
                     </p>
-                    <input placeholder="Paperclip URL (http://localhost:3100)" value={pcUrl} onChange={e => setPcUrl(e.target.value)} style={inputStyle} />
-                    <input placeholder="Company ID" value={pcCompanyId} onChange={e => setPcCompanyId(e.target.value)} style={inputStyle} />
-                    <input placeholder="Bearer token (optional for local)" type="password" value={pcApiKey} onChange={e => setPcApiKey(e.target.value)} style={inputStyle} />
+                    <input placeholder="Paperclip URL (https://your-instance.up.railway.app)" value={pcUrl} onChange={e => setPcUrl(e.target.value)} style={inputStyle} />
+                    <input placeholder="Email" value={pcEmail} onChange={e => setPcEmail(e.target.value)} style={inputStyle} />
+                    <input placeholder="Password" type="password" value={pcPassword} onChange={e => setPcPassword(e.target.value)} style={inputStyle} />
                     <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
                       <button onClick={() => setSetupFor(null)} style={{ flex: 1, padding: '8px 16px', fontSize: 13, borderRadius: 4, border: '1px solid rgba(230,235,242,0.14)', background: 'transparent', color: 'rgba(237,240,244,0.62)', cursor: 'pointer' }}>Cancel</button>
-                      <button onClick={setupPaperclip} disabled={saving || !pcCompanyId.trim()} style={{ flex: 1, padding: '8px 16px', fontSize: 13, borderRadius: 4, background: 'var(--color-ch-accent, #C8D1D9)', color: '#0E1013', border: 'none', cursor: 'pointer', fontWeight: 500, opacity: saving || !pcCompanyId.trim() ? 0.5 : 1 }}>{saving ? 'Connecting...' : 'Connect'}</button>
+                      <button onClick={setupPaperclip} disabled={saving || !pcUrl.trim() || !pcEmail.trim() || !pcPassword.trim()} style={{ flex: 1, padding: '8px 16px', fontSize: 13, borderRadius: 4, background: 'var(--color-ch-accent, #C8D1D9)', color: '#0E1013', border: 'none', cursor: 'pointer', fontWeight: 500, opacity: saving || !pcUrl.trim() || !pcEmail.trim() || !pcPassword.trim() ? 0.5 : 1 }}>{saving ? 'Connecting...' : 'Connect'}</button>
                     </div>
                   </>
                 )}

@@ -40,6 +40,8 @@ SENSITIVE_FIELDS = frozenset({
     "refresh_token",    # integration OAuth (quickbooks)
     "client_secret",    # integration OAuth (quickbooks)
     "webhook_secret",   # integration webhooks (paperclip)
+    "session_cookie",   # session auth (paperclip)
+    "password",         # login credentials (paperclip)
 })
 
 

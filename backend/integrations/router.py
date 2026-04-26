@@ -488,8 +488,9 @@ async def get_tool_defs(name: str, user=Depends(get_current_user)):
 
 class PaperclipSetupRequest(BaseModel):
     url: str = Field(..., max_length=2048)
-    company_id: str
-    api_key: str = ""
+    email: str
+    password: str
+    company_id: str = ""
 
 
 class PaperclipMappingRequest(BaseModel):
@@ -498,11 +499,11 @@ class PaperclipMappingRequest(BaseModel):
 
 @router.post("/paperclip/setup")
 async def setup_paperclip(body: PaperclipSetupRequest, user=Depends(get_current_user)):
-    """Configure and validate Paperclip connection."""
+    """Login to Paperclip with email/password and configure the integration."""
     from .paperclip.onboarding import setup
-    result = setup(url=body.url, company_id=body.company_id, api_key=body.api_key)
-    if not result.get("ok"):
-        raise HTTPException(status_code=400, detail=result.get("error", "Setup failed"))
+    result = setup(url=body.url, email=body.email, password=body.password, company_id=body.company_id)
+    if "error" in result:
+        raise HTTPException(status_code=400, detail=result["error"])
     return result
 
 

@@ -2,6 +2,9 @@
 
 Wraps Paperclip's REST API for issue management, agent listing, and
 company validation.  Credentials stored in data/integrations/paperclip.json.
+
+Auth: Paperclip uses Better Auth session cookies. The client logs in with
+email/password, gets a session token, and sends it as a cookie on all requests.
 """
 
 import logging
@@ -12,25 +15,75 @@ import httpx
 
 logger = logging.getLogger(__name__)
 
-# Per-request context set by the heartbeat webhook handler.
-# Client reads run_id to add X-Paperclip-Run-Id on mutating calls.
 paperclip_run_ctx: ContextVar[dict] = ContextVar("paperclip_run_ctx", default={})
 
 TIMEOUT = 30
 
 
+def login(base_url: str, email: str, password: str) -> dict:
+    """Login to Paperclip via Better Auth. Returns session info or error."""
+    base_url = base_url.rstrip("/")
+    try:
+        resp = httpx.post(
+            f"{base_url}/api/auth/sign-in/email",
+            json={"email": email, "password": password},
+            timeout=TIMEOUT,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+
+        session_cookie = None
+        for name, value in resp.cookies.items():
+            if "session_token" in name:
+                session_cookie = f"{name}={value}"
+                break
+
+        if not session_cookie:
+            cookie_header = resp.headers.get("set-cookie", "")
+            for part in cookie_header.split(","):
+                part = part.strip()
+                if "session_token" in part:
+                    session_cookie = part.split(";")[0]
+                    break
+
+        if not session_cookie:
+            return {"error": "Login succeeded but no session cookie returned"}
+
+        companies = httpx.get(
+            f"{base_url}/api/companies",
+            headers={"Cookie": session_cookie},
+            timeout=TIMEOUT,
+        )
+        company_list = companies.json() if companies.status_code == 200 else []
+        if isinstance(company_list, dict):
+            company_list = company_list.get("companies", [])
+
+        return {
+            "ok": True,
+            "session_cookie": session_cookie,
+            "user": data.get("user", {}),
+            "companies": company_list,
+        }
+    except httpx.HTTPStatusError as e:
+        body = e.response.json() if e.response.headers.get("content-type", "").startswith("application/json") else {}
+        msg = body.get("message", e.response.text[:200])
+        return {"error": f"Login failed: {msg}"}
+    except Exception as e:
+        return {"error": f"Cannot reach Paperclip: {e}"}
+
+
 class PaperclipClient:
     """Client for Paperclip's REST API."""
 
-    def __init__(self, base_url: str, company_id: str, bearer_token: str = ""):
+    def __init__(self, base_url: str, company_id: str, session_cookie: str = ""):
         self.base_url = base_url.rstrip("/")
         self.company_id = company_id
-        self.bearer_token = bearer_token
+        self.session_cookie = session_cookie
 
     def _headers(self, mutating: bool = False) -> dict:
         headers: dict[str, str] = {"Accept": "application/json"}
-        if self.bearer_token:
-            headers["Authorization"] = f"Bearer {self.bearer_token}"
+        if self.session_cookie:
+            headers["Cookie"] = self.session_cookie
         if mutating:
             headers["Content-Type"] = "application/json"
             ctx = paperclip_run_ctx.get()
@@ -41,7 +94,6 @@ class PaperclipClient:
     # ── Company ──────────────────────────────────────────────────────────
 
     def get_company(self) -> dict:
-        """Validate company exists. Used during onboarding."""
         try:
             resp = httpx.get(
                 f"{self.base_url}/api/companies/{self.company_id}",
@@ -197,5 +249,5 @@ def get_client() -> PaperclipClient | None:
     return PaperclipClient(
         base_url=creds["url"],
         company_id=creds["company_id"],
-        bearer_token=creds.get("api_key", ""),
+        session_cookie=creds.get("session_cookie", ""),
     )
