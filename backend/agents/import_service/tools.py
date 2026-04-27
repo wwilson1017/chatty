@@ -60,14 +60,14 @@ def _safe_scan_path(path: str) -> Path:
         raise ValueError(f"Path must be under your home directory ({home})")
     if os.name == "nt":
         blocked_dirs = (
-            os.environ.get("SystemRoot", r"C:\Windows"),
-            os.environ.get("ProgramFiles", r"C:\Program Files"),
-            os.environ.get("ProgramFiles(x86)", r"C:\Program Files (x86)"),
+            os.environ.get("SystemRoot") or r"C:\Windows",
+            os.environ.get("ProgramFiles") or r"C:\Program Files",
+            os.environ.get("ProgramFiles(x86)") or r"C:\Program Files (x86)",
         )
     else:
         blocked_dirs = ("/etc", "/var", "/usr", "/System", "/Library")
     for b in blocked_dirs:
-        if resolved == Path(b) or resolved.is_relative_to(Path(b)):
+        if resolved.is_relative_to(Path(b)):
             raise ValueError(f"Cannot scan system directory: {b}")
     if not resolved.is_dir():
         raise FileNotFoundError(f"Directory not found: {resolved}")
