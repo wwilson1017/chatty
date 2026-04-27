@@ -24,6 +24,7 @@ FRONTEND = ROOT / "frontend"
 VENV = ROOT / ".venv"
 ENV_FILE = ROOT / ".env"
 ENV_EXAMPLE = ROOT / ".env.example"
+NPM = "npm.cmd" if os.name == "nt" else "npm"
 
 
 def _python() -> str:
@@ -126,12 +127,12 @@ WA_BRIDGE = BACKEND / "whatsapp-bridge"
 def setup_frontend():
     if not (FRONTEND / "node_modules").exists():
         print("  Installing frontend dependencies...")
-        subprocess.run(["npm", "ci"], cwd=str(FRONTEND), check=True)
+        subprocess.run([NPM, "ci"], cwd=str(FRONTEND), check=True)
     else:
         print("  Frontend dependencies already installed.")
 
     print("  Building frontend...")
-    subprocess.run(["npm", "run", "build"], cwd=str(FRONTEND), check=True)
+    subprocess.run([NPM, "run", "build"], cwd=str(FRONTEND), check=True)
 
 
 def setup_whatsapp_bridge():
@@ -140,7 +141,7 @@ def setup_whatsapp_bridge():
         return
     if not (WA_BRIDGE / "node_modules").exists():
         print("  Installing WhatsApp bridge dependencies...")
-        subprocess.run(["npm", "ci"], cwd=str(WA_BRIDGE), check=True)
+        subprocess.run([NPM, "ci"], cwd=str(WA_BRIDGE), check=True)
     else:
         print("  WhatsApp bridge dependencies already installed.")
 
