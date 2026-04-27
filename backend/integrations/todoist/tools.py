@@ -18,12 +18,19 @@ _UI_TO_API_PRIORITY = {1: 4, 2: 3, 3: 2, 4: 1}
 _API_TO_UI_PRIORITY = {4: 1, 3: 2, 2: 3, 1: 4}
 
 
+def _to_str(val) -> str | None:
+    """Convert date/datetime objects to ISO strings for JSON serialization."""
+    if val is None:
+        return None
+    return val.isoformat() if hasattr(val, "isoformat") else str(val)
+
+
 def _format_task(task) -> dict:
     """Convert a Task object to a clean dict for the agent."""
     due = None
     if task.due:
         due = {
-            "date": task.due.date,
+            "date": _to_str(task.due.date),
             "string": task.due.string,
             "is_recurring": task.due.is_recurring,
         }
@@ -40,7 +47,7 @@ def _format_task(task) -> dict:
         "labels": task.labels or [],
         "due": due,
         "url": task.url,
-        "created_at": task.created_at,
+        "created_at": _to_str(task.created_at),
     }
     if task.parent_id:
         result["parent_id"] = task.parent_id
@@ -74,7 +81,7 @@ def _format_comment(comment) -> dict:
     return {
         "id": comment.id,
         "content": comment.content,
-        "posted_at": comment.posted_at,
+        "posted_at": _to_str(comment.posted_at),
         "task_id": getattr(comment, "task_id", None),
         "project_id": getattr(comment, "project_id", None),
     }
@@ -643,7 +650,7 @@ async def _todoist_get_completed_tasks(
                     "id": t.id,
                     "content": t.content,
                     "project_id": t.project_id,
-                    "completed_at": t.completed_at,
+                    "completed_at": _to_str(t.completed_at),
                 }
                 for t in tasks
             ],
