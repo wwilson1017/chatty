@@ -53,14 +53,22 @@ def _safe_import_filename(filename: str) -> bool:
 def _safe_scan_path(path: str) -> Path:
     """Resolve and validate a path for scan_directory. Must be under user's home."""
     home = Path.home()
-    if home == Path("/"):
+    if home == Path(home.anchor):
         raise ValueError("Cannot determine safe home directory — running as root is not supported for directory scanning")
     resolved = Path(path).expanduser().resolve()
     if not resolved.is_relative_to(home):
         raise ValueError(f"Path must be under your home directory ({home})")
-    for blocked in ("/etc", "/var", "/usr", "/System", "/Library"):
-        if str(resolved).startswith(blocked):
-            raise ValueError(f"Cannot scan system directory: {blocked}")
+    if os.name == "nt":
+        blocked_dirs = (
+            os.environ.get("SystemRoot", r"C:\Windows"),
+            os.environ.get("ProgramFiles", r"C:\Program Files"),
+            os.environ.get("ProgramFiles(x86)", r"C:\Program Files (x86)"),
+        )
+    else:
+        blocked_dirs = ("/etc", "/var", "/usr", "/System", "/Library")
+    for b in blocked_dirs:
+        if resolved == Path(b) or resolved.is_relative_to(Path(b)):
+            raise ValueError(f"Cannot scan system directory: {b}")
     if not resolved.is_dir():
         raise FileNotFoundError(f"Directory not found: {resolved}")
     return resolved
