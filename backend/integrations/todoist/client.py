@@ -14,7 +14,7 @@ def get_client_sync() -> TodoistAPI | None:
     if not is_enabled("todoist"):
         return None
     creds = get_credentials("todoist")
-    token = creds.get("api_token", "")
+    token = creds.get("api_key", "")
     if not token:
         return None
     return TodoistAPI(token)
@@ -26,7 +26,7 @@ def get_client_async() -> TodoistAPIAsync | None:
     if not is_enabled("todoist"):
         return None
     creds = get_credentials("todoist")
-    token = creds.get("api_token", "")
+    token = creds.get("api_key", "")
     if not token:
         return None
     return TodoistAPIAsync(token)

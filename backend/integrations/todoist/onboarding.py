@@ -9,7 +9,7 @@ def setup(api_token: str) -> dict:
     if not test_connection(api_token):
         return {"ok": False, "error": "Connection failed — check your API token"}
     save_credentials("todoist", {
-        "api_token": api_token,
+        "api_key": api_token,
         "enabled": True,
     })
     return {"ok": True}

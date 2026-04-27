@@ -71,6 +71,7 @@ _PENDING_SETUP_NAMES = {
     "quickbooks": "QuickBooks Online",
     "bamboohr": "BambooHR",
     "crm_lite": "CRM",
+    "todoist": "Todoist",
 }
 
 

@@ -81,7 +81,7 @@ AVAILABLE_INTEGRATIONS = {
     },
     "todoist": {
         "name": "Todoist",
-        "description": "Task management and productivity",
+        "description": "Todoist — tasks, projects, labels, and productivity tracking",
         "icon": "✅",
         "auth_type": "api_key",
     },

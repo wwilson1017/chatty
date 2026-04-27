@@ -437,11 +437,11 @@ async def _todoist_get_tasks(
         async with client as api:
             if filter:
                 tasks = []
-                async for page in api.filter_tasks(query=filter):
+                async for page in await api.filter_tasks(query=filter):
                     tasks.extend(page)
             else:
                 tasks = []
-                async for page in api.get_tasks(**kwargs):
+                async for page in await api.get_tasks(**kwargs):
                     tasks.extend(page)
 
         return {"tasks": [_format_task(t) for t in tasks], "count": len(tasks)}
@@ -617,7 +617,6 @@ async def _todoist_delete_task(task_id: str) -> dict:
 
 
 async def _todoist_get_completed_tasks(
-    project_id: str | None = None,
     limit: int | None = None,
     since: str | None = None,
     until: str | None = None,
@@ -636,7 +635,7 @@ async def _todoist_get_completed_tasks(
 
         async with client as api:
             tasks = []
-            async for page in api.get_completed_tasks_by_completion_date(**kwargs):
+            async for page in await api.get_completed_tasks_by_completion_date(**kwargs):
                 tasks.extend(page)
                 if len(tasks) >= max_tasks:
                     break
@@ -666,7 +665,7 @@ async def _todoist_get_projects() -> dict:
     try:
         async with client as api:
             projects = []
-            async for page in api.get_projects():
+            async for page in await api.get_projects():
                 projects.extend(page)
         return {"projects": [_format_project(p) for p in projects], "count": len(projects)}
     except Exception as e:
@@ -733,7 +732,7 @@ async def _todoist_get_sections(project_id: str) -> dict:
     try:
         async with client as api:
             sections = []
-            async for page in api.get_sections(project_id=project_id):
+            async for page in await api.get_sections(project_id=project_id):
                 sections.extend(page)
         return {"sections": [_format_section(s) for s in sections], "count": len(sections)}
     except Exception as e:
@@ -760,7 +759,7 @@ async def _todoist_get_comments(
 
         async with client as api:
             comments = []
-            async for page in api.get_comments(**kwargs):
+            async for page in await api.get_comments(**kwargs):
                 comments.extend(page)
         return {"comments": [_format_comment(c) for c in comments], "count": len(comments)}
     except Exception as e:
@@ -801,7 +800,7 @@ async def _todoist_get_labels() -> dict:
     try:
         async with client as api:
             labels = []
-            async for page in api.get_labels():
+            async for page in await api.get_labels():
                 labels.extend(page)
         return {"labels": [_format_label(lb) for lb in labels], "count": len(labels)}
     except Exception as e:

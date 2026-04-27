@@ -41,7 +41,7 @@ class BambooHRSetupRequest(BaseModel):
 
 
 class TodoistSetupRequest(BaseModel):
-    api_token: str
+    api_token: str = Field(..., min_length=1, max_length=256)
 
 
 class ToolModeRequest(BaseModel):
