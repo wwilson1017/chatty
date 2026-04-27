@@ -5,6 +5,7 @@ Uses the official todoist-api-python SDK (async client).
 """
 
 import logging
+from datetime import datetime, timedelta, timezone
 
 from .client import get_client_async
 
@@ -288,22 +289,21 @@ TODOIST_TOOL_DEFS = [
     },
     {
         "name": "todoist_get_completed_tasks",
-        "description": "Get recently completed tasks, optionally filtered by project.",
+        "description": "Get recently completed tasks. Defaults to last 7 days if no date range specified.",
         "input_schema": {
             "type": "object",
             "properties": {
-                "project_id": {"type": "string", "description": "Filter by project ID"},
                 "limit": {
                     "type": "integer",
-                    "description": "Max tasks to return (default 30, max 50)",
+                    "description": "Max tasks to return (default 30, max 200)",
                 },
                 "since": {
                     "type": "string",
-                    "description": "Only return tasks completed after this datetime (ISO 8601)",
+                    "description": "Start of date range, ISO 8601 (e.g. '2026-04-20T00:00:00Z'). Defaults to 7 days ago.",
                 },
                 "until": {
                     "type": "string",
-                    "description": "Only return tasks completed before this datetime (ISO 8601)",
+                    "description": "End of date range, ISO 8601. Defaults to now.",
                 },
             },
             "required": [],
@@ -558,7 +558,7 @@ async def _todoist_complete_task(task_id: str) -> dict:
         return {"error": "Todoist not configured"}
     try:
         async with client as api:
-            await api.close_task(task_id)
+            await api.complete_task(task_id)
         return {"completed": True, "task_id": task_id}
     except Exception as e:
         logger.error("todoist_complete_task error: %s", e)
@@ -571,7 +571,7 @@ async def _todoist_reopen_task(task_id: str) -> dict:
         return {"error": "Todoist not configured"}
     try:
         async with client as api:
-            await api.reopen_task(task_id)
+            await api.uncomplete_task(task_id)
         return {"reopened": True, "task_id": task_id}
     except Exception as e:
         logger.error("todoist_reopen_task error: %s", e)
@@ -626,29 +626,34 @@ async def _todoist_get_completed_tasks(
     if not client:
         return {"error": "Todoist not configured"}
     try:
-        kwargs: dict = {}
-        if project_id:
-            kwargs["project_id"] = project_id
+        since_dt = datetime.fromisoformat(since) if since else datetime.now(timezone.utc) - timedelta(days=7)
+        until_dt = datetime.fromisoformat(until) if until else datetime.now(timezone.utc)
+        max_tasks = min(limit or 30, 200)
+
+        kwargs: dict = {"since": since_dt, "until": until_dt}
         if limit:
-            kwargs["limit"] = min(limit, 50)
-        if since:
-            kwargs["since"] = since
-        if until:
-            kwargs["until"] = until
+            kwargs["limit"] = max_tasks
 
         async with client as api:
-            result = await api.get_completed_tasks(**kwargs)
+            tasks = []
+            async for page in api.get_completed_tasks_by_completion_date(**kwargs):
+                tasks.extend(page)
+                if len(tasks) >= max_tasks:
+                    break
 
-        tasks = []
-        for item in result.items:
-            tasks.append({
-                "id": item.id,
-                "content": item.content,
-                "project_id": item.project_id,
-                "completed_at": item.completed_at,
-                "task_id": item.task_id,
-            })
-        return {"tasks": tasks, "count": len(tasks)}
+        tasks = tasks[:max_tasks]
+        return {
+            "tasks": [
+                {
+                    "id": t.id,
+                    "content": t.content,
+                    "project_id": t.project_id,
+                    "completed_at": t.completed_at,
+                }
+                for t in tasks
+            ],
+            "count": len(tasks),
+        }
     except Exception as e:
         logger.error("todoist_get_completed_tasks error: %s", e)
         return {"error": str(e)}
