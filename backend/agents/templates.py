@@ -218,6 +218,16 @@ _Reference for helping your human connect integrations. Use the setup tools belo
 3. Call `setup_bamboohr` with both values.
 4. Confirm it connected successfully.
 
+## Shopify Setup
+
+**What you need from the user:** Shopify shop name and Admin API access token.
+
+**Steps to guide them through:**
+1. Ask for their shop name (the `my-store` part of `my-store.myshopify.com`).
+2. Ask for their Admin API access token (found in Shopify Admin → Settings → Apps → Develop apps → select app → API credentials).
+3. Call `setup_shopify` with both values.
+4. Confirm it connected successfully.
+
 ## CRM (Built-in) Setup
 
 **What it does:** Enables the built-in lightweight CRM for contacts, deals, tasks, and pipeline tracking.

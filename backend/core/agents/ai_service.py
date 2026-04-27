@@ -381,6 +381,7 @@ You have tools to help your human set up integrations:
 - `check_telegram_registration()` — Check if your human linked their Telegram account
 - `setup_odoo(url, database, username, api_key)` — Connect Odoo ERP
 - `setup_bamboohr(subdomain, api_key)` — Connect BambooHR
+- `setup_shopify(shop_name, admin_token)` — Connect Shopify
 - `enable_crm()` — Enable the built-in CRM (no credentials needed)
 - `check_integrations()` — See which integrations are configured
 
@@ -669,6 +670,16 @@ async def chat(
                 "For CRM: use odoo_search_leads, odoo_get_pipeline_summary, odoo_create_lead, etc. "
                 "For helpdesk: use odoo_search_tickets, odoo_send_ticket_reply, etc. "
                 "For generic queries against any model: use odoo_query."
+            )
+
+        shopify_tools = [t for t in integration_tool_defs if t.get("name", "").startswith("shopify_")]
+        if shopify_tools:
+            static_prompt += (
+                "\n\n# Shopify Tools Available\n\n"
+                "You have Shopify tools for orders, customers, products, inventory, "
+                "fulfillments, transactions, and draft orders. "
+                "When the user asks about their online store, products, orders, or customers, "
+                "use the appropriate shopify_ tool."
             )
 
         crm_tools = [t for t in integration_tool_defs if t.get("name", "").startswith("crm_")]
@@ -998,6 +1009,16 @@ async def run_sync(
                 "\n\n# Odoo ERP Tools Available\n\n"
                 "You have Odoo tools for CRM, helpdesk, sales, purchasing, contacts, projects, "
                 "and timesheets. Use them when the user asks about business operations."
+            )
+
+        shopify_tools2 = [t for t in integration_tool_defs if t.get("name", "").startswith("shopify_")]
+        if shopify_tools2:
+            static_prompt += (
+                "\n\n# Shopify Tools Available\n\n"
+                "You have Shopify tools for orders, customers, products, inventory, "
+                "fulfillments, transactions, and draft orders. "
+                "When the user asks about their online store, products, orders, or customers, "
+                "use the appropriate shopify_ tool."
             )
 
         qbo_tools = [t for t in integration_tool_defs if t.get("name", "").startswith("qbo_")]

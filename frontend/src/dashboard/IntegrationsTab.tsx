@@ -5,7 +5,7 @@ import { useOAuthFlow } from '../core/hooks/useOAuthFlow';
 import { GoogleIntegrationCard } from './GoogleIntegrationCard';
 import { AppCredentialsForm } from './AppCredentialsForm';
 import type { Integration, Agent } from '../core/types';
-import { IconGlobe, IconUsers, IconFile, IconPhone, IconMail, IconChart, IconBook, IconZap } from '../shared/icons';
+import { IconGlobe, IconUsers, IconFile, IconPhone, IconMail, IconChart, IconBook, IconZap, IconShoppingBag } from '../shared/icons';
 import { TelegramSettings } from '../agent/components/TelegramSettings';
 
 const INTEGRATION_ICONS: Record<string, React.ComponentType<{ size?: number; className?: string; strokeWidth?: number }>> = {
@@ -13,6 +13,7 @@ const INTEGRATION_ICONS: Record<string, React.ComponentType<{ size?: number; cla
   qb_csv: IconFile,
   odoo: IconGlobe,
   bamboohr: IconUsers,
+  shopify: IconShoppingBag,
   hubspot: IconZap,
   salesforce: IconGlobe,
   whatsapp: IconPhone,
@@ -42,6 +43,8 @@ export function IntegrationsTab() {
   const [odooManualMode, setOdooManualMode] = useState(false);
   const [bambooSubdomain, setBambooSubdomain] = useState('');
   const [bambooKey, setBambooKey] = useState('');
+  const [shopifyShopName, setShopifyShopName] = useState('');
+  const [shopifyToken, setShopifyToken] = useState('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [showQbCredForm, setShowQbCredForm] = useState(false);
@@ -200,6 +203,25 @@ export function IntegrationsTab() {
       setIntegrations(data.integrations);
     } catch (err: unknown) { setError(err instanceof Error ? err.message : 'Setup failed'); }
     finally { setSaving(false); }
+  }
+
+  async function setupShopify() {
+    setSaving(true); setError('');
+    try {
+      await api('/api/integrations/shopify/setup', { method: 'POST', body: JSON.stringify({ shop_name: shopifyShopName, admin_token: shopifyToken }) });
+      setSetupFor(null);
+      const data = await api<{ integrations: Integration[] }>('/api/integrations');
+      setIntegrations(data.integrations);
+    } catch (err: unknown) { setError(err instanceof Error ? err.message : 'Setup failed'); }
+    finally { setSaving(false); }
+  }
+
+  async function disconnectShopify() {
+    try {
+      await api('/api/integrations/shopify/disconnect', { method: 'POST' });
+      const data = await api<{ integrations: Integration[] }>('/api/integrations');
+      setIntegrations(data.integrations);
+    } catch (err: unknown) { setError(err instanceof Error ? err.message : 'Disconnect failed'); }
   }
 
   const qbOAuth = useOAuthFlow();
@@ -395,6 +417,13 @@ export function IntegrationsTab() {
                           }}>Disconnect</button>
                         </>
                       )}
+                      {isHealthy && integration.id === 'shopify' && integration.configured && (
+                        <button onClick={disconnectShopify} style={{
+                          fontSize: 11, padding: '4px 8px', borderRadius: 4,
+                          background: 'transparent', color: 'rgba(237,240,244,0.38)',
+                          border: 'none', cursor: 'pointer',
+                        }}>Disconnect</button>
+                      )}
                     </>
                   );
                 })()}
@@ -419,7 +448,7 @@ export function IntegrationsTab() {
             </div>
 
             {/* Permission level selector for Odoo and QuickBooks */}
-            {(integration.id === 'odoo' || integration.id === 'quickbooks') && integration.enabled && integration.configured && integration.connection_status !== 'broken' && (
+            {(integration.id === 'odoo' || integration.id === 'quickbooks' || integration.id === 'shopify') && integration.enabled && integration.configured && integration.connection_status !== 'broken' && (
               <div style={{ marginTop: 10, display: 'flex', alignItems: 'center', gap: 10 }}>
                 <span style={{ ...mono(9), whiteSpace: 'nowrap' }}>Permissions</span>
                 <div style={{
@@ -685,6 +714,19 @@ export function IntegrationsTab() {
                     <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
                       <button onClick={() => setSetupFor(null)} style={{ flex: 1, padding: '8px 16px', fontSize: 13, borderRadius: 4, border: '1px solid rgba(230,235,242,0.14)', background: 'transparent', color: 'rgba(237,240,244,0.62)', cursor: 'pointer' }}>Cancel</button>
                       <button onClick={setupBambooHR} disabled={saving} style={{ flex: 1, padding: '8px 16px', fontSize: 13, borderRadius: 4, background: 'var(--color-ch-accent, #C8D1D9)', color: '#0E1013', border: 'none', cursor: 'pointer', fontWeight: 500, opacity: saving ? 0.5 : 1 }}>{saving ? 'Connecting...' : 'Connect'}</button>
+                    </div>
+                  </>
+                )}
+                {integration.id === 'shopify' && (
+                  <>
+                    <p style={{ fontSize: 12, color: 'rgba(237,240,244,0.50)', lineHeight: 1.5, marginBottom: 4 }}>
+                      You can also set this up by asking your agent &mdash; say &ldquo;connect Shopify&rdquo; and provide your shop name and token in chat.
+                    </p>
+                    <input placeholder="Shop name (e.g. my-store)" value={shopifyShopName} onChange={e => setShopifyShopName(e.target.value)} style={inputStyle} />
+                    <input placeholder="Admin API access token" type="password" value={shopifyToken} onChange={e => setShopifyToken(e.target.value)} style={inputStyle} />
+                    <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
+                      <button onClick={() => setSetupFor(null)} style={{ flex: 1, padding: '8px 16px', fontSize: 13, borderRadius: 4, border: '1px solid rgba(230,235,242,0.14)', background: 'transparent', color: 'rgba(237,240,244,0.62)', cursor: 'pointer' }}>Cancel</button>
+                      <button onClick={setupShopify} disabled={saving} style={{ flex: 1, padding: '8px 16px', fontSize: 13, borderRadius: 4, background: 'var(--color-ch-accent, #C8D1D9)', color: '#0E1013', border: 'none', cursor: 'pointer', fontWeight: 500, opacity: saving ? 0.5 : 1 }}>{saving ? 'Connecting...' : 'Connect'}</button>
                     </div>
                   </>
                 )}

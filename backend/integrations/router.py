@@ -40,6 +40,11 @@ class BambooHRSetupRequest(BaseModel):
     api_key: str
 
 
+class ShopifySetupRequest(BaseModel):
+    shop_name: str
+    admin_token: str
+
+
 class ToolModeRequest(BaseModel):
     tool_mode: str
 
@@ -79,7 +84,7 @@ async def disable_integration(name: str, user=Depends(get_current_user)):
 @router.post("/{name}/tool-mode")
 async def set_integration_tool_mode(name: str, body: ToolModeRequest, user=Depends(get_current_user)):
     """Set the tool_mode permission ceiling for an integration."""
-    if name not in ("odoo", "quickbooks"):
+    if name not in ("odoo", "quickbooks", "shopify"):
         raise HTTPException(status_code=400, detail="Tool mode is only supported for Odoo and QuickBooks")
     if body.tool_mode not in ("read-only", "normal", "power"):
         raise HTTPException(status_code=400, detail=f"Invalid tool_mode: {body.tool_mode}")
@@ -121,6 +126,26 @@ async def setup_bamboohr(body: BambooHRSetupRequest, user=Depends(get_current_us
     if not result["ok"]:
         raise HTTPException(status_code=400, detail=result["error"])
     return result
+
+
+@router.post("/shopify/setup")
+async def setup_shopify(body: ShopifySetupRequest, user=Depends(get_current_user)):
+    """Configure and validate Shopify credentials."""
+    from .shopify.onboarding import setup
+    result = setup(shop_name=body.shop_name, admin_token=body.admin_token)
+    if not result["ok"]:
+        raise HTTPException(status_code=400, detail=result["error"])
+    return result
+
+
+@router.post("/shopify/disconnect")
+async def disconnect_shopify(user=Depends(get_current_user)):
+    """Disconnect Shopify: clear stored credentials."""
+    creds_path = Path(__file__).resolve().parent.parent / "data" / "integrations" / "shopify.json"
+    if creds_path.exists():
+        creds_path.unlink()
+        logger.info("Removed shopify.json credentials")
+    return {"ok": True}
 
 
 @router.post("/quickbooks/setup")
@@ -476,5 +501,8 @@ async def get_tool_defs(name: str, user=Depends(get_current_user)):
     elif name == "qb_csv":
         from .qb_csv.tools import QB_CSV_TOOL_DEFS
         return {"tools": QB_CSV_TOOL_DEFS}
+    elif name == "shopify":
+        from .shopify.tools import SHOPIFY_TOOL_DEFS
+        return {"tools": SHOPIFY_TOOL_DEFS}
     else:
         return {"tools": []}

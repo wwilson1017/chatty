@@ -466,6 +466,8 @@ class ToolRegistry:
             return self._setup_odoo(args["url"], args["database"], args["username"], args["api_key"])
         elif tool_name == "setup_bamboohr":
             return self._setup_bamboohr(args["subdomain"], args["api_key"])
+        elif tool_name == "setup_shopify":
+            return self._setup_shopify(args["shop_name"], args["admin_token"])
         elif tool_name == "enable_crm":
             return self._enable_crm()
         elif tool_name == "check_integrations":
@@ -527,6 +529,13 @@ class ToolRegistry:
         result = setup(subdomain=subdomain, api_key=api_key)
         if result.get("ok"):
             self._mark_setup_complete("BambooHR")
+        return result
+
+    def _setup_shopify(self, shop_name: str, admin_token: str) -> dict:
+        from integrations.shopify.onboarding import setup
+        result = setup(shop_name=shop_name, admin_token=admin_token)
+        if result.get("ok"):
+            self._mark_setup_complete("Shopify")
         return result
 
     def _enable_crm(self) -> dict:

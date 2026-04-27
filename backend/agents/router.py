@@ -70,6 +70,7 @@ _PENDING_SETUP_NAMES = {
     "odoo": "Odoo ERP",
     "quickbooks": "QuickBooks Online",
     "bamboohr": "BambooHR",
+    "shopify": "Shopify",
     "crm_lite": "CRM",
 }
 
@@ -105,6 +106,7 @@ _INTEGRATION_MODULES = {
     "bamboohr": ("integrations.bamboohr.tools", "BAMBOOHR_TOOL_DEFS"),
     "quickbooks": ("integrations.quickbooks.tools", "QB_TOOL_DEFS"),
     "qb_csv": ("integrations.qb_csv.tools", "QB_CSV_TOOL_DEFS"),
+    "shopify": ("integrations.shopify.tools", "SHOPIFY_TOOL_DEFS"),
 }
 
 

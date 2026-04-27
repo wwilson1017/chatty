@@ -1301,6 +1301,20 @@ SETUP_TOOLS = [
         "writes": True,
     },
     {
+        "name": "setup_shopify",
+        "description": "Connect Shopify. Validates the shop name and admin token, then saves them.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "shop_name": {"type": "string", "description": "Shopify shop name (e.g. my-store from my-store.myshopify.com)"},
+                "admin_token": {"type": "string", "description": "Admin API access token from the Shopify custom app"},
+            },
+            "required": ["shop_name", "admin_token"],
+        },
+        "kind": "setup",
+        "writes": True,
+    },
+    {
         "name": "enable_crm",
         "description": "Enable the built-in CRM for contacts, deals, tasks, and pipeline tracking. No credentials needed.",
         "input_schema": {

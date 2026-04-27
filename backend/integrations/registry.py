@@ -8,6 +8,7 @@ Available integrations:
   odoo        — Odoo ERP (XML-RPC)
   quickbooks  — QuickBooks Online (OAuth2)
   bamboohr    — BambooHR HR system
+  shopify     — Shopify (Admin API token)
   crm_lite    — Built-in lightweight CRM
   whatsapp    — WhatsApp (stub)
 """
@@ -47,6 +48,12 @@ AVAILABLE_INTEGRATIONS = {
         "description": "BambooHR — employee directory, time tracking, HR data",
         "icon": "👥",
         "auth_type": "api_key",
+    },
+    "shopify": {
+        "name": "Shopify",
+        "description": "Shopify — orders, products, customers, inventory",
+        "icon": "🛒",
+        "auth_type": "credentials",
     },
     "qb_csv": {
         "name": "QuickBooks CSV",

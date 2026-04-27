@@ -55,6 +55,7 @@ export function IconFlag(p: IconProps) { return <Ico d="M4 22V4l8 3 8-3v12l-8 3-
 export function IconPause(p: IconProps) { return <Ico d="M6 4h4v16H6zM14 4h4v16h-4z" {...p} />; }
 export function IconBrain(p: IconProps) { return <Ico {...p}><path d="M9 4a3 3 0 0 0-3 3v1a3 3 0 0 0-2 5 3 3 0 0 0 2 5v1a3 3 0 0 0 3 3h1V4H9zM15 4a3 3 0 0 1 3 3v1a3 3 0 0 1 2 5 3 3 0 0 1-2 5v1a3 3 0 0 1-3 3h-1V4h1z" /></Ico>; }
 export function IconGlobe(p: IconProps) { return <Ico {...p}><circle cx="12" cy="12" r="9" /><path d="M3 12h18M12 3a14 14 0 0 1 0 18 14 14 0 0 1 0-18z" /></Ico>; }
+export function IconShoppingBag(p: IconProps) { return <Ico {...p}><path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z" /><path d="M3 6h18" /><path d="M16 10a4 4 0 0 1-8 0" /></Ico>; }
 export function IconFile(p: IconProps) { return <Ico d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8zM14 2v6h6" {...p} />; }
 export function IconHome(p: IconProps) { return <Ico d="M3 12 12 3l9 9M5 10v10h14V10" {...p} />; }
 export function IconLock(p: IconProps) { return <Ico {...p}><rect x="4" y="11" width="16" height="10" rx="2" /><path d="M8 11V7a4 4 0 0 1 8 0v4" /></Ico>; }
