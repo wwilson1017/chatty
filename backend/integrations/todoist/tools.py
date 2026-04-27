@@ -5,7 +5,7 @@ Uses the official todoist-api-python SDK (async client).
 """
 
 import logging
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 
 from .client import get_client_async
 
@@ -27,8 +27,6 @@ def _format_task(task) -> dict:
             "string": task.due.string,
             "is_recurring": task.due.is_recurring,
         }
-        if task.due.datetime:
-            due["datetime"] = task.due.datetime
         if task.due.timezone:
             due["timezone"] = task.due.timezone
 
@@ -42,7 +40,6 @@ def _format_task(task) -> dict:
         "labels": task.labels or [],
         "due": due,
         "url": task.url,
-        "comment_count": task.comment_count,
         "created_at": task.created_at,
     }
     if task.parent_id:
@@ -59,7 +56,6 @@ def _format_project(project) -> dict:
         "is_favorite": project.is_favorite,
         "is_shared": project.is_shared,
         "url": project.url,
-        "comment_count": project.comment_count,
     }
 
 
@@ -492,7 +488,7 @@ async def _todoist_create_task(
         if due_string:
             kwargs["due_string"] = due_string
         if due_date:
-            kwargs["due_date"] = due_date
+            kwargs["due_date"] = date.fromisoformat(due_date)
         if labels:
             kwargs["labels"] = labels
 
@@ -540,7 +536,7 @@ async def _todoist_update_task(
         if due_string is not None:
             kwargs["due_string"] = due_string
         if due_date is not None:
-            kwargs["due_date"] = due_date
+            kwargs["due_date"] = date.fromisoformat(due_date)
         if labels is not None:
             kwargs["labels"] = labels
 
