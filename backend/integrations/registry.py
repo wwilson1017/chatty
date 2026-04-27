@@ -79,6 +79,12 @@ AVAILABLE_INTEGRATIONS = {
         "icon": "📎",
         "auth_type": "api_key",
     },
+    "todoist": {
+        "name": "Todoist",
+        "description": "Task management and productivity",
+        "icon": "✅",
+        "auth_type": "api_key",
+    },
 }
 
 

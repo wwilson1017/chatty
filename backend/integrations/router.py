@@ -40,6 +40,10 @@ class BambooHRSetupRequest(BaseModel):
     api_key: str
 
 
+class TodoistSetupRequest(BaseModel):
+    api_token: str
+
+
 class ToolModeRequest(BaseModel):
     tool_mode: str
 
@@ -121,6 +125,24 @@ async def setup_bamboohr(body: BambooHRSetupRequest, user=Depends(get_current_us
     if not result["ok"]:
         raise HTTPException(status_code=400, detail=result["error"])
     return result
+
+
+@router.post("/todoist/setup")
+async def setup_todoist(body: TodoistSetupRequest, user=Depends(get_current_user)):
+    """Configure and validate Todoist API token."""
+    from .todoist.onboarding import setup
+    result = setup(api_token=body.api_token)
+    if not result["ok"]:
+        raise HTTPException(status_code=400, detail=result["error"])
+    return result
+
+
+@router.post("/todoist/disconnect")
+async def disconnect_todoist(user=Depends(get_current_user)):
+    """Disconnect Todoist: remove stored credentials."""
+    from .registry import save_credentials
+    save_credentials("todoist", {})
+    return {"ok": True}
 
 
 @router.post("/quickbooks/setup")
@@ -479,6 +501,9 @@ async def get_tool_defs(name: str, user=Depends(get_current_user)):
     elif name == "paperclip":
         from .paperclip.tools import PAPERCLIP_TOOL_DEFS
         return {"tools": PAPERCLIP_TOOL_DEFS}
+    elif name == "todoist":
+        from .todoist.tools import TODOIST_TOOL_DEFS
+        return {"tools": TODOIST_TOOL_DEFS}
     else:
         return {"tools": []}
 
