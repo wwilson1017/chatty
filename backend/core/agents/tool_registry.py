@@ -466,6 +466,8 @@ class ToolRegistry:
             return self._setup_odoo(args["url"], args["database"], args["username"], args["api_key"])
         elif tool_name == "setup_bamboohr":
             return self._setup_bamboohr(args["subdomain"], args["api_key"])
+        elif tool_name == "setup_stripe":
+            return self._setup_stripe(args["api_key"])
         elif tool_name == "enable_crm":
             return self._enable_crm()
         elif tool_name == "check_integrations":
@@ -527,6 +529,13 @@ class ToolRegistry:
         result = setup(subdomain=subdomain, api_key=api_key)
         if result.get("ok"):
             self._mark_setup_complete("BambooHR")
+        return result
+
+    def _setup_stripe(self, api_key: str) -> dict:
+        from integrations.stripe.onboarding import setup
+        result = setup(api_key=api_key)
+        if result.get("ok"):
+            self._mark_setup_complete("Stripe")
         return result
 
     def _enable_crm(self) -> dict:

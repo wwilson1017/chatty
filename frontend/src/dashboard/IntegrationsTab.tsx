@@ -5,7 +5,7 @@ import { useOAuthFlow } from '../core/hooks/useOAuthFlow';
 import { GoogleIntegrationCard } from './GoogleIntegrationCard';
 import { AppCredentialsForm } from './AppCredentialsForm';
 import type { Integration, Agent } from '../core/types';
-import { IconGlobe, IconUsers, IconFile, IconPhone, IconMail, IconChart, IconBook, IconZap } from '../shared/icons';
+import { IconGlobe, IconUsers, IconFile, IconPhone, IconMail, IconChart, IconBook, IconZap, IconCreditCard } from '../shared/icons';
 import { TelegramSettings } from '../agent/components/TelegramSettings';
 
 const INTEGRATION_ICONS: Record<string, React.ComponentType<{ size?: number; className?: string; strokeWidth?: number }>> = {
@@ -15,6 +15,7 @@ const INTEGRATION_ICONS: Record<string, React.ComponentType<{ size?: number; cla
   bamboohr: IconUsers,
   hubspot: IconZap,
   salesforce: IconGlobe,
+  stripe: IconCreditCard,
   whatsapp: IconPhone,
   telegram: IconMail,
   gmail: IconMail,
@@ -42,6 +43,7 @@ export function IntegrationsTab() {
   const [odooManualMode, setOdooManualMode] = useState(false);
   const [bambooSubdomain, setBambooSubdomain] = useState('');
   const [bambooKey, setBambooKey] = useState('');
+  const [stripeKey, setStripeKey] = useState('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [showQbCredForm, setShowQbCredForm] = useState(false);
@@ -202,6 +204,18 @@ export function IntegrationsTab() {
     finally { setSaving(false); }
   }
 
+  async function setupStripe() {
+    setSaving(true); setError('');
+    try {
+      await api('/api/integrations/stripe/setup', { method: 'POST', body: JSON.stringify({ api_key: stripeKey }) });
+      setStripeKey('');
+      setSetupFor(null);
+      const data = await api<{ integrations: Integration[] }>('/api/integrations');
+      setIntegrations(data.integrations);
+    } catch (err: unknown) { setError(err instanceof Error ? err.message : 'Setup failed'); }
+    finally { setSaving(false); }
+  }
+
   const qbOAuth = useOAuthFlow();
 
   useEffect(() => {
@@ -304,7 +318,16 @@ export function IntegrationsTab() {
                   <Icon size={16} strokeWidth={1.75} />
                 </div>
                 <div>
-                  <p style={{ fontSize: 14, color: '#EDF0F4', margin: 0 }}>{integration.name}</p>
+                  <p style={{ fontSize: 14, color: '#EDF0F4', margin: 0 }}>
+                    {integration.name}
+                    {integration.id === 'stripe' && integration.stripe_mode && integration.configured && (
+                      <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 3, marginLeft: 8,
+                        background: integration.stripe_mode === 'test' ? 'rgba(255,193,7,0.12)' : 'rgba(76,175,80,0.12)',
+                        color: integration.stripe_mode === 'test' ? '#FFC107' : '#4CAF50' }}>
+                        {integration.stripe_mode === 'test' ? 'Test mode' : 'Live'}
+                      </span>
+                    )}
+                  </p>
                   <p style={{ fontSize: 11, color: 'rgba(237,240,244,0.38)', marginTop: 2 }}>{integration.description}</p>
                 </div>
               </div>
@@ -419,7 +442,7 @@ export function IntegrationsTab() {
             </div>
 
             {/* Permission level selector for Odoo and QuickBooks */}
-            {(integration.id === 'odoo' || integration.id === 'quickbooks') && integration.enabled && integration.configured && integration.connection_status !== 'broken' && (
+            {(integration.id === 'odoo' || integration.id === 'quickbooks' || integration.id === 'stripe') && integration.enabled && integration.configured && integration.connection_status !== 'broken' && (
               <div style={{ marginTop: 10, display: 'flex', alignItems: 'center', gap: 10 }}>
                 <span style={{ ...mono(9), whiteSpace: 'nowrap' }}>Permissions</span>
                 <div style={{
@@ -685,6 +708,20 @@ export function IntegrationsTab() {
                     <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
                       <button onClick={() => setSetupFor(null)} style={{ flex: 1, padding: '8px 16px', fontSize: 13, borderRadius: 4, border: '1px solid rgba(230,235,242,0.14)', background: 'transparent', color: 'rgba(237,240,244,0.62)', cursor: 'pointer' }}>Cancel</button>
                       <button onClick={setupBambooHR} disabled={saving} style={{ flex: 1, padding: '8px 16px', fontSize: 13, borderRadius: 4, background: 'var(--color-ch-accent, #C8D1D9)', color: '#0E1013', border: 'none', cursor: 'pointer', fontWeight: 500, opacity: saving ? 0.5 : 1 }}>{saving ? 'Connecting...' : 'Connect'}</button>
+                    </div>
+                  </>
+                )}
+                {integration.id === 'stripe' && (
+                  <>
+                    <p style={{ fontSize: 12, color: 'rgba(237,240,244,0.50)', lineHeight: 1.5, marginBottom: 4 }}>
+                      Paste your Stripe secret API key. Find it at{' '}
+                      <a href="https://dashboard.stripe.com/apikeys" target="_blank" rel="noopener" style={{ color: 'var(--color-ch-accent)' }}>dashboard.stripe.com/apikeys</a>.
+                      Both test and live keys are supported.
+                    </p>
+                    <input placeholder="sk_test_... or sk_live_..." type="password" value={stripeKey} onChange={e => setStripeKey(e.target.value)} style={inputStyle} />
+                    <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
+                      <button onClick={() => setSetupFor(null)} style={{ flex: 1, padding: '8px 16px', fontSize: 13, borderRadius: 4, border: '1px solid rgba(230,235,242,0.14)', background: 'transparent', color: 'rgba(237,240,244,0.62)', cursor: 'pointer' }}>Cancel</button>
+                      <button onClick={setupStripe} disabled={saving} style={{ flex: 1, padding: '8px 16px', fontSize: 13, borderRadius: 4, background: 'var(--color-ch-accent, #C8D1D9)', color: '#0E1013', border: 'none', cursor: 'pointer', fontWeight: 500, opacity: saving ? 0.5 : 1 }}>{saving ? 'Connecting...' : 'Connect'}</button>
                     </div>
                   </>
                 )}

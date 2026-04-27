@@ -82,6 +82,7 @@ _INTEGRATION_MODULES = {
     "odoo": ("integrations.odoo.tools", "ODOO_TOOL_DEFS"),
     "bamboohr": ("integrations.bamboohr.tools", "BAMBOOHR_TOOL_DEFS"),
     "quickbooks": ("integrations.quickbooks.tools", "QB_TOOL_DEFS"),
+    "stripe": ("integrations.stripe.tools", "STRIPE_TOOL_DEFS"),
 }
 
 

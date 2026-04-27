@@ -48,6 +48,12 @@ AVAILABLE_INTEGRATIONS = {
         "icon": "👥",
         "auth_type": "api_key",
     },
+    "stripe": {
+        "name": "Stripe",
+        "description": "Stripe payments — customers, invoices, subscriptions, payment links",
+        "icon": "💳",
+        "auth_type": "api_key",
+    },
     "qb_csv": {
         "name": "QuickBooks CSV",
         "description": "Import & analyze QuickBooks CSV exports — no login required",
@@ -180,6 +186,9 @@ def list_integrations() -> list[dict]:
         if key == "google" and creds:
             entry["email"] = creds.get("email", "")
             entry["scope_grants"] = creds.get("scope_grants", {})
+        if key == "stripe" and creds:
+            entry["stripe_mode"] = creds.get("mode", "")
+            entry["stripe_account_name"] = creds.get("account_name", "")
         if meta.get("auth_type") in ("oauth2", "oauth2_scoped"):
             from .app_credentials import has_app_credentials
             entry["has_app_credentials"] = has_app_credentials(key)

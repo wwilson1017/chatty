@@ -34,7 +34,7 @@ from core.providers.base import AIProvider, _sse
 from .config import AgentConfig
 from .context_manager import ContextManager
 from .tool_registry import ToolRegistry
-from .tool_definitions import get_tool_definitions, get_report_instructions, get_scheduling_instructions, get_qb_csv_instructions, build_writes_map, build_context_memory_map
+from .tool_definitions import get_tool_definitions, get_report_instructions, get_scheduling_instructions, get_qb_csv_instructions, get_stripe_instructions, build_writes_map, build_context_memory_map
 from .tools.real_tools import load_all_real_tools
 
 logger = logging.getLogger(__name__)
@@ -319,6 +319,8 @@ def _build_system_prompt(
         from integrations.registry import is_enabled as _integration_enabled
         if _integration_enabled("qb_csv"):
             parts.append(get_qb_csv_instructions())
+        if _integration_enabled("stripe"):
+            parts.append(get_stripe_instructions())
 
     if plan_mode:
         parts.append(_plan_mode_instructions())
@@ -381,6 +383,7 @@ You have tools to help your human set up integrations:
 - `check_telegram_registration()` — Check if your human linked their Telegram account
 - `setup_odoo(url, database, username, api_key)` — Connect Odoo ERP
 - `setup_bamboohr(subdomain, api_key)` — Connect BambooHR
+- `setup_stripe(api_key)` — Connect Stripe payments
 - `enable_crm()` — Enable the built-in CRM (no credentials needed)
 - `check_integrations()` — See which integrations are configured
 

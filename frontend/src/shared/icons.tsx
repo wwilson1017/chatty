@@ -38,6 +38,7 @@ export function IconBot({ size = 18, strokeWidth = 1.75, className, style }: Ico
 }
 export function IconSparkle(p: IconProps) { return <Ico d="M12 3v4M12 17v4M3 12h4M17 12h4M5.6 5.6l2.8 2.8M15.6 15.6l2.8 2.8M5.6 18.4l2.8-2.8M15.6 8.4l2.8-2.8" {...p} />; }
 export function IconChart(p: IconProps) { return <Ico d="M3 3v18h18M7 14v3M12 9v8M17 5v12" {...p} />; }
+export function IconCreditCard(p: IconProps) { return <Ico {...p}><rect x="2" y="5" width="20" height="14" rx="2" /><path d="M2 10h20" /></Ico>; }
 export function IconZap(p: IconProps) { return <Ico d="M13 2 3 14h9l-1 8 10-12h-9l1-8z" {...p} />; }
 export function IconCheck(p: IconProps) { return <Ico d="M20 6 9 17l-5-5" {...p} />; }
 export function IconX(p: IconProps) { return <Ico d="M18 6 6 18M6 6l12 12" {...p} />; }

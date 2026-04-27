@@ -1244,6 +1244,32 @@ When you see `[QuickBooks CSV detected: ...]` in an uploaded file:
 """
 
 
+def get_stripe_instructions() -> str:
+    return """## Stripe Payments
+You have tools to interact with the user's Stripe account.
+
+### Key concepts
+- All monetary amounts are in currency units (e.g., 49.99 for $49.99 USD, 5000 for ¥5000 JPY)
+- Customer IDs: cus_xxx | Invoice IDs: in_xxx | Price IDs: price_xxx
+- Invoices need line_items to have charges — pass them when creating
+
+### Available tools
+- **Customers**: create, retrieve, update, search by email
+- **Invoices**: create (with line items), retrieve
+- **Payments**: create payment intent, retrieve, create refund
+- **Products & Prices**: create product, create price (one-time or recurring)
+- **Subscriptions**: create, cancel, search with filters
+- **Payment Links**: create shareable link, deactivate
+- **Payouts**: retrieve payout details
+
+### Common workflows
+- Charge a customer: create payment intent with their customer ID
+- Recurring billing: create product → create price (recurring) → create subscription
+- Send invoice: find/create customer → create invoice with line_items and auto_advance=true
+- Share a buy link: create product → create price → create payment link
+"""
+
+
 # ── Integration setup tools ──────────────────────────────────────────────────
 
 SETUP_TOOLS = [
@@ -1296,6 +1322,19 @@ SETUP_TOOLS = [
                 "api_key": {"type": "string", "description": "BambooHR API key"},
             },
             "required": ["subdomain", "api_key"],
+        },
+        "kind": "setup",
+        "writes": True,
+    },
+    {
+        "name": "setup_stripe",
+        "description": "Connect Stripe payments. Validates the API key and saves it.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "api_key": {"type": "string", "description": "Stripe secret API key (starts with sk_test_ or sk_live_)"},
+            },
+            "required": ["api_key"],
         },
         "kind": "setup",
         "writes": True,

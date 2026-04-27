@@ -86,6 +86,8 @@ export interface Integration {
   email?: string;
   scope_grants?: GoogleScopeGrants;
   has_app_credentials?: boolean;
+  stripe_mode?: string;
+  stripe_account_name?: string;
 }
 
 // CRM types

@@ -40,6 +40,10 @@ class BambooHRSetupRequest(BaseModel):
     api_key: str
 
 
+class StripeSetupRequest(BaseModel):
+    api_key: str
+
+
 class ToolModeRequest(BaseModel):
     tool_mode: str
 
@@ -79,7 +83,7 @@ async def disable_integration(name: str, user=Depends(get_current_user)):
 @router.post("/{name}/tool-mode")
 async def set_integration_tool_mode(name: str, body: ToolModeRequest, user=Depends(get_current_user)):
     """Set the tool_mode permission ceiling for an integration."""
-    if name not in ("odoo", "quickbooks"):
+    if name not in ("odoo", "quickbooks", "stripe"):
         raise HTTPException(status_code=400, detail="Tool mode is only supported for Odoo and QuickBooks")
     if body.tool_mode not in ("read-only", "normal", "power"):
         raise HTTPException(status_code=400, detail=f"Invalid tool_mode: {body.tool_mode}")
@@ -118,6 +122,16 @@ async def setup_bamboohr(body: BambooHRSetupRequest, user=Depends(get_current_us
     """Configure and validate BambooHR credentials."""
     from .bamboohr.onboarding import setup
     result = setup(subdomain=body.subdomain, api_key=body.api_key)
+    if not result["ok"]:
+        raise HTTPException(status_code=400, detail=result["error"])
+    return result
+
+
+@router.post("/stripe/setup")
+async def setup_stripe(body: StripeSetupRequest, user=Depends(get_current_user)):
+    """Configure and validate Stripe API key."""
+    from .stripe.onboarding import setup
+    result = setup(api_key=body.api_key)
     if not result["ok"]:
         raise HTTPException(status_code=400, detail=result["error"])
     return result
@@ -476,5 +490,8 @@ async def get_tool_defs(name: str, user=Depends(get_current_user)):
     elif name == "qb_csv":
         from .qb_csv.tools import QB_CSV_TOOL_DEFS
         return {"tools": QB_CSV_TOOL_DEFS}
+    elif name == "stripe":
+        from .stripe.tools import STRIPE_TOOL_DEFS
+        return {"tools": STRIPE_TOOL_DEFS}
     else:
         return {"tools": []}
