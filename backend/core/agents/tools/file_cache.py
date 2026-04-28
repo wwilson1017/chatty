@@ -34,7 +34,7 @@ def cache_file(cache_dir: str, raw: bytes, filename: str, mime_type: str) -> str
         "size_bytes": len(raw),
         "cached_at": time.time(),
     }
-    with open(meta_path, "w") as f:
+    with open(meta_path, "w", encoding="utf-8") as f:
         json.dump(meta, f)
 
     try:
@@ -64,7 +64,7 @@ def load_cached_file(cache_dir: str, file_ref: str) -> dict | None:
         return None
 
     try:
-        with open(meta_path) as f:
+        with open(meta_path, encoding="utf-8") as f:
             meta = json.load(f)
     except Exception:
         return None
@@ -98,7 +98,7 @@ def cleanup_expired(cache_dir: str) -> int:
         if not entry.name.endswith(".meta.json"):
             continue
         try:
-            with open(entry.path) as f:
+            with open(entry.path, encoding="utf-8") as f:
                 meta = json.load(f)
             if meta.get("cached_at", 0) < cutoff:
                 ref = entry.name.removesuffix(".meta.json")

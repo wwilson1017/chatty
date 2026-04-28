@@ -71,7 +71,7 @@ def setup_env():
         print("  .env file already exists, skipping.")
         return
     if ENV_EXAMPLE.exists():
-        content = ENV_EXAMPLE.read_text()
+        content = ENV_EXAMPLE.read_text(encoding="utf-8")
     else:
         content = (
             "AUTH_PASSWORD=changeme\n"
@@ -86,7 +86,7 @@ def setup_env():
         # Quote the value to handle special characters (=, #, spaces)
         safe_password = password.replace("'", "'\\''")
         content = content.replace("AUTH_PASSWORD=changeme", f"AUTH_PASSWORD='{safe_password}'")
-    ENV_FILE.write_text(content)
+    ENV_FILE.write_text(content, encoding="utf-8")
     print("  Created .env file.")
 
 
