@@ -100,6 +100,7 @@ async def _run_turn(
                         output_tokens=total_output_tokens,
                         model_used=model_used,
                         tool_log=tool_log,
+                        error=not accumulated_text,
                     )
 
         if not tool_calls_this_turn:
@@ -109,6 +110,7 @@ async def _run_turn(
                 output_tokens=total_output_tokens,
                 model_used=model_used,
                 tool_log=tool_log,
+                error=not accumulated_text,
             )
 
         # Execute tools
@@ -144,6 +146,7 @@ async def _run_turn(
         output_tokens=total_output_tokens,
         model_used=model_used,
         tool_log=tool_log,
+        error=True,
     )
 
 

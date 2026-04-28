@@ -151,6 +151,14 @@ def create_action(
 
     conn = db.get_db()
     with db.write_lock():
+        if action_type == "heartbeat":
+            existing = conn.execute(
+                "SELECT id FROM scheduled_actions WHERE agent = ? AND action_type = 'heartbeat'",
+                (agent,),
+            ).fetchone()
+            if existing:
+                return {"error": f"Agent '{agent}' already has a heartbeat (id={existing['id']})"}
+
         conn.execute(
             """INSERT INTO scheduled_actions
                (id, agent, created_by_email, action_type, name, description,
@@ -282,6 +290,8 @@ def delete_action(action_id: str) -> dict:
         row = conn.execute("SELECT * FROM scheduled_actions WHERE id = ?", (action_id,)).fetchone()
         if not row:
             return {"error": f"Action {action_id} not found"}
+        if row["action_type"] == "heartbeat":
+            return {"error": "Cannot delete heartbeat actions. Disable it instead with update_scheduled_action."}
         conn.execute("DELETE FROM scheduled_actions WHERE id = ?", (action_id,))
         conn.commit()
 

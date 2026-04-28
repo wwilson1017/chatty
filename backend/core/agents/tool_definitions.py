@@ -1206,23 +1206,27 @@ def get_scheduling_instructions() -> str:
 Use `create_reminder` to set a follow-up for yourself. When the reminder fires, you'll receive the context and can take action. Use ISO 8601 format for due_at.
 
 ### Heartbeat (your main recurring loop)
-You already have a **heartbeat** that runs every 30 minutes and checks your HEARTBEAT.md file. This is your primary mechanism for recurring work.
+You have a **background heartbeat** — your primary mechanism for recurring work. It runs periodically (check `list_scheduled_actions` for your interval) and checks your `HEARTBEAT.md` file. Each item is evaluated and you can take action using your tools.
 
-To add a recurring task, **add it to your HEARTBEAT.md checklist** with time conditions (e.g., "Every weekday at 9 AM: send morning brief"). The heartbeat will pick it up automatically on its next pulse. Do NOT create a separate scheduled action for something the heartbeat can handle.
+To add a recurring task, use `write_context_file` to edit your HEARTBEAT.md checklist. Add items with time conditions (e.g., "Every weekday at 9 AM: send morning brief"). The heartbeat will pick it up automatically on its next pulse. Do NOT create a separate scheduled action for something the heartbeat can handle.
+
+Good checklist items are specific and actionable: "Check if user has unread emails from important contacts", "Look for overdue invoices", "Check today's calendar for double-bookings". Vague items like "check things" waste a cycle.
+
+If a user asks you to proactively monitor something, add it to HEARTBEAT.md. If they ask you to stop monitoring, remove the item. Use `list_scheduled_actions` to check your heartbeat status and interval.
 
 ### Scheduled Actions
-Use `create_scheduled_action` only when you need a task with its own independent schedule that doesn't fit the heartbeat pattern (e.g., a one-time future task with `schedule_type="once"`).
+Use `create_scheduled_action` only when you need a task with its own independent schedule that doesn't fit the heartbeat pattern (e.g., a one-time future task with `schedule_type="once"`). Always confirm with the user before creating one.
 
 ### Active Hours
 - Scheduled actions have an **active hours window** — they only run during this window.
 - Default is 6 AM to 8 PM. To change, set `active_hours_start` and `active_hours_end` (integers 0-23).
 - For 24/7 operation, set `always_on=true` — this bypasses active hours entirely.
-- Your heartbeat runs 24/7 by default (`always_on`). Time-gating belongs in your HEARTBEAT.md checklist items, not on the heartbeat itself.
+- Your heartbeat runs 24/7 by default (`always_on`). Time-gating belongs in your HEARTBEAT.md checklist items (e.g., "Only on weekdays before 10 AM: ..."), not on the heartbeat's active hours.
 
-Guidelines:
+### Guidelines
 - Always confirm with the user before creating scheduled actions
 - Use descriptive names for scheduled actions
-- Prefer adding items to HEARTBEAT.md over creating new scheduled actions
+- Prefer adding items to HEARTBEAT.md (via `write_context_file`) over creating new scheduled actions
 - For one-time future tasks, use `schedule_type="once"` with `run_at`
 """
 
