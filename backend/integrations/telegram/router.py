@@ -200,10 +200,8 @@ def _safe_process_telegram(
                 finally:
                     loop.close()
 
-                try:
-                    send_message(chat_id, response, bot_token)
-                finally:
-                    group.record_response(chat_id, agent["id"])
+                send_message(chat_id, response, bot_token)
+                group.record_response(chat_id, agent["id"])
             finally:
                 with _busy_lock:
                     if _busy_chats.get(busy_key) == busy_started:

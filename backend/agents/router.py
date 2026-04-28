@@ -71,6 +71,7 @@ _PENDING_SETUP_NAMES = {
     "quickbooks": "QuickBooks Online",
     "bamboohr": "BambooHR",
     "crm_lite": "CRM",
+    "todoist": "Todoist",
 }
 
 
@@ -106,6 +107,7 @@ _INTEGRATION_MODULES = {
     "quickbooks": ("integrations.quickbooks.tools", "QB_TOOL_DEFS"),
     "qb_csv": ("integrations.qb_csv.tools", "QB_CSV_TOOL_DEFS"),
     "paperclip": ("integrations.paperclip.tools", "PAPERCLIP_TOOL_DEFS"),
+    "todoist": ("integrations.todoist.tools", "TODOIST_TOOL_DEFS"),
 }
 
 
@@ -513,8 +515,12 @@ def _stream_chat(agent: dict, messages: list, training_mode: bool, conversation_
 
     integration_tool_defs, integration_executors = _load_integration_tools()
 
-    from integrations.registry import get_tool_mode
-    integration_tool_modes = {name: get_tool_mode(name) for name in _INTEGRATION_MODULES}
+    from integrations.registry import get_tool_mode, get_credentials
+    integration_tool_modes = {
+        name: get_tool_mode(name)
+        for name in _INTEGRATION_MODULES
+        if "tool_mode" in get_credentials(name)
+    }
 
     reminder_handlers, sa_handlers = _build_agent_handlers(agent["slug"])
     registry = ToolRegistry(
@@ -581,9 +587,14 @@ async def agent_chat(agent_id: str, req: ChatRequest, user=Depends(get_current_u
         if conv and conv.get("mode") == "import":
             import_mode = True
 
+    tool_mode = req.tool_mode
+    from setup.router import load_admin_settings
+    if load_admin_settings().get("always_power_mode"):
+        tool_mode = "power"
+
     return _stream_chat(agent, req.messages, req.training_mode, req.conversation_id,
                         training_type=req.training_type, plan_mode=req.plan_mode,
-                        tool_mode=req.tool_mode, approved_tool=req.approved_tool,
+                        tool_mode=tool_mode, approved_tool=req.approved_tool,
                         import_mode=import_mode)
 
 

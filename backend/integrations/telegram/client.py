@@ -9,9 +9,15 @@ import logging
 
 import httpx
 
+from .format import markdown_to_telegram_html
+
 logger = logging.getLogger(__name__)
 
 MAX_CHUNK_LENGTH = 4096  # Telegram's message limit
+
+
+class TelegramSendError(Exception):
+    """Raised when a Telegram sendMessage call fails after all fallbacks."""
 
 
 def _base_url(bot_token: str) -> str:
@@ -21,7 +27,9 @@ def _base_url(bot_token: str) -> str:
 def send_message(chat_id: int | str, text: str, bot_token: str) -> list[dict]:
     """Send a text message to a Telegram chat.
 
-    Long messages are chunked.  Returns a list of Telegram response dicts.
+    Converts Markdown to Telegram HTML for formatting.  Falls back to plain
+    text if HTML conversion or parsing fails.  Raises ``TelegramSendError``
+    on delivery failure so callers can react.
     """
     if not bot_token:
         logger.warning("No Telegram bot token — cannot send message")
@@ -31,17 +39,28 @@ def send_message(chat_id: int | str, text: str, bot_token: str) -> list[dict]:
     results = []
     for chunk in chunks:
         try:
-            resp = httpx.post(
-                f"{_base_url(bot_token)}/sendMessage",
-                json={
-                    "chat_id": chat_id,
-                    "text": chunk,
-                    "parse_mode": "Markdown",
-                },
-                timeout=30,
-            )
-            # If Markdown parse fails, retry without parse_mode
-            if resp.status_code == 400 and "parse" in resp.text.lower():
+            html_chunk = markdown_to_telegram_html(chunk)
+        except Exception:
+            html_chunk = None
+
+        try:
+            if html_chunk and len(html_chunk) <= MAX_CHUNK_LENGTH:
+                resp = httpx.post(
+                    f"{_base_url(bot_token)}/sendMessage",
+                    json={
+                        "chat_id": chat_id,
+                        "text": html_chunk,
+                        "parse_mode": "HTML",
+                    },
+                    timeout=30,
+                )
+                if resp.status_code == 400 and "parse" in resp.text.lower():
+                    resp = httpx.post(
+                        f"{_base_url(bot_token)}/sendMessage",
+                        json={"chat_id": chat_id, "text": chunk},
+                        timeout=30,
+                    )
+            else:
                 resp = httpx.post(
                     f"{_base_url(bot_token)}/sendMessage",
                     json={"chat_id": chat_id, "text": chunk},
@@ -50,8 +69,8 @@ def send_message(chat_id: int | str, text: str, bot_token: str) -> list[dict]:
             resp.raise_for_status()
             results.append(resp.json())
         except httpx.HTTPError as e:
-            logger.error("Telegram send failed: %s", e)
-            results.append({"error": str(e)})
+            logger.error("Telegram send failed (chat_id=%s): %s", chat_id, e)
+            raise TelegramSendError(f"Failed to send to chat {chat_id}") from e
 
     return results
 
