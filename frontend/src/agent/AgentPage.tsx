@@ -62,6 +62,7 @@ export function AgentPage() {
   const [showAvatarPicker, setShowAvatarPicker] = useState(false);
   const [showSidebar, setShowSidebar] = useState(false);
   const [openaiAvailable, setOpenaiAvailable] = useState(false);
+  const [alwaysPowerMode, setAlwaysPowerMode] = useState(false);
   const isMobile = useIsMobile();
   const prevOnboardingComplete = useRef<boolean | null>(null);
 
@@ -105,6 +106,15 @@ export function AgentPage() {
       .then(d => setOpenaiAvailable(d.generate_available))
       .catch(() => {});
   }, [agentId]);
+
+  useEffect(() => {
+    api<{ always_power_mode: boolean }>('/api/setup/admin-settings')
+      .then(s => {
+        setAlwaysPowerMode(s.always_power_mode);
+        if (s.always_power_mode) chat.setToolMode('power');
+      })
+      .catch(() => {});
+  }, []);
 
   function handleStartOnboarding() {
     convs.startNewChat();
@@ -238,6 +248,7 @@ export function AgentPage() {
   }
 
   function handleToolModeChange(mode: ToolMode) {
+    if (alwaysPowerMode) return;
     if (mode === 'power') {
       if (!window.confirm(`Enable Power mode? ${agent?.agent_name || 'This agent'} will be able to read and write without asking for confirmation.`)) return;
     }
@@ -325,6 +336,7 @@ export function AgentPage() {
             <div style={{
               display: 'flex', border: '1px solid rgba(230,235,242,0.07)',
               borderRadius: 3, overflow: 'hidden', marginLeft: 8,
+              opacity: alwaysPowerMode ? 0.5 : 1,
             }}>
               {TOOL_MODES.map(m => (
                 <div
@@ -336,7 +348,7 @@ export function AgentPage() {
                     fontSize: 10, letterSpacing: '0.12em', textTransform: 'uppercase',
                     color: chat.toolMode === m.key ? '#0E1013' : 'rgba(237,240,244,0.62)',
                     background: chat.toolMode === m.key ? 'var(--color-ch-accent, #C8D1D9)' : 'transparent',
-                    cursor: 'pointer',
+                    cursor: alwaysPowerMode ? 'default' : 'pointer',
                   }}
                 >
                   {m.label}
@@ -432,9 +444,11 @@ export function AgentPage() {
             fontFamily: "'JetBrains Mono', ui-monospace, monospace",
             fontSize: 10, fontWeight: 600, letterSpacing: '0.16em',
             textTransform: 'uppercase', color: '#D97757',
-          }}>POWER MODE</span>
+          }}>POWER MODE{alwaysPowerMode ? ' (ALWAYS ON)' : ''}</span>
           <span style={{ fontSize: 12, color: 'rgba(237,240,244,0.62)' }}>
-            {agent.agent_name} can read and write without confirmation.
+            {alwaysPowerMode
+              ? 'Always power mode is enabled in Settings.'
+              : `${agent.agent_name} can read and write without confirmation.`}
           </span>
         </div>
       )}
@@ -566,6 +580,7 @@ export function AgentPage() {
               contextUsage={chat.contextUsage}
               toolMode={chat.toolMode}
               onToolModeChange={handleToolModeChange}
+              alwaysPowerMode={alwaysPowerMode}
               agentName={agent.agent_name}
               agentSlug={agent.slug}
               conversationSource={convs.conversations.find(c => c.id === convs.activeId)?.source}
