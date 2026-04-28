@@ -587,9 +587,14 @@ async def agent_chat(agent_id: str, req: ChatRequest, user=Depends(get_current_u
         if conv and conv.get("mode") == "import":
             import_mode = True
 
+    tool_mode = req.tool_mode
+    from setup.router import load_admin_settings
+    if load_admin_settings().get("always_power_mode"):
+        tool_mode = "power"
+
     return _stream_chat(agent, req.messages, req.training_mode, req.conversation_id,
                         training_type=req.training_type, plan_mode=req.plan_mode,
-                        tool_mode=req.tool_mode, approved_tool=req.approved_tool,
+                        tool_mode=tool_mode, approved_tool=req.approved_tool,
                         import_mode=import_mode)
 
 

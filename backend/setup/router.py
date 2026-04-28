@@ -20,6 +20,20 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 STATUS_FILE = Path(__file__).resolve().parent.parent / "data" / "setup-status.json"
+ADMIN_SETTINGS_FILE = Path(__file__).resolve().parent.parent / "data" / "admin-settings.json"
+
+ADMIN_DEFAULTS = {
+    "always_power_mode": False,
+}
+
+
+def load_admin_settings() -> dict:
+    if ADMIN_SETTINGS_FILE.exists():
+        try:
+            return {**ADMIN_DEFAULTS, **json.loads(ADMIN_SETTINGS_FILE.read_text(encoding="utf-8"))}
+        except Exception:
+            pass
+    return dict(ADMIN_DEFAULTS)
 
 
 def _load_status() -> dict:
@@ -79,3 +93,18 @@ async def complete_setup(user=Depends(get_current_user)):
     status["completed_at"] = int(time.time())
     _save_status(status)
     return {"ok": True}
+
+
+@router.get("/admin-settings")
+async def get_admin_settings(user=Depends(get_current_user)):
+    return load_admin_settings()
+
+
+@router.put("/admin-settings")
+async def update_admin_settings(body: dict, user=Depends(get_current_user)):
+    settings = load_admin_settings()
+    for key in ADMIN_DEFAULTS:
+        if key in body:
+            settings[key] = body[key]
+    atomic_write_json(ADMIN_SETTINGS_FILE, settings)
+    return settings
