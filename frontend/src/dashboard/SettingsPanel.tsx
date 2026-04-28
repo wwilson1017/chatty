@@ -32,6 +32,15 @@ export function SettingsPanel({ branding, onBrandingUpdate, onClose }: Props) {
   const [showToolCalls, setShowToolCalls] = useState(() =>
     localStorage.getItem('chatty_show_tool_calls') === 'true'
   );
+  const [alwaysPowerMode, setAlwaysPowerMode] = useState(false);
+
+  useEffect(() => {
+    if (tab === 'chat') {
+      api<{ always_power_mode: boolean }>('/api/setup/admin-settings')
+        .then(s => setAlwaysPowerMode(s.always_power_mode))
+        .catch(() => {});
+    }
+  }, [tab]);
 
   async function saveBranding() {
     setSaving(true);
@@ -236,6 +245,36 @@ export function SettingsPanel({ branding, onBrandingUpdate, onClose }: Props) {
                     boxShadow: '0 1px 3px rgba(0,0,0,0.3)',
                     transition: 'left 0.2s',
                     left: showToolCalls ? 22 : 2,
+                  }} />
+                </button>
+              </div>
+
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <div>
+                  <p style={{ fontSize: 14, color: '#EDF0F4', margin: 0 }}>Always power mode</p>
+                  <p style={{ fontSize: 12, color: 'rgba(237,240,244,0.38)', marginTop: 2 }}>Skip write-tool confirmations for all agents</p>
+                </div>
+                <button
+                  onClick={async () => {
+                    const next = !alwaysPowerMode;
+                    setAlwaysPowerMode(next);
+                    await api('/api/setup/admin-settings', {
+                      method: 'PUT',
+                      body: JSON.stringify({ always_power_mode: next }),
+                    });
+                  }}
+                  style={{
+                    position: 'relative', width: 44, height: 24, borderRadius: 12,
+                    background: alwaysPowerMode ? 'var(--color-ch-accent, #C8D1D9)' : 'rgba(230,235,242,0.14)',
+                    border: 'none', cursor: 'pointer', transition: 'background 0.2s',
+                  }}
+                >
+                  <span style={{
+                    position: 'absolute', top: 2, width: 20, height: 20,
+                    borderRadius: '50%', background: '#fff',
+                    boxShadow: '0 1px 3px rgba(0,0,0,0.3)',
+                    transition: 'left 0.2s',
+                    left: alwaysPowerMode ? 22 : 2,
                   }} />
                 </button>
               </div>

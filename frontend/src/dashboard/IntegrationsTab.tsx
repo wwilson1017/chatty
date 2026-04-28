@@ -20,6 +20,7 @@ const INTEGRATION_ICONS: Record<string, React.ComponentType<{ size?: number; cla
   gmail: IconMail,
   calendar: IconBook,
   paperclip: IconZap,
+  todoist: IconBook,
 };
 
 const mono = (size: number, color = 'rgba(237,240,244,0.38)') => ({
@@ -43,6 +44,7 @@ export function IntegrationsTab() {
   const [odooManualMode, setOdooManualMode] = useState(false);
   const [bambooSubdomain, setBambooSubdomain] = useState('');
   const [bambooKey, setBambooKey] = useState('');
+  const [todoistToken, setTodoistToken] = useState('');
   const [pcUrl, setPcUrl] = useState('');
   const [pcEmail, setPcEmail] = useState('');
   const [pcPassword, setPcPassword] = useState('');
@@ -202,6 +204,17 @@ export function IntegrationsTab() {
     setSaving(true); setError('');
     try {
       await api('/api/integrations/bamboohr/setup', { method: 'POST', body: JSON.stringify({ subdomain: bambooSubdomain, api_key: bambooKey }) });
+      setSetupFor(null);
+      const data = await api<{ integrations: Integration[] }>('/api/integrations');
+      setIntegrations(data.integrations);
+    } catch (err: unknown) { setError(err instanceof Error ? err.message : 'Setup failed'); }
+    finally { setSaving(false); }
+  }
+
+  async function setupTodoist() {
+    setSaving(true); setError('');
+    try {
+      await api('/api/integrations/todoist/setup', { method: 'POST', body: JSON.stringify({ api_token: todoistToken }) });
       setSetupFor(null);
       const data = await api<{ integrations: Integration[] }>('/api/integrations');
       setIntegrations(data.integrations);
@@ -815,6 +828,18 @@ export function IntegrationsTab() {
                     <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
                       <button onClick={() => setSetupFor(null)} style={{ flex: 1, padding: '8px 16px', fontSize: 13, borderRadius: 4, border: '1px solid rgba(230,235,242,0.14)', background: 'transparent', color: 'rgba(237,240,244,0.62)', cursor: 'pointer' }}>Cancel</button>
                       <button onClick={setupBambooHR} disabled={saving} style={{ flex: 1, padding: '8px 16px', fontSize: 13, borderRadius: 4, background: 'var(--color-ch-accent, #C8D1D9)', color: '#0E1013', border: 'none', cursor: 'pointer', fontWeight: 500, opacity: saving ? 0.5 : 1 }}>{saving ? 'Connecting...' : 'Connect'}</button>
+                    </div>
+                  </>
+                )}
+                {integration.id === 'todoist' && (
+                  <>
+                    <p style={{ fontSize: 12, color: 'rgba(237,240,244,0.50)', lineHeight: 1.5, marginBottom: 4 }}>
+                      Paste your Todoist API token. Find it in Todoist &rarr; Settings &rarr; Integrations &rarr; Developer.
+                    </p>
+                    <input placeholder="Todoist API token" type="password" value={todoistToken} onChange={e => setTodoistToken(e.target.value)} style={inputStyle} />
+                    <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
+                      <button onClick={() => setSetupFor(null)} style={{ flex: 1, padding: '8px 16px', fontSize: 13, borderRadius: 4, border: '1px solid rgba(230,235,242,0.14)', background: 'transparent', color: 'rgba(237,240,244,0.62)', cursor: 'pointer' }}>Cancel</button>
+                      <button onClick={setupTodoist} disabled={saving || !todoistToken.trim()} style={{ flex: 1, padding: '8px 16px', fontSize: 13, borderRadius: 4, background: 'var(--color-ch-accent, #C8D1D9)', color: '#0E1013', border: 'none', cursor: 'pointer', fontWeight: 500, opacity: saving || !todoistToken.trim() ? 0.5 : 1 }}>{saving ? 'Connecting...' : 'Connect'}</button>
                     </div>
                   </>
                 )}
