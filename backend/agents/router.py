@@ -515,8 +515,12 @@ def _stream_chat(agent: dict, messages: list, training_mode: bool, conversation_
 
     integration_tool_defs, integration_executors = _load_integration_tools()
 
-    from integrations.registry import get_tool_mode
-    integration_tool_modes = {name: get_tool_mode(name) for name in _INTEGRATION_MODULES}
+    from integrations.registry import get_tool_mode, get_credentials
+    integration_tool_modes = {
+        name: get_tool_mode(name)
+        for name in _INTEGRATION_MODULES
+        if "tool_mode" in get_credentials(name)
+    }
 
     reminder_handlers, sa_handlers = _build_agent_handlers(agent["slug"])
     registry = ToolRegistry(

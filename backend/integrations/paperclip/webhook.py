@@ -169,7 +169,12 @@ async def handle_heartbeat(request: Request):
         integration_tool_defs, integration_executors = _load_integration_tools()
 
         # Force Paperclip writes to "power" — no approval UI in headless mode
-        integration_tool_modes = {name: get_tool_mode(name) for name in _INTEGRATION_MODULES}
+        from integrations.registry import get_credentials as _get_creds
+        integration_tool_modes = {
+            name: get_tool_mode(name)
+            for name in _INTEGRATION_MODULES
+            if "tool_mode" in _get_creds(name)
+        }
         integration_tool_modes["paperclip"] = "power"
 
         reminder_handlers, sa_handlers = _build_agent_handlers(slug)
