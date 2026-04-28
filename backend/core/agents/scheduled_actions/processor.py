@@ -21,6 +21,8 @@ from . import history, notifications, service
 
 logger = logging.getLogger(__name__)
 
+_BG_TURN_ERRORS = frozenset({"(no response)", "(max iterations reached)"})
+
 _MAX_WORKERS = int(os.environ.get("SCHEDULED_ACTION_WORKERS", "4"))
 _executor = ThreadPoolExecutor(max_workers=_MAX_WORKERS, thread_name_prefix="heartbeat")
 
@@ -94,7 +96,7 @@ def process_due_actions() -> None:
             service.mark_executed(action["id"], "error", "auto-disabled: consecutive_errors >= 5", 0, lease_id=lease_id)
             continue
 
-        if not action.get("always_on") and not _in_active_hours(action):
+        if not _within_active_hours(action):
             service.release_lease(action["id"], lease_id, advance_next_run=True)
             continue
 
@@ -114,23 +116,27 @@ def process_due_actions() -> None:
         )
 
 
-def _in_active_hours(action: dict) -> bool:
-    tz_name = action.get("active_hours_tz", "America/Chicago")
+def _within_active_hours(action: dict) -> bool:
+    if action.get("always_on"):
+        return True
+
+    start_str = action.get("active_hours_start")
+    end_str = action.get("active_hours_end")
+    if not start_str or not end_str:
+        return True
+
+    tz_name = action.get("active_hours_tz") or "America/Chicago"
     try:
         tz = ZoneInfo(tz_name)
     except Exception:
-        tz = ZoneInfo("America/Chicago")
+        return True
 
     now = datetime.now(tz)
-    start_str = action.get("active_hours_start", "06:00")
-    end_str = action.get("active_hours_end", "20:00")
-
     try:
         start_h, start_m = map(int, str(start_str).split(":"))
         end_h, end_m = map(int, str(end_str).split(":"))
     except (ValueError, TypeError):
-        start_h, start_m = 6, 0
-        end_h, end_m = 20, 0
+        return True
 
     current_minutes = now.hour * 60 + now.minute
     start_minutes = start_h * 60 + start_m
@@ -241,48 +247,74 @@ def _process_heartbeat(action: dict) -> None:
         # Optional triage pass
         triage_data = None
         if action.get("triage_enabled", 1):
-            triage_result = run_background_turn(
-                system_prompt=(
-                    f"You are {agent['agent_name']}.\n\n"
-                    f"# Quick Heartbeat Triage\n\n"
-                    f"Quickly check the following items using your tools. "
-                    f"Respond with ONLY one of:\n"
-                    f"- NEEDS_ACTION: <brief reason>\n"
-                    f"- ALL_CLEAR\n\n"
-                    f"## Checklist\n\n{checklist}\n"
-                ),
-                user_message="Quick triage check — anything need attention?",
-                tool_defs=tool_defs,
-                registry=registry,
-                max_iterations=2,
-                provider_override=provider_override,
-                model_override=model_override,
-            )
-            triage_data = {
-                "result": "NEEDS_ACTION" if "NEEDS_ACTION" in triage_result.text.upper() else "ALL_CLEAR",
-                "model": triage_result.model_used,
-                "input_tokens": triage_result.input_tokens,
-                "output_tokens": triage_result.output_tokens,
-            }
-            if not triage_result.error and "NEEDS_ACTION" not in triage_result.text.upper():
-                duration_ms = int((time.monotonic() - start_time) * 1000)
-                completed = service.mark_executed(
-                    action["id"], "ok", "Triage: all clear", duration_ms,
-                    triage_result.input_tokens, triage_result.output_tokens, lease_id=lease_id,
+            triage_result = None
+            try:
+                triage_result = run_background_turn(
+                    system_prompt=(
+                        f"You are {agent['agent_name']}.\n\n"
+                        f"# Quick Heartbeat Triage\n\n"
+                        f"Quickly check the following items using your tools. "
+                        f"Respond with ONLY one of:\n"
+                        f"- NEEDS_ACTION: <brief reason>\n"
+                        f"- ALL_CLEAR\n\n"
+                        f"## Checklist\n\n{checklist}\n"
+                    ),
+                    user_message="Quick triage check — anything need attention?",
+                    tool_defs=tool_defs,
+                    registry=registry,
+                    max_iterations=2,
+                    provider_override=provider_override,
+                    model_override=model_override,
                 )
-                if completed and execution_id:
-                    history.record_complete(
-                        execution_id, status="ok",
-                        result_summary="Triage: all clear",
-                        result_full="Triage returned ALL_CLEAR — skipping full check.",
-                        tool_calls=[{"triage": triage_data}],
-                        model_used=triage_result.model_used,
-                        input_tokens=triage_result.input_tokens,
-                        output_tokens=triage_result.output_tokens,
-                        duration_ms=duration_ms,
-                    )
-                logger.info("Heartbeat %s: triage ALL_CLEAR (%dms)", agent_slug, duration_ms)
-                return
+            except Exception as e:
+                logger.warning("Triage failed for %s, proceeding to full check: %s",
+                               agent_slug, e)
+
+            if triage_result is not None:
+                if triage_result.error:
+                    logger.warning("Triage returned error for %s: %s", agent_slug,
+                                   triage_result.text[:100])
+                    triage_data = {
+                        "result": "ERROR",
+                        "model": triage_result.model_used,
+                        "input_tokens": triage_result.input_tokens,
+                        "output_tokens": triage_result.output_tokens,
+                    }
+                else:
+                    triage_data = {
+                        "result": "NEEDS_ACTION" if "NEEDS_ACTION" in triage_result.text.upper() else "ALL_CLEAR",
+                        "model": triage_result.model_used,
+                        "input_tokens": triage_result.input_tokens,
+                        "output_tokens": triage_result.output_tokens,
+                    }
+                    if "NEEDS_ACTION" not in triage_result.text.upper():
+                        duration_ms = int((time.monotonic() - start_time) * 1000)
+                        completed = service.mark_executed(
+                            action["id"], "ok", "Triage: all clear", duration_ms,
+                            triage_result.input_tokens, triage_result.output_tokens, lease_id=lease_id,
+                        )
+                        if completed:
+                            if execution_id:
+                                history.record_complete(
+                                    execution_id, status="ok",
+                                    result_summary="Triage: all clear",
+                                    result_full="Triage returned ALL_CLEAR — skipping full check.",
+                                    tool_calls=[{"triage": triage_data}],
+                                    model_used=triage_result.model_used,
+                                    input_tokens=triage_result.input_tokens,
+                                    output_tokens=triage_result.output_tokens,
+                                    duration_ms=duration_ms,
+                                )
+                            logger.info("Heartbeat %s: triage ALL_CLEAR (%dms)", agent_slug, duration_ms)
+                        else:
+                            logger.warning("Heartbeat %s: triage lease lost", agent_slug)
+                            if execution_id:
+                                history.record_complete(
+                                    execution_id, status="lease_lost",
+                                    result_summary="Triage: lease expired before completion",
+                                    duration_ms=duration_ms,
+                                )
+                        return
 
         # Full execution
         system_prompt = (
@@ -310,7 +342,7 @@ def _process_heartbeat(action: dict) -> None:
         duration_ms = int((time.monotonic() - start_time) * 1000)
 
         # Classification
-        if result.error:
+        if result.error or result.text in _BG_TURN_ERRORS:
             status = "error"
         elif "HEARTBEAT_OK" in result.text.upper():
             status = "ok"
@@ -329,6 +361,12 @@ def _process_heartbeat(action: dict) -> None:
 
         if not completed:
             logger.warning("Heartbeat %s: lease lost — discarding result", agent_slug)
+            if execution_id:
+                history.record_complete(
+                    execution_id, status="lease_lost",
+                    result_summary="Lease expired before completion",
+                    duration_ms=duration_ms,
+                )
             return
 
         notified = notifications.evaluate_and_notify(action, status, result.text[:300], agent_slug)
@@ -350,9 +388,21 @@ def _process_heartbeat(action: dict) -> None:
     except Exception as e:
         duration_ms = int((time.monotonic() - start_time) * 1000)
         logger.error("Heartbeat %s failed: %s", agent_slug, e)
-        service.mark_executed(action["id"], "error", str(e)[:2000], duration_ms, lease_id=lease_id)
-        if execution_id:
-            history.record_complete(execution_id, status="error", result_summary=str(e)[:500], result_full=str(e), duration_ms=duration_ms)
+        completed = service.mark_executed(action["id"], "error", str(e)[:2000], duration_ms, lease_id=lease_id)
+        if not completed:
+            if execution_id:
+                history.record_complete(
+                    execution_id, status="lease_lost",
+                    result_summary="Lease expired before error could be recorded",
+                    duration_ms=duration_ms,
+                )
+        else:
+            if execution_id:
+                history.record_complete(
+                    execution_id, status="error",
+                    result_summary=str(e)[:500], result_full=str(e),
+                    duration_ms=duration_ms,
+                )
 
 
 def _process_cron(action: dict) -> None:
@@ -410,12 +460,21 @@ def _process_cron(action: dict) -> None:
         )
         duration_ms = int((time.monotonic() - start_time) * 1000)
 
-        status = "error" if result.error else "ok"
+        status = "error" if result.error or result.text in _BG_TURN_ERRORS else "ok"
         completed = service.mark_executed(
             action["id"], status, result.text[:2000], duration_ms,
             result.input_tokens, result.output_tokens, lease_id=lease_id,
         )
-        if completed and execution_id:
+        if not completed:
+            logger.warning("Cron %s/%s: lease lost — discarding result", agent_slug, action["id"][:8])
+            if execution_id:
+                history.record_complete(
+                    execution_id, status="lease_lost",
+                    result_summary="Lease expired before completion",
+                    duration_ms=duration_ms,
+                )
+            return
+        if execution_id:
             history.record_complete(
                 execution_id, status=status,
                 result_summary=result.text[:500],
@@ -430,9 +489,21 @@ def _process_cron(action: dict) -> None:
     except Exception as e:
         duration_ms = int((time.monotonic() - start_time) * 1000)
         logger.error("Cron %s failed: %s", agent_slug, e)
-        service.mark_executed(action["id"], "error", str(e)[:2000], duration_ms, lease_id=lease_id)
-        if execution_id:
-            history.record_complete(execution_id, status="error", result_summary=str(e)[:500], result_full=str(e), duration_ms=duration_ms)
+        completed = service.mark_executed(action["id"], "error", str(e)[:2000], duration_ms, lease_id=lease_id)
+        if not completed:
+            if execution_id:
+                history.record_complete(
+                    execution_id, status="lease_lost",
+                    result_summary="Lease expired before error could be recorded",
+                    duration_ms=duration_ms,
+                )
+        else:
+            if execution_id:
+                history.record_complete(
+                    execution_id, status="error",
+                    result_summary=str(e)[:500], result_full=str(e),
+                    duration_ms=duration_ms,
+                )
 
 
 def _is_effectively_empty(content: str) -> bool:
