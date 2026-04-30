@@ -20,6 +20,10 @@ export function SettingsPanel({ branding, onBrandingUpdate, onClose }: Props) {
   const [tab, setTab] = useState<Tab>('providers');
   const [deleteAgent, setDeleteAgent] = useState<Agent | null>(null);
   const [dangerAgents, setDangerAgents] = useState<Agent[]>([]);
+  const [crmConfirm, setCrmConfirm] = useState('');
+  const [crmClearing, setCrmClearing] = useState(false);
+  const [crmCleared, setCrmCleared] = useState(false);
+  const [crmError, setCrmError] = useState('');
 
   useEffect(() => {
     if (tab === 'danger') {
@@ -342,6 +346,87 @@ export function SettingsPanel({ branding, onBrandingUpdate, onClose }: Props) {
                       </div>
                     ))}
                   </div>
+                )}
+              </div>
+
+              {/* Clear CRM data */}
+              <div style={{ borderTop: '1px solid rgba(230,235,242,0.07)', paddingTop: 24 }}>
+                <h3 style={{
+                  fontFamily: "'JetBrains Mono', ui-monospace, monospace",
+                  fontSize: 9, letterSpacing: '0.16em', textTransform: 'uppercase',
+                  color: 'rgba(237,240,244,0.38)', marginBottom: 12,
+                }}>Clear CRM data</h3>
+
+                {crmCleared ? (
+                  <p style={{ fontSize: 13, color: 'rgba(142,165,137,0.9)', margin: 0 }}>
+                    All CRM data has been cleared.
+                  </p>
+                ) : (
+                  <>
+                    <p style={{ fontSize: 13, color: 'rgba(237,240,244,0.52)', margin: '0 0 12px', lineHeight: 1.5 }}>
+                      Delete all contacts, deals, tasks, and activity from the CRM. This cannot be undone.
+                    </p>
+                    <div style={{
+                      background: 'rgba(217,119,87,0.08)',
+                      border: '1px solid rgba(217,119,87,0.2)',
+                      borderRadius: 6, padding: '10px 14px', marginBottom: 12,
+                    }}>
+                      <p style={{ fontSize: 12, color: '#D97757', margin: 0, lineHeight: 1.5 }}>
+                        Type <strong style={{
+                          fontFamily: "'JetBrains Mono', ui-monospace, monospace",
+                          background: 'rgba(217,119,87,0.12)',
+                          padding: '1px 6px', borderRadius: 3,
+                        }}>clear crm</strong> to confirm.
+                      </p>
+                    </div>
+                    <div style={{ display: 'flex', gap: 8 }}>
+                      <input
+                        type="text"
+                        value={crmConfirm}
+                        onChange={e => setCrmConfirm(e.target.value)}
+                        placeholder="clear crm"
+                        autoComplete="off"
+                        style={{
+                          flex: 1, boxSizing: 'border-box',
+                          background: 'rgba(20,24,30,0.78)',
+                          border: '1px solid rgba(230,235,242,0.14)',
+                          color: '#EDF0F4', borderRadius: 4,
+                          padding: '8px 14px', fontSize: 13, outline: 'none',
+                          fontFamily: "'Inter Tight', system-ui, sans-serif",
+                        }}
+                      />
+                      <button
+                        disabled={crmClearing || crmConfirm.toLowerCase() !== 'clear crm'}
+                        onClick={async () => {
+                          setCrmClearing(true);
+                          setCrmError('');
+                          try {
+                            await api('/api/crm/clear-all', {
+                              method: 'POST',
+                              body: JSON.stringify({ confirmation: 'clear crm' }),
+                            });
+                            setCrmCleared(true);
+                            setTimeout(() => window.location.reload(), 1500);
+                          } catch (err: unknown) {
+                            setCrmError(err instanceof Error ? err.message : 'Failed to clear CRM data');
+                          } finally {
+                            setCrmClearing(false);
+                          }
+                        }}
+                        style={{
+                          padding: '8px 16px', borderRadius: 4,
+                          background: crmConfirm.toLowerCase() === 'clear crm' ? '#D97757' : 'rgba(217,119,87,0.3)',
+                          color: crmConfirm.toLowerCase() === 'clear crm' ? '#0E1013' : 'rgba(14,16,19,0.5)',
+                          border: 'none', fontWeight: 500, fontSize: 13,
+                          cursor: crmConfirm.toLowerCase() === 'clear crm' ? 'pointer' : 'default',
+                          fontFamily: "'Inter Tight', system-ui, sans-serif",
+                          transition: 'background 0.15s, color 0.15s',
+                          whiteSpace: 'nowrap',
+                        }}
+                      >{crmClearing ? 'Clearing...' : 'Clear all'}</button>
+                    </div>
+                    {crmError && <p style={{ color: '#D97757', fontSize: 13, marginTop: 8 }}>{crmError}</p>}
+                  </>
                 )}
               </div>
             </div>
