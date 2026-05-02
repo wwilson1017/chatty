@@ -90,8 +90,9 @@ async def lifespan(app: FastAPI):
     from integrations.crm_lite.db import init_db as init_crm_db
     _safe_init("crm_lite", init_crm_db)
 
-    from integrations.registry import is_enabled as integration_enabled, ensure_crm_active
+    from integrations.registry import is_enabled as integration_enabled, ensure_crm_active, migrate_google_json
     ensure_crm_active()
+    migrate_google_json()
 
     if integration_enabled("qb_csv"):
         from integrations.qb_csv.db import init_db as init_qb_csv_db

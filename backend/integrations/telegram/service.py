@@ -179,8 +179,11 @@ async def process_message(
     if not provider:
         return "No AI provider is configured. Please set up an AI provider in Settings."
 
-    from integrations.registry import is_enabled as _is_enabled
-    google_connected = _is_enabled("google")
+    ga = config.google_accounts
+    gmail_account_id = ga.get("gmail", "")
+    calendar_account_id = ga.get("calendar", "")
+    drive_account_id = ga.get("drive", "")
+    google_connected = bool(gmail_account_id or calendar_account_id or drive_account_id)
 
     integration_tool_defs, integration_executors = _load_integration_tools()
 
@@ -195,6 +198,9 @@ async def process_message(
         agent_slug=slug,
         reminder_handlers=reminder_handlers,
         scheduled_action_handlers=sa_handlers,
+        gmail_account_id=gmail_account_id,
+        calendar_account_id=calendar_account_id,
+        drive_account_id=drive_account_id,
     )
 
     # 5. Get/create Telegram conversation for multi-turn context
@@ -264,8 +270,11 @@ async def process_group_message(
     if not provider:
         return "No AI provider is configured. Please set up an AI provider in Settings."
 
-    from integrations.registry import is_enabled as _is_enabled
-    google_connected = _is_enabled("google")
+    ga = config.google_accounts
+    gmail_account_id = ga.get("gmail", "")
+    calendar_account_id = ga.get("calendar", "")
+    drive_account_id = ga.get("drive", "")
+    google_connected = bool(gmail_account_id or calendar_account_id or drive_account_id)
 
     integration_tool_defs, integration_executors = _load_integration_tools()
 
@@ -280,6 +289,9 @@ async def process_group_message(
         agent_slug=slug,
         reminder_handlers=reminder_handlers,
         scheduled_action_handlers=sa_handlers,
+        gmail_account_id=gmail_account_id,
+        calendar_account_id=calendar_account_id,
+        drive_account_id=drive_account_id,
     )
 
     group_sender_id = f"group:{chat_id}"

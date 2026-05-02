@@ -196,6 +196,7 @@ class UpdateAgentRequest(BaseModel):
     calendar_write_enabled: bool | None = None
     drive_enabled: bool | None = None
     drive_write_enabled: bool | None = None
+    google_accounts: dict | None = None
     telegram_enabled: bool | None = None
     telegram_group_enabled: bool | None = None
     telegram_respond_to_bots: bool | None = None
@@ -295,9 +296,30 @@ async def get_agent(agent_id: str, user=Depends(get_current_user)):
 @router.put("/{agent_id}")
 async def update_agent(agent_id: str, body: UpdateAgentRequest, user=Depends(get_current_user)):
     """Update agent settings."""
+    import json as _json
     updates = {k: v for k, v in body.model_dump().items() if v is not None}
     if not updates:
         raise HTTPException(status_code=400, detail="No fields to update")
+
+    if "google_accounts" in updates:
+        ga = updates["google_accounts"]
+        _ALLOWED_GA_KEYS = {"gmail", "calendar", "drive"}
+        if not isinstance(ga, dict) or not set(ga.keys()).issubset(_ALLOWED_GA_KEYS):
+            raise HTTPException(status_code=400, detail="google_accounts keys must be a subset of {gmail, calendar, drive}")
+        if not all(isinstance(v, str) for v in ga.values()):
+            raise HTTPException(status_code=400, detail="google_accounts values must be strings")
+        from integrations.registry import list_google_accounts
+        existing = list_google_accounts()
+        for svc, acct_id in ga.items():
+            if not acct_id:
+                continue
+            if acct_id not in existing:
+                raise HTTPException(status_code=400, detail=f"Invalid Google account assignment for {svc}")
+            grants = existing[acct_id].get("scope_grants", {})
+            if grants.get(svc, "none") == "none":
+                raise HTTPException(status_code=400, detail=f"Invalid Google account assignment for {svc}")
+        updates["google_accounts"] = _json.dumps(ga)
+
     for field in (
         "onboarding_complete",
         "gmail_enabled", "gmail_send_enabled",
@@ -508,8 +530,11 @@ def _stream_chat(agent: dict, messages: list, training_mode: bool, conversation_
     if not provider:
         raise HTTPException(status_code=400, detail="No AI provider configured")
 
-    from integrations.registry import is_enabled as _is_enabled
-    google_connected = _is_enabled("google")
+    ga = config.google_accounts
+    gmail_account_id = ga.get("gmail", "")
+    calendar_account_id = ga.get("calendar", "")
+    drive_account_id = ga.get("drive", "")
+    google_connected = bool(gmail_account_id or calendar_account_id or drive_account_id)
 
     integration_tool_defs, integration_executors = _load_integration_tools()
 
@@ -521,6 +546,9 @@ def _stream_chat(agent: dict, messages: list, training_mode: bool, conversation_
         context_dir=config.context_dir,
         gcs_prefix=config.gcs_prefix,
         google_connected=google_connected,
+        gmail_account_id=gmail_account_id,
+        calendar_account_id=calendar_account_id,
+        drive_account_id=drive_account_id,
         integration_executors=integration_executors,
         agent_slug=agent["slug"],
         agent_name=config.agent_name,
@@ -921,8 +949,11 @@ async def tool_execute(agent_id: str, req: ToolExecuteRequest, user=Depends(get_
     config = build_agent_config(agent)
 
     store = CredentialStore()
-    from integrations.registry import is_enabled as _is_enabled
-    google_connected = _is_enabled("google")
+    ga = config.google_accounts
+    gmail_account_id = ga.get("gmail", "")
+    calendar_account_id = ga.get("calendar", "")
+    drive_account_id = ga.get("drive", "")
+    google_connected = bool(gmail_account_id or calendar_account_id or drive_account_id)
 
     integration_tool_defs, integration_executors = _load_integration_tools()
     reminder_handlers, sa_handlers = _build_agent_handlers(agent["slug"])
@@ -931,6 +962,9 @@ async def tool_execute(agent_id: str, req: ToolExecuteRequest, user=Depends(get_
         context_dir=config.context_dir,
         gcs_prefix=config.gcs_prefix,
         google_connected=google_connected,
+        gmail_account_id=gmail_account_id,
+        calendar_account_id=calendar_account_id,
+        drive_account_id=drive_account_id,
         integration_executors=integration_executors,
         agent_slug=agent["slug"],
         reminder_handlers=reminder_handlers,
@@ -939,10 +973,17 @@ async def tool_execute(agent_id: str, req: ToolExecuteRequest, user=Depends(get_
 
     from core.agents.tool_definitions import get_tool_definitions, build_writes_map
     from integrations.google.policy import google_capabilities
-    google_caps = google_capabilities()
+    gmail_caps = google_capabilities(gmail_account_id)
+    cal_caps = google_capabilities(calendar_account_id)
+    drive_caps = google_capabilities(drive_account_id)
     tool_defs = get_tool_definitions(
         integration_tools=integration_tool_defs,
-        **google_caps,
+        gmail_read_enabled=gmail_caps["gmail_read_enabled"],
+        gmail_send_enabled=gmail_caps["gmail_send_enabled"],
+        calendar_read_enabled=cal_caps["calendar_read_enabled"],
+        calendar_write_enabled=cal_caps["calendar_write_enabled"],
+        drive_read_enabled=drive_caps["drive_read_enabled"],
+        drive_write_enabled=drive_caps["drive_write_enabled"],
     )
     writes_map = build_writes_map(tool_defs)
     if not writes_map.get(req.tool, False):
