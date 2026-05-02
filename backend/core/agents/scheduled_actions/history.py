@@ -85,7 +85,7 @@ def get_history(
         params.append(action_id)
     if status_filter:
         if status_filter == "action_taken":
-            query += " AND status NOT IN ('ok', 'skipped', 'running')"
+            query += " AND status NOT IN ('ok', 'skipped', 'running', 'lease_lost')"
         else:
             query += " AND status = ?"
             params.append(status_filter)

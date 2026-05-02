@@ -93,7 +93,8 @@ async def update_action(action_id: str, body: UpdateActionRequest, user=Depends(
 async def delete_action(action_id: str, user=Depends(get_current_user)):
     result = service.delete_action(action_id)
     if "error" in result:
-        raise HTTPException(status_code=404, detail=result["error"])
+        status = 404 if "not found" in result["error"].lower() else 409
+        raise HTTPException(status_code=status, detail=result["error"])
     return result
 
 
