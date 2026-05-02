@@ -614,6 +614,7 @@ def ensure_default_actions(agent_slug: str) -> None:
 def ensure_default_actions_all() -> None:
     """Ensure all onboarded agents have default actions. Called by sweeper/startup."""
     try:
+        _run_one_time_migrations()
         from agents.db import list_agents
         agents = list_agents()
         for agent in agents:
@@ -621,6 +622,48 @@ def ensure_default_actions_all() -> None:
                 ensure_default_actions(agent["slug"])
     except Exception as e:
         logger.debug("ensure_default_actions_all: %s", e)
+
+
+_MIGRATION_V2_DONE = False
+
+
+def _run_one_time_migrations() -> None:
+    """One-time fixups for existing deployments after the heartbeat overhaul.
+
+    - Re-enables actions that were auto-disabled under the old 5-error threshold
+    - Resets consecutive_errors so they get a fresh start with working tools
+    - Bumps max_tool_iterations from 5 to 10 for actions still at the old default
+    """
+    global _MIGRATION_V2_DONE
+    if _MIGRATION_V2_DONE:
+        return
+    _MIGRATION_V2_DONE = True
+
+    conn = db.get_db()
+    now = _now_utc()
+
+    with db.write_lock():
+        re_enabled = conn.execute(
+            """UPDATE scheduled_actions SET
+               enabled = 1, consecutive_errors = 0, updated_at = ?
+               WHERE enabled = 0 AND consecutive_errors >= 5 AND consecutive_errors < ?""",
+            (now, AUTO_DISABLE_THRESHOLD),
+        ).rowcount
+
+        bumped = conn.execute(
+            """UPDATE scheduled_actions SET
+               max_tool_iterations = 10, updated_at = ?
+               WHERE max_tool_iterations = 5""",
+            (now,),
+        ).rowcount
+
+        if re_enabled or bumped:
+            conn.commit()
+            logger.info(
+                "One-time migration: re-enabled %d actions (old threshold), "
+                "bumped max_tool_iterations on %d actions",
+                re_enabled, bumped,
+            )
 
 
 def get_heartbeat_stats() -> dict:
