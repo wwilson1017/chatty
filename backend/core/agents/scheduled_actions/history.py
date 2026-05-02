@@ -122,6 +122,27 @@ def get_execution(execution_id: str) -> dict | None:
     return d
 
 
+def get_recent_errors(agent: str, action_id: str | None = None, limit: int = 3) -> list[dict]:
+    conn = db.get_db()
+    if action_id:
+        rows = conn.execute(
+            """SELECT started_at, status, result_summary, action_type
+               FROM execution_history
+               WHERE agent = ? AND action_id = ? AND status = 'error'
+               ORDER BY started_at DESC LIMIT ?""",
+            (agent, action_id, limit),
+        ).fetchall()
+    else:
+        rows = conn.execute(
+            """SELECT started_at, status, result_summary, action_type
+               FROM execution_history
+               WHERE agent = ? AND status = 'error'
+               ORDER BY started_at DESC LIMIT ?""",
+            (agent, limit),
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
 def cleanup_old(retention_days: int = 7) -> int:
     conn = db.get_db()
     cutoff = (datetime.now(timezone.utc) - timedelta(days=retention_days)).strftime(

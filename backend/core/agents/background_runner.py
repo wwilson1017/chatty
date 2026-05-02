@@ -9,6 +9,7 @@ import asyncio
 import json
 import logging
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
 
 from core.providers import get_ai_provider
@@ -36,6 +37,7 @@ async def _run_turn(
     max_iterations: int = 5,
     model_override: str | None = None,
     provider_override: str | None = None,
+    on_iteration: Callable[[int], bool] | None = None,
 ) -> BackgroundResult:
     """Run a single AI turn asynchronously, executing tools as needed."""
     store = CredentialStore()
@@ -65,7 +67,18 @@ async def _run_turn(
     total_input_tokens = 0
     total_output_tokens = 0
 
-    for _ in range(max_iterations):
+    for iteration in range(max_iterations):
+        if on_iteration is not None and iteration > 0:
+            if not on_iteration(iteration):
+                return BackgroundResult(
+                    text="(lease lost -- aborted)",
+                    input_tokens=total_input_tokens,
+                    output_tokens=total_output_tokens,
+                    model_used=model_used,
+                    tool_log=tool_log,
+                    error=True,
+                )
+
         tool_calls_this_turn = []
         turn_text = ""
 
@@ -158,6 +171,7 @@ def run_background_turn(
     max_iterations: int = 5,
     model_override: str | None = None,
     provider_override: str | None = None,
+    on_iteration: Callable[[int], bool] | None = None,
 ) -> BackgroundResult:
     """Synchronous wrapper for running a background AI turn.
 
@@ -174,11 +188,13 @@ def run_background_turn(
             future = pool.submit(
                 asyncio.run,
                 _run_turn(system_prompt, user_message, tool_defs, registry,
-                          max_iterations, model_override, provider_override)
+                          max_iterations, model_override, provider_override,
+                          on_iteration)
             )
             return future.result(timeout=300)
     else:
         return asyncio.run(
             _run_turn(system_prompt, user_message, tool_defs, registry,
-                      max_iterations, model_override, provider_override)
+                      max_iterations, model_override, provider_override,
+                      on_iteration)
         )

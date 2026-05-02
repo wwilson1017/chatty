@@ -4,6 +4,7 @@ import type { Agent, BrandingConfig } from '../core/types';
 import { ProviderSetup } from '../setup/ProviderSetup';
 import { IntegrationsTab } from './IntegrationsTab';
 import { DataTab } from './DataTab';
+import { LogsTab } from './LogsTab';
 import { SecurityTab } from './SecurityTab';
 import { DeleteAgentModal } from './DeleteAgentModal';
 import { AgentMark } from '../shared/AgentMark';
@@ -14,7 +15,7 @@ interface Props {
   onClose: () => void;
 }
 
-type Tab = 'providers' | 'branding' | 'integrations' | 'chat' | 'data' | 'security' | 'danger';
+type Tab = 'providers' | 'branding' | 'integrations' | 'chat' | 'data' | 'logs' | 'security' | 'danger';
 
 export function SettingsPanel({ branding, onBrandingUpdate, onClose }: Props) {
   const [tab, setTab] = useState<Tab>('providers');
@@ -78,6 +79,7 @@ export function SettingsPanel({ branding, onBrandingUpdate, onClose }: Props) {
     { id: 'integrations', label: 'Integrations' },
     { id: 'chat', label: 'Chat' },
     { id: 'data', label: 'Data' },
+    { id: 'logs', label: 'Logs' },
     { id: 'security', label: 'Security' },
     { id: 'danger', label: 'Danger' },
   ];
@@ -286,6 +288,8 @@ export function SettingsPanel({ branding, onBrandingUpdate, onClose }: Props) {
           )}
 
           {tab === 'data' && <DataTab />}
+
+          {tab === 'logs' && <LogsTab />}
 
           {tab === 'security' && <SecurityTab />}
 

@@ -46,6 +46,8 @@ def _cleanup_context_usage(retention_days: int = 90) -> int:
 
 
 def _fix_next_run_drift() -> int:
+    from core.agents.scheduled_actions import service
+
     conn = db.get_db()
     cutoff = (datetime.now(timezone.utc) - timedelta(hours=1)).strftime("%Y-%m-%dT%H:%M:%S")
     now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S")
@@ -68,6 +70,32 @@ def _fix_next_run_drift() -> int:
                 (new_next, now, row["id"]),
             )
             fixed += 1
+            logger.info("Sweeper: reset drifted next_run for interval action %s", row["id"][:8])
+
+        if fixed:
+            conn.commit()
+
+        cron_rows = conn.execute(
+            """SELECT * FROM scheduled_actions
+               WHERE enabled = 1 AND next_run IS NOT NULL AND next_run < ?
+               AND schedule_type = 'cron'
+               AND (lease_id IS NULL OR leased_until <= ?)""",
+            (cutoff, now),
+        ).fetchall()
+
+        for row in cron_rows:
+            try:
+                action = dict(row)
+                new_next = service.compute_next_run(action)
+                if new_next:
+                    conn.execute(
+                        "UPDATE scheduled_actions SET next_run = ?, updated_at = ? WHERE id = ?",
+                        (new_next, now, row["id"]),
+                    )
+                    fixed += 1
+                    logger.info("Sweeper: reset drifted next_run for cron action %s", row["id"][:8])
+            except Exception as e:
+                logger.warning("Sweeper: failed to fix cron drift for %s: %s", row["id"][:8], e)
 
         if fixed:
             conn.commit()

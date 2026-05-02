@@ -29,6 +29,23 @@ class UpdateActionRequest(BaseModel):
 
 # -- Static routes (must come before /{agent_slug} to avoid capture) ------
 
+_VALID_LOG_STATUSES = {"ok", "error", "action_taken", "skipped", "running", "lease_lost"}
+
+
+@router.get("/logs")
+async def get_system_logs(
+    limit: int = Query(100, ge=1, le=500),
+    offset: int = Query(0, ge=0),
+    status: str | None = None,
+    user=Depends(get_current_user),
+):
+    if status and status not in _VALID_LOG_STATUSES:
+        raise HTTPException(status_code=400, detail=f"Invalid status filter: {status}")
+    from . import history
+    records = history.get_history(limit=limit, offset=offset, status_filter=status)
+    return {"logs": records}
+
+
 @router.get("/dashboard")
 async def get_dashboard(user=Depends(get_current_user)):
     actions = service.list_actions()
