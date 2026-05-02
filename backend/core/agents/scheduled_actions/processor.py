@@ -101,7 +101,7 @@ def process_due_actions() -> None:
             _mark_and_alert(action, "error", f"auto-disabled: consecutive_errors >= {service.AUTO_DISABLE_THRESHOLD}", 0, lease_id=lease_id, agent_slug=action["agent"])
             continue
 
-        if not action.get("always_on") and not _in_active_hours(action):
+        if not _within_active_hours(action):
             service.release_lease(action["id"], lease_id, advance_next_run=True)
             continue
 
@@ -123,23 +123,27 @@ def process_due_actions() -> None:
 
 # -- Helpers ---------------------------------------------------------------
 
-def _in_active_hours(action: dict) -> bool:
-    tz_name = action.get("active_hours_tz", "America/Chicago")
+def _within_active_hours(action: dict) -> bool:
+    if action.get("always_on"):
+        return True
+
+    start_str = action.get("active_hours_start")
+    end_str = action.get("active_hours_end")
+    if not start_str or not end_str:
+        return True
+
+    tz_name = action.get("active_hours_tz") or "America/Chicago"
     try:
         tz = ZoneInfo(tz_name)
     except Exception:
-        tz = ZoneInfo("America/Chicago")
+        return True
 
     now = datetime.now(tz)
-    start_str = action.get("active_hours_start", "06:00")
-    end_str = action.get("active_hours_end", "20:00")
-
     try:
         start_h, start_m = map(int, str(start_str).split(":"))
         end_h, end_m = map(int, str(end_str).split(":"))
     except (ValueError, TypeError):
-        start_h, start_m = 6, 0
-        end_h, end_m = 20, 0
+        return True
 
     current_minutes = now.hour * 60 + now.minute
     start_minutes = start_h * 60 + start_m
