@@ -950,5 +950,5 @@ async def get_agent_activity(
 ):
     agent = _get_agent_or_404(agent_id)
     from core.agents.scheduled_actions.history import get_history
-    records = get_history(agent=agent["slug"], limit=limit)
+    records = get_history(agent=agent["slug"], limit=limit, event_type="scheduled_action")
     return {"activities": records}

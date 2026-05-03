@@ -240,6 +240,7 @@ def _process_message_locked(
         registry=registry,
         max_iterations=5,
         model_override=config.model_override or None,
+        source="whatsapp",
     )
 
     response_text = result.text

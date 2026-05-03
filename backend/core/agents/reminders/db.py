@@ -168,6 +168,17 @@ def _setup_connection() -> None:
     _connection.execute("CREATE INDEX IF NOT EXISTS idx_sa_lease ON scheduled_actions(lease_id, leased_until)")
     _connection.commit()
 
+    # Migration: add unified activity log columns to execution_history
+    eh_cols = {r[1] for r in _connection.execute("PRAGMA table_info(execution_history)").fetchall()}
+    if "event_type" not in eh_cols:
+        _connection.execute("ALTER TABLE execution_history ADD COLUMN event_type TEXT DEFAULT 'scheduled_action'")
+    if "source" not in eh_cols:
+        _connection.execute("ALTER TABLE execution_history ADD COLUMN source TEXT DEFAULT 'system'")
+    if "conversation_id" not in eh_cols:
+        _connection.execute("ALTER TABLE execution_history ADD COLUMN conversation_id TEXT")
+    _connection.execute("CREATE INDEX IF NOT EXISTS idx_eh_event_type ON execution_history(event_type, started_at DESC)")
+    _connection.commit()
+
     logger.info("Reminders DB initialized at %s", DB_PATH)
 
 

@@ -172,29 +172,69 @@ def run_background_turn(
     model_override: str | None = None,
     provider_override: str | None = None,
     on_iteration: Callable[[int], bool] | None = None,
+    source: str | None = None,
 ) -> BackgroundResult:
     """Synchronous wrapper for running a background AI turn.
 
     Creates a new event loop if needed (e.g., from APScheduler thread).
+    When ``source`` is provided (e.g. "whatsapp"), logs a chat event
+    after execution. Scheduled actions pass source=None since they
+    already log via history.py.
     """
-    try:
-        loop = asyncio.get_running_loop()
-    except RuntimeError:
-        loop = None
+    t0 = time.time()
 
-    if loop and loop.is_running():
-        import concurrent.futures
-        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
-            future = pool.submit(
-                asyncio.run,
+    try:
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            loop = None
+
+        if loop and loop.is_running():
+            import concurrent.futures
+            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+                future = pool.submit(
+                    asyncio.run,
+                    _run_turn(system_prompt, user_message, tool_defs, registry,
+                              max_iterations, model_override, provider_override,
+                              on_iteration)
+                )
+                result = future.result(timeout=300)
+        else:
+            result = asyncio.run(
                 _run_turn(system_prompt, user_message, tool_defs, registry,
                           max_iterations, model_override, provider_override,
                           on_iteration)
             )
-            return future.result(timeout=300)
-    else:
-        return asyncio.run(
-            _run_turn(system_prompt, user_message, tool_defs, registry,
-                      max_iterations, model_override, provider_override,
-                      on_iteration)
-        )
+    except Exception as exc:
+        if source:
+            try:
+                from core.agents.activity_log import log_chat_event
+                log_chat_event(
+                    agent=getattr(registry, "agent_slug", "unknown"),
+                    source=source,
+                    status="error",
+                    result_summary=str(exc)[:500],
+                    duration_ms=int((time.time() - t0) * 1000),
+                )
+            except Exception:
+                logger.warning("Activity log write failed", exc_info=True)
+        raise
+
+    if source:
+        try:
+            from core.agents.activity_log import log_chat_event
+            log_chat_event(
+                agent=getattr(registry, "agent_slug", "unknown"),
+                source=source,
+                status="error" if result.error else "ok",
+                result_summary=result.text[:500],
+                tool_calls=result.tool_log or None,
+                model_used=result.model_used,
+                input_tokens=result.input_tokens,
+                output_tokens=result.output_tokens,
+                duration_ms=int((time.time() - t0) * 1000),
+            )
+        except Exception:
+            logger.warning("Activity log write failed", exc_info=True)
+
+    return result

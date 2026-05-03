@@ -30,6 +30,7 @@ class UpdateActionRequest(BaseModel):
 # -- Static routes (must come before /{agent_slug} to avoid capture) ------
 
 _VALID_LOG_STATUSES = {"ok", "error", "action_taken", "skipped", "running", "lease_lost"}
+_VALID_EVENT_TYPES = {"scheduled_action", "chat"}
 
 
 @router.get("/logs")
@@ -37,13 +38,102 @@ async def get_system_logs(
     limit: int = Query(100, ge=1, le=500),
     offset: int = Query(0, ge=0),
     status: str | None = None,
+    event_type: str | None = None,
+    agent: str | None = None,
     user=Depends(get_current_user),
 ):
     if status and status not in _VALID_LOG_STATUSES:
         raise HTTPException(status_code=400, detail=f"Invalid status filter: {status}")
+    if event_type and event_type not in _VALID_EVENT_TYPES:
+        raise HTTPException(status_code=400, detail=f"Invalid event_type: {event_type}")
     from . import history
-    records = history.get_history(limit=limit, offset=offset, status_filter=status)
+    records = history.get_history(
+        agent=agent, limit=limit, offset=offset,
+        status_filter=status, event_type=event_type,
+    )
     return {"logs": records}
+
+
+@router.get("/logs/export")
+async def export_logs(
+    format: str = Query("json"),
+    agent: str | None = None,
+    event_type: str | None = None,
+    status: str | None = None,
+    days: int = Query(7, ge=1, le=90),
+    user=Depends(get_current_user),
+):
+    """Export activity logs as JSON, CSV, or plain text."""
+    import csv
+    import io
+    from datetime import datetime, timedelta, timezone
+    from starlette.responses import Response
+
+    if format not in ("json", "csv", "text"):
+        raise HTTPException(status_code=400, detail="format must be json, csv, or text")
+    if event_type and event_type not in _VALID_EVENT_TYPES:
+        raise HTTPException(status_code=400, detail=f"Invalid event_type: {event_type}")
+    if status and status not in _VALID_LOG_STATUSES:
+        raise HTTPException(status_code=400, detail=f"Invalid status: {status}")
+
+    from . import history
+    since = (datetime.now(timezone.utc) - timedelta(days=days)).strftime("%Y-%m-%dT%H:%M:%S")
+    records = history.get_history(
+        agent=agent, limit=10000, event_type=event_type, since=since,
+        status_filter=status,
+    )
+
+    date_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+
+    if format == "json":
+        import json as _json
+        content = _json.dumps(records, indent=2, default=str)
+        return Response(
+            content=content,
+            media_type="application/json",
+            headers={"Content-Disposition": f'attachment; filename="chatty-logs-{date_str}.json"'},
+        )
+
+    if format == "csv":
+
+        def _sanitize_csv_cell(val: str) -> str:
+            if val and val[0] in ("=", "+", "-", "@"):
+                return "'" + val
+            return val
+
+        buf = io.StringIO()
+        fieldnames = [
+            "started_at", "agent", "event_type", "action_type", "source",
+            "status", "result_summary", "model_used",
+            "input_tokens", "output_tokens", "duration_ms", "tool_call_count",
+        ]
+        writer = csv.DictWriter(buf, fieldnames=fieldnames, extrasaction="ignore")
+        writer.writeheader()
+        for rec in records:
+            row = {k: _sanitize_csv_cell("" if rec.get(k) is None else str(rec.get(k))) for k in fieldnames}
+            tc = rec.get("tool_calls")
+            row["tool_call_count"] = str(len(tc) if isinstance(tc, list) else 0)
+            writer.writerow(row)
+        return Response(
+            content=buf.getvalue(),
+            media_type="text/csv",
+            headers={"Content-Disposition": f'attachment; filename="chatty-logs-{date_str}.csv"'},
+        )
+
+    # Plain text
+    lines = []
+    for rec in records:
+        ts = rec.get("started_at", "")
+        ag = rec.get("agent", "")
+        et = rec.get("event_type", rec.get("action_type", ""))
+        st = rec.get("status", "")
+        summary = rec.get("result_summary", "") or ""
+        lines.append(f"[{ts}] {ag} | {et} | {st} | {summary}")
+    return Response(
+        content="\n".join(lines),
+        media_type="text/plain",
+        headers={"Content-Disposition": f'attachment; filename="chatty-logs-{date_str}.txt"'},
+    )
 
 
 @router.get("/dashboard")

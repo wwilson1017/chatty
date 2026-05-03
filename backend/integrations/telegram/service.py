@@ -234,6 +234,7 @@ async def process_message(
         conversation_id=chatty_conv_id,
         integration_tool_defs=integration_tool_defs or None,
         integration_tool_modes=integration_tool_modes,
+        source="telegram",
     )
 
     return response or "I had trouble generating a response. Please try again."
@@ -320,6 +321,7 @@ async def process_group_message(
         conversation_id=chatty_conv_id,
         integration_tool_defs=integration_tool_defs or None,
         integration_tool_modes=integration_tool_modes,
+        source="telegram-group",
     )
 
     return response or "I had trouble generating a response. Please try again."
