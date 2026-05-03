@@ -30,7 +30,7 @@ class BackgroundResult:
 
 
 async def _run_turn(
-    system_prompt: str,
+    system_prompt: "str | tuple[str, str]",
     user_message: str,
     tool_defs: list[dict],
     registry: ToolRegistry,
@@ -164,7 +164,7 @@ async def _run_turn(
 
 
 def run_background_turn(
-    system_prompt: str,
+    system_prompt: "str | tuple[str, str]",
     user_message: str,
     tool_defs: list[dict],
     registry: ToolRegistry,

@@ -6,6 +6,8 @@ actions processor can build a full tool set with integration parity.
 
 import importlib
 import logging
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
 from core.agents.reminders.tools import (
     create_reminder_handler,
@@ -20,6 +22,17 @@ from core.agents.scheduled_actions.tools import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def format_current_time(tz_name: str = "America/Chicago") -> tuple[str, str]:
+    """Return (date_str, time_str) for system prompt injection."""
+    try:
+        tz = ZoneInfo(tz_name)
+    except Exception:
+        tz = ZoneInfo("America/Chicago")
+    now = datetime.now(tz)
+    return now.strftime("%A, %B %d, %Y"), now.strftime("%I:%M %p %Z")
+
 
 INTEGRATION_MODULES = {
     "crm_lite": ("integrations.crm_lite.tools", "CRM_LITE_TOOL_DEFS"),

@@ -329,12 +329,8 @@ def _process_heartbeat(action: dict) -> None:
     model_override = action.get("model_override") or agent.get("model_override") or None
 
     tz_name = action.get("active_hours_tz") or "America/Chicago"
-    try:
-        tz = ZoneInfo(tz_name)
-    except Exception:
-        tz = ZoneInfo("America/Chicago")
-    now_local = datetime.now(tz)
-    now_str = now_local.strftime(f"%Y-%m-%d %I:%M %p {now_local.strftime('%Z')}")
+    from agents.tool_loader import format_current_time
+    date_str, time_str = format_current_time(tz_name)
 
     context = ctx_manager.load_all_context()
     context_snippet = context[:30000] if context else "(no context files)"
@@ -349,7 +345,7 @@ def _process_heartbeat(action: dict) -> None:
             triage_result = run_background_turn(
                 system_prompt=(
                     f"You are {agent['agent_name']}.\n\n"
-                    f"# Quick Heartbeat Triage\n\n"
+                    f"# Quick Heartbeat Triage — {date_str}, {time_str}\n\n"
                     f"Quickly check the following items using your tools. "
                     f"Respond with ONLY one of:\n"
                     f"- NEEDS_ACTION: <brief reason>\n"
@@ -425,17 +421,24 @@ def _process_heartbeat(action: dict) -> None:
         error_context = _build_error_context(action, agent_slug)
 
         system_prompt = (
-            f"You are {agent['agent_name']}.\n\n"
-            f"# Heartbeat Check — {now_str}\n\n"
-            f"You are performing a periodic heartbeat check. Review your checklist "
-            f"and check each item against current data using your tools.\n\n"
-            f"## Your Checklist\n\n{checklist}\n\n"
-            f"## Your Knowledge (abbreviated)\n\n{context_snippet}\n\n"
-            f"## Rules\n\n"
-            f"- If everything is normal and no action is needed, respond with exactly: HEARTBEAT_OK\n"
-            f"- If something needs attention, take action and respond with: ACTION_TAKEN: <brief description>\n"
-            f"- Be concise. This is an automated check, not a conversation.\n"
-            f"{error_context}"
+            (
+                f"You are {agent['agent_name']}.\n\n"
+                f"# Heartbeat Check\n\n"
+                f"You are performing a periodic heartbeat check. Review your checklist "
+                f"and check each item against current data using your tools.\n\n"
+                f"## Your Checklist\n\n{checklist}\n\n"
+                f"## Your Knowledge (abbreviated)\n\n{context_snippet}\n\n"
+            ),
+            (
+                f"# Current Date & Time\n\n"
+                f"- Date: {date_str}\n"
+                f"- Time: {time_str}\n\n"
+                f"## Rules\n\n"
+                f"- If everything is normal and no action is needed, respond with exactly: HEARTBEAT_OK\n"
+                f"- If something needs attention, take action and respond with: ACTION_TAKEN: <brief description>\n"
+                f"- Be concise. This is an automated check, not a conversation.\n"
+                f"{error_context}"
+            ),
         )
 
         result = run_background_turn(
@@ -530,12 +533,23 @@ def _process_cron(action: dict) -> None:
     provider_override = agent.get("provider_override") or None
     model_override = action.get("model_override") or agent.get("model_override") or None
 
+    tz_name = action.get("active_hours_tz") or "America/Chicago"
+    from agents.tool_loader import format_current_time
+    date_str, time_str = format_current_time(tz_name)
+
     system_prompt = (
-        f"You are {agent['agent_name']}.\n\n"
-        f"# Scheduled Action: {action.get('name', 'Unnamed')}\n\n"
-        f"{prompt}\n\n"
-        f"# Your Knowledge (abbreviated)\n\n{context_snippet}\n\n"
-        f"Take appropriate action using your tools. Be concise."
+        (
+            f"You are {agent['agent_name']}.\n\n"
+            f"# Scheduled Action: {action.get('name', 'Unnamed')}\n\n"
+            f"{prompt}\n\n"
+            f"# Your Knowledge (abbreviated)\n\n{context_snippet}\n\n"
+        ),
+        (
+            f"# Current Date & Time\n\n"
+            f"- Date: {date_str}\n"
+            f"- Time: {time_str}\n\n"
+            f"Take appropriate action using your tools. Be concise."
+        ),
     )
 
     tool_defs, registry = _build_tools(agent_slug, agent)
