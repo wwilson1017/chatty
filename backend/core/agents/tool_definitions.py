@@ -1354,6 +1354,40 @@ def build_context_memory_map(tool_defs: list[dict]) -> dict[str, bool]:
     return {t["name"]: t.get("context_memory", False) for t in tool_defs}
 
 
+# ── Activity log tools ────────────────────────────────────────────────────────
+
+ACTIVITY_LOG_TOOLS = [
+    {
+        "name": "read_activity_log",
+        "description": (
+            "Read your recent activity log — chat history summaries, scheduled action "
+            "results, tool calls, and errors. Use this to recall what you've done "
+            "recently or check for errors."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "event_type": {
+                    "type": "string",
+                    "description": "Filter: 'chat', 'scheduled_action', or omit for all",
+                },
+                "status": {
+                    "type": "string",
+                    "description": "Filter: 'ok', 'error', 'action_taken', or omit for all",
+                },
+                "limit": {
+                    "type": "integer",
+                    "description": "Number of recent entries (default 20, max 50)",
+                },
+            },
+            "required": [],
+        },
+        "kind": "activity_log",
+        "writes": False,
+    },
+]
+
+
 def get_tool_definitions(
     gmail_enabled: bool = False,
     calendar_enabled: bool = False,
@@ -1429,6 +1463,7 @@ def get_tool_definitions(
     if integration_tools:
         tools.extend(integration_tools)
     tools.extend(SETUP_TOOLS)
+    tools.extend(ACTIVITY_LOG_TOOLS)
     # Append agent-created real tools (loaded from filesystem)
     if dynamic_real_tools:
         tools.extend(dynamic_real_tools)

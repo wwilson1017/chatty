@@ -206,6 +206,7 @@ async def handle_heartbeat(request: Request):
             messages=messages,
             integration_tool_defs=integration_tool_defs or None,
             integration_tool_modes=integration_tool_modes,
+            source="paperclip",
         )
 
         logger.info("Paperclip heartbeat complete: agent=%s len=%d", slug, len(result_text or ""))

@@ -134,6 +134,8 @@ class ToolRegistry:
                 return self._execute_setup(tool_name, tool_args)
             elif kind == "import":
                 return self._execute_import(tool_name, tool_args)
+            elif kind == "activity_log":
+                return self._execute_activity_log(tool_name, tool_args)
             else:
                 return {"error": f"Unknown tool kind: {kind}"}
         except Exception as e:
@@ -480,6 +482,36 @@ class ToolRegistry:
         session = getattr(self, "_import_session", None)
         ctx_manager = ContextManager(Path(self.context_dir), gcs_prefix=self.gcs_prefix)
         return execute_import_tool(tool_name, args, session, ctx_manager)
+
+    def _execute_activity_log(self, tool_name: str, args: dict) -> dict:
+        from core.agents.scheduled_actions.history import get_history
+        try:
+            limit = max(1, min(int(args.get("limit", 20) or 20), 50))
+        except (TypeError, ValueError):
+            limit = 20
+        event_type = args.get("event_type")
+        if event_type and event_type not in ("scheduled_action", "chat"):
+            return {"error": f"Invalid event_type: {event_type}"}
+        status = args.get("status")
+        if status and status not in ("ok", "error", "action_taken", "skipped"):
+            return {"error": f"Invalid status: {status}"}
+        records = get_history(
+            agent=self.agent_slug,
+            limit=limit,
+            status_filter=status,
+            event_type=event_type,
+        )
+        for r in records:
+            r.pop("result_full", None)
+            r.pop("notification_sent", None)
+            if r.get("result_summary"):
+                r["result_summary"] = r["result_summary"][:200]
+            if isinstance(r.get("tool_calls"), list):
+                r["tool_calls"] = [
+                    {"tool": tc.get("tool", ""), "result": str(tc.get("result", ""))[:200]}
+                    for tc in r["tool_calls"]
+                ]
+        return {"entries": records, "count": len(records)}
 
     def _mark_setup_complete(self, integration_name: str) -> None:
         """Auto-update _pending-setup.md to check off a completed integration."""
