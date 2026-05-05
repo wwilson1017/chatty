@@ -215,6 +215,32 @@ When you've naturally covered the key topics:
 4. Just keep chatting normally. The transition should be invisible."""
 
 
+def _google_accounts_context(account_info_map: dict[str, dict], google_accounts: dict) -> str:
+    """Build system prompt section listing available Google accounts per service."""
+    sections = []
+    for service in ("gmail", "calendar", "drive"):
+        ids = google_accounts.get(service, [])
+        if len(ids) <= 1:
+            continue
+        entries = []
+        for i, aid in enumerate(ids):
+            info = account_info_map.get(aid, {})
+            email = info.get("email", aid)
+            suffix = " (default)" if i == 0 else ""
+            entries.append(f"  - {email}{suffix}")
+        label = service.title() if service != "gmail" else "Gmail"
+        sections.append(f"**{label}** accounts:\n" + "\n".join(entries))
+    if not sections:
+        return ""
+    return (
+        "## Google Accounts\n\n"
+        "You have multiple Google accounts available. Use the `account` parameter "
+        "in Gmail/Calendar/Drive tools to specify which account to use. "
+        "If omitted, the first listed account is used by default.\n\n"
+        + "\n\n".join(sections)
+    )
+
+
 def _build_system_prompt(
     config: AgentConfig,
     ctx_manager: ContextManager,
@@ -222,6 +248,7 @@ def _build_system_prompt(
     training_type: str | None = None,
     plan_mode: bool = False,
     first_user_message: str = "",
+    account_info_map: dict[str, dict] | None = None,
 ) -> tuple[str, str]:
     """Assemble the full system prompt.
 
@@ -322,6 +349,11 @@ def _build_system_prompt(
 
     if plan_mode:
         parts.append(_plan_mode_instructions())
+
+    if account_info_map:
+        ga_ctx = _google_accounts_context(account_info_map, config.google_accounts)
+        if ga_ctx:
+            parts.append(ga_ctx)
 
     static_text = "\n".join(parts)
 
@@ -645,10 +677,14 @@ async def chat(
     real_tools_dir = str(Path(config.context_dir).parent / "real_tools")
     dynamic_real_tools = load_all_real_tools(real_tools_dir)
 
-    from integrations.google.policy import google_capabilities
-    gmail_caps = google_capabilities(config.google_accounts.get("gmail", ""))
-    cal_caps = google_capabilities(config.google_accounts.get("calendar", ""))
-    drive_caps = google_capabilities(config.google_accounts.get("drive", ""))
+    from integrations.google.policy import google_capabilities_union
+    ga = config.google_accounts
+    gmail_ids = ga.get("gmail", [])
+    cal_ids = ga.get("calendar", [])
+    drive_ids = ga.get("drive", [])
+    gmail_caps = google_capabilities_union(gmail_ids)
+    cal_caps = google_capabilities_union(cal_ids)
+    drive_caps = google_capabilities_union(drive_ids)
     tool_defs = get_tool_definitions(
         integration_tools=integration_tool_defs,
         dynamic_real_tools=dynamic_real_tools or None,
@@ -659,6 +695,9 @@ async def chat(
         calendar_write_enabled=cal_caps["calendar_write_enabled"],
         drive_read_enabled=drive_caps["drive_read_enabled"],
         drive_write_enabled=drive_caps["drive_write_enabled"],
+        multi_gmail=len(gmail_ids) > 1,
+        multi_calendar=len(cal_ids) > 1,
+        multi_drive=len(drive_ids) > 1,
     )
     kind_map = _build_kind_map(tool_defs)
     writes_map = build_writes_map(tool_defs)
@@ -756,6 +795,7 @@ async def chat(
         training_type=training_type,
         plan_mode=plan_mode,
         first_user_message=first_user_msg,
+        account_info_map=getattr(registry, "account_info_map", None),
     )
 
     # Append integration-specific instructions to the static portion
@@ -1088,10 +1128,14 @@ async def run_sync(
     real_tools_dir = str(Path(config.context_dir).parent / "real_tools")
     dynamic_real_tools = load_all_real_tools(real_tools_dir)
 
-    from integrations.google.policy import google_capabilities
-    gmail_caps = google_capabilities(config.google_accounts.get("gmail", ""))
-    cal_caps = google_capabilities(config.google_accounts.get("calendar", ""))
-    drive_caps = google_capabilities(config.google_accounts.get("drive", ""))
+    from integrations.google.policy import google_capabilities_union
+    ga = config.google_accounts
+    gmail_ids = ga.get("gmail", [])
+    cal_ids = ga.get("calendar", [])
+    drive_ids = ga.get("drive", [])
+    gmail_caps = google_capabilities_union(gmail_ids)
+    cal_caps = google_capabilities_union(cal_ids)
+    drive_caps = google_capabilities_union(drive_ids)
     tool_defs = get_tool_definitions(
         integration_tools=integration_tool_defs,
         dynamic_real_tools=dynamic_real_tools or None,
@@ -1101,6 +1145,9 @@ async def run_sync(
         calendar_write_enabled=cal_caps["calendar_write_enabled"],
         drive_read_enabled=drive_caps["drive_read_enabled"],
         drive_write_enabled=drive_caps["drive_write_enabled"],
+        multi_gmail=len(gmail_ids) > 1,
+        multi_calendar=len(cal_ids) > 1,
+        multi_drive=len(drive_ids) > 1,
     )
 
     # Apply integration permission ceilings — messaging channels have no approval UI,
@@ -1121,7 +1168,10 @@ async def run_sync(
     provider_tools = [{k: v for k, v in t.items() if k not in _internal_fields} for t in tool_defs]
 
     # Build system prompt (returns tuple for caching)
-    static_prompt, volatile_prompt = _build_system_prompt(config, ctx_manager)
+    static_prompt, volatile_prompt = _build_system_prompt(
+        config, ctx_manager,
+        account_info_map=getattr(registry, "account_info_map", None),
+    )
 
     # Append integration-specific instructions (same as chat())
     if integration_tool_defs:

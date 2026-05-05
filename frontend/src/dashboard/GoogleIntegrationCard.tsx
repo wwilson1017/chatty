@@ -130,11 +130,15 @@ export function GoogleIntegrationCard({ integration, onChanged }: Props) {
     }
   }
 
-  async function updateAgentAccount(agentId: string, service: 'gmail' | 'calendar' | 'drive', accountId: string) {
+  async function toggleAgentAccount(agentId: string, service: 'gmail' | 'calendar' | 'drive', accountId: string) {
     setSavingAgent(agentId);
     const agent = agents.find(a => a.id === agentId);
     const current = agent?.google_accounts || {};
-    const updated = { ...current, [service]: accountId };
+    const currentList = current[service] || [];
+    const newList = currentList.includes(accountId)
+      ? currentList.filter(id => id !== accountId)
+      : [...currentList, accountId];
+    const updated = { ...current, [service]: newList };
     try {
       await api(`/api/agents/${agentId}`, {
         method: 'PUT',
@@ -279,22 +283,29 @@ export function GoogleIntegrationCard({ integration, onChanged }: Props) {
                     <div className="grid grid-cols-3 gap-2">
                       {(['gmail', 'calendar', 'drive'] as const).map(svc => {
                         const available = accountsForService(svc);
+                        const selected = ga[svc] || [];
                         return (
                           <div key={svc}>
                             <label className="text-gray-500 text-[10px] uppercase tracking-wide block mb-0.5">
                               {svc === 'gmail' ? 'Gmail' : svc === 'calendar' ? 'Calendar' : 'Drive'}
                             </label>
-                            <select
-                              value={ga[svc] || ''}
-                              onChange={e => updateAgentAccount(agent.id, svc, e.target.value)}
-                              disabled={savingAgent === agent.id}
-                              className="w-full bg-gray-800 text-gray-300 text-[11px] rounded px-1.5 py-1 border border-gray-700 focus:border-indigo-500 outline-none disabled:opacity-50"
-                            >
-                              <option value="">None</option>
-                              {available.map(a => (
-                                <option key={a.id} value={a.id}>{a.email}</option>
+                            {available.length === 0 && (
+                              <span className="text-gray-600 text-[10px]">No accounts</span>
+                            )}
+                            <div className="space-y-0.5">
+                              {available.map((a, i) => (
+                                <label key={a.id} className="flex items-center gap-1.5 text-[11px] text-gray-300 cursor-pointer">
+                                  <input
+                                    type="checkbox"
+                                    checked={selected.includes(a.id)}
+                                    onChange={() => toggleAgentAccount(agent.id, svc, a.id)}
+                                    disabled={savingAgent === agent.id}
+                                    className="rounded border-gray-600 bg-gray-800 text-indigo-500 w-3 h-3 accent-indigo-500"
+                                  />
+                                  <span>{a.email}{selected.includes(a.id) && i === 0 && selected[0] === a.id && selected.length > 1 ? ' (default)' : ''}</span>
+                                </label>
                               ))}
-                            </select>
+                            </div>
                           </div>
                         );
                       })}

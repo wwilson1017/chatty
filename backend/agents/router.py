@@ -237,18 +237,23 @@ async def update_agent(agent_id: str, body: UpdateAgentRequest, user=Depends(get
         _ALLOWED_GA_KEYS = {"gmail", "calendar", "drive"}
         if not isinstance(ga, dict) or not set(ga.keys()).issubset(_ALLOWED_GA_KEYS):
             raise HTTPException(status_code=400, detail="google_accounts keys must be a subset of {gmail, calendar, drive}")
-        if not all(isinstance(v, str) for v in ga.values()):
-            raise HTTPException(status_code=400, detail="google_accounts values must be strings")
+        for svc, ids in ga.items():
+            if not isinstance(ids, list) or not all(isinstance(i, str) and i for i in ids):
+                raise HTTPException(status_code=400, detail=f"google_accounts[{svc}] must be a list of non-empty strings")
+            if len(ids) != len(set(ids)):
+                raise HTTPException(status_code=400, detail=f"google_accounts[{svc}] contains duplicate account IDs")
         from integrations.registry import list_google_accounts
         existing = list_google_accounts()
-        for svc, acct_id in ga.items():
-            if not acct_id:
-                continue
-            if acct_id not in existing:
-                raise HTTPException(status_code=400, detail=f"Invalid Google account assignment for {svc}")
-            grants = existing[acct_id].get("scope_grants", {})
-            if grants.get(svc, "none") == "none":
-                raise HTTPException(status_code=400, detail=f"Invalid Google account assignment for {svc}")
+        for svc, acct_ids in ga.items():
+            for acct_id in acct_ids:
+                if acct_id not in existing:
+                    raise HTTPException(status_code=400, detail=f"Invalid Google account assignment for {svc}")
+                acct = existing[acct_id]
+                if acct.get("connection_status") == "broken":
+                    raise HTTPException(status_code=400, detail=f"Google account {acct.get('email', acct_id)} has a broken connection")
+                grants = acct.get("scope_grants", {})
+                if grants.get(svc, "none") == "none":
+                    raise HTTPException(status_code=400, detail=f"Google account {acct.get('email', acct_id)} does not have {svc} access")
         updates["google_accounts"] = _json.dumps(ga)
 
     for field in (
@@ -462,10 +467,17 @@ def _stream_chat(agent: dict, messages: list, training_mode: bool, conversation_
         raise HTTPException(status_code=400, detail="No AI provider configured")
 
     ga = config.google_accounts
-    gmail_account_id = ga.get("gmail", "")
-    calendar_account_id = ga.get("calendar", "")
-    drive_account_id = ga.get("drive", "")
-    google_connected = bool(gmail_account_id or calendar_account_id or drive_account_id)
+    gmail_ids = ga.get("gmail", [])
+    calendar_ids = ga.get("calendar", [])
+    drive_ids = ga.get("drive", [])
+    google_connected = bool(gmail_ids or calendar_ids or drive_ids)
+
+    from integrations.registry import list_google_accounts as _list_ga
+    all_ga = _list_ga()
+    account_info_map = {
+        aid: {"email": a.get("email", ""), "scope_grants": a.get("scope_grants", {}), "connection_status": a.get("connection_status", "ok")}
+        for aid, a in all_ga.items()
+    }
 
     integration_tool_defs, integration_executors = load_integration_tools()
 
@@ -481,9 +493,10 @@ def _stream_chat(agent: dict, messages: list, training_mode: bool, conversation_
         context_dir=config.context_dir,
         gcs_prefix=config.gcs_prefix,
         google_connected=google_connected,
-        gmail_account_id=gmail_account_id,
-        calendar_account_id=calendar_account_id,
-        drive_account_id=drive_account_id,
+        gmail_account_ids=gmail_ids,
+        calendar_account_ids=calendar_ids,
+        drive_account_ids=drive_ids,
+        account_info_map=account_info_map,
         integration_executors=integration_executors,
         agent_slug=agent["slug"],
         agent_name=config.agent_name,
@@ -890,10 +903,17 @@ async def tool_execute(agent_id: str, req: ToolExecuteRequest, user=Depends(get_
 
     store = CredentialStore()
     ga = config.google_accounts
-    gmail_account_id = ga.get("gmail", "")
-    calendar_account_id = ga.get("calendar", "")
-    drive_account_id = ga.get("drive", "")
-    google_connected = bool(gmail_account_id or calendar_account_id or drive_account_id)
+    gmail_ids = ga.get("gmail", [])
+    calendar_ids = ga.get("calendar", [])
+    drive_ids = ga.get("drive", [])
+    google_connected = bool(gmail_ids or calendar_ids or drive_ids)
+
+    from integrations.registry import list_google_accounts as _list_ga
+    all_ga = _list_ga()
+    account_info_map = {
+        aid: {"email": a.get("email", ""), "scope_grants": a.get("scope_grants", {}), "connection_status": a.get("connection_status", "ok")}
+        for aid, a in all_ga.items()
+    }
 
     integration_tool_defs, integration_executors = load_integration_tools()
     reminder_handlers, sa_handlers = build_agent_handlers(agent["slug"])
@@ -902,9 +922,10 @@ async def tool_execute(agent_id: str, req: ToolExecuteRequest, user=Depends(get_
         context_dir=config.context_dir,
         gcs_prefix=config.gcs_prefix,
         google_connected=google_connected,
-        gmail_account_id=gmail_account_id,
-        calendar_account_id=calendar_account_id,
-        drive_account_id=drive_account_id,
+        gmail_account_ids=gmail_ids,
+        calendar_account_ids=calendar_ids,
+        drive_account_ids=drive_ids,
+        account_info_map=account_info_map,
         integration_executors=integration_executors,
         agent_slug=agent["slug"],
         reminder_handlers=reminder_handlers,
@@ -912,10 +933,10 @@ async def tool_execute(agent_id: str, req: ToolExecuteRequest, user=Depends(get_
     )
 
     from core.agents.tool_definitions import get_tool_definitions, build_writes_map
-    from integrations.google.policy import google_capabilities
-    gmail_caps = google_capabilities(gmail_account_id)
-    cal_caps = google_capabilities(calendar_account_id)
-    drive_caps = google_capabilities(drive_account_id)
+    from integrations.google.policy import google_capabilities_union
+    gmail_caps = google_capabilities_union(gmail_ids)
+    cal_caps = google_capabilities_union(calendar_ids)
+    drive_caps = google_capabilities_union(drive_ids)
     tool_defs = get_tool_definitions(
         integration_tools=integration_tool_defs,
         gmail_read_enabled=gmail_caps["gmail_read_enabled"],

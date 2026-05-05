@@ -277,13 +277,13 @@ def migrate_google_json() -> None:
 
     try:
         from agents.db import list_agents, update_agent
-        ga = {}
+        ga: dict[str, list[str]] = {}
         if scope_grants.get("gmail", "none") != "none":
-            ga["gmail"] = account_id
+            ga["gmail"] = [account_id]
         if scope_grants.get("calendar", "none") != "none":
-            ga["calendar"] = account_id
+            ga["calendar"] = [account_id]
         if scope_grants.get("drive", "none") != "none":
-            ga["drive"] = account_id
+            ga["drive"] = [account_id]
 
         if ga:
             import json as _json
@@ -294,6 +294,40 @@ def migrate_google_json() -> None:
         logger.info("Migrated google.json to multi-account format (account_id=%s)", account_id)
     except Exception as e:
         logger.warning("Google migration: credential format updated but agent assignment failed: %s", e)
+
+
+def migrate_agent_google_accounts_to_arrays() -> None:
+    """Convert agent google_accounts from single-value to array format."""
+    import json as _json
+    try:
+        from agents.db import _get_db, _write_lock
+    except Exception:
+        return
+    try:
+        db = _get_db()
+        rows = db.execute("SELECT id, google_accounts FROM agents").fetchall()
+        for row in rows:
+            raw = row["google_accounts"] or "{}"
+            try:
+                parsed = _json.loads(raw) if isinstance(raw, str) else (raw or {})
+            except (ValueError, TypeError):
+                continue
+            changed = False
+            for svc in ("gmail", "calendar", "drive"):
+                val = parsed.get(svc)
+                if isinstance(val, str):
+                    parsed[svc] = [val] if val else []
+                    changed = True
+            if changed:
+                with _write_lock:
+                    db.execute(
+                        "UPDATE agents SET google_accounts = ? WHERE id = ?",
+                        (_json.dumps(parsed), row["id"]),
+                    )
+                    db.commit()
+        logger.info("Agent google_accounts migrated to array format")
+    except Exception as e:
+        logger.warning("Agent google_accounts array migration failed: %s", e)
 
 
 def list_integrations() -> list[dict]:

@@ -121,16 +121,20 @@ def _clear_stale_assignments(account_id: str, scope_grants: dict) -> None:
     """Clear agent assignments for services that were downgraded to 'none'."""
     try:
         from agents.db import list_agents, update_agent
-        svc_map = {"gmail": "gmail", "calendar": "calendar", "drive": "drive"}
         for agent in list_agents():
             ga = agent.get("google_accounts", {})
             if not isinstance(ga, dict):
                 continue
             changed = False
-            for svc, scope_key in svc_map.items():
-                if ga.get(svc) == account_id and scope_grants.get(scope_key, "none") == "none":
-                    ga[svc] = ""
-                    changed = True
+            for svc in ("gmail", "calendar", "drive"):
+                val = ga.get(svc)
+                if scope_grants.get(svc, "none") == "none":
+                    if isinstance(val, list) and account_id in val:
+                        ga[svc] = [a for a in val if a != account_id]
+                        changed = True
+                    elif isinstance(val, str) and val == account_id:
+                        ga[svc] = []
+                        changed = True
             if changed:
                 update_agent(agent["id"], google_accounts=json.dumps(ga))
     except Exception as e:
@@ -168,13 +172,17 @@ def _clear_agent_references(account_id: str = "") -> None:
                 continue
             changed = False
             if account_id:
-                for svc, aid in list(ga.items()):
-                    if aid == account_id:
-                        ga[svc] = ""
+                for svc in ("gmail", "calendar", "drive"):
+                    val = ga.get(svc)
+                    if isinstance(val, list) and account_id in val:
+                        ga[svc] = [a for a in val if a != account_id]
+                        changed = True
+                    elif isinstance(val, str) and val == account_id:
+                        ga[svc] = []
                         changed = True
             else:
                 if any(v for v in ga.values()):
-                    ga = {"gmail": "", "calendar": "", "drive": ""}
+                    ga = {"gmail": [], "calendar": [], "drive": []}
                     changed = True
             if changed:
                 update_agent(agent["id"], google_accounts=json.dumps(ga))

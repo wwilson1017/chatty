@@ -68,14 +68,29 @@ logger = logging.getLogger(__name__)
 class ToolRegistry:
     """Per-agent tool executor. Routes tool calls to the correct handler."""
 
+    _WRITE_TOOLS = {
+        "gmail": {"send_email", "reply_to_email", "create_draft",
+                  "send_email_with_attachment", "reply_to_email_with_attachment"},
+        "calendar": {"create_calendar_event", "update_calendar_event", "delete_calendar_event"},
+        "drive": {"create_drive_folder", "create_drive_file", "move_drive_file",
+                  "rename_drive_file", "copy_drive_file"},
+    }
+    _WRITE_SCOPE_KEY = {"gmail": "gmail", "calendar": "calendar", "drive": "drive"}
+    _WRITE_SCOPE_LEVELS = {
+        "gmail": {"send"},
+        "calendar": {"full"},
+        "drive": {"file", "full"},
+    }
+
     def __init__(
         self,
         context_dir: str,
         gcs_prefix: str = "",
         google_connected: bool = False,
-        gmail_account_id: str = "",
-        calendar_account_id: str = "",
-        drive_account_id: str = "",
+        gmail_account_ids: list[str] | None = None,
+        calendar_account_ids: list[str] | None = None,
+        drive_account_ids: list[str] | None = None,
+        account_info_map: dict[str, dict] | None = None,
         integration_executors: dict | None = None,
         agent_slug: str = "",
         agent_name: str = "",
@@ -85,9 +100,10 @@ class ToolRegistry:
         self.context_dir = context_dir
         self.gcs_prefix = gcs_prefix
         self.google_connected = google_connected
-        self.gmail_account_id = gmail_account_id
-        self.calendar_account_id = calendar_account_id
-        self.drive_account_id = drive_account_id
+        self.gmail_account_ids = gmail_account_ids or []
+        self.calendar_account_ids = calendar_account_ids or []
+        self.drive_account_ids = drive_account_ids or []
+        self.account_info_map: dict[str, dict] = account_info_map or {}
         self.integration_executors: dict = integration_executors or {}
         self.agent_slug = agent_slug
         self.agent_name = agent_name
@@ -245,11 +261,55 @@ class ToolRegistry:
             )
         return {"error": f"Unknown shared_context tool: {tool_name}"}
 
-    def _execute_gmail(self, tool_name: str, args: dict) -> dict:
-        aid = self.gmail_account_id
-        if not aid:
-            return {"error": "No Gmail account assigned. Assign one at Settings → Integrations → Google.",
+    def _resolve_account(self, service: str, email: str | None, tool_name: str) -> str | dict:
+        """Resolve an account for a service. Returns account_id or error dict."""
+        ids = getattr(self, f"{service}_account_ids")
+        if not ids:
+            return {"error": f"No {service.title()} account assigned. Assign one at Settings → Integrations → Google.",
                     "needs_reconnect": True}
+        is_write = tool_name in self._WRITE_TOOLS.get(service, set())
+        if email:
+            matched_id = ""
+            for aid in ids:
+                info = self.account_info_map.get(aid, {})
+                if info.get("email", "").lower() == email.lower():
+                    matched_id = aid
+                    break
+            if not matched_id:
+                available = [self.account_info_map.get(a, {}).get("email", a) for a in ids]
+                return {"error": f"Account '{email}' is not assigned to this agent for {service.title()}. Available: {', '.join(available)}"}
+            info = self.account_info_map.get(matched_id, {})
+            if info.get("connection_status") == "broken":
+                return {"error": f"Account '{email}' has a broken connection. Reconnect at Settings → Integrations → Google.",
+                        "needs_reconnect": True}
+            if is_write:
+                grants = info.get("scope_grants", {})
+                level = grants.get(self._WRITE_SCOPE_KEY.get(service, service), "none")
+                if level not in self._WRITE_SCOPE_LEVELS.get(service, set()):
+                    return {"error": f"Account '{email}' has read-only {service.title()} access and cannot perform write operations."}
+            return matched_id
+        if is_write:
+            for aid in ids:
+                info = self.account_info_map.get(aid, {})
+                if info.get("connection_status") == "broken":
+                    continue
+                grants = info.get("scope_grants", {})
+                level = grants.get(self._WRITE_SCOPE_KEY.get(service, service), "none")
+                if level in self._WRITE_SCOPE_LEVELS.get(service, set()):
+                    return aid
+            return {"error": f"No assigned {service.title()} account has write access for this operation."}
+        for aid in ids:
+            info = self.account_info_map.get(aid, {})
+            if info.get("connection_status") != "broken":
+                return aid
+        return {"error": f"All assigned {service.title()} accounts have broken connections. Reconnect at Settings → Integrations → Google.",
+                "needs_reconnect": True}
+
+    def _execute_gmail(self, tool_name: str, args: dict) -> dict:
+        email = args.pop("account", None)
+        aid = self._resolve_account("gmail", email, tool_name)
+        if isinstance(aid, dict):
+            return aid
         if tool_name == "search_emails":
             return search_emails(aid, query=args["query"], max_results=args.get("max_results", 10))
         elif tool_name == "get_email":
@@ -303,10 +363,10 @@ class ToolRegistry:
         return {"error": f"Unknown gmail tool: {tool_name}"}
 
     def _execute_calendar(self, tool_name: str, args: dict) -> dict:
-        aid = self.calendar_account_id
-        if not aid:
-            return {"error": "No Calendar account assigned. Assign one at Settings → Integrations → Google.",
-                    "needs_reconnect": True}
+        email = args.pop("account", None)
+        aid = self._resolve_account("calendar", email, tool_name)
+        if isinstance(aid, dict):
+            return aid
         if tool_name == "list_calendar_events":
             return list_calendar_events(
                 aid, calendar_id=args.get("calendar_id", "primary"),
@@ -357,10 +417,10 @@ class ToolRegistry:
         return {"error": f"Unknown calendar tool: {tool_name}"}
 
     def _execute_drive(self, tool_name: str, args: dict) -> dict:
-        aid = self.drive_account_id
-        if not aid:
-            return {"error": "No Drive account assigned. Assign one at Settings → Integrations → Google.",
-                    "needs_reconnect": True}
+        email = args.pop("account", None)
+        aid = self._resolve_account("drive", email, tool_name)
+        if isinstance(aid, dict):
+            return aid
         if tool_name == "search_drive_files":
             return search_drive_files(
                 aid, query=args["query"],

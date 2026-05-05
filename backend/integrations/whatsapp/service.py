@@ -180,10 +180,17 @@ def _process_message_locked(
     # 8. Build tool registry
     store = CredentialStore()
     ga = config.google_accounts
-    gmail_account_id = ga.get("gmail", "")
-    calendar_account_id = ga.get("calendar", "")
-    drive_account_id = ga.get("drive", "")
-    google_connected = bool(gmail_account_id or calendar_account_id or drive_account_id)
+    gmail_ids = ga.get("gmail", [])
+    calendar_ids = ga.get("calendar", [])
+    drive_ids = ga.get("drive", [])
+    google_connected = bool(gmail_ids or calendar_ids or drive_ids)
+
+    from integrations.registry import list_google_accounts as _list_ga
+    all_ga = _list_ga()
+    account_info_map = {
+        aid: {"email": a.get("email", ""), "scope_grants": a.get("scope_grants", {}), "connection_status": a.get("connection_status", "ok")}
+        for aid, a in all_ga.items()
+    }
 
     integration_tool_defs, integration_executors = _load_integration_tools()
 
@@ -213,17 +220,18 @@ def _process_message_locked(
         agent_slug=agent_slug,
         reminder_handlers=reminder_handlers,
         scheduled_action_handlers=sa_handlers,
-        gmail_account_id=gmail_account_id,
-        calendar_account_id=calendar_account_id,
-        drive_account_id=drive_account_id,
+        gmail_account_ids=gmail_ids,
+        calendar_account_ids=calendar_ids,
+        drive_account_ids=drive_ids,
+        account_info_map=account_info_map,
     )
 
     # 9. Build tool definitions
     dynamic_real_tools = load_all_real_tools(agent_slug)
-    from integrations.google.policy import google_capabilities
-    gmail_caps = google_capabilities(gmail_account_id)
-    cal_caps = google_capabilities(calendar_account_id)
-    drive_caps = google_capabilities(drive_account_id)
+    from integrations.google.policy import google_capabilities_union
+    gmail_caps = google_capabilities_union(gmail_ids)
+    cal_caps = google_capabilities_union(calendar_ids)
+    drive_caps = google_capabilities_union(drive_ids)
     tool_defs = get_tool_definitions(
         integration_tools=integration_tool_defs or None,
         dynamic_real_tools=dynamic_real_tools or None,
@@ -233,6 +241,9 @@ def _process_message_locked(
         calendar_write_enabled=cal_caps["calendar_write_enabled"],
         drive_read_enabled=drive_caps["drive_read_enabled"],
         drive_write_enabled=drive_caps["drive_write_enabled"],
+        multi_gmail=len(gmail_ids) > 1,
+        multi_calendar=len(calendar_ids) > 1,
+        multi_drive=len(drive_ids) > 1,
     )
 
     # Apply integration permission ceilings — messaging channels have no approval UI,

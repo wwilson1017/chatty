@@ -175,10 +175,17 @@ async def process_message(
         return "No AI provider is configured. Please set up an AI provider in Settings."
 
     ga = config.google_accounts
-    gmail_account_id = ga.get("gmail", "")
-    calendar_account_id = ga.get("calendar", "")
-    drive_account_id = ga.get("drive", "")
-    google_connected = bool(gmail_account_id or calendar_account_id or drive_account_id)
+    gmail_ids = ga.get("gmail", [])
+    calendar_ids = ga.get("calendar", [])
+    drive_ids = ga.get("drive", [])
+    google_connected = bool(gmail_ids or calendar_ids or drive_ids)
+
+    from integrations.registry import list_google_accounts as _list_ga
+    all_ga = _list_ga()
+    account_info_map = {
+        aid: {"email": a.get("email", ""), "scope_grants": a.get("scope_grants", {}), "connection_status": a.get("connection_status", "ok")}
+        for aid, a in all_ga.items()
+    }
 
     integration_tool_defs, integration_executors = _load_integration_tools()
 
@@ -197,9 +204,10 @@ async def process_message(
         agent_slug=slug,
         reminder_handlers=reminder_handlers,
         scheduled_action_handlers=sa_handlers,
-        gmail_account_id=gmail_account_id,
-        calendar_account_id=calendar_account_id,
-        drive_account_id=drive_account_id,
+        gmail_account_ids=gmail_ids,
+        calendar_account_ids=calendar_ids,
+        drive_account_ids=drive_ids,
+        account_info_map=account_info_map,
     )
 
     # 5. Get/create Telegram conversation for multi-turn context
@@ -271,10 +279,17 @@ async def process_group_message(
         return "No AI provider is configured. Please set up an AI provider in Settings."
 
     ga = config.google_accounts
-    gmail_account_id = ga.get("gmail", "")
-    calendar_account_id = ga.get("calendar", "")
-    drive_account_id = ga.get("drive", "")
-    google_connected = bool(gmail_account_id or calendar_account_id or drive_account_id)
+    gmail_ids = ga.get("gmail", [])
+    calendar_ids = ga.get("calendar", [])
+    drive_ids = ga.get("drive", [])
+    google_connected = bool(gmail_ids or calendar_ids or drive_ids)
+
+    from integrations.registry import list_google_accounts as _list_ga
+    all_ga = _list_ga()
+    account_info_map = {
+        aid: {"email": a.get("email", ""), "scope_grants": a.get("scope_grants", {}), "connection_status": a.get("connection_status", "ok")}
+        for aid, a in all_ga.items()
+    }
 
     integration_tool_defs, integration_executors = _load_integration_tools()
 
@@ -293,9 +308,10 @@ async def process_group_message(
         agent_slug=slug,
         reminder_handlers=reminder_handlers,
         scheduled_action_handlers=sa_handlers,
-        gmail_account_id=gmail_account_id,
-        calendar_account_id=calendar_account_id,
-        drive_account_id=drive_account_id,
+        gmail_account_ids=gmail_ids,
+        calendar_account_ids=calendar_ids,
+        drive_account_ids=drive_ids,
+        account_info_map=account_info_map,
     )
 
     group_sender_id = f"group:{chat_id}"
