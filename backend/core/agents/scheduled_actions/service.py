@@ -600,6 +600,9 @@ def ensure_default_actions(agent_slug: str) -> None:
     # Check for legacy "cron" actions that haven't been migrated yet
     legacy = list_actions(agent=agent_slug, action_type="cron")
     if legacy:
+        for action in legacy:
+            if not action.get("always_on"):
+                update_action(action["id"], always_on=True)
         return
 
     create_action(
