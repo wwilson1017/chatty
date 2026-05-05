@@ -209,14 +209,12 @@ def _safe_process_telegram(
             return
 
         # ── Private chat path ────────────────────────────────────────
-        # Check if sender has a mapping
-        mapping = state.get_mapping_by_sender("telegram", user_id)
+        agent_id = agent["id"]
+        mapping = state.get_mapping_by_sender("telegram", user_id, agent_id)
         if not mapping:
-            # Try auto-registration
-            if lifecycle.try_auto_register(agent["id"], user_id, sender_name):
+            if lifecycle.try_auto_register(agent_id, user_id, sender_name):
                 logger.info("Auto-registered Telegram user %s for agent %s", user_id, agent["agent_name"])
                 _mark_telegram_configured(agent["slug"])
-                mapping = state.get_mapping_by_sender("telegram", user_id)
             else:
                 send_message(
                     chat_id,
@@ -226,7 +224,6 @@ def _safe_process_telegram(
                 return
 
         # Busy check — save message to history but skip AI if already processing
-        mapped_agent_id = mapping["agent_id"] if mapping else agent["id"]
         busy_key = (agent_slug, chat_id)
         busy_started = time.monotonic()
         with _busy_lock:
@@ -243,7 +240,7 @@ def _safe_process_telegram(
             loop = asyncio.new_event_loop()
             try:
                 loop.run_until_complete(service.save_message_only(
-                    agent_id=mapped_agent_id,
+                    agent_id=agent_id,
                     agent_slug=agent_slug,
                     sender_id=user_id,
                     content=prefix + message,
@@ -259,7 +256,7 @@ def _safe_process_telegram(
             loop = asyncio.new_event_loop()
             try:
                 response = loop.run_until_complete(
-                    service.process_message(user_id, sender_name, message)
+                    service.process_message(user_id, sender_name, message, agent_id)
                 )
             finally:
                 loop.close()
