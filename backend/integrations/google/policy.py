@@ -1,13 +1,8 @@
 """
-Chatty — Google capability resolution.
+Chatty — Google capability resolution (multi-account).
 
-When Google is connected globally, ALL agents automatically get the
-granted capabilities. No per-agent opt-in required — if the user
-connected Gmail with send access, every agent can send email.
-
-Per-agent flags (gmail_enabled, drive_enabled, etc.) act as opt-OUT
-overrides: set them to False to restrict a specific agent. By default
-they're treated as "use whatever the global connection grants."
+Each agent can have different Google accounts assigned per service
+(Gmail, Calendar, Drive). Capabilities are resolved per-account.
 """
 
 from __future__ import annotations
@@ -20,35 +15,36 @@ _CALENDAR_WRITE_LEVELS = {"full"}
 _DRIVE_READ_LEVELS = {"file", "readonly", "full"}
 _DRIVE_WRITE_LEVELS = {"file", "full"}
 
-
-def _load_grants() -> dict[str, str]:
-    """Load scope_grants from data/integrations/google.json."""
-    try:
-        from integrations.registry import get_credentials
-        creds = get_credentials("google")
-        if not creds or not creds.get("enabled"):
-            return {}
-        return creds.get("scope_grants", {}) or {}
-    except Exception:
-        return {}
+_ALL_DISABLED = {
+    "gmail_read_enabled": False,
+    "gmail_send_enabled": False,
+    "calendar_read_enabled": False,
+    "calendar_write_enabled": False,
+    "drive_read_enabled": False,
+    "drive_write_enabled": False,
+}
 
 
-def google_capabilities() -> dict[str, bool]:
-    """Return capability flags based on global Google connection grants.
+def google_capabilities(account_id: str = "") -> dict[str, bool]:
+    """Return capability flags for a specific Google account.
 
-    If Google is connected, agents get all granted capabilities automatically.
-    No per-agent toggle required — the global scope grants are the source of truth.
+    If account_id is empty or the account doesn't exist, returns all-disabled.
     """
-    grants = _load_grants()
-    if not grants:
-        return {
-            "gmail_read_enabled": False,
-            "gmail_send_enabled": False,
-            "calendar_read_enabled": False,
-            "calendar_write_enabled": False,
-            "drive_read_enabled": False,
-            "drive_write_enabled": False,
-        }
+    if not account_id:
+        return dict(_ALL_DISABLED)
+
+    try:
+        from integrations.registry import get_google_account
+        acct = get_google_account(account_id)
+        if not acct:
+            return dict(_ALL_DISABLED)
+        if acct.get("connection_status") == "broken":
+            return dict(_ALL_DISABLED)
+        grants = acct.get("scope_grants", {})
+        if not grants:
+            return dict(_ALL_DISABLED)
+    except Exception:
+        return dict(_ALL_DISABLED)
 
     gmail = grants.get("gmail", "none")
     calendar = grants.get("calendar", "none")

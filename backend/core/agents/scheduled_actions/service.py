@@ -18,6 +18,15 @@ MAX_INTERVAL_MINUTES = 1440
 MAX_TOOL_ITERATIONS_CAP = 10
 DEFAULT_INTERVAL_MINUTES = 30
 _DEFAULT_LEASE_MINUTES = 15
+AUTO_DISABLE_THRESHOLD = 10
+_ERROR_BACKOFF_SECONDS = [30, 60, 300, 900, 3600]
+
+
+def _error_backoff_seconds(consecutive_errors: int) -> int:
+    if consecutive_errors <= 0:
+        return 0
+    idx = min(consecutive_errors - 1, len(_ERROR_BACKOFF_SECONDS) - 1)
+    return _ERROR_BACKOFF_SECONDS[idx]
 
 
 def _normalize_hour(value, default: str = "06:00") -> str:
@@ -103,7 +112,7 @@ def create_action(
     active_hours_tz: str = "America/Chicago",
     prompt: str = "",
     model_override: str | None = None,
-    max_tool_iterations: int = 5,
+    max_tool_iterations: int = 10,
     enabled: bool = True,
     always_on: bool = False,
     created_by_email: str = "user",
@@ -151,6 +160,14 @@ def create_action(
 
     conn = db.get_db()
     with db.write_lock():
+        if action_type == "heartbeat":
+            existing = conn.execute(
+                "SELECT id FROM scheduled_actions WHERE agent = ? AND action_type = 'heartbeat'",
+                (agent,),
+            ).fetchone()
+            if existing:
+                return {"error": f"Agent '{agent}' already has a heartbeat (id={existing['id']})"}
+
         conn.execute(
             """INSERT INTO scheduled_actions
                (id, agent, created_by_email, action_type, name, description,
@@ -256,7 +273,7 @@ def update_action(action_id: str, **fields) -> dict:
         for bool_field in ("enabled", "triage_enabled", "notify_on_action", "always_on"):
             if bool_field in updates:
                 updates[bool_field] = 1 if updates[bool_field] else 0
-        if "enabled" in updates and updates["enabled"] == 1 and action.get("consecutive_errors", 0) >= 5:
+        if "enabled" in updates and updates["enabled"] == 1 and action.get("consecutive_errors", 0) >= AUTO_DISABLE_THRESHOLD:
             updates["consecutive_errors"] = 0
 
         updates["updated_at"] = _now_utc()
@@ -282,6 +299,8 @@ def delete_action(action_id: str) -> dict:
         row = conn.execute("SELECT * FROM scheduled_actions WHERE id = ?", (action_id,)).fetchone()
         if not row:
             return {"error": f"Action {action_id} not found"}
+        if row["action_type"] == "heartbeat":
+            return {"error": "Cannot delete heartbeat actions. Disable it instead with update_scheduled_action."}
         conn.execute("DELETE FROM scheduled_actions WHERE id = ?", (action_id,))
         conn.commit()
 
@@ -432,16 +451,57 @@ def renew_lease(action_id: str, lease_id: str, extra_minutes: int = 15) -> bool:
 
 
 def release_expired_leases() -> int:
-    """Clear leases that have expired (process died mid-execution)."""
+    """Clear leases that have expired (process died mid-execution).
+
+    Treats each expired lease as an execution failure so consecutive_errors
+    increments and backoff applies. Uses ``require_expired_before`` to
+    prevent racing with lease renewal.
+    """
+    from . import history
+
     conn = db.get_db()
     now = _now_utc()
-    with db.write_lock():
-        cursor = conn.execute(
-            "UPDATE scheduled_actions SET lease_id = NULL, leased_until = NULL WHERE lease_id IS NOT NULL AND leased_until <= ?",
-            (now,),
+    expired_rows = conn.execute(
+        "SELECT id, lease_id FROM scheduled_actions WHERE lease_id IS NOT NULL AND leased_until <= ?",
+        (now,),
+    ).fetchall()
+    if not expired_rows:
+        return 0
+
+    count = 0
+    for row in expired_rows:
+        action_row = conn.execute("SELECT * FROM scheduled_actions WHERE id = ?", (row["id"],)).fetchone()
+        action = dict(action_row) if action_row else None
+        completed = mark_executed(
+            row["id"], "error", "stuck run: lease expired", 0,
+            lease_id=row["lease_id"], require_expired_before=now,
         )
-        conn.commit()
-        return cursor.rowcount
+        if not completed:
+            continue
+        count += 1
+
+        if action:
+            old_errors = action.get("consecutive_errors", 0)
+            new_errors = old_errors + 1
+            from . import notifications
+            if new_errors >= notifications.FAILURE_ALERT_THRESHOLD:
+                try:
+                    notifications.evaluate_failure_alert(
+                        action, new_errors, "stuck run: lease expired", action.get("agent", ""),
+                    )
+                except Exception as e:
+                    logger.debug("Failure alert for expired lease failed: %s", e)
+
+        stale = conn.execute(
+            "SELECT id FROM execution_history WHERE action_id = ? AND status = 'running' ORDER BY started_at DESC LIMIT 1",
+            (row["id"],),
+        ).fetchone()
+        if stale:
+            history.record_complete(
+                stale["id"], status="lease_lost",
+                result_summary="Process died: lease expired",
+            )
+    return count
 
 
 def mark_executed(
@@ -452,10 +512,13 @@ def mark_executed(
     input_tokens: int = 0,
     output_tokens: int = 0,
     lease_id: str | None = None,
+    require_expired_before: str | None = None,
 ) -> bool:
     """Mark an action as executed and schedule its next run.
 
     Returns True if completed, False if lease mismatch (stale worker).
+    ``require_expired_before`` adds an extra ``leased_until <= ?`` guard so
+    the sweeper cannot mark a renewed lease as expired (race-safe).
     """
     conn = db.get_db()
     now = _now_utc()
@@ -468,6 +531,8 @@ def mark_executed(
         if lease_id is not None:
             if row["lease_id"] != lease_id:
                 logger.warning("Lease mismatch for %s: expected %s, got %s", action_id, row["lease_id"], lease_id)
+                return False
+            if require_expired_before and row["leased_until"] and row["leased_until"] > require_expired_before:
                 return False
         elif row["lease_id"] is not None:
             logger.warning("Unleased caller for %s but row has lease %s", action_id, row["lease_id"])
@@ -482,14 +547,21 @@ def mark_executed(
         else:
             consecutive_errors = 0
 
-        next_run = compute_next_run(action)
+        natural_next = compute_next_run(action)
+
+        if status == "error" and consecutive_errors > 0 and natural_next and action["schedule_type"] != "once":
+            backoff_s = _error_backoff_seconds(consecutive_errors)
+            backoff_time = (datetime.now(timezone.utc) + timedelta(seconds=backoff_s)).strftime("%Y-%m-%dT%H:%M:%S")
+            next_run = max(natural_next, backoff_time)
+        else:
+            next_run = natural_next
 
         enabled = action["enabled"]
         if action["schedule_type"] == "once":
             enabled = 0
             next_run = None
 
-        if consecutive_errors >= 5:
+        if consecutive_errors >= AUTO_DISABLE_THRESHOLD:
             enabled = 0
             logger.warning("Action %s auto-disabled after %d consecutive errors", action_id, consecutive_errors)
 
@@ -542,6 +614,7 @@ def ensure_default_actions(agent_slug: str) -> None:
 def ensure_default_actions_all() -> None:
     """Ensure all onboarded agents have default actions. Called by sweeper/startup."""
     try:
+        _run_one_time_migrations()
         from agents.db import list_agents
         agents = list_agents()
         for agent in agents:
@@ -549,6 +622,48 @@ def ensure_default_actions_all() -> None:
                 ensure_default_actions(agent["slug"])
     except Exception as e:
         logger.debug("ensure_default_actions_all: %s", e)
+
+
+_MIGRATION_V2_DONE = False
+
+
+def _run_one_time_migrations() -> None:
+    """One-time fixups for existing deployments after the heartbeat overhaul.
+
+    - Re-enables actions that were auto-disabled under the old 5-error threshold
+    - Resets consecutive_errors so they get a fresh start with working tools
+    - Bumps max_tool_iterations from 5 to 10 for actions still at the old default
+    """
+    global _MIGRATION_V2_DONE
+    if _MIGRATION_V2_DONE:
+        return
+    _MIGRATION_V2_DONE = True
+
+    conn = db.get_db()
+    now = _now_utc()
+
+    with db.write_lock():
+        re_enabled = conn.execute(
+            """UPDATE scheduled_actions SET
+               enabled = 1, consecutive_errors = 0, updated_at = ?
+               WHERE enabled = 0 AND consecutive_errors >= 5 AND consecutive_errors < ?""",
+            (now, AUTO_DISABLE_THRESHOLD),
+        ).rowcount
+
+        bumped = conn.execute(
+            """UPDATE scheduled_actions SET
+               max_tool_iterations = 10, updated_at = ?
+               WHERE max_tool_iterations = 5""",
+            (now,),
+        ).rowcount
+
+        if re_enabled or bumped:
+            conn.commit()
+            logger.info(
+                "One-time migration: re-enabled %d actions (old threshold), "
+                "bumped max_tool_iterations on %d actions",
+                re_enabled, bumped,
+            )
 
 
 def get_heartbeat_stats() -> dict:

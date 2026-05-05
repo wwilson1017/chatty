@@ -43,6 +43,7 @@ _INTEGRATION_MODULES = {
     "quickbooks": ("integrations.quickbooks.tools", "QB_TOOL_DEFS"),
     "qb_csv": ("integrations.qb_csv.tools", "QB_CSV_TOOL_DEFS"),
     "paperclip": ("integrations.paperclip.tools", "PAPERCLIP_TOOL_DEFS"),
+    "todoist": ("integrations.todoist.tools", "TODOIST_TOOL_DEFS"),
 }
 
 
@@ -99,7 +100,7 @@ async def handle_heartbeat(request: Request):
     Execution: run_sync() with Paperclip tool mode forced to "power".
     Response: synchronous JSON with result text.
     """
-    from integrations.registry import get_credentials, get_tool_mode, is_enabled as _is_enabled
+    from integrations.registry import get_credentials, get_tool_mode
 
     try:
         payload = await request.json()
@@ -164,11 +165,20 @@ async def handle_heartbeat(request: Request):
                 status_code=500,
             )
 
-        google_connected = _is_enabled("google")
+        ga = config.google_accounts
+        gmail_account_id = ga.get("gmail", "")
+        calendar_account_id = ga.get("calendar", "")
+        drive_account_id = ga.get("drive", "")
+        google_connected = bool(gmail_account_id or calendar_account_id or drive_account_id)
         integration_tool_defs, integration_executors = _load_integration_tools()
 
         # Force Paperclip writes to "power" — no approval UI in headless mode
-        integration_tool_modes = {name: get_tool_mode(name) for name in _INTEGRATION_MODULES}
+        from integrations.registry import get_credentials as _get_creds
+        integration_tool_modes = {
+            name: get_tool_mode(name)
+            for name in _INTEGRATION_MODULES
+            if "tool_mode" in _get_creds(name)
+        }
         integration_tool_modes["paperclip"] = "power"
 
         reminder_handlers, sa_handlers = _build_agent_handlers(slug)
@@ -179,6 +189,9 @@ async def handle_heartbeat(request: Request):
             agent_slug=slug,
             reminder_handlers=reminder_handlers,
             scheduled_action_handlers=sa_handlers,
+            gmail_account_id=gmail_account_id,
+            calendar_account_id=calendar_account_id,
+            drive_account_id=drive_account_id,
         )
 
         # 6. Build task message
@@ -200,6 +213,7 @@ async def handle_heartbeat(request: Request):
             messages=messages,
             integration_tool_defs=integration_tool_defs or None,
             integration_tool_modes=integration_tool_modes,
+            source="paperclip",
         )
 
         logger.info("Paperclip heartbeat complete: agent=%s len=%d", slug, len(result_text or ""))

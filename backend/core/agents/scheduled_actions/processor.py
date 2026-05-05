@@ -11,6 +11,7 @@ import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
+from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from core.agents.background_runner import run_background_turn
@@ -23,6 +24,12 @@ logger = logging.getLogger(__name__)
 
 _MAX_WORKERS = int(os.environ.get("SCHEDULED_ACTION_WORKERS", "4"))
 _executor = ThreadPoolExecutor(max_workers=_MAX_WORKERS, thread_name_prefix="heartbeat")
+
+_AGENT_TURN_ERRORS = frozenset({
+    "(lease lost -- aborted)",
+    "(no response)",
+    "(max iterations reached)",
+})
 
 # -- In-flight tracking --------------------------------------------------
 _in_flight_count = 0
@@ -90,11 +97,11 @@ def process_due_actions() -> None:
     for action in claimed:
         lease_id = action.get("lease_id")
 
-        if action.get("consecutive_errors", 0) >= 5:
-            service.mark_executed(action["id"], "error", "auto-disabled: consecutive_errors >= 5", 0, lease_id=lease_id)
+        if action.get("consecutive_errors", 0) >= service.AUTO_DISABLE_THRESHOLD:
+            _mark_and_alert(action, "error", f"auto-disabled: consecutive_errors >= {service.AUTO_DISABLE_THRESHOLD}", 0, lease_id=lease_id, agent_slug=action["agent"])
             continue
 
-        if not action.get("always_on") and not _in_active_hours(action):
+        if not _within_active_hours(action):
             service.release_lease(action["id"], lease_id, advance_next_run=True)
             continue
 
@@ -114,23 +121,29 @@ def process_due_actions() -> None:
         )
 
 
-def _in_active_hours(action: dict) -> bool:
-    tz_name = action.get("active_hours_tz", "America/Chicago")
+# -- Helpers ---------------------------------------------------------------
+
+def _within_active_hours(action: dict) -> bool:
+    if action.get("always_on"):
+        return True
+
+    start_str = action.get("active_hours_start")
+    end_str = action.get("active_hours_end")
+    if not start_str or not end_str:
+        return True
+
+    tz_name = action.get("active_hours_tz") or "America/Chicago"
     try:
         tz = ZoneInfo(tz_name)
     except Exception:
-        tz = ZoneInfo("America/Chicago")
+        return True
 
     now = datetime.now(tz)
-    start_str = action.get("active_hours_start", "06:00")
-    end_str = action.get("active_hours_end", "20:00")
-
     try:
         start_h, start_m = map(int, str(start_str).split(":"))
         end_h, end_m = map(int, str(end_str).split(":"))
     except (ValueError, TypeError):
-        start_h, start_m = 6, 0
-        end_h, end_m = 20, 0
+        return True
 
     current_minutes = now.hour * 60 + now.minute
     start_minutes = start_h * 60 + start_m
@@ -141,6 +154,103 @@ def _in_active_hours(action: dict) -> bool:
     else:
         return current_minutes >= start_minutes or current_minutes < end_minutes
 
+
+def _build_tools(agent_slug: str, agent: dict) -> tuple[list[dict], ToolRegistry]:
+    """Build full tool definitions and registry with integration parity."""
+    from agents.tool_loader import load_integration_tools, build_agent_handlers, INTEGRATION_MODULES
+    from agents.engine import build_agent_config
+    from integrations.registry import is_enabled as _is_enabled, get_tool_mode
+    from integrations.google.policy import google_capabilities
+    from core.agents.tools.real_tools import load_all_real_tools
+
+    config = build_agent_config(agent)
+    google_connected = _is_enabled("google")
+    integration_tool_defs, integration_executors = load_integration_tools()
+    google_caps = google_capabilities()
+    reminder_handlers, sa_handlers = build_agent_handlers(agent_slug)
+
+    real_tools_dir = str(Path(config.context_dir).parent / "real_tools")
+    dynamic_real_tools = load_all_real_tools(real_tools_dir)
+
+    tool_defs = get_tool_definitions(
+        integration_tools=integration_tool_defs,
+        dynamic_real_tools=dynamic_real_tools or None,
+        web_enabled=True,
+        **google_caps,
+    )
+
+    integration_modes = {name: get_tool_mode(name) for name in INTEGRATION_MODULES}
+    tool_defs = [
+        t for t in tool_defs
+        if not (t.get("integration") and t.get("writes")
+                and integration_modes.get(t["integration"]) == "read-only")
+    ]
+
+    registry = ToolRegistry(
+        context_dir=config.context_dir,
+        gcs_prefix=config.gcs_prefix,
+        google_connected=google_connected,
+        integration_executors=integration_executors,
+        agent_slug=agent_slug,
+        agent_name=config.agent_name,
+        reminder_handlers=reminder_handlers,
+        scheduled_action_handlers=sa_handlers,
+    )
+
+    return tool_defs, registry
+
+
+def _make_lease_renewer(action_id: str, lease_id: str | None):
+    if not lease_id:
+        return None
+    def _renew(_iteration: int) -> bool:
+        return service.renew_lease(action_id, lease_id)
+    return _renew
+
+
+def _mark_and_alert(action, status, result, duration_ms, input_tokens=0, output_tokens=0, lease_id=None, agent_slug=""):
+    """Wrapper: mark_executed + failure alert evaluation (lock-safe)."""
+    completed = service.mark_executed(
+        action["id"], status, result, duration_ms, input_tokens, output_tokens, lease_id=lease_id,
+    )
+    if completed and status == "error":
+        old_errors = action.get("consecutive_errors", 0)
+        new_errors = old_errors + 1
+        if new_errors >= notifications.FAILURE_ALERT_THRESHOLD:
+            try:
+                notifications.evaluate_failure_alert(action, new_errors, result, agent_slug)
+            except Exception as e:
+                logger.debug("Failure alert check failed: %s", e)
+    return completed
+
+
+def _build_error_context(action: dict, agent_slug: str) -> str:
+    """Build error context for heartbeat system prompt based on consecutive errors."""
+    consecutive_errors = action.get("consecutive_errors", 0)
+    if consecutive_errors == 0:
+        return ""
+
+    last_result = action.get("last_result", "")
+    if consecutive_errors >= 3:
+        recent_errors = history.get_recent_errors(agent_slug, action_id=action["id"], limit=3)
+        error_lines = []
+        for err in recent_errors:
+            error_lines.append(f"  - [{err['started_at']}] {err.get('result_summary', '')[:200]}")
+        return (
+            f"\n\n## Recent Failures\n\n"
+            f"This check has failed {consecutive_errors} times consecutively. "
+            f"Diagnose the root cause rather than retrying the same approach.\n\n"
+            f"Recent errors:\n" + "\n".join(error_lines) + "\n"
+        )
+    else:
+        return (
+            f"\n\n## Note\n\n"
+            f"This check failed {consecutive_errors} time(s) recently. "
+            f"Last error: {last_result[:200]}\n"
+        )
+
+
+# -- Action processors -----------------------------------------------------
 
 def _process_action_safe(action: dict) -> None:
     """Worker entry point: renew lease, run action, track in-flight state."""
@@ -157,7 +267,7 @@ def _process_action_safe(action: dict) -> None:
         _process_action(action)
     except Exception as e:
         logger.error("Action %s/%s failed: %s", agent_name, action["id"][:8], e)
-        completed = service.mark_executed(action["id"], "error", f"unhandled: {e}", 0, lease_id=lease_id)
+        completed = _mark_and_alert(action, "error", f"unhandled: {e}", 0, lease_id=lease_id, agent_slug=agent_name)
         if not completed:
             logger.warning("Lease expired for %s/%s — error result discarded", agent_name, action["id"][:8])
     finally:
@@ -172,7 +282,7 @@ def _process_action(action: dict) -> None:
     elif action_type == "cron":
         _process_cron(action)
     else:
-        service.mark_executed(action["id"], "skipped", f"unknown action_type: {action_type}", 0, lease_id=action.get("lease_id"))
+        _mark_and_alert(action, "skipped", f"unknown action_type: {action_type}", 0, lease_id=action.get("lease_id"), agent_slug=action["agent"])
 
 
 def _resolve_agent(agent_slug: str) -> dict | None:
@@ -192,13 +302,12 @@ def _process_heartbeat(action: dict) -> None:
 
     agent = _resolve_agent(agent_slug)
     if not agent:
-        service.mark_executed(action["id"], "error", f"Agent '{agent_slug}' not found", 0, lease_id=lease_id)
+        _mark_and_alert(action, "error", f"Agent '{agent_slug}' not found", 0, lease_id=lease_id, agent_slug=agent_slug)
         return
 
-    from agents.engine import get_context_manager, DATA_DIR
+    from agents.engine import get_context_manager
     ctx_manager = get_context_manager(agent["slug"])
 
-    # Read HEARTBEAT.md
     heartbeat_path = ctx_manager.data_dir / "HEARTBEAT.md"
     checklist = ""
     if heartbeat_path.exists():
@@ -208,7 +317,7 @@ def _process_heartbeat(action: dict) -> None:
             logger.warning("Failed to read HEARTBEAT.md for %s: %s", agent_slug, e)
 
     if not checklist or _is_effectively_empty(checklist):
-        service.mark_executed(action["id"], "skipped", "no checklist content", 0, lease_id=lease_id)
+        _mark_and_alert(action, "skipped", "no checklist content", 0, lease_id=lease_id, agent_slug=agent_slug)
         return
 
     execution_id = None
@@ -220,31 +329,23 @@ def _process_heartbeat(action: dict) -> None:
     model_override = action.get("model_override") or agent.get("model_override") or None
 
     tz_name = action.get("active_hours_tz") or "America/Chicago"
-    try:
-        tz = ZoneInfo(tz_name)
-    except Exception:
-        tz = ZoneInfo("America/Chicago")
-    now_local = datetime.now(tz)
-    now_str = now_local.strftime(f"%Y-%m-%d %I:%M %p {now_local.strftime('%Z')}")
+    from agents.tool_loader import format_current_time
+    date_str, time_str = format_current_time(tz_name)
 
     context = ctx_manager.load_all_context()
     context_snippet = context[:30000] if context else "(no context files)"
 
-    tool_defs = get_tool_definitions(web_enabled=True)
-    registry = ToolRegistry(
-        context_dir=str(DATA_DIR / agent["slug"] / "context"),
-        agent_slug=agent["slug"],
-    )
+    tool_defs, registry = _build_tools(agent_slug, agent)
+    on_iteration = _make_lease_renewer(action["id"], lease_id)
 
     start_time = time.monotonic()
     try:
-        # Optional triage pass
         triage_data = None
         if action.get("triage_enabled", 1):
             triage_result = run_background_turn(
                 system_prompt=(
                     f"You are {agent['agent_name']}.\n\n"
-                    f"# Quick Heartbeat Triage\n\n"
+                    f"# Quick Heartbeat Triage — {date_str}, {time_str}\n\n"
                     f"Quickly check the following items using your tools. "
                     f"Respond with ONLY one of:\n"
                     f"- NEEDS_ACTION: <brief reason>\n"
@@ -257,45 +358,87 @@ def _process_heartbeat(action: dict) -> None:
                 max_iterations=2,
                 provider_override=provider_override,
                 model_override=model_override,
+                on_iteration=on_iteration,
             )
-            triage_data = {
-                "result": "NEEDS_ACTION" if "NEEDS_ACTION" in triage_result.text.upper() else "ALL_CLEAR",
-                "model": triage_result.model_used,
-                "input_tokens": triage_result.input_tokens,
-                "output_tokens": triage_result.output_tokens,
-            }
-            if not triage_result.error and "NEEDS_ACTION" not in triage_result.text.upper():
+
+            if triage_result.error or triage_result.text in _AGENT_TURN_ERRORS:
                 duration_ms = int((time.monotonic() - start_time) * 1000)
-                completed = service.mark_executed(
-                    action["id"], "ok", "Triage: all clear", duration_ms,
-                    triage_result.input_tokens, triage_result.output_tokens, lease_id=lease_id,
+                completed = _mark_and_alert(
+                    action, "error", f"triage failed: {triage_result.text[:200]}", duration_ms,
+                    input_tokens=triage_result.input_tokens, output_tokens=triage_result.output_tokens,
+                    lease_id=lease_id, agent_slug=agent_slug,
                 )
-                if completed and execution_id:
+                if execution_id:
                     history.record_complete(
-                        execution_id, status="ok",
-                        result_summary="Triage: all clear",
-                        result_full="Triage returned ALL_CLEAR — skipping full check.",
-                        tool_calls=[{"triage": triage_data}],
+                        execution_id, status="error" if completed else "lease_lost",
+                        result_summary=f"triage failed: {triage_result.text[:200]}",
+                        result_full=triage_result.text,
                         model_used=triage_result.model_used,
                         input_tokens=triage_result.input_tokens,
                         output_tokens=triage_result.output_tokens,
                         duration_ms=duration_ms,
                     )
-                logger.info("Heartbeat %s: triage ALL_CLEAR (%dms)", agent_slug, duration_ms)
+                logger.warning("Heartbeat %s: triage error — aborting (%dms)", agent_slug, duration_ms)
                 return
+            else:
+                triage_data = {
+                    "result": "NEEDS_ACTION" if "NEEDS_ACTION" in triage_result.text.upper() else "ALL_CLEAR",
+                    "model": triage_result.model_used,
+                    "input_tokens": triage_result.input_tokens,
+                    "output_tokens": triage_result.output_tokens,
+                }
+                if "NEEDS_ACTION" not in triage_result.text.upper():
+                    duration_ms = int((time.monotonic() - start_time) * 1000)
+                    completed = _mark_and_alert(
+                        action, "ok", "Triage: all clear", duration_ms,
+                        triage_result.input_tokens, triage_result.output_tokens,
+                        lease_id=lease_id, agent_slug=agent_slug,
+                    )
+                    if completed and execution_id:
+                        history.record_complete(
+                            execution_id, status="ok",
+                            result_summary="Triage: all clear",
+                            result_full="Triage returned ALL_CLEAR — skipping full check.",
+                            tool_calls=[{"triage": triage_data}],
+                            model_used=triage_result.model_used,
+                            input_tokens=triage_result.input_tokens,
+                            output_tokens=triage_result.output_tokens,
+                            duration_ms=duration_ms,
+                        )
+                    logger.info("Heartbeat %s: triage ALL_CLEAR (%dms)", agent_slug, duration_ms)
+                    return
 
-        # Full execution
+        if lease_id and not service.renew_lease(action["id"], lease_id):
+            logger.warning("Heartbeat %s: lease lost before full execution", agent_slug)
+            if execution_id:
+                history.record_complete(
+                    execution_id, status="lease_lost",
+                    result_summary="Lease lost between triage and full execution",
+                    duration_ms=int((time.monotonic() - start_time) * 1000),
+                )
+            return
+
+        error_context = _build_error_context(action, agent_slug)
+
         system_prompt = (
-            f"You are {agent['agent_name']}.\n\n"
-            f"# Heartbeat Check — {now_str}\n\n"
-            f"You are performing a periodic heartbeat check. Review your checklist "
-            f"and check each item against current data using your tools.\n\n"
-            f"## Your Checklist\n\n{checklist}\n\n"
-            f"## Your Knowledge (abbreviated)\n\n{context_snippet}\n\n"
-            f"## Rules\n\n"
-            f"- If everything is normal and no action is needed, respond with exactly: HEARTBEAT_OK\n"
-            f"- If something needs attention, take action and respond with: ACTION_TAKEN: <brief description>\n"
-            f"- Be concise. This is an automated check, not a conversation.\n"
+            (
+                f"You are {agent['agent_name']}.\n\n"
+                f"# Heartbeat Check\n\n"
+                f"You are performing a periodic heartbeat check. Review your checklist "
+                f"and check each item against current data using your tools.\n\n"
+                f"## Your Checklist\n\n{checklist}\n\n"
+                f"## Your Knowledge (abbreviated)\n\n{context_snippet}\n\n"
+            ),
+            (
+                f"# Current Date & Time\n\n"
+                f"- Date: {date_str}\n"
+                f"- Time: {time_str}\n\n"
+                f"## Rules\n\n"
+                f"- If everything is normal and no action is needed, respond with exactly: HEARTBEAT_OK\n"
+                f"- If something needs attention, take action and respond with: ACTION_TAKEN: <brief description>\n"
+                f"- Be concise. This is an automated check, not a conversation.\n"
+                f"{error_context}"
+            ),
         )
 
         result = run_background_turn(
@@ -303,14 +446,14 @@ def _process_heartbeat(action: dict) -> None:
             user_message="Perform your heartbeat check now.",
             tool_defs=tool_defs,
             registry=registry,
-            max_iterations=action.get("max_tool_iterations", 5),
+            max_iterations=action.get("max_tool_iterations", 10),
             provider_override=provider_override,
             model_override=model_override,
+            on_iteration=on_iteration,
         )
         duration_ms = int((time.monotonic() - start_time) * 1000)
 
-        # Classification
-        if result.error:
+        if result.error or result.text in _AGENT_TURN_ERRORS:
             status = "error"
         elif "HEARTBEAT_OK" in result.text.upper():
             status = "ok"
@@ -323,12 +466,19 @@ def _process_heartbeat(action: dict) -> None:
         total_out = result.output_tokens + (triage_data["output_tokens"] if triage_data else 0)
         full_tool_log = ([{"triage": triage_data}] if triage_data else []) + result.tool_log
 
-        completed = service.mark_executed(
-            action["id"], status, result.text[:2000], duration_ms, total_inp, total_out, lease_id=lease_id,
+        completed = _mark_and_alert(
+            action, status, result.text[:2000], duration_ms, total_inp, total_out,
+            lease_id=lease_id, agent_slug=agent_slug,
         )
 
         if not completed:
             logger.warning("Heartbeat %s: lease lost — discarding result", agent_slug)
+            if execution_id:
+                history.record_complete(
+                    execution_id, status="lease_lost",
+                    result_summary="Lease lost before result could be recorded",
+                    duration_ms=duration_ms,
+                )
             return
 
         notified = notifications.evaluate_and_notify(action, status, result.text[:300], agent_slug)
@@ -350,7 +500,7 @@ def _process_heartbeat(action: dict) -> None:
     except Exception as e:
         duration_ms = int((time.monotonic() - start_time) * 1000)
         logger.error("Heartbeat %s failed: %s", agent_slug, e)
-        service.mark_executed(action["id"], "error", str(e)[:2000], duration_ms, lease_id=lease_id)
+        _mark_and_alert(action, "error", str(e)[:2000], duration_ms, lease_id=lease_id, agent_slug=agent_slug)
         if execution_id:
             history.record_complete(execution_id, status="error", result_summary=str(e)[:500], result_full=str(e), duration_ms=duration_ms)
 
@@ -361,12 +511,12 @@ def _process_cron(action: dict) -> None:
     lease_id = action.get("lease_id")
     prompt = action.get("prompt", "")
     if not prompt:
-        service.mark_executed(action["id"], "skipped", "no prompt configured", 0, lease_id=lease_id)
+        _mark_and_alert(action, "skipped", "no prompt configured", 0, lease_id=lease_id, agent_slug=agent_slug)
         return
 
     agent = _resolve_agent(agent_slug)
     if not agent:
-        service.mark_executed(action["id"], "error", f"Agent '{agent_slug}' not found", 0, lease_id=lease_id)
+        _mark_and_alert(action, "error", f"Agent '{agent_slug}' not found", 0, lease_id=lease_id, agent_slug=agent_slug)
         return
 
     execution_id = None
@@ -375,7 +525,7 @@ def _process_cron(action: dict) -> None:
     except Exception as e:
         logger.error("Failed to record cron start for %s: %s", agent_slug, e)
 
-    from agents.engine import get_context_manager, DATA_DIR
+    from agents.engine import get_context_manager
     ctx_manager = get_context_manager(agent["slug"])
     context = ctx_manager.load_all_context()
     context_snippet = context[:30000] if context else "(no context files)"
@@ -383,19 +533,27 @@ def _process_cron(action: dict) -> None:
     provider_override = agent.get("provider_override") or None
     model_override = action.get("model_override") or agent.get("model_override") or None
 
+    tz_name = action.get("active_hours_tz") or "America/Chicago"
+    from agents.tool_loader import format_current_time
+    date_str, time_str = format_current_time(tz_name)
+
     system_prompt = (
-        f"You are {agent['agent_name']}.\n\n"
-        f"# Scheduled Action: {action.get('name', 'Unnamed')}\n\n"
-        f"{prompt}\n\n"
-        f"# Your Knowledge (abbreviated)\n\n{context_snippet}\n\n"
-        f"Take appropriate action using your tools. Be concise."
+        (
+            f"You are {agent['agent_name']}.\n\n"
+            f"# Scheduled Action: {action.get('name', 'Unnamed')}\n\n"
+            f"{prompt}\n\n"
+            f"# Your Knowledge (abbreviated)\n\n{context_snippet}\n\n"
+        ),
+        (
+            f"# Current Date & Time\n\n"
+            f"- Date: {date_str}\n"
+            f"- Time: {time_str}\n\n"
+            f"Take appropriate action using your tools. Be concise."
+        ),
     )
 
-    tool_defs = get_tool_definitions(web_enabled=True)
-    registry = ToolRegistry(
-        context_dir=str(DATA_DIR / agent["slug"] / "context"),
-        agent_slug=agent["slug"],
-    )
+    tool_defs, registry = _build_tools(agent_slug, agent)
+    on_iteration = _make_lease_renewer(action["id"], lease_id)
 
     start_time = time.monotonic()
     try:
@@ -404,17 +562,34 @@ def _process_cron(action: dict) -> None:
             user_message=f"Execute scheduled action: {action.get('name', prompt[:100])}",
             tool_defs=tool_defs,
             registry=registry,
-            max_iterations=action.get("max_tool_iterations", 5),
+            max_iterations=action.get("max_tool_iterations", 10),
             provider_override=provider_override,
             model_override=model_override,
+            on_iteration=on_iteration,
         )
         duration_ms = int((time.monotonic() - start_time) * 1000)
 
-        status = "error" if result.error else "ok"
-        completed = service.mark_executed(
-            action["id"], status, result.text[:2000], duration_ms,
-            result.input_tokens, result.output_tokens, lease_id=lease_id,
+        if result.error or result.text in _AGENT_TURN_ERRORS:
+            status = "error"
+        else:
+            status = "ok"
+
+        completed = _mark_and_alert(
+            action, status, result.text[:2000], duration_ms,
+            result.input_tokens, result.output_tokens,
+            lease_id=lease_id, agent_slug=agent_slug,
         )
+
+        if not completed:
+            logger.warning("Cron %s: lease lost — discarding result", agent_slug)
+            if execution_id:
+                history.record_complete(
+                    execution_id, status="lease_lost",
+                    result_summary="Lease lost before result could be recorded",
+                    duration_ms=duration_ms,
+                )
+            return
+
         if completed and execution_id:
             history.record_complete(
                 execution_id, status=status,
@@ -430,7 +605,7 @@ def _process_cron(action: dict) -> None:
     except Exception as e:
         duration_ms = int((time.monotonic() - start_time) * 1000)
         logger.error("Cron %s failed: %s", agent_slug, e)
-        service.mark_executed(action["id"], "error", str(e)[:2000], duration_ms, lease_id=lease_id)
+        _mark_and_alert(action, "error", str(e)[:2000], duration_ms, lease_id=lease_id, agent_slug=agent_slug)
         if execution_id:
             history.record_complete(execution_id, status="error", result_summary=str(e)[:500], result_full=str(e), duration_ms=duration_ms)
 
@@ -484,7 +659,7 @@ def run_action_now_with_tracking(action_id: str) -> dict | None:
     except Exception:
         if action:
             lease_id = action.get("lease_id")
-            completed = service.mark_executed(action["id"], "error", "manual run failed", 0, lease_id=lease_id)
+            completed = _mark_and_alert(action, "error", "manual run failed", 0, lease_id=lease_id, agent_slug=agent_name)
             if not completed and lease_id:
                 service.release_lease(action["id"], lease_id)
         raise

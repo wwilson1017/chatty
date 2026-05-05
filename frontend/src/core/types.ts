@@ -15,6 +15,7 @@ export interface Agent {
   calendar_write_enabled?: boolean;
   drive_enabled?: boolean;
   drive_write_enabled?: boolean;
+  google_accounts?: { gmail?: string; calendar?: string; drive?: string };
   whatsapp_session_id?: string;
   telegram_enabled: boolean;
   telegram_bot_token?: string;
@@ -48,6 +49,13 @@ export interface GoogleScopeGrants {
   gmail: GmailScopeLevel;
   calendar: CalendarScopeLevel;
   drive: DriveScopeLevel;
+}
+
+export interface GoogleAccount {
+  id: string;
+  email: string;
+  scope_grants: GoogleScopeGrants;
+  connection_status: string;
 }
 
 export interface Conversation {
@@ -99,6 +107,7 @@ export interface Integration {
   tool_mode?: string;
   email?: string;
   scope_grants?: GoogleScopeGrants;
+  google_accounts?: GoogleAccount[];
   has_app_credentials?: boolean;
 }
 
