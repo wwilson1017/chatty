@@ -7,7 +7,7 @@ import { useScrollDirection } from './hooks/useScrollDirection';
 import { AgentChatPanel } from './components/AgentChatPanel';
 import { AgentContextEditor } from './components/AgentContextEditor';
 import ReportsPanel from './reports/ReportsPanel';
-import AgentActivityPanel from './components/AgentActivityPanel';
+import HeartbeatPanel from './components/HeartbeatPanel';
 import AgentRemindersPanel from './components/AgentRemindersPanel';
 import { ConversationSidebar } from './components/ConversationSidebar';
 import { AvatarPicker } from './components/AvatarPicker';
@@ -35,14 +35,21 @@ interface AgentRow {
   telegram_max_bot_turns: number;
 }
 
-type Tab = 'chat' | 'knowledge' | 'reports' | 'reminders' | 'activity';
+type Tab = 'chat' | 'knowledge' | 'reports' | 'reminders' | 'heartbeat';
+
+function parseTab(raw: string | null): Tab | null {
+  if (!raw) return null;
+  if (raw === 'activity') return 'heartbeat';
+  if (['chat', 'knowledge', 'reports', 'reminders', 'heartbeat'].includes(raw)) return raw as Tab;
+  return null;
+}
 
 const TABS: { key: Tab; label: string }[] = [
   { key: 'chat', label: 'Chat' },
   { key: 'knowledge', label: 'Knowledge' },
   { key: 'reports', label: 'Reports' },
   { key: 'reminders', label: 'Reminders' },
-  { key: 'activity', label: 'Activity' },
+  { key: 'heartbeat', label: 'Heartbeat' },
 ];
 
 const TOOL_MODES: { key: ToolMode; label: string }[] = [
@@ -57,10 +64,7 @@ export function AgentPage() {
   const [searchParams, setSearchParams] = useSearchParams();
 
   const [agent, setAgent] = useState<AgentRow | null>(null);
-  const [activeTab, setActiveTab] = useState<Tab>(() => {
-    const tab = searchParams.get('tab');
-    return (tab && ['chat', 'knowledge', 'reports', 'reminders', 'activity'].includes(tab)) ? tab as Tab : 'chat';
-  });
+  const [activeTab, setActiveTab] = useState<Tab>(() => parseTab(searchParams.get('tab')) || 'chat');
   const [showAvatarPicker, setShowAvatarPicker] = useState(false);
   const [showSidebar, setShowSidebar] = useState(false);
   const [openaiAvailable, setOpenaiAvailable] = useState(false);
@@ -221,9 +225,9 @@ export function AgentPage() {
 
   // Handle tab from URL search params
   useEffect(() => {
-    const tab = searchParams.get('tab');
-    if (tab && ['chat', 'knowledge', 'reports', 'reminders', 'activity'].includes(tab)) {
-      queueMicrotask(() => setActiveTab(tab as Tab));
+    const parsed = parseTab(searchParams.get('tab'));
+    if (parsed) {
+      queueMicrotask(() => setActiveTab(parsed));
       searchParams.delete('tab');
       setSearchParams(searchParams, { replace: true });
     }
@@ -605,9 +609,9 @@ export function AgentPage() {
           <div style={{ flex: 1, overflow: 'auto' }}>
             <AgentRemindersPanel agentSlug={agent.slug} />
           </div>
-        ) : activeTab === 'activity' ? (
+        ) : activeTab === 'heartbeat' ? (
           <div style={{ flex: 1, overflow: 'auto' }}>
-            <AgentActivityPanel apiPrefix={apiPrefix} />
+            <HeartbeatPanel agentSlug={agent.slug} apiPrefix={apiPrefix} />
           </div>
         ) : null}
       </div>
