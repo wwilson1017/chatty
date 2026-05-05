@@ -2,11 +2,18 @@
 
 Creates in-app alerts for every action_taken heartbeat result.
 Optionally sends external notifications via Telegram or WhatsApp.
+Failure alerts fire when consecutive errors hit a threshold.
 """
 
 import logging
+from datetime import datetime, timezone
+
+from core.agents.reminders import db
 
 logger = logging.getLogger(__name__)
+
+FAILURE_ALERT_THRESHOLD = 3
+_FAILURE_ALERT_COOLDOWN_SECONDS = 3600
 
 
 def evaluate_and_notify(
@@ -79,6 +86,52 @@ def _try_telegram(agent_slug: str, message: str) -> bool:
     except Exception as e:
         logger.debug("Telegram notification skipped for %s: %s", agent_slug, e)
         return False
+
+
+def evaluate_failure_alert(
+    action: dict,
+    consecutive_errors: int,
+    last_error: str,
+    agent_slug: str,
+) -> bool:
+    """Create in-app alert when consecutive errors hit threshold. 1-hour cooldown."""
+    if consecutive_errors < FAILURE_ALERT_THRESHOLD:
+        return False
+
+    last_alert = action.get("last_failure_alert_at")
+    if last_alert:
+        try:
+            alert_dt = datetime.fromisoformat(last_alert).replace(tzinfo=timezone.utc)
+            if (datetime.now(timezone.utc) - alert_dt).total_seconds() < _FAILURE_ALERT_COOLDOWN_SECONDS:
+                return False
+        except (ValueError, TypeError):
+            pass
+
+    action_name = action.get("name") or action.get("action_type", "unknown")
+
+    from core.agents.alerts.service import create_alert
+    create_alert(
+        agent=agent_slug,
+        title=f"Repeated failures: {action_name}",
+        message=f"Failed {consecutive_errors} times. Last error: {last_error[:300]}",
+        source="heartbeat_failure",
+        source_id=action["id"],
+    )
+
+    conn = db.get_db()
+    now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S")
+    with db.write_lock():
+        conn.execute(
+            "UPDATE scheduled_actions SET last_failure_alert_at = ? WHERE id = ?",
+            (now, action["id"]),
+        )
+        conn.commit()
+
+    if action.get("notify_on_action"):
+        _send_external(agent_slug, action, f"Action '{action_name}' has failed {consecutive_errors} times. Last: {last_error[:200]}")
+
+    logger.info("Failure alert sent for %s/%s (%d errors)", agent_slug, action["id"][:8], consecutive_errors)
+    return True
 
 
 def _try_whatsapp(agent_slug: str, message: str) -> bool:

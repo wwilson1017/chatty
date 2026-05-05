@@ -29,6 +29,7 @@ interface Props {
   contextUsage?: ContextUsage | null;
   toolMode?: ToolMode;
   onToolModeChange?: (mode: ToolMode) => void;
+  alwaysPowerMode?: boolean;
   agentName?: string;
   agentSlug?: string;
   conversationSource?: string | null;
@@ -46,7 +47,7 @@ const TOOL_MODES: { key: ToolMode; label: string }[] = [
 export function AgentChatPanel({
   messages, isStreaming, onSend, onStop, onApprove, onDeny,
   onApprovePlan, onIteratePlan, scrollRef: externalScrollRef,
-  contextUsage, toolMode, onToolModeChange, agentName, agentSlug, conversationSource, importMode, onCancelImport,
+  contextUsage, toolMode, onToolModeChange, alwaysPowerMode, agentName, agentSlug, conversationSource, importMode, onCancelImport,
   greetingPending,
 }: Props) {
   const [input, setInput] = useState('');
@@ -244,18 +245,19 @@ export function AgentChatPanel({
                 <div style={{
                   display: 'flex', border: '1px solid rgba(230,235,242,0.07)',
                   borderRadius: 3, overflow: 'hidden',
+                  opacity: alwaysPowerMode ? 0.5 : 1,
                 }}>
                   {TOOL_MODES.map(m => (
                     <div
                       key={m.key}
-                      onClick={() => handleToolModeClick(m.key)}
+                      onClick={() => !alwaysPowerMode && handleToolModeClick(m.key)}
                       style={{
                         padding: '3px 10px',
                         fontFamily: "'JetBrains Mono', ui-monospace, monospace",
                         fontSize: 10, letterSpacing: '0.12em', textTransform: 'uppercase',
                         color: toolMode === m.key ? '#0E1013' : 'rgba(237,240,244,0.62)',
                         background: toolMode === m.key ? 'var(--color-ch-accent, #C8D1D9)' : 'transparent',
-                        cursor: 'pointer',
+                        cursor: alwaysPowerMode ? 'default' : 'pointer',
                       }}
                     >
                       {m.label}

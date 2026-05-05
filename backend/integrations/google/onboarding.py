@@ -1,22 +1,27 @@
 """
-Chatty — Google integration setup flow.
+Chatty — Google integration setup flow (multi-account).
 
-Tokens for Gmail/Calendar/Drive are stored in data/integrations/google.json
-(NOT in auth-profiles.json). This keeps the integration credentials separate
-from the Gemini AI provider credentials, which live under google:default in
-auth-profiles.json. Connecting/disconnecting the integration never touches
-the AI provider slot.
+Tokens for each Google account are stored in data/integrations/google.json
+under the accounts dict, keyed by a short UUID. The Gemini AI provider
+credentials live separately in auth-profiles.json.
 """
 
 from __future__ import annotations
 
+import json
 import logging
 import time
+import uuid
 from pathlib import Path
 
 import httpx
 
-from integrations.registry import get_credentials, save_credentials
+from integrations.registry import (
+    get_google_account,
+    save_google_account,
+    delete_google_account,
+    list_google_accounts,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -56,16 +61,39 @@ async def setup_from_oauth(
     refresh_token: str,
     expires_in: int,
     scope_grants: dict,
+    account_id: str = "",
 ) -> dict:
-    """Persist tokens + grants to google.json. Returns {ok, email, ...}."""
+    """Persist tokens + grants to google.json accounts dict. Returns {ok, account_id, email, ...}."""
     email = await _resolve_email(access_token)
+    if not email:
+        return {
+            "ok": False,
+            "error": "Could not resolve Google account email. Please try again.",
+        }
+
+    if account_id:
+        existing = get_google_account(account_id)
+        if existing and existing.get("email") and existing["email"] != email:
+            logger.warning("Google reconnect email mismatch: stored=%s returned=%s", existing["email"], email)
+            return {
+                "ok": False,
+                "error": "Account email mismatch. Disconnect and add a new account instead.",
+            }
+
     timezone = "UTC"
     if scope_grants.get("calendar", "none") != "none":
         timezone = await _resolve_calendar_timezone(access_token)
 
-    existing = get_credentials("google")
-    existing.update({
-        "enabled": True,
+    if not account_id:
+        existing_accounts = list_google_accounts()
+        for aid, acct in existing_accounts.items():
+            if acct.get("email") and acct["email"] == email:
+                account_id = aid
+                break
+        if not account_id:
+            account_id = uuid.uuid4().hex[:8]
+
+    account_data = {
         "email": email,
         "access_token": access_token,
         "refresh_token": refresh_token,
@@ -73,25 +101,46 @@ async def setup_from_oauth(
         "scope_grants": scope_grants,
         "calendar_timezone": timezone,
         "connection_status": "ok",
-    })
-    save_credentials("google", existing)
+    }
 
-    logger.info("Google connected: email=%s scope_grants=%s", email, scope_grants)
+    save_google_account(account_id, account_data, create=True)
+
+    _clear_stale_assignments(account_id, scope_grants)
+
+    logger.info("Google account connected: id=%s email=%s scope_grants=%s", account_id, email, scope_grants)
     return {
         "ok": True,
+        "account_id": account_id,
         "email": email,
         "scope_grants": scope_grants,
         "timezone": timezone,
     }
 
 
-async def disconnect() -> dict:
-    """Revoke tokens with Google and clear google.json. Does NOT touch
-    auth-profiles.json — the Gemini AI provider is unaffected."""
-    creds = get_credentials("google")
-    refresh = creds.get("refresh_token", "")
-    access = creds.get("access_token", "")
+def _clear_stale_assignments(account_id: str, scope_grants: dict) -> None:
+    """Clear agent assignments for services that were downgraded to 'none'."""
+    try:
+        from agents.db import list_agents, update_agent
+        svc_map = {"gmail": "gmail", "calendar": "calendar", "drive": "drive"}
+        for agent in list_agents():
+            ga = agent.get("google_accounts", {})
+            if not isinstance(ga, dict):
+                continue
+            changed = False
+            for svc, scope_key in svc_map.items():
+                if ga.get(svc) == account_id and scope_grants.get(scope_key, "none") == "none":
+                    ga[svc] = ""
+                    changed = True
+            if changed:
+                update_agent(agent["id"], google_accounts=json.dumps(ga))
+    except Exception as e:
+        logger.warning("Failed to clear stale Google assignments: %s", e)
 
+
+async def _revoke_token(acct: dict) -> None:
+    """Revoke tokens for a single account."""
+    refresh = acct.get("refresh_token", "")
+    access = acct.get("access_token", "")
     token_to_revoke = refresh or access
     if token_to_revoke:
         try:
@@ -102,19 +151,68 @@ async def disconnect() -> dict:
                     headers={"Content-Type": "application/x-www-form-urlencoded"},
                 )
                 if resp.status_code == 200:
-                    logger.info("Google tokens revoked successfully")
+                    logger.info("Google tokens revoked for %s", acct.get("email", "?"))
                 else:
-                    logger.warning("Google token revoke returned %d", resp.status_code)
+                    logger.warning("Google token revoke returned %d for %s", resp.status_code, acct.get("email", "?"))
         except Exception as e:
-            logger.warning("Google token revoke failed: %s", e)
+            logger.warning("Google token revoke failed for %s: %s", acct.get("email", "?"), e)
 
-    preserved_app = creds.get("app")
-    creds_path = Path(__file__).resolve().parent.parent.parent / "data" / "integrations" / "google.json"
-    if creds_path.exists():
-        creds_path.unlink()
-        logger.info("Removed google.json")
 
-    if preserved_app:
-        save_credentials("google", {"app": preserved_app})
+def _clear_agent_references(account_id: str = "") -> None:
+    """Clear google_accounts on agents that reference a removed account."""
+    try:
+        from agents.db import list_agents, update_agent
+        for agent in list_agents():
+            ga = agent.get("google_accounts", {})
+            if not isinstance(ga, dict):
+                continue
+            changed = False
+            if account_id:
+                for svc, aid in list(ga.items()):
+                    if aid == account_id:
+                        ga[svc] = ""
+                        changed = True
+            else:
+                if any(v for v in ga.values()):
+                    ga = {"gmail": "", "calendar": "", "drive": ""}
+                    changed = True
+            if changed:
+                update_agent(agent["id"], google_accounts=json.dumps(ga))
+    except Exception as e:
+        logger.warning("Failed to clear agent Google references: %s", e)
 
-    return {"ok": True}
+
+async def disconnect(account_id: str = "") -> dict:
+    """Revoke tokens and remove account(s). Does NOT touch auth-profiles.json."""
+    from integrations.registry import get_credentials, _GOOGLE_FILE_LOCK, _read_google_creds, _write_google_creds
+
+    if account_id:
+        acct = get_google_account(account_id)
+        if acct:
+            await _revoke_token(acct)
+            delete_google_account(account_id)
+        _clear_agent_references(account_id)
+    else:
+        accounts = list_google_accounts()
+        for acct in accounts.values():
+            await _revoke_token(acct)
+
+        with _GOOGLE_FILE_LOCK:
+            creds = _read_google_creds()
+            preserved_app = creds.get("app")
+            preserved_tool_mode = creds.get("tool_mode")
+            creds_path = Path(__file__).resolve().parent.parent.parent / "data" / "integrations" / "google.json"
+            if creds_path.exists():
+                creds_path.unlink()
+                logger.info("Removed google.json")
+            if preserved_app or preserved_tool_mode:
+                new_creds = {}
+                if preserved_app:
+                    new_creds["app"] = preserved_app
+                if preserved_tool_mode:
+                    new_creds["tool_mode"] = preserved_tool_mode
+                _write_google_creds(new_creds)
+
+        _clear_agent_references()
+
+    return {"ok": True, "account_id": account_id}

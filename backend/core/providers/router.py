@@ -335,7 +335,7 @@ async def sync_openai_cli(user=Depends(get_current_user)):
         if not cred_path.exists():
             continue
         try:
-            data = json.loads(cred_path.read_text())
+            data = json.loads(cred_path.read_text(encoding="utf-8"))
             auth_mode = data.get("auth_mode", "")
 
             # Prefer an explicit API key if set

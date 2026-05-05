@@ -60,6 +60,8 @@ def build_agent_config(agent_row: dict) -> AgentConfig:
     topics = get_onboarding_topics()
     personality = agent_row.get("personality") or get_onboarding_personality(agent_row["agent_name"])
 
+    google_accounts = agent_row.get("google_accounts") or {}
+
     return AgentConfig(
         agent_id=agent_row["id"],
         agent_name=agent_row["agent_name"],
@@ -73,6 +75,7 @@ def build_agent_config(agent_row: dict) -> AgentConfig:
         calendar_write_enabled=bool(agent_row.get("calendar_write_enabled", 0)),
         drive_enabled=bool(agent_row.get("drive_enabled", 0)),
         drive_write_enabled=bool(agent_row.get("drive_write_enabled", 0)),
+        google_accounts=google_accounts,
         context_dir=str(_context_dir(slug)),
         gcs_prefix=_gcs_prefix(slug) + "context/",
         chat_db_path=str(_agent_dir(slug) / "chat.db"),

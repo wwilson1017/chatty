@@ -44,6 +44,43 @@ _BUILTIN_TOOL_NAMES = {
 
 _NAME_RE = re.compile(r"^[a-zA-Z][a-zA-Z0-9_-]{0,63}$")
 
+# ---------------------------------------------------------------------------
+# JSON Schema type validation — prevents agents from creating tools with
+# invalid types (e.g. "list", "int") that brick the API.
+# ---------------------------------------------------------------------------
+
+_TYPE_COERCE_MAP = {
+    "str": "string",
+    "int": "integer",
+    "float": "number",
+    "bool": "boolean",
+    "list": "array",
+    "dict": "object",
+    "text": "string",
+}
+
+_VALID_JSON_SCHEMA_TYPES = {"string", "number", "integer", "boolean", "array", "object"}
+
+
+def _normalize_parameter_type(ptype: str) -> str:
+    """Normalize a parameter type string to a valid JSON Schema type."""
+    normalized = ptype.strip().strip("`").lower()
+    bracket_idx = normalized.find("[")
+    if bracket_idx > 0:
+        normalized = normalized[:bracket_idx]
+    of_idx = normalized.find(" of ")
+    if of_idx > 0:
+        normalized = normalized[:of_idx]
+    if normalized in _TYPE_COERCE_MAP:
+        return _TYPE_COERCE_MAP[normalized]
+    if normalized in _VALID_JSON_SCHEMA_TYPES:
+        return normalized
+    raise ValueError(
+        f"Invalid parameter type '{ptype}'. Valid types: "
+        f"{', '.join(sorted(_VALID_JSON_SCHEMA_TYPES))}. "
+        f"Common aliases: list->array, int->integer, float->number, dict->object, bool->boolean"
+    )
+
 
 # ---------------------------------------------------------------------------
 # Markdown section helpers
@@ -85,7 +122,7 @@ def _parse_parameters(text: str) -> list[dict]:
             continue
 
         name = cells[0] if len(cells) > 0 else ""
-        ptype = cells[1] if len(cells) > 1 else "string"
+        ptype = _normalize_parameter_type(cells[1] if len(cells) > 1 else "string")
         required = cells[2].lower() in ("yes", "true") if len(cells) > 2 else False
         default = cells[3] if len(cells) > 3 else ""
         desc = cells[4] if len(cells) > 4 else ""
@@ -486,6 +523,8 @@ def _parsed_to_registry_entry(parsed: dict) -> dict:
     required = []
     for p in parsed["parameters"]:
         prop: dict = {"type": p["type"], "description": p.get("description", "")}
+        if p["type"] == "array":
+            prop["items"] = {}
         if p.get("default"):
             prop["description"] += f" (default: {p['default']})"
         properties[p["name"]] = prop
@@ -517,9 +556,9 @@ def load_all_real_tools(tools_dir: str) -> list[dict]:
     for f in sorted(d.glob("*.realtool.md")):
         try:
             parsed = parse_real_tool_definition(f.read_text(encoding="utf-8"))
-        except ValueError as e:
+            entries.append(_parsed_to_registry_entry(parsed))
+        except (ValueError, KeyError) as e:
             logger.warning("Skipping invalid real tool %s: %s", f.name, e)
             continue
-        entries.append(_parsed_to_registry_entry(parsed))
 
     return entries
