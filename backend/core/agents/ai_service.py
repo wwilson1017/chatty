@@ -235,8 +235,11 @@ def _google_accounts_context(account_info_map: dict[str, dict], google_accounts:
     return (
         "## Google Accounts\n\n"
         "You have multiple Google accounts available. Use the `account` parameter "
-        "in Gmail/Calendar/Drive tools to specify which account to use. "
-        "If omitted, the first listed account is used by default.\n\n"
+        "in Gmail/Calendar/Drive tools to specify which account to use.\n"
+        "- For read operations: the first listed account is used by default.\n"
+        "- For write operations (send email, create event, etc.): the first account "
+        "with write access is used by default.\n"
+        "Always specify `account` when context makes the intended account clear.\n\n"
         + "\n\n".join(sections)
     )
 

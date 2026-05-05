@@ -122,7 +122,9 @@ export function GoogleIntegrationCard({ integration, onChanged }: Props) {
     try {
       await api(`/api/integrations/google/${accountId}/disconnect`, { method: 'POST' });
       onChanged();
-      setAgents([]);
+      if (assignmentsOpen) {
+        api<{ agents: Agent[] }>('/api/agents').then(data => setAgents(data.agents)).catch(() => {});
+      }
     } catch (err: unknown) {
       setLocalError(err instanceof Error ? err.message : 'Disconnect failed');
     } finally {

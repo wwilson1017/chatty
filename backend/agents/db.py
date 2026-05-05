@@ -142,6 +142,10 @@ def _normalize_agent(row: dict) -> dict:
         val = parsed.get(svc)
         if isinstance(val, str):
             parsed[svc] = [val] if val else []
+        elif not isinstance(val, list):
+            parsed[svc] = []
+        else:
+            parsed[svc] = [v for v in val if isinstance(v, str) and v]
     d["google_accounts"] = parsed
     return d
 

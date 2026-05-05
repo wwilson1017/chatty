@@ -71,25 +71,6 @@ def _process_self_reminder(reminder: dict) -> None:
     if reminder.get("recurrence_rule"):
         recurrence_line = "- **Recurrence:** This is a recurring reminder.\n"
 
-    system_prompt = (
-        (
-            f"You are {agent['agent_name']}, a helpful AI assistant.\n\n"
-            f"# Reminder Triggered\n\n"
-            f"A reminder you set has fired. Take appropriate action.\n\n"
-            f"- **Message:** {reminder['message']}\n"
-            f"- **Context:** {reminder.get('context') or 'None'}\n"
-            f"- **Originally set at:** {reminder['created_at']}\n"
-            f"{recurrence_line}\n"
-            f"# Your Knowledge (abbreviated)\n\n{context_snippet}\n\n"
-        ),
-        (
-            f"# Current Date & Time\n\n"
-            f"- Date: {date_str}\n"
-            f"- Time: {time_str}\n\n"
-            f"Take any appropriate action using your tools. Be concise."
-        ),
-    )
-
     user_message = f"Your reminder just fired: {reminder['message']}"
 
     from agents.tool_loader import load_integration_tools, build_agent_handlers, INTEGRATION_MODULES
@@ -158,6 +139,28 @@ def _process_self_reminder(reminder: dict) -> None:
         calendar_account_ids=calendar_ids,
         drive_account_ids=drive_ids,
         account_info_map=account_info_map,
+    )
+
+    from core.agents.ai_service import _google_accounts_context
+    ga_ctx = _google_accounts_context(account_info_map, ga)
+    system_prompt = (
+        (
+            f"You are {agent['agent_name']}, a helpful AI assistant.\n\n"
+            + (f"{ga_ctx}\n\n" if ga_ctx else "")
+            + f"# Reminder Triggered\n\n"
+            f"A reminder you set has fired. Take appropriate action.\n\n"
+            f"- **Message:** {reminder['message']}\n"
+            f"- **Context:** {reminder.get('context') or 'None'}\n"
+            f"- **Originally set at:** {reminder['created_at']}\n"
+            f"{recurrence_line}\n"
+            f"# Your Knowledge (abbreviated)\n\n{context_snippet}\n\n"
+        ),
+        (
+            f"# Current Date & Time\n\n"
+            f"- Date: {date_str}\n"
+            f"- Time: {time_str}\n\n"
+            f"Take any appropriate action using your tools. Be concise."
+        ),
     )
 
     try:

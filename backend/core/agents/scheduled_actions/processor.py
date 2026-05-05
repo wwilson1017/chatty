@@ -371,6 +371,9 @@ def _process_heartbeat(action: dict) -> None:
     _cfg = _bac(agent)
     ga_ctx = _google_accounts_context(account_info_map, _cfg.google_accounts)
 
+    from core.agents.ai_service import _google_accounts_context
+    ga_ctx = _google_accounts_context(account_info_map, ga)
+
     start_time = time.monotonic()
     try:
         triage_data = None
@@ -378,7 +381,8 @@ def _process_heartbeat(action: dict) -> None:
             triage_result = run_background_turn(
                 system_prompt=(
                     f"You are {agent['agent_name']}.\n\n"
-                    f"# Quick Heartbeat Triage — {date_str}, {time_str}\n\n"
+                    + (f"{ga_ctx}\n\n" if ga_ctx else "")
+                    + f"# Quick Heartbeat Triage — {date_str}, {time_str}\n\n"
                     f"Quickly check the following items using your tools. "
                     f"Respond with ONLY one of:\n"
                     f"- NEEDS_ACTION: <brief reason>\n"
@@ -570,10 +574,18 @@ def _process_cron(action: dict) -> None:
     from agents.tool_loader import format_current_time
     date_str, time_str = format_current_time(tz_name)
 
+    tool_defs, registry, _aim = _build_tools(agent_slug, agent)
+    on_iteration = _make_lease_renewer(action["id"], lease_id)
+
+    from core.agents.ai_service import _google_accounts_context
+    from agents.engine import build_agent_config as _bac2
+    _cfg2 = _bac2(agent)
+    ga_ctx2 = _google_accounts_context(_aim, _cfg2.google_accounts)
     system_prompt = (
         (
             f"You are {agent['agent_name']}.\n\n"
-            f"# Scheduled Action: {action.get('name', 'Unnamed')}\n\n"
+            + (f"{ga_ctx2}\n\n" if ga_ctx2 else "")
+            + f"# Scheduled Action: {action.get('name', 'Unnamed')}\n\n"
             f"{prompt}\n\n"
             f"# Your Knowledge (abbreviated)\n\n{context_snippet}\n\n"
         ),
@@ -584,9 +596,6 @@ def _process_cron(action: dict) -> None:
             f"Take appropriate action using your tools. Be concise."
         ),
     )
-
-    tool_defs, registry, _aim = _build_tools(agent_slug, agent)
-    on_iteration = _make_lease_renewer(action["id"], lease_id)
 
     start_time = time.monotonic()
     try:

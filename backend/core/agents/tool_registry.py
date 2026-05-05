@@ -306,7 +306,8 @@ class ToolRegistry:
                 "needs_reconnect": True}
 
     def _execute_gmail(self, tool_name: str, args: dict) -> dict:
-        email = args.pop("account", None)
+        email = args.get("account")
+        args = {k: v for k, v in args.items() if k != "account"}
         aid = self._resolve_account("gmail", email, tool_name)
         if isinstance(aid, dict):
             return aid
@@ -363,7 +364,8 @@ class ToolRegistry:
         return {"error": f"Unknown gmail tool: {tool_name}"}
 
     def _execute_calendar(self, tool_name: str, args: dict) -> dict:
-        email = args.pop("account", None)
+        email = args.get("account")
+        args = {k: v for k, v in args.items() if k != "account"}
         aid = self._resolve_account("calendar", email, tool_name)
         if isinstance(aid, dict):
             return aid
@@ -417,7 +419,8 @@ class ToolRegistry:
         return {"error": f"Unknown calendar tool: {tool_name}"}
 
     def _execute_drive(self, tool_name: str, args: dict) -> dict:
-        email = args.pop("account", None)
+        email = args.get("account")
+        args = {k: v for k, v in args.items() if k != "account"}
         aid = self._resolve_account("drive", email, tool_name)
         if isinstance(aid, dict):
             return aid
