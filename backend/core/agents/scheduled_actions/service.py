@@ -597,6 +597,14 @@ def ensure_default_actions(agent_slug: str) -> None:
                 update_action(action["id"], always_on=True)
         return
 
+    # Check for legacy "cron" heartbeat actions that haven't been migrated yet
+    legacy = [a for a in list_actions(agent=agent_slug, action_type="cron") if a.get("name") == "Heartbeat"]
+    if legacy:
+        for action in legacy:
+            if not action.get("always_on"):
+                update_action(action["id"], always_on=True)
+        return
+
     create_action(
         agent=agent_slug,
         schedule_type="interval",
@@ -657,12 +665,22 @@ def _run_one_time_migrations() -> None:
             (now,),
         ).rowcount
 
-        if re_enabled or bumped:
+        # Reclassify legacy "cron" heartbeat actions so the Heartbeat UI can find them.
+        # Only targets system-created heartbeats (name='Heartbeat'), not agent-created cron jobs.
+        reclassified = conn.execute(
+            """UPDATE scheduled_actions SET
+               action_type = 'heartbeat', updated_at = ?
+               WHERE action_type = 'cron' AND name = 'Heartbeat'""",
+            (now,),
+        ).rowcount
+
+        if re_enabled or bumped or reclassified:
             conn.commit()
             logger.info(
                 "One-time migration: re-enabled %d actions (old threshold), "
-                "bumped max_tool_iterations on %d actions",
-                re_enabled, bumped,
+                "bumped max_tool_iterations on %d actions, "
+                "reclassified %d cron→heartbeat",
+                re_enabled, bumped, reclassified,
             )
 
 

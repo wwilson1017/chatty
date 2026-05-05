@@ -198,7 +198,7 @@ export function useHeartbeat(agentSlug: string, apiPrefix: string): UseHeartbeat
     try {
       const data = await api<{ activities: ActivityRecord[] }>(`${apiPrefix}/activity?limit=30`);
       if (!mountedRef.current) return;
-      setHistory(data.activities.filter(r => r.action_type === 'heartbeat').slice(0, 10));
+      setHistory(data.activities.filter(r => r.action_type === 'heartbeat' || r.action_type === 'cron').slice(0, 10));
     } catch { /* supplementary */ }
   }, [apiPrefix]);
 
