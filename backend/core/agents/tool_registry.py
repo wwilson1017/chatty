@@ -73,6 +73,9 @@ class ToolRegistry:
         context_dir: str,
         gcs_prefix: str = "",
         google_connected: bool = False,
+        gmail_account_id: str = "",
+        calendar_account_id: str = "",
+        drive_account_id: str = "",
         integration_executors: dict | None = None,
         agent_slug: str = "",
         agent_name: str = "",
@@ -82,6 +85,9 @@ class ToolRegistry:
         self.context_dir = context_dir
         self.gcs_prefix = gcs_prefix
         self.google_connected = google_connected
+        self.gmail_account_id = gmail_account_id
+        self.calendar_account_id = calendar_account_id
+        self.drive_account_id = drive_account_id
         self.integration_executors: dict = integration_executors or {}
         self.agent_slug = agent_slug
         self.agent_name = agent_name
@@ -240,42 +246,43 @@ class ToolRegistry:
         return {"error": f"Unknown shared_context tool: {tool_name}"}
 
     def _execute_gmail(self, tool_name: str, args: dict) -> dict:
-        if not self.google_connected:
-            return {"error": "Google not connected. Connect at Settings → Integrations → Google.",
+        aid = self.gmail_account_id
+        if not aid:
+            return {"error": "No Gmail account assigned. Assign one at Settings → Integrations → Google.",
                     "needs_reconnect": True}
         if tool_name == "search_emails":
-            return search_emails(query=args["query"], max_results=args.get("max_results", 10))
+            return search_emails(aid, query=args["query"], max_results=args.get("max_results", 10))
         elif tool_name == "get_email":
-            return get_email(message_id=args["message_id"])
+            return get_email(aid, message_id=args["message_id"])
         elif tool_name == "get_email_thread":
-            return get_email_thread(thread_id=args["thread_id"])
+            return get_email_thread(aid, thread_id=args["thread_id"])
         elif tool_name == "send_email":
             return send_email(
-                to=args["to"], subject=args["subject"], body=args["body"],
+                aid, to=args["to"], subject=args["subject"], body=args["body"],
                 cc=args.get("cc", ""), bcc=args.get("bcc", ""),
             )
         elif tool_name == "reply_to_email":
             return reply_to_email(
-                message_id=args["message_id"], body=args["body"],
+                aid, message_id=args["message_id"], body=args["body"],
                 reply_all=args.get("reply_all", False),
             )
         elif tool_name == "create_draft":
             return create_draft(
-                to=args["to"], subject=args["subject"], body=args["body"],
+                aid, to=args["to"], subject=args["subject"], body=args["body"],
                 cc=args.get("cc", ""), bcc=args.get("bcc", ""),
             )
         elif tool_name == "mark_email_as_read":
-            return mark_email_as_read(message_id=args["message_id"])
+            return mark_email_as_read(aid, message_id=args["message_id"])
         elif tool_name == "batch_mark_emails_as_read":
-            return batch_mark_emails_as_read(message_ids=args["message_ids"])
+            return batch_mark_emails_as_read(aid, message_ids=args["message_ids"])
         elif tool_name == "download_email_attachment":
             return download_email_attachment(
-                message_id=args["message_id"], filename=args["filename"],
+                aid, message_id=args["message_id"], filename=args["filename"],
                 cache_dir=self.file_cache_dir,
             )
         elif tool_name == "send_email_with_attachment":
             return send_email_with_attachment(
-                to=args["to"], subject=args["subject"], body=args["body"],
+                aid, to=args["to"], subject=args["subject"], body=args["body"],
                 attachment_filename=args.get("attachment_filename", ""),
                 attachment_base64=args.get("attachment_base64", ""),
                 attachment_mime_type=args.get("attachment_mime_type", "application/pdf"),
@@ -285,7 +292,7 @@ class ToolRegistry:
             )
         elif tool_name == "reply_to_email_with_attachment":
             return reply_to_email_with_attachment(
-                message_id=args["message_id"], body=args["body"],
+                aid, message_id=args["message_id"], body=args["body"],
                 attachment_filename=args.get("attachment_filename", ""),
                 attachment_base64=args.get("attachment_base64", ""),
                 attachment_mime_type=args.get("attachment_mime_type", "application/pdf"),
@@ -296,24 +303,25 @@ class ToolRegistry:
         return {"error": f"Unknown gmail tool: {tool_name}"}
 
     def _execute_calendar(self, tool_name: str, args: dict) -> dict:
-        if not self.google_connected:
-            return {"error": "Google not connected. Connect at Settings → Integrations → Google.",
+        aid = self.calendar_account_id
+        if not aid:
+            return {"error": "No Calendar account assigned. Assign one at Settings → Integrations → Google.",
                     "needs_reconnect": True}
         if tool_name == "list_calendar_events":
             return list_calendar_events(
-                calendar_id=args.get("calendar_id", "primary"),
+                aid, calendar_id=args.get("calendar_id", "primary"),
                 max_results=args.get("max_results", 10),
                 time_min=args.get("time_min", ""),
                 time_max=args.get("time_max", ""),
             )
         elif tool_name == "get_calendar_event":
             return get_calendar_event(
-                event_id=args["event_id"],
+                aid, event_id=args["event_id"],
                 calendar_id=args.get("calendar_id", "primary"),
             )
         elif tool_name == "search_calendar_events":
             return search_calendar_events(
-                query=args["query"],
+                aid, query=args["query"],
                 time_min=args.get("time_min", ""),
                 time_max=args.get("time_max", ""),
                 max_results=args.get("max_results", 20),
@@ -321,21 +329,21 @@ class ToolRegistry:
             )
         elif tool_name == "find_free_slot":
             return find_free_slot(
-                duration_minutes=args["duration_minutes"],
+                aid, duration_minutes=args["duration_minutes"],
                 between_start=args["between_start"],
                 between_end=args["between_end"],
                 calendar_ids=args.get("calendar_ids"),
             )
         elif tool_name == "create_calendar_event":
             return create_calendar_event(
-                summary=args["summary"], start=args["start"], end=args["end"],
+                aid, summary=args["summary"], start=args["start"], end=args["end"],
                 description=args.get("description", ""), location=args.get("location", ""),
                 attendees=args.get("attendees"),
                 calendar_id=args.get("calendar_id", "primary"),
             )
         elif tool_name == "update_calendar_event":
             return update_calendar_event(
-                event_id=args["event_id"],
+                aid, event_id=args["event_id"],
                 calendar_id=args.get("calendar_id", "primary"),
                 summary=args.get("summary"), start=args.get("start"), end=args.get("end"),
                 description=args.get("description"), location=args.get("location"),
@@ -343,57 +351,58 @@ class ToolRegistry:
             )
         elif tool_name == "delete_calendar_event":
             return delete_calendar_event(
-                event_id=args["event_id"],
+                aid, event_id=args["event_id"],
                 calendar_id=args.get("calendar_id", "primary"),
             )
         return {"error": f"Unknown calendar tool: {tool_name}"}
 
     def _execute_drive(self, tool_name: str, args: dict) -> dict:
-        if not self.google_connected:
-            return {"error": "Google not connected. Connect at Settings → Integrations → Google.",
+        aid = self.drive_account_id
+        if not aid:
+            return {"error": "No Drive account assigned. Assign one at Settings → Integrations → Google.",
                     "needs_reconnect": True}
         if tool_name == "search_drive_files":
             return search_drive_files(
-                query=args["query"],
+                aid, query=args["query"],
                 max_results=args.get("max_results", 20),
             )
         elif tool_name == "list_drive_folder":
             return list_drive_folder(
-                folder_id=args.get("folder_id", "root"),
+                aid, folder_id=args.get("folder_id", "root"),
                 max_results=args.get("max_results", 50),
             )
         elif tool_name == "get_drive_file_info":
-            return get_drive_file_info(file_id=args["file_id"])
+            return get_drive_file_info(aid, file_id=args["file_id"])
         elif tool_name == "read_drive_file_content":
             return read_drive_file_content(
-                file_id=args["file_id"],
+                aid, file_id=args["file_id"],
                 max_chars=args.get("max_chars", 50000),
             )
         elif tool_name == "create_drive_folder":
             return create_drive_folder(
-                name=args["name"],
+                aid, name=args["name"],
                 parent_folder_id=args.get("parent_folder_id", "root"),
             )
         elif tool_name == "create_drive_file":
             return create_drive_file(
-                name=args["name"],
+                aid, name=args["name"],
                 content=args.get("content", ""),
                 file_type=args.get("file_type", "document"),
                 folder_id=args.get("folder_id", "root"),
             )
         elif tool_name == "move_drive_file":
             return move_drive_file(
-                file_id=args["file_id"],
+                aid, file_id=args["file_id"],
                 new_parent_id=args["new_parent_id"],
             )
         elif tool_name == "rename_drive_file":
             return rename_drive_file(
-                file_id=args["file_id"],
+                aid, file_id=args["file_id"],
                 new_name=args["new_name"],
             )
         elif tool_name == "copy_drive_file":
             return copy_drive_file(
-                file_id=args["file_id"],
+                aid, file_id=args["file_id"],
                 new_name=args.get("new_name"),
                 folder_id=args.get("folder_id"),
             )

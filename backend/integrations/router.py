@@ -282,6 +282,7 @@ async def setup_google(body: GoogleSetupRequest, user=Depends(get_current_user))
                 "drive_level": body.drive_level,
                 "include_ai": include_ai,
             },
+            prompt="consent select_account",
         )
     except ValueError as e:
         logger.warning("Google OAuth setup failed: %s", e)
@@ -292,23 +293,12 @@ class GoogleCompleteRequest(BaseModel):
     flow_id: str
 
 
-@router.post("/google/setup/complete")
-async def setup_google_complete(body: GoogleCompleteRequest, user=Depends(get_current_user)):
-    """Finalize Google setup after the OAuth callback stashes tokens."""
-    from core.providers.oauth import consume_flow
-    from .google.onboarding import setup_from_oauth
-
-    flow = consume_flow(body.flow_id)
-    if not flow:
-        raise HTTPException(status_code=404, detail="OAuth flow not found or expired")
-    if flow.status != "ok" or not flow.tokens:
-        logger.warning("Google OAuth flow failed: %s", flow.error)
-        raise HTTPException(status_code=400, detail="OAuth flow failed. Please try again.")
-
+def _google_complete_common(flow, require_refresh_token: bool = True):
+    """Shared validation for both new-account and reconnect complete endpoints."""
     tokens = flow.tokens
     if not tokens.get("access_token"):
         raise HTTPException(status_code=400, detail="Google did not return an access token")
-    if not tokens.get("refresh_token"):
+    if require_refresh_token and not tokens.get("refresh_token"):
         raise HTTPException(
             status_code=400,
             detail="Google did not return a refresh token. Try disconnecting at "
@@ -322,20 +312,162 @@ async def setup_google_complete(body: GoogleCompleteRequest, user=Depends(get_cu
         "drive": meta.get("drive_level", "none"),
     }
 
+    return tokens, scope_grants
+
+
+@router.post("/google/setup/complete")
+async def setup_google_complete(body: GoogleCompleteRequest, user=Depends(get_current_user)):
+    """Finalize Google setup — creates a new account entry."""
+    from core.providers.oauth import consume_flow
+    from .google.onboarding import setup_from_oauth
+
+    flow = consume_flow(body.flow_id)
+    if not flow:
+        raise HTTPException(status_code=404, detail="OAuth flow not found or expired")
+    if flow.status != "ok" or not flow.tokens:
+        logger.warning("Google OAuth flow failed: %s", flow.error)
+        raise HTTPException(status_code=400, detail="OAuth flow failed. Please try again.")
+
+    tokens, scope_grants = _google_complete_common(flow, require_refresh_token=True)
+
     result = await setup_from_oauth(
         access_token=tokens["access_token"],
         refresh_token=tokens["refresh_token"],
         expires_in=tokens.get("expires_in", 3600),
         scope_grants=scope_grants,
     )
+    if not result.get("ok"):
+        raise HTTPException(status_code=400, detail=result.get("error", "Setup failed"))
+    return result
+
+
+@router.get("/google/accounts")
+async def list_google_accounts_endpoint(user=Depends(get_current_user)):
+    """List all connected Google accounts (sanitized — no tokens)."""
+    from .registry import list_google_accounts as _list
+    accounts = _list()
+    return {
+        "accounts": [
+            {
+                "id": aid,
+                "email": a.get("email", ""),
+                "scope_grants": a.get("scope_grants", {}),
+                "connection_status": a.get("connection_status", "ok"),
+            }
+            for aid, a in accounts.items()
+        ]
+    }
+
+
+import re as _re
+_ACCOUNT_ID_RE = _re.compile(r"^[0-9a-f]{8}$")
+
+
+def _validate_account_id(account_id: str) -> None:
+    if not _ACCOUNT_ID_RE.match(account_id):
+        raise HTTPException(status_code=400, detail="Invalid account_id format")
+
+
+@router.post("/google/{account_id}/setup")
+async def setup_google_account(account_id: str, body: GoogleSetupRequest, user=Depends(get_current_user)):
+    """Start OAuth to reconnect/change scopes for an existing account."""
+    _validate_account_id(account_id)
+    from core.providers.oauth import start_oauth_flow
+    from core.config import build_google_scopes
+    from .registry import get_google_account
+
+    existing = get_google_account(account_id)
+    if not existing:
+        raise HTTPException(status_code=404, detail="Google account not found")
+
+    if body.gmail_level == "none" and body.calendar_level == "none" and body.drive_level == "none":
+        raise HTTPException(status_code=400, detail="At least one scope must be enabled")
+
+    from core.providers.credentials import CredentialStore
+    store = CredentialStore()
+    include_ai = store.data.get("active_provider") == "google"
+
+    scopes = build_google_scopes(
+        gmail_level=body.gmail_level,
+        calendar_level=body.calendar_level,
+        drive_level=body.drive_level,
+        include_ai=include_ai,
+    )
+
+    try:
+        return start_oauth_flow(
+            "google",
+            scopes=scopes,
+            metadata={
+                "gmail_level": body.gmail_level,
+                "calendar_level": body.calendar_level,
+                "drive_level": body.drive_level,
+                "include_ai": include_ai,
+                "account_id": account_id,
+            },
+            prompt="consent",
+        )
+    except ValueError as e:
+        logger.warning("Google OAuth setup failed: %s", e)
+        raise HTTPException(status_code=400, detail="Google OAuth is not configured.")
+
+
+@router.post("/google/{account_id}/setup/complete")
+async def setup_google_account_complete(account_id: str, body: GoogleCompleteRequest, user=Depends(get_current_user)):
+    """Finalize reconnect for an existing account. Verifies email matches."""
+    _validate_account_id(account_id)
+    from core.providers.oauth import consume_flow
+    from .google.onboarding import setup_from_oauth
+    from .registry import get_google_account
+
+    flow = consume_flow(body.flow_id)
+    if not flow:
+        raise HTTPException(status_code=404, detail="OAuth flow not found or expired")
+    if flow.status != "ok" or not flow.tokens:
+        raise HTTPException(status_code=400, detail="OAuth flow failed. Please try again.")
+
+    flow_account_id = (flow.metadata or {}).get("account_id", "")
+    if flow_account_id != account_id:
+        raise HTTPException(status_code=400, detail="OAuth flow was started for a different account")
+
+    tokens, scope_grants = _google_complete_common(flow, require_refresh_token=False)
+
+    refresh_token = tokens.get("refresh_token", "")
+    if not refresh_token:
+        existing = get_google_account(account_id)
+        refresh_token = existing.get("refresh_token", "")
+    if not refresh_token:
+        raise HTTPException(
+            status_code=400,
+            detail="Google did not return a refresh token. Try disconnecting at "
+                   "https://myaccount.google.com/permissions then reconnect.",
+        )
+
+    result = await setup_from_oauth(
+        access_token=tokens["access_token"],
+        refresh_token=refresh_token,
+        expires_in=tokens.get("expires_in", 3600),
+        scope_grants=scope_grants,
+        account_id=account_id,
+    )
+    if not result.get("ok"):
+        raise HTTPException(status_code=400, detail=result.get("error", "Setup failed"))
     return result
 
 
 @router.post("/google/disconnect")
 async def disconnect_google(user=Depends(get_current_user)):
-    """Revoke Google OAuth + clear stored credentials."""
+    """Disconnect ALL Google accounts."""
     from .google.onboarding import disconnect
     return await disconnect()
+
+
+@router.post("/google/{account_id}/disconnect")
+async def disconnect_google_account(account_id: str, user=Depends(get_current_user)):
+    """Disconnect a specific Google account."""
+    _validate_account_id(account_id)
+    from .google.onboarding import disconnect
+    return await disconnect(account_id=account_id)
 
 
 @router.post("/qb_csv/setup")
@@ -435,7 +567,13 @@ async def save_app_creds(name: str, body: AppCredentialsRequest, user=Depends(ge
 
     # If connected and credentials changed, disconnect first
     did_disconnect = False
-    has_tokens = bool(creds.get("access_token") or creds.get("refresh_token"))
+    if name == "google":
+        has_tokens = any(
+            a.get("access_token") or a.get("refresh_token")
+            for a in creds.get("accounts", {}).values()
+        )
+    else:
+        has_tokens = bool(creds.get("access_token") or creds.get("refresh_token"))
     if has_tokens:
         old_app = creds.get("app") or {}
         changed = (
@@ -466,7 +604,13 @@ async def delete_app_creds(name: str, user=Depends(get_current_user)):
         raise HTTPException(status_code=400, detail="App credentials only apply to OAuth integrations")
     from .registry import get_credentials
     creds = get_credentials(name)
-    has_tokens = bool(creds.get("access_token") or creds.get("refresh_token"))
+    if name == "google":
+        has_tokens = any(
+            a.get("access_token") or a.get("refresh_token")
+            for a in creds.get("accounts", {}).values()
+        )
+    else:
+        has_tokens = bool(creds.get("access_token") or creds.get("refresh_token"))
     if has_tokens:
         if name == "quickbooks":
             await disconnect_quickbooks()

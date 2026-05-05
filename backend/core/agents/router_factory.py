@@ -80,12 +80,18 @@ def create_agent_router(
         if not provider:
             raise HTTPException(status_code=400, detail="No AI provider configured")
 
-        from integrations.registry import is_enabled as _is_enabled
-        google_connected = _is_enabled("google")
+        ga = config.google_accounts
+        gmail_account_id = ga.get("gmail", "")
+        calendar_account_id = ga.get("calendar", "")
+        drive_account_id = ga.get("drive", "")
+        google_connected = bool(gmail_account_id or calendar_account_id or drive_account_id)
 
         registry = ToolRegistry(
             context_dir=config.context_dir,
             google_connected=google_connected,
+            gmail_account_id=gmail_account_id,
+            calendar_account_id=calendar_account_id,
+            drive_account_id=drive_account_id,
         )
 
         # Anthropic API key for smart title generation (haiku)

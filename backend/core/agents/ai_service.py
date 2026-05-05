@@ -617,12 +617,19 @@ async def chat(
     dynamic_real_tools = load_all_real_tools(real_tools_dir)
 
     from integrations.google.policy import google_capabilities
-    google_caps = google_capabilities()
+    gmail_caps = google_capabilities(config.google_accounts.get("gmail", ""))
+    cal_caps = google_capabilities(config.google_accounts.get("calendar", ""))
+    drive_caps = google_capabilities(config.google_accounts.get("drive", ""))
     tool_defs = get_tool_definitions(
         integration_tools=integration_tool_defs,
         dynamic_real_tools=dynamic_real_tools or None,
         import_mode=import_mode,
-        **google_caps,
+        gmail_read_enabled=gmail_caps["gmail_read_enabled"],
+        gmail_send_enabled=gmail_caps["gmail_send_enabled"],
+        calendar_read_enabled=cal_caps["calendar_read_enabled"],
+        calendar_write_enabled=cal_caps["calendar_write_enabled"],
+        drive_read_enabled=drive_caps["drive_read_enabled"],
+        drive_write_enabled=drive_caps["drive_write_enabled"],
     )
     kind_map = _build_kind_map(tool_defs)
     writes_map = build_writes_map(tool_defs)
@@ -1053,11 +1060,18 @@ async def run_sync(
     dynamic_real_tools = load_all_real_tools(real_tools_dir)
 
     from integrations.google.policy import google_capabilities
-    google_caps = google_capabilities()
+    gmail_caps = google_capabilities(config.google_accounts.get("gmail", ""))
+    cal_caps = google_capabilities(config.google_accounts.get("calendar", ""))
+    drive_caps = google_capabilities(config.google_accounts.get("drive", ""))
     tool_defs = get_tool_definitions(
         integration_tools=integration_tool_defs,
         dynamic_real_tools=dynamic_real_tools or None,
-        **google_caps,
+        gmail_read_enabled=gmail_caps["gmail_read_enabled"],
+        gmail_send_enabled=gmail_caps["gmail_send_enabled"],
+        calendar_read_enabled=cal_caps["calendar_read_enabled"],
+        calendar_write_enabled=cal_caps["calendar_write_enabled"],
+        drive_read_enabled=drive_caps["drive_read_enabled"],
+        drive_write_enabled=drive_caps["drive_write_enabled"],
     )
 
     # Apply integration permission ceilings — messaging channels have no approval UI,

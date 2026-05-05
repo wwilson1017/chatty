@@ -7,6 +7,7 @@ directory and chat history database under data/agents/{slug}/.
 Single-user: no email primary key. ID is a UUID.
 """
 
+import json
 import logging
 import re
 import sqlite3
@@ -79,6 +80,7 @@ def _setup_connection() -> None:
         ("calendar_write_enabled", "INTEGER NOT NULL DEFAULT 0"),
         ("drive_enabled", "INTEGER NOT NULL DEFAULT 0"),
         ("drive_write_enabled", "INTEGER NOT NULL DEFAULT 0"),
+        ("google_accounts", "TEXT NOT NULL DEFAULT '{}'"),
     ]:
         try:
             _connection.execute(f"ALTER TABLE agents ADD COLUMN {col} {typedef}")
@@ -127,6 +129,18 @@ def _unique_slug(name: str) -> str:
     return f"{base}-{uuid.uuid4().hex[:8]}"
 
 
+def _normalize_agent(row: dict) -> dict:
+    """Parse JSON text columns into dicts for API responses."""
+    d = dict(row)
+    raw = d.get("google_accounts", "{}")
+    try:
+        d["google_accounts"] = json.loads(raw) if isinstance(raw, str) else (raw or {})
+    except (json.JSONDecodeError, TypeError):
+        logger.warning("Malformed google_accounts for agent %s, treating as empty", d.get("id"))
+        d["google_accounts"] = {}
+    return d
+
+
 def create_agent(agent_name: str, personality: str = "") -> dict:
     """Create a new agent. Returns the created row as dict."""
     agent_id = str(uuid.uuid4())
@@ -144,13 +158,13 @@ def create_agent(agent_name: str, personality: str = "") -> dict:
 def get_agent(agent_id: str) -> dict | None:
     """Get agent by ID. Returns dict or None."""
     row = _get_db().execute("SELECT * FROM agents WHERE id = ?", (agent_id,)).fetchone()
-    return dict(row) if row else None
+    return _normalize_agent(row) if row else None
 
 
 def get_agent_by_slug(slug: str) -> dict | None:
     """Get agent by slug. Returns dict or None."""
     row = _get_db().execute("SELECT * FROM agents WHERE slug = ?", (slug,)).fetchone()
-    return dict(row) if row else None
+    return _normalize_agent(row) if row else None
 
 
 def list_agents() -> list[dict]:
@@ -158,7 +172,7 @@ def list_agents() -> list[dict]:
     rows = _get_db().execute(
         "SELECT * FROM agents ORDER BY created_at DESC"
     ).fetchall()
-    return [dict(r) for r in rows]
+    return [_normalize_agent(r) for r in rows]
 
 
 UPDATABLE_FIELDS = {
@@ -167,6 +181,7 @@ UPDATABLE_FIELDS = {
     "gmail_enabled", "gmail_send_enabled",
     "calendar_enabled", "calendar_write_enabled",
     "drive_enabled", "drive_write_enabled",
+    "google_accounts",
     "whatsapp_session_id",
     "telegram_enabled", "telegram_bot_token", "telegram_bot_username",
     "telegram_group_enabled", "telegram_respond_to_bots", "telegram_max_bot_turns",
