@@ -30,6 +30,47 @@ def _get_db() -> sqlite3.Connection:
     return _connection
 
 
+def _migrate_user_mappings_v2(conn: sqlite3.Connection) -> None:
+    """Migrate user_mappings from UNIQUE(platform, platform_user_id) to
+    UNIQUE(platform, platform_user_id, agent_id) so one Telegram user
+    can be mapped to multiple agents simultaneously."""
+    row = conn.execute(
+        "SELECT sql FROM sqlite_master WHERE type='table' AND name='user_mappings'"
+    ).fetchone()
+    if not row:
+        return
+    create_sql = row[0] or ""
+    if "platform_user_id, agent_id)" in create_sql:
+        return
+
+    logger.info("Migrating user_mappings to support multi-agent per user...")
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        conn.execute("""
+            CREATE TABLE user_mappings_v2 (
+                id TEXT PRIMARY KEY,
+                platform TEXT NOT NULL,
+                platform_user_id TEXT NOT NULL,
+                agent_id TEXT NOT NULL,
+                sender_name TEXT NOT NULL DEFAULT '',
+                created_at TEXT NOT NULL,
+                UNIQUE(platform, platform_user_id, agent_id)
+            )
+        """)
+        conn.execute("""
+            INSERT OR IGNORE INTO user_mappings_v2
+            SELECT id, platform, platform_user_id, agent_id, sender_name, created_at
+            FROM user_mappings
+        """)
+        conn.execute("DROP TABLE user_mappings")
+        conn.execute("ALTER TABLE user_mappings_v2 RENAME TO user_mappings")
+        conn.execute("COMMIT")
+    except Exception:
+        conn.execute("ROLLBACK")
+        raise
+    logger.info("user_mappings migration complete")
+
+
 def _setup_connection() -> None:
     """Open connection, set PRAGMAs, create schema."""
     global _connection
@@ -39,6 +80,8 @@ def _setup_connection() -> None:
     _connection.execute("PRAGMA foreign_keys=ON")
     _connection.execute("PRAGMA busy_timeout=5000")
 
+    _migrate_user_mappings_v2(_connection)
+
     _connection.executescript("""
         CREATE TABLE IF NOT EXISTS user_mappings (
             id TEXT PRIMARY KEY,
@@ -47,7 +90,7 @@ def _setup_connection() -> None:
             agent_id TEXT NOT NULL,
             sender_name TEXT NOT NULL DEFAULT '',
             created_at TEXT NOT NULL,
-            UNIQUE(platform, platform_user_id)
+            UNIQUE(platform, platform_user_id, agent_id)
         );
 
         CREATE TABLE IF NOT EXISTS telegram_registration_windows (
@@ -102,12 +145,12 @@ def get_user_mappings() -> list[dict]:
     return [dict(r) for r in rows]
 
 
-def get_mapping_by_sender(platform: str, platform_user_id: str) -> dict | None:
+def get_mapping_by_sender(platform: str, platform_user_id: str, agent_id: str) -> dict | None:
     conn = _get_db()
     row = conn.execute(
         "SELECT id, platform, platform_user_id, agent_id, sender_name "
-        "FROM user_mappings WHERE platform = ? AND platform_user_id = ?",
-        (platform, platform_user_id),
+        "FROM user_mappings WHERE platform = ? AND platform_user_id = ? AND agent_id = ?",
+        (platform, platform_user_id, agent_id),
     ).fetchone()
     return dict(row) if row else None
 
@@ -123,15 +166,14 @@ def create_mapping(
             """INSERT INTO user_mappings
                (id, platform, platform_user_id, agent_id, sender_name, created_at)
                VALUES (?, ?, ?, ?, ?, ?)
-               ON CONFLICT(platform, platform_user_id)
-               DO UPDATE SET agent_id = excluded.agent_id,
-                             sender_name = excluded.sender_name""",
+               ON CONFLICT(platform, platform_user_id, agent_id)
+               DO UPDATE SET sender_name = excluded.sender_name""",
             (mapping_id, platform, platform_user_id, agent_id, sender_name, now),
         )
         conn.commit()
         row = conn.execute(
-            "SELECT id FROM user_mappings WHERE platform = ? AND platform_user_id = ?",
-            (platform, platform_user_id),
+            "SELECT id FROM user_mappings WHERE platform = ? AND platform_user_id = ? AND agent_id = ?",
+            (platform, platform_user_id, agent_id),
         ).fetchone()
         actual_id = row["id"] if row else mapping_id
     return {
