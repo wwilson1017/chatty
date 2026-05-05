@@ -192,7 +192,7 @@ async def lifespan(app: FastAPI):
     if volume_marker.exists():
         logger.info("Persistent volume verified (marker file present)")
     else:
-        volume_marker.write_text(f"chatty:{datetime.now(timezone.utc).isoformat()}")
+        volume_marker.write_text(f"chatty:{datetime.now(timezone.utc).isoformat()}", encoding="utf-8")
         if settings.is_railway:
             logger.info(
                 "First boot — wrote volume marker to %s. "

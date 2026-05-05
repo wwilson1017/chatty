@@ -23,7 +23,6 @@ Per-agent (chat, context, conversations):
   PATCH  /api/agents/{agent_id}/conversations/{conv_id}/title
 """
 
-import importlib
 import io
 import json as _json_mod
 import shutil
@@ -38,17 +37,7 @@ from core.auth import get_current_user, decode_access_token
 from core.providers import get_ai_provider
 from core.providers.credentials import CredentialStore
 from core.agents.tool_registry import ToolRegistry
-from core.agents.reminders.tools import (
-    create_reminder_handler,
-    list_reminders_handler,
-    cancel_reminder_handler,
-)
-from core.agents.scheduled_actions.tools import (
-    create_scheduled_action_handler,
-    list_scheduled_actions_handler,
-    update_scheduled_action_handler,
-    delete_scheduled_action_handler,
-)
+from .tool_loader import INTEGRATION_MODULES, load_integration_tools, build_agent_handlers
 from . import db as agent_db
 from .engine import (
     build_agent_config,
@@ -71,6 +60,7 @@ _PENDING_SETUP_NAMES = {
     "quickbooks": "QuickBooks Online",
     "bamboohr": "BambooHR",
     "crm_lite": "CRM",
+    "todoist": "Todoist",
 }
 
 
@@ -97,50 +87,6 @@ def _inject_pending_setup_context(context_dir: Path, pending: dict) -> None:
     (context_dir / "_pending-setup.md").write_text("\n".join(parts), encoding="utf-8")
 
 
-# ── Integration tool loader ───────────────────────────────────────────────────
-
-_INTEGRATION_MODULES = {
-    "crm_lite": ("integrations.crm_lite.tools", "CRM_LITE_TOOL_DEFS"),
-    "odoo": ("integrations.odoo.tools", "ODOO_TOOL_DEFS"),
-    "bamboohr": ("integrations.bamboohr.tools", "BAMBOOHR_TOOL_DEFS"),
-    "quickbooks": ("integrations.quickbooks.tools", "QB_TOOL_DEFS"),
-    "qb_csv": ("integrations.qb_csv.tools", "QB_CSV_TOOL_DEFS"),
-    "paperclip": ("integrations.paperclip.tools", "PAPERCLIP_TOOL_DEFS"),
-}
-
-
-def _load_integration_tools() -> tuple[list[dict], dict]:
-    """Load tool definitions and executors from all enabled integrations."""
-    from integrations.registry import is_enabled
-
-    tool_defs: list[dict] = []
-    executors: dict = {}
-
-    for name, (module_path, defs_attr) in _INTEGRATION_MODULES.items():
-        if not is_enabled(name):
-            continue
-        try:
-            # CRM Lite needs its DB initialized before tools can run
-            if name == "crm_lite":
-                from integrations.crm_lite.db import init_db, _connection
-                if _connection is None:
-                    init_db()
-
-            # QB CSV needs its DB initialized before tools can run
-            if name == "qb_csv":
-                from integrations.qb_csv.db import init_db as init_qb_csv, _connection as qb_csv_conn
-                if qb_csv_conn is None:
-                    init_qb_csv()
-
-            mod = importlib.import_module(module_path)
-            defs = getattr(mod, defs_attr, [])
-            execs = getattr(mod, "TOOL_EXECUTORS", {})
-            tool_defs.extend({**d, "integration": name} for d in defs)
-            executors.update(execs)
-        except Exception as e:
-            logger.warning("Failed to load integration %s: %s", name, e)
-
-    return tool_defs, executors
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -151,21 +97,6 @@ def _get_agent_or_404(agent_id: str) -> dict:
         raise HTTPException(status_code=404, detail="Agent not found")
     return agent
 
-
-def _build_agent_handlers(agent_slug: str) -> tuple[dict, dict]:
-    """Build reminder and scheduled action handler dicts for an agent."""
-    reminder_handlers = {
-        "create_reminder": lambda **kw: create_reminder_handler(agent_slug, **kw),
-        "list_reminders": lambda **kw: list_reminders_handler(agent_slug, **kw),
-        "cancel_reminder": lambda **kw: cancel_reminder_handler(agent_slug, **kw),
-    }
-    sa_handlers = {
-        "create_scheduled_action": lambda **kw: create_scheduled_action_handler(agent_slug, **kw),
-        "list_scheduled_actions": lambda **kw: list_scheduled_actions_handler(agent_slug, **kw),
-        "update_scheduled_action": lambda **kw: update_scheduled_action_handler(agent_slug, **kw),
-        "delete_scheduled_action": lambda **kw: delete_scheduled_action_handler(agent_slug, **kw),
-    }
-    return reminder_handlers, sa_handlers
 
 
 def _safe_filename(filename: str) -> bool:
@@ -536,12 +467,16 @@ def _stream_chat(agent: dict, messages: list, training_mode: bool, conversation_
     drive_account_id = ga.get("drive", "")
     google_connected = bool(gmail_account_id or calendar_account_id or drive_account_id)
 
-    integration_tool_defs, integration_executors = _load_integration_tools()
+    integration_tool_defs, integration_executors = load_integration_tools()
 
-    from integrations.registry import get_tool_mode
-    integration_tool_modes = {name: get_tool_mode(name) for name in _INTEGRATION_MODULES}
+    from integrations.registry import get_tool_mode, get_credentials
+    integration_tool_modes = {
+        name: get_tool_mode(name)
+        for name in INTEGRATION_MODULES
+        if "tool_mode" in get_credentials(name)
+    }
 
-    reminder_handlers, sa_handlers = _build_agent_handlers(agent["slug"])
+    reminder_handlers, sa_handlers = build_agent_handlers(agent["slug"])
     registry = ToolRegistry(
         context_dir=config.context_dir,
         gcs_prefix=config.gcs_prefix,
@@ -609,9 +544,14 @@ async def agent_chat(agent_id: str, req: ChatRequest, user=Depends(get_current_u
         if conv and conv.get("mode") == "import":
             import_mode = True
 
+    tool_mode = req.tool_mode
+    from setup.router import load_admin_settings
+    if load_admin_settings().get("always_power_mode"):
+        tool_mode = "power"
+
     return _stream_chat(agent, req.messages, req.training_mode, req.conversation_id,
                         training_type=req.training_type, plan_mode=req.plan_mode,
-                        tool_mode=req.tool_mode, approved_tool=req.approved_tool,
+                        tool_mode=tool_mode, approved_tool=req.approved_tool,
                         import_mode=import_mode)
 
 
@@ -955,8 +895,8 @@ async def tool_execute(agent_id: str, req: ToolExecuteRequest, user=Depends(get_
     drive_account_id = ga.get("drive", "")
     google_connected = bool(gmail_account_id or calendar_account_id or drive_account_id)
 
-    integration_tool_defs, integration_executors = _load_integration_tools()
-    reminder_handlers, sa_handlers = _build_agent_handlers(agent["slug"])
+    integration_tool_defs, integration_executors = load_integration_tools()
+    reminder_handlers, sa_handlers = build_agent_handlers(agent["slug"])
 
     registry = ToolRegistry(
         context_dir=config.context_dir,
@@ -1051,5 +991,5 @@ async def get_agent_activity(
 ):
     agent = _get_agent_or_404(agent_id)
     from core.agents.scheduled_actions.history import get_history
-    records = get_history(agent=agent["slug"], limit=limit)
+    records = get_history(agent=agent["slug"], limit=limit, event_type="scheduled_action")
     return {"activities": records}

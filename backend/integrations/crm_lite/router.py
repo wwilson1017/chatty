@@ -349,6 +349,33 @@ async def demo_clear(user=Depends(_require_crm)):
     return {"ok": True}
 
 
+class ClearAllBody(BaseModel):
+    confirmation: str
+
+
+@router.post("/clear-all")
+async def clear_all(body: ClearAllBody, user=Depends(_require_crm)):
+    if body.confirmation != "clear crm":
+        raise HTTPException(status_code=400, detail="Invalid confirmation phrase")
+
+    from integrations.registry import get_credentials, save_credentials
+    from .db import _get_db, write_lock
+
+    db = _get_db()
+    with write_lock():
+        db.execute("DELETE FROM activity_log")
+        db.execute("DELETE FROM tasks")
+        db.execute("DELETE FROM deals")
+        db.execute("DELETE FROM contacts")
+        db.execute("DELETE FROM sqlite_sequence WHERE name IN ('contacts','deals','tasks','activity_log')")
+        db.commit()
+
+    creds = get_credentials("crm_lite")
+    creds["demo_mode"] = False
+    save_credentials("crm_lite", creds)
+    return {"ok": True}
+
+
 # ── CSV Import ────────────────────────────────────────────────────────────────
 
 @router.post("/import")

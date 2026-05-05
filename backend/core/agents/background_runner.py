@@ -9,6 +9,7 @@ import asyncio
 import json
 import logging
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
 
 from core.providers import get_ai_provider
@@ -29,13 +30,14 @@ class BackgroundResult:
 
 
 async def _run_turn(
-    system_prompt: str,
+    system_prompt: "str | tuple[str, str]",
     user_message: str,
     tool_defs: list[dict],
     registry: ToolRegistry,
     max_iterations: int = 5,
     model_override: str | None = None,
     provider_override: str | None = None,
+    on_iteration: Callable[[int], bool] | None = None,
 ) -> BackgroundResult:
     """Run a single AI turn asynchronously, executing tools as needed."""
     store = CredentialStore()
@@ -65,7 +67,18 @@ async def _run_turn(
     total_input_tokens = 0
     total_output_tokens = 0
 
-    for _ in range(max_iterations):
+    for iteration in range(max_iterations):
+        if on_iteration is not None and iteration > 0:
+            if not on_iteration(iteration):
+                return BackgroundResult(
+                    text="(lease lost -- aborted)",
+                    input_tokens=total_input_tokens,
+                    output_tokens=total_output_tokens,
+                    model_used=model_used,
+                    tool_log=tool_log,
+                    error=True,
+                )
+
         tool_calls_this_turn = []
         turn_text = ""
 
@@ -100,6 +113,7 @@ async def _run_turn(
                         output_tokens=total_output_tokens,
                         model_used=model_used,
                         tool_log=tool_log,
+                        error=not accumulated_text,
                     )
 
         if not tool_calls_this_turn:
@@ -109,6 +123,7 @@ async def _run_turn(
                 output_tokens=total_output_tokens,
                 model_used=model_used,
                 tool_log=tool_log,
+                error=not accumulated_text,
             )
 
         # Execute tools
@@ -144,38 +159,82 @@ async def _run_turn(
         output_tokens=total_output_tokens,
         model_used=model_used,
         tool_log=tool_log,
+        error=True,
     )
 
 
 def run_background_turn(
-    system_prompt: str,
+    system_prompt: "str | tuple[str, str]",
     user_message: str,
     tool_defs: list[dict],
     registry: ToolRegistry,
     max_iterations: int = 5,
     model_override: str | None = None,
     provider_override: str | None = None,
+    on_iteration: Callable[[int], bool] | None = None,
+    source: str | None = None,
 ) -> BackgroundResult:
     """Synchronous wrapper for running a background AI turn.
 
     Creates a new event loop if needed (e.g., from APScheduler thread).
+    When ``source`` is provided (e.g. "whatsapp"), logs a chat event
+    after execution. Scheduled actions pass source=None since they
+    already log via history.py.
     """
-    try:
-        loop = asyncio.get_running_loop()
-    except RuntimeError:
-        loop = None
+    t0 = time.time()
 
-    if loop and loop.is_running():
-        import concurrent.futures
-        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
-            future = pool.submit(
-                asyncio.run,
+    try:
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            loop = None
+
+        if loop and loop.is_running():
+            import concurrent.futures
+            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+                future = pool.submit(
+                    asyncio.run,
+                    _run_turn(system_prompt, user_message, tool_defs, registry,
+                              max_iterations, model_override, provider_override,
+                              on_iteration)
+                )
+                result = future.result(timeout=300)
+        else:
+            result = asyncio.run(
                 _run_turn(system_prompt, user_message, tool_defs, registry,
-                          max_iterations, model_override, provider_override)
+                          max_iterations, model_override, provider_override,
+                          on_iteration)
             )
-            return future.result(timeout=300)
-    else:
-        return asyncio.run(
-            _run_turn(system_prompt, user_message, tool_defs, registry,
-                      max_iterations, model_override, provider_override)
-        )
+    except Exception as exc:
+        if source:
+            try:
+                from core.agents.activity_log import log_chat_event
+                log_chat_event(
+                    agent=getattr(registry, "agent_slug", "unknown"),
+                    source=source,
+                    status="error",
+                    result_summary=str(exc)[:500],
+                    duration_ms=int((time.time() - t0) * 1000),
+                )
+            except Exception:
+                logger.warning("Activity log write failed", exc_info=True)
+        raise
+
+    if source:
+        try:
+            from core.agents.activity_log import log_chat_event
+            log_chat_event(
+                agent=getattr(registry, "agent_slug", "unknown"),
+                source=source,
+                status="error" if result.error else "ok",
+                result_summary=result.text[:500],
+                tool_calls=result.tool_log or None,
+                model_used=result.model_used,
+                input_tokens=result.input_tokens,
+                output_tokens=result.output_tokens,
+                duration_ms=int((time.time() - t0) * 1000),
+            )
+        except Exception:
+            logger.warning("Activity log write failed", exc_info=True)
+
+    return result

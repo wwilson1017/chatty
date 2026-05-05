@@ -4,6 +4,7 @@ import type { Agent, BrandingConfig } from '../core/types';
 import { ProviderSetup } from '../setup/ProviderSetup';
 import { IntegrationsTab } from './IntegrationsTab';
 import { DataTab } from './DataTab';
+import { LogsTab } from './LogsTab';
 import { SecurityTab } from './SecurityTab';
 import { DeleteAgentModal } from './DeleteAgentModal';
 import { AgentMark } from '../shared/AgentMark';
@@ -14,12 +15,16 @@ interface Props {
   onClose: () => void;
 }
 
-type Tab = 'providers' | 'branding' | 'integrations' | 'chat' | 'data' | 'security' | 'danger';
+type Tab = 'providers' | 'branding' | 'integrations' | 'chat' | 'data' | 'logs' | 'security' | 'danger';
 
 export function SettingsPanel({ branding, onBrandingUpdate, onClose }: Props) {
   const [tab, setTab] = useState<Tab>('providers');
   const [deleteAgent, setDeleteAgent] = useState<Agent | null>(null);
   const [dangerAgents, setDangerAgents] = useState<Agent[]>([]);
+  const [crmConfirm, setCrmConfirm] = useState('');
+  const [crmClearing, setCrmClearing] = useState(false);
+  const [crmCleared, setCrmCleared] = useState(false);
+  const [crmError, setCrmError] = useState('');
 
   useEffect(() => {
     if (tab === 'danger') {
@@ -32,6 +37,15 @@ export function SettingsPanel({ branding, onBrandingUpdate, onClose }: Props) {
   const [showToolCalls, setShowToolCalls] = useState(() =>
     localStorage.getItem('chatty_show_tool_calls') === 'true'
   );
+  const [alwaysPowerMode, setAlwaysPowerMode] = useState(false);
+
+  useEffect(() => {
+    if (tab === 'chat') {
+      api<{ always_power_mode: boolean }>('/api/setup/admin-settings')
+        .then(s => setAlwaysPowerMode(s.always_power_mode))
+        .catch(() => {});
+    }
+  }, [tab]);
 
   async function saveBranding() {
     setSaving(true);
@@ -65,6 +79,7 @@ export function SettingsPanel({ branding, onBrandingUpdate, onClose }: Props) {
     { id: 'integrations', label: 'Integrations' },
     { id: 'chat', label: 'Chat' },
     { id: 'data', label: 'Data' },
+    { id: 'logs', label: 'Logs' },
     { id: 'security', label: 'Security' },
     { id: 'danger', label: 'Danger' },
   ];
@@ -239,10 +254,42 @@ export function SettingsPanel({ branding, onBrandingUpdate, onClose }: Props) {
                   }} />
                 </button>
               </div>
+
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <div>
+                  <p style={{ fontSize: 14, color: '#EDF0F4', margin: 0 }}>Always power mode</p>
+                  <p style={{ fontSize: 12, color: 'rgba(237,240,244,0.38)', marginTop: 2 }}>Skip write-tool confirmations for all agents</p>
+                </div>
+                <button
+                  onClick={async () => {
+                    const next = !alwaysPowerMode;
+                    setAlwaysPowerMode(next);
+                    await api('/api/setup/admin-settings', {
+                      method: 'PUT',
+                      body: JSON.stringify({ always_power_mode: next }),
+                    });
+                  }}
+                  style={{
+                    position: 'relative', width: 44, height: 24, borderRadius: 12,
+                    background: alwaysPowerMode ? 'var(--color-ch-accent, #C8D1D9)' : 'rgba(230,235,242,0.14)',
+                    border: 'none', cursor: 'pointer', transition: 'background 0.2s',
+                  }}
+                >
+                  <span style={{
+                    position: 'absolute', top: 2, width: 20, height: 20,
+                    borderRadius: '50%', background: '#fff',
+                    boxShadow: '0 1px 3px rgba(0,0,0,0.3)',
+                    transition: 'left 0.2s',
+                    left: alwaysPowerMode ? 22 : 2,
+                  }} />
+                </button>
+              </div>
             </div>
           )}
 
           {tab === 'data' && <DataTab />}
+
+          {tab === 'logs' && <LogsTab />}
 
           {tab === 'security' && <SecurityTab />}
 
@@ -303,6 +350,87 @@ export function SettingsPanel({ branding, onBrandingUpdate, onClose }: Props) {
                       </div>
                     ))}
                   </div>
+                )}
+              </div>
+
+              {/* Clear CRM data */}
+              <div style={{ borderTop: '1px solid rgba(230,235,242,0.07)', paddingTop: 24 }}>
+                <h3 style={{
+                  fontFamily: "'JetBrains Mono', ui-monospace, monospace",
+                  fontSize: 9, letterSpacing: '0.16em', textTransform: 'uppercase',
+                  color: 'rgba(237,240,244,0.38)', marginBottom: 12,
+                }}>Clear CRM data</h3>
+
+                {crmCleared ? (
+                  <p style={{ fontSize: 13, color: 'rgba(142,165,137,0.9)', margin: 0 }}>
+                    All CRM data has been cleared.
+                  </p>
+                ) : (
+                  <>
+                    <p style={{ fontSize: 13, color: 'rgba(237,240,244,0.52)', margin: '0 0 12px', lineHeight: 1.5 }}>
+                      Delete all contacts, deals, tasks, and activity from the CRM. This cannot be undone.
+                    </p>
+                    <div style={{
+                      background: 'rgba(217,119,87,0.08)',
+                      border: '1px solid rgba(217,119,87,0.2)',
+                      borderRadius: 6, padding: '10px 14px', marginBottom: 12,
+                    }}>
+                      <p style={{ fontSize: 12, color: '#D97757', margin: 0, lineHeight: 1.5 }}>
+                        Type <strong style={{
+                          fontFamily: "'JetBrains Mono', ui-monospace, monospace",
+                          background: 'rgba(217,119,87,0.12)',
+                          padding: '1px 6px', borderRadius: 3,
+                        }}>clear crm</strong> to confirm.
+                      </p>
+                    </div>
+                    <div style={{ display: 'flex', gap: 8 }}>
+                      <input
+                        type="text"
+                        value={crmConfirm}
+                        onChange={e => setCrmConfirm(e.target.value)}
+                        placeholder="clear crm"
+                        autoComplete="off"
+                        style={{
+                          flex: 1, boxSizing: 'border-box',
+                          background: 'rgba(20,24,30,0.78)',
+                          border: '1px solid rgba(230,235,242,0.14)',
+                          color: '#EDF0F4', borderRadius: 4,
+                          padding: '8px 14px', fontSize: 13, outline: 'none',
+                          fontFamily: "'Inter Tight', system-ui, sans-serif",
+                        }}
+                      />
+                      <button
+                        disabled={crmClearing || crmConfirm.toLowerCase() !== 'clear crm'}
+                        onClick={async () => {
+                          setCrmClearing(true);
+                          setCrmError('');
+                          try {
+                            await api('/api/crm/clear-all', {
+                              method: 'POST',
+                              body: JSON.stringify({ confirmation: 'clear crm' }),
+                            });
+                            setCrmCleared(true);
+                            setTimeout(() => window.location.reload(), 1500);
+                          } catch (err: unknown) {
+                            setCrmError(err instanceof Error ? err.message : 'Failed to clear CRM data');
+                          } finally {
+                            setCrmClearing(false);
+                          }
+                        }}
+                        style={{
+                          padding: '8px 16px', borderRadius: 4,
+                          background: crmConfirm.toLowerCase() === 'clear crm' ? '#D97757' : 'rgba(217,119,87,0.3)',
+                          color: crmConfirm.toLowerCase() === 'clear crm' ? '#0E1013' : 'rgba(14,16,19,0.5)',
+                          border: 'none', fontWeight: 500, fontSize: 13,
+                          cursor: crmConfirm.toLowerCase() === 'clear crm' ? 'pointer' : 'default',
+                          fontFamily: "'Inter Tight', system-ui, sans-serif",
+                          transition: 'background 0.15s, color 0.15s',
+                          whiteSpace: 'nowrap',
+                        }}
+                      >{crmClearing ? 'Clearing...' : 'Clear all'}</button>
+                    </div>
+                    {crmError && <p style={{ color: '#D97757', fontSize: 13, marginTop: 8 }}>{crmError}</p>}
+                  </>
                 )}
               </div>
             </div>

@@ -73,7 +73,7 @@ def _setup_connection() -> None:
             active_hours_tz TEXT NOT NULL DEFAULT 'America/Chicago',
             prompt TEXT NOT NULL DEFAULT '',
             model_override TEXT,
-            max_tool_iterations INTEGER NOT NULL DEFAULT 5,
+            max_tool_iterations INTEGER NOT NULL DEFAULT 10,
             enabled INTEGER NOT NULL DEFAULT 1,
             next_run TEXT,
             last_run TEXT,
@@ -163,7 +163,20 @@ def _setup_connection() -> None:
         _connection.execute("ALTER TABLE scheduled_actions ADD COLUMN lease_id TEXT")
     if "leased_until" not in cols:
         _connection.execute("ALTER TABLE scheduled_actions ADD COLUMN leased_until TEXT")
+    if "last_failure_alert_at" not in cols:
+        _connection.execute("ALTER TABLE scheduled_actions ADD COLUMN last_failure_alert_at TEXT")
     _connection.execute("CREATE INDEX IF NOT EXISTS idx_sa_lease ON scheduled_actions(lease_id, leased_until)")
+    _connection.commit()
+
+    # Migration: add unified activity log columns to execution_history
+    eh_cols = {r[1] for r in _connection.execute("PRAGMA table_info(execution_history)").fetchall()}
+    if "event_type" not in eh_cols:
+        _connection.execute("ALTER TABLE execution_history ADD COLUMN event_type TEXT DEFAULT 'scheduled_action'")
+    if "source" not in eh_cols:
+        _connection.execute("ALTER TABLE execution_history ADD COLUMN source TEXT DEFAULT 'system'")
+    if "conversation_id" not in eh_cols:
+        _connection.execute("ALTER TABLE execution_history ADD COLUMN conversation_id TEXT")
+    _connection.execute("CREATE INDEX IF NOT EXISTS idx_eh_event_type ON execution_history(event_type, started_at DESC)")
     _connection.commit()
 
     logger.info("Reminders DB initialized at %s", DB_PATH)

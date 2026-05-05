@@ -43,6 +43,7 @@ _INTEGRATION_MODULES = {
     "quickbooks": ("integrations.quickbooks.tools", "QB_TOOL_DEFS"),
     "qb_csv": ("integrations.qb_csv.tools", "QB_CSV_TOOL_DEFS"),
     "paperclip": ("integrations.paperclip.tools", "PAPERCLIP_TOOL_DEFS"),
+    "todoist": ("integrations.todoist.tools", "TODOIST_TOOL_DEFS"),
 }
 
 
@@ -172,7 +173,12 @@ async def handle_heartbeat(request: Request):
         integration_tool_defs, integration_executors = _load_integration_tools()
 
         # Force Paperclip writes to "power" — no approval UI in headless mode
-        integration_tool_modes = {name: get_tool_mode(name) for name in _INTEGRATION_MODULES}
+        from integrations.registry import get_credentials as _get_creds
+        integration_tool_modes = {
+            name: get_tool_mode(name)
+            for name in _INTEGRATION_MODULES
+            if "tool_mode" in _get_creds(name)
+        }
         integration_tool_modes["paperclip"] = "power"
 
         reminder_handlers, sa_handlers = _build_agent_handlers(slug)
@@ -207,6 +213,7 @@ async def handle_heartbeat(request: Request):
             messages=messages,
             integration_tool_defs=integration_tool_defs or None,
             integration_tool_modes=integration_tool_modes,
+            source="paperclip",
         )
 
         logger.info("Paperclip heartbeat complete: agent=%s len=%d", slug, len(result_text or ""))
