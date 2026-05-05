@@ -41,6 +41,21 @@ export interface AgentAlert {
   resolved_at: string | null;
 }
 
+export interface Reminder {
+  id: string;
+  agent: string;
+  message: string;
+  context: string | null;
+  due_at: string;
+  status: 'pending' | 'fired' | 'cancelled';
+  created_at: string;
+  fired_at: string | null;
+  result: string | null;
+  recurrence_rule: string | null;
+  series_id: string | null;
+  is_recurring: boolean;
+}
+
 export type GmailScopeLevel = 'none' | 'read' | 'send';
 export type CalendarScopeLevel = 'none' | 'read' | 'full';
 export type DriveScopeLevel = 'none' | 'file' | 'readonly' | 'full';

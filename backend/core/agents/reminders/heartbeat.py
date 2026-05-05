@@ -7,6 +7,7 @@ Self-reminders trigger a background AI turn so the agent can act.
 import logging
 
 from . import service
+from .notifications import notify_reminder_fired
 from core.agents.background_runner import run_background_turn
 
 logger = logging.getLogger(__name__)
@@ -41,7 +42,7 @@ def process_due_reminders() -> None:
 
 def _process_self_reminder(reminder: dict) -> None:
     """Process a self-reminder by running a background AI turn."""
-    agent_name = reminder["agent"]
+    agent_slug = reminder["agent"]
 
     # Resolve agent config
     from agents.engine import get_context_manager, DATA_DIR
@@ -51,12 +52,12 @@ def _process_self_reminder(reminder: dict) -> None:
     agents = agent_db.list_agents()
     agent = None
     for a in agents:
-        if a["slug"] == agent_name:
+        if a["slug"] == agent_slug:
             agent = a
             break
 
     if not agent:
-        service.mark_fired(reminder["id"], f"error: agent '{agent_name}' not found")
+        service.mark_fired(reminder["id"], f"error: agent '{agent_slug}' not found")
         return
 
     ctx_manager = get_context_manager(agent["slug"])
@@ -66,6 +67,10 @@ def _process_self_reminder(reminder: dict) -> None:
     from agents.tool_loader import format_current_time
     date_str, time_str = format_current_time()
 
+    recurrence_line = ""
+    if reminder.get("recurrence_rule"):
+        recurrence_line = "- **Recurrence:** This is a recurring reminder.\n"
+
     system_prompt = (
         (
             f"You are {agent['agent_name']}, a helpful AI assistant.\n\n"
@@ -73,7 +78,8 @@ def _process_self_reminder(reminder: dict) -> None:
             f"A reminder you set has fired. Take appropriate action.\n\n"
             f"- **Message:** {reminder['message']}\n"
             f"- **Context:** {reminder.get('context') or 'None'}\n"
-            f"- **Originally set at:** {reminder['created_at']}\n\n"
+            f"- **Originally set at:** {reminder['created_at']}\n"
+            f"{recurrence_line}\n"
             f"# Your Knowledge (abbreviated)\n\n{context_snippet}\n\n"
         ),
         (
@@ -138,7 +144,34 @@ def _process_self_reminder(reminder: dict) -> None:
             max_iterations=_MAX_TOOL_ITERATIONS,
         )
         service.mark_fired(reminder["id"], f"processed: {result.text[:500]}")
+        _schedule_next_if_recurring(reminder)
+        try:
+            notify_reminder_fired(reminder, result.text[:300], agent_slug, error=result.error)
+        except Exception as ne:
+            logger.warning("Notification failed for reminder %s: %s", reminder["id"], ne)
         logger.info("Self-reminder %s processed: %s", reminder["id"], result.text[:200])
     except Exception as e:
         logger.error("Self-reminder %s background turn failed: %s", reminder["id"], e)
         service.mark_fired(reminder["id"], f"error: {e}")
+        _schedule_next_if_recurring(reminder)
+        try:
+            notify_reminder_fired(reminder, str(e)[:300], agent_slug, error=True)
+        except Exception as ne:
+            logger.warning("Error notification failed for reminder %s: %s", reminder["id"], ne)
+
+
+def _schedule_next_if_recurring(reminder: dict) -> None:
+    """If this is a recurring reminder, create the next pending occurrence."""
+    if not reminder.get("recurrence_rule"):
+        return
+    try:
+        next_rem = service.create_next_occurrence(reminder)
+        if next_rem and next_rem.get("ok"):
+            logger.info(
+                "Recurring reminder %s: next occurrence %s at %s",
+                reminder["id"], next_rem["id"], next_rem["due_at"],
+            )
+        elif next_rem:
+            logger.warning("Failed to create next occurrence for %s: %s", reminder["id"], next_rem)
+    except Exception as e:
+        logger.error("Error scheduling next occurrence for %s: %s", reminder["id"], e)
