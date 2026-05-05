@@ -42,7 +42,7 @@ def process_due_reminders() -> None:
 
 def _process_self_reminder(reminder: dict) -> None:
     """Process a self-reminder by running a background AI turn."""
-    agent_name = reminder["agent"]
+    agent_slug = reminder["agent"]
 
     # Resolve agent config
     from agents.engine import get_context_manager, DATA_DIR
@@ -52,12 +52,12 @@ def _process_self_reminder(reminder: dict) -> None:
     agents = agent_db.list_agents()
     agent = None
     for a in agents:
-        if a["slug"] == agent_name:
+        if a["slug"] == agent_slug:
             agent = a
             break
 
     if not agent:
-        service.mark_fired(reminder["id"], f"error: agent '{agent_name}' not found")
+        service.mark_fired(reminder["id"], f"error: agent '{agent_slug}' not found")
         return
 
     ctx_manager = get_context_manager(agent["slug"])
@@ -146,7 +146,7 @@ def _process_self_reminder(reminder: dict) -> None:
         service.mark_fired(reminder["id"], f"processed: {result.text[:500]}")
         _schedule_next_if_recurring(reminder)
         try:
-            notify_reminder_fired(reminder, result.text[:300], agent_name, error=result.error)
+            notify_reminder_fired(reminder, result.text[:300], agent_slug, error=result.error)
         except Exception as ne:
             logger.warning("Notification failed for reminder %s: %s", reminder["id"], ne)
         logger.info("Self-reminder %s processed: %s", reminder["id"], result.text[:200])
@@ -155,7 +155,7 @@ def _process_self_reminder(reminder: dict) -> None:
         service.mark_fired(reminder["id"], f"error: {e}")
         _schedule_next_if_recurring(reminder)
         try:
-            notify_reminder_fired(reminder, str(e)[:300], agent_name, error=True)
+            notify_reminder_fired(reminder, str(e)[:300], agent_slug, error=True)
         except Exception as ne:
             logger.warning("Error notification failed for reminder %s: %s", reminder["id"], ne)
 

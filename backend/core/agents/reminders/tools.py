@@ -20,15 +20,6 @@ _WEEKDAY_MAP = {
     "sun": 7, "sunday": 7,
 }
 
-_RECURRENCE_DESCRIPTIONS = {
-    "daily": "Daily",
-    "weekly": "Weekly",
-    "monthly": "Monthly",
-    "interval": "Interval",
-    "cron": "Cron",
-}
-
-
 def parse_recurrence(raw: str) -> dict | None:
     """Parse a natural-language recurrence string into a structured rule.
 
