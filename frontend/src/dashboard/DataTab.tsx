@@ -5,6 +5,7 @@ export function DataTab() {
   const [downloading, setDownloading] = useState(false);
   const [restoring, setRestoring] = useState(false);
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
   async function handleDownload() {
@@ -32,8 +33,7 @@ export function DataTab() {
   }
 
   async function handleRestore() {
-    const file = fileRef.current?.files?.[0];
-    if (!file) return;
+    if (!selectedFile) return;
     if (!window.confirm('Are you sure? This will replace ALL current data and cannot be undone.')) return;
 
     setRestoring(true);
@@ -41,7 +41,7 @@ export function DataTab() {
     try {
       const token = sessionStorage.getItem('chatty_token');
       const form = new FormData();
-      form.append('file', file);
+      form.append('file', selectedFile);
       const res = await fetch('/api/backup/restore', {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}` },
@@ -113,14 +113,47 @@ export function DataTab() {
           </p>
         </div>
 
-        <input ref={fileRef} type="file" accept=".zip"
-          style={{ fontSize: 13, color: 'rgba(237,240,244,0.62)', display: 'block', marginBottom: 16, width: '100%' }}
+        <input
+          ref={fileRef}
+          type="file"
+          accept=".zip"
+          onChange={(e) => setSelectedFile(e.target.files?.[0] ?? null)}
+          style={{ display: 'none' }}
         />
-        <button onClick={handleRestore} disabled={restoring} style={{
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
+          <button
+            type="button"
+            onClick={() => fileRef.current?.click()}
+            style={{
+              padding: '10px 16px',
+              background: 'rgba(245,239,227,0.06)',
+              color: '#EDF0F4',
+              border: '1px solid rgba(230,235,242,0.12)',
+              borderRadius: 4,
+              fontSize: 14,
+              fontWeight: 500,
+              cursor: 'pointer',
+              whiteSpace: 'nowrap',
+            }}
+          >
+            Choose file
+          </button>
+          <span style={{
+            fontSize: 13,
+            color: 'rgba(237,240,244,0.62)',
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap',
+          }}>
+            {selectedFile ? selectedFile.name : 'No file selected'}
+          </span>
+        </div>
+        <button onClick={handleRestore} disabled={restoring || !selectedFile} style={{
           width: '100%', padding: '10px 16px',
           background: 'transparent', color: '#D97757',
           border: '1px solid rgba(217,119,87,0.25)', borderRadius: 4, fontSize: 14, fontWeight: 500,
-          cursor: 'pointer', opacity: restoring ? 0.5 : 1,
+          cursor: (restoring || !selectedFile) ? 'not-allowed' : 'pointer',
+          opacity: (restoring || !selectedFile) ? 0.5 : 1,
         }}>
           {restoring ? 'Restoring...' : 'Restore Backup'}
         </button>

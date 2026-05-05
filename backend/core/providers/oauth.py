@@ -148,6 +148,7 @@ def _build_auth_url(
     code_challenge: str | None,
     state: str,
     scopes: list[str] | None = None,
+    prompt: str | None = None,
 ) -> str:
     """Build the OAuth authorization URL, with optional PKCE parameters."""
     cfg = OAUTH_CONFIG[provider]
@@ -170,7 +171,7 @@ def _build_auth_url(
         params["code_challenge_method"] = "S256"
     if provider == "google":
         params["access_type"] = "offline"
-        params["prompt"] = "consent"  # ensure refresh_token on every connect
+        params["prompt"] = prompt or "consent"
     return f"{cfg['auth_url']}?{urlencode(params)}"
 
 
@@ -180,6 +181,7 @@ def start_oauth_flow(
     provider: str,
     scopes: list[str] | None = None,
     metadata: dict | None = None,
+    prompt: str | None = None,
 ) -> dict:
     """
     Start an OAuth flow.
@@ -219,7 +221,7 @@ def start_oauth_flow(
     else:
         state = flow_id
 
-    auth_url = _build_auth_url(provider, challenge, state=state, scopes=scopes)
+    auth_url = _build_auth_url(provider, challenge, state=state, scopes=scopes, prompt=prompt)
 
     _OAUTH_FLOWS[flow_id] = OAuthFlow(
         flow_id=flow_id,

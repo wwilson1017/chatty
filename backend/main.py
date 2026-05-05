@@ -90,8 +90,9 @@ async def lifespan(app: FastAPI):
     from integrations.crm_lite.db import init_db as init_crm_db
     _safe_init("crm_lite", init_crm_db)
 
-    from integrations.registry import is_enabled as integration_enabled, ensure_crm_active
+    from integrations.registry import is_enabled as integration_enabled, ensure_crm_active, migrate_google_json
     ensure_crm_active()
+    migrate_google_json()
 
     if integration_enabled("qb_csv"):
         from integrations.qb_csv.db import init_db as init_qb_csv_db
@@ -191,7 +192,7 @@ async def lifespan(app: FastAPI):
     if volume_marker.exists():
         logger.info("Persistent volume verified (marker file present)")
     else:
-        volume_marker.write_text(f"chatty:{datetime.now(timezone.utc).isoformat()}")
+        volume_marker.write_text(f"chatty:{datetime.now(timezone.utc).isoformat()}", encoding="utf-8")
         if settings.is_railway:
             logger.info(
                 "First boot — wrote volume marker to %s. "
@@ -261,6 +262,9 @@ app.include_router(scheduled_actions_router, prefix="/api/scheduled-actions", ta
 
 from core.agents.alerts.router import router as alerts_router
 app.include_router(alerts_router, prefix="/api/alerts", tags=["alerts"])
+
+from core.agents.reminders.router import router as reminders_router
+app.include_router(reminders_router, prefix="/api/reminders", tags=["reminders"])
 app.include_router(setup_router, prefix="/api/setup", tags=["setup"])
 app.include_router(backup_router, prefix="/api/backup", tags=["backup"])
 app.include_router(telegram_router, prefix="/api/telegram", tags=["telegram"])

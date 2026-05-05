@@ -15,6 +15,7 @@ export interface Agent {
   calendar_write_enabled?: boolean;
   drive_enabled?: boolean;
   drive_write_enabled?: boolean;
+  google_accounts?: { gmail?: string; calendar?: string; drive?: string };
   whatsapp_session_id?: string;
   telegram_enabled: boolean;
   telegram_bot_token?: string;
@@ -40,6 +41,21 @@ export interface AgentAlert {
   resolved_at: string | null;
 }
 
+export interface Reminder {
+  id: string;
+  agent: string;
+  message: string;
+  context: string | null;
+  due_at: string;
+  status: 'pending' | 'fired' | 'cancelled';
+  created_at: string;
+  fired_at: string | null;
+  result: string | null;
+  recurrence_rule: string | null;
+  series_id: string | null;
+  is_recurring: boolean;
+}
+
 export type GmailScopeLevel = 'none' | 'read' | 'send';
 export type CalendarScopeLevel = 'none' | 'read' | 'full';
 export type DriveScopeLevel = 'none' | 'file' | 'readonly' | 'full';
@@ -48,6 +64,13 @@ export interface GoogleScopeGrants {
   gmail: GmailScopeLevel;
   calendar: CalendarScopeLevel;
   drive: DriveScopeLevel;
+}
+
+export interface GoogleAccount {
+  id: string;
+  email: string;
+  scope_grants: GoogleScopeGrants;
+  connection_status: string;
 }
 
 export interface Conversation {
@@ -99,6 +122,7 @@ export interface Integration {
   tool_mode?: string;
   email?: string;
   scope_grants?: GoogleScopeGrants;
+  google_accounts?: GoogleAccount[];
   has_app_credentials?: boolean;
 }
 
