@@ -12,7 +12,7 @@ Create custom AI agents with their own personality, knowledge, and tools — pow
 - **Multi-provider AI** — Anthropic, OpenAI, Google Gemini, Ollama (local models), and Together AI
 - **Brandable** — Upload your logo, company name, and accent color to make it yours
 - **Built-in CRM** — Manage your pipeline: contacts, companies, tasks and deals all with your AI agent
-- **Integrations** — Gmail, Google Calendar, Google Drive, QuickBooks Online, WhatsApp, Telegram, Odoo, BambooHR, Paperclip
+- **Integrations** — Gmail, Google Calendar, Google Drive, QuickBooks Online, Todoist, WhatsApp, Telegram, Odoo, BambooHR, Paperclip
 - **Agent orchestration** — Connect to [Paperclip](https://github.com/paperclipai/paperclip) for org charts, task management, and multi-agent coordination
 - **Local-first** — SQLite database, no external services required
 - **One-click deploy** — Deploy to Railway for access from any device
@@ -85,6 +85,7 @@ Chatty connects to your existing business tools so your agents can answer questi
 | [CRM Lite](docs/crm-lite-setup.md) | One-click | Manage contacts, deals, tasks, and activities — built in, ships with demo data you can clear when ready |
 | [Telegram](docs/telegram-setup.md) | Bot token | Chat with your agent from Telegram |
 | [WhatsApp](docs/whatsapp-setup.md) | QR code scan | Chat with your agent from WhatsApp |
+| [Todoist](docs/todoist-setup.md) | API token | Create, manage, complete, and organize tasks and projects |
 | [Odoo](docs/odoo-setup.md) | API key | Sales, inventory, accounting, HR, and more from your Odoo ERP |
 | [BambooHR](docs/bamboohr-setup.md) | API key | Employee directory, time off, and HR data |
 

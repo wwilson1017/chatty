@@ -3,7 +3,7 @@ import { NavLink, Outlet, useNavigate } from 'react-router-dom';
 import { api } from '../core/api/client';
 import { useIsMobile } from '../shared/useIsMobile';
 import { MobileMenuDrawer } from '../shared/MobileMenuDrawer';
-import { INK, INK_SOFT, INK_MUTE, LINE, LINE_STRONG, ACCENT, FONT_DISPLAY, FONT_SANS, FONT_MONO, SAGE, GOLD } from '../shared/styles';
+import { INK, INK_SOFT, INK_MUTE, LINE, LINE_STRONG, ACCENT, FONT_DISPLAY, FONT_SANS, SAGE, GOLD } from '../shared/styles';
 import { modalOverlay, modalContent, btnPrimary, btnSecondary } from './styles';
 
 const NAV_ITEMS = [
@@ -83,6 +83,56 @@ function DemoDialog({ onClear, onDismiss }: {
   );
 }
 
+function DemoBanner({ onClear, isMobile }: {
+  onClear: () => Promise<void>; isMobile: boolean;
+}) {
+  const [clearing, setClearing] = useState(false);
+  const [error, setError] = useState(false);
+
+  async function handleClear() {
+    setClearing(true);
+    setError(false);
+    try {
+      await onClear();
+    } catch {
+      setError(true);
+      setClearing(false);
+    }
+  }
+
+  return (
+    <div style={{
+      background: 'rgba(212,168,90,0.08)',
+      borderBottom: '1px solid rgba(212,168,90,0.15)',
+      padding: isMobile ? '10px 16px' : '8px 28px',
+      display: 'flex',
+      flexDirection: isMobile ? 'column' : 'row',
+      alignItems: isMobile ? 'flex-start' : 'center',
+      justifyContent: 'space-between',
+      gap: isMobile ? 8 : 16,
+    }}>
+      <span style={{
+        fontFamily: FONT_SANS, fontSize: 13, color: error ? '#D97757' : GOLD, lineHeight: 1.4,
+      }}>
+        {error
+          ? 'Failed to clear example data. Please try again.'
+          : <>You're viewing example data &mdash; contacts, deals, and tasks are samples.</>}
+      </span>
+      <button
+        onClick={handleClear}
+        disabled={clearing}
+        style={{
+          background: 'rgba(212,168,90,0.12)', color: GOLD,
+          border: '1px solid rgba(212,168,90,0.20)', borderRadius: 4,
+          padding: '4px 14px', fontSize: 12, fontFamily: FONT_SANS,
+          fontWeight: 500, cursor: clearing ? 'wait' : 'pointer',
+          opacity: clearing ? 0.6 : 1, whiteSpace: 'nowrap',
+        }}
+      >{clearing ? 'Clearing...' : 'Clear example data'}</button>
+    </div>
+  );
+}
+
 export function CrmLayout() {
   const isMobile = useIsMobile();
   const navigate = useNavigate();
@@ -126,18 +176,6 @@ export function CrmLayout() {
               fontFamily: FONT_DISPLAY,
               fontSize: isMobile ? 20 : 18, letterSpacing: '-0.01em', color: INK,
             }}>CRM</div>
-            {demoMode && dialogDismissed && (
-              <button
-                onClick={() => setDialogDismissed(false)}
-                style={{
-                  background: 'rgba(212,168,90,0.10)', color: GOLD,
-                  border: '1px solid rgba(212,168,90,0.20)', borderRadius: 4,
-                  padding: '2px 8px', fontSize: 10, fontFamily: FONT_MONO,
-                  letterSpacing: '0.08em', textTransform: 'uppercase',
-                  cursor: 'pointer',
-                }}
-              >Example data</button>
-            )}
           </div>
           {!isMobile && (
             <>
@@ -204,6 +242,16 @@ export function CrmLayout() {
 
       {isMobile && showMenu && (
         <MobileMenuDrawer onClose={() => setShowMenu(false)} navigate={navigate} />
+      )}
+
+      {demoMode && dialogDismissed && (
+        <DemoBanner
+          onClear={async () => {
+            await handleClearDemo();
+            setDemoMode(false);
+          }}
+          isMobile={isMobile}
+        />
       )}
 
       <div key={refreshKey} style={{ flex: 1, overflow: 'auto', position: 'relative' }}>

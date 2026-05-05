@@ -106,7 +106,7 @@ class EncryptionKeyManager:
         if not KEY_FILE_PATH.exists():
             return None
         try:
-            key = KEY_FILE_PATH.read_text().strip().encode()
+            key = KEY_FILE_PATH.read_text(encoding="utf-8").strip().encode()
             Fernet(key)  # validate
             logger.info("Using encryption key from file: %s", KEY_FILE_PATH)
             return key
@@ -132,8 +132,15 @@ class EncryptionKeyManager:
 
         if not stored_in_keychain:
             DATA_DIR.mkdir(parents=True, exist_ok=True)
-            KEY_FILE_PATH.write_text(key.decode())
-            KEY_FILE_PATH.chmod(0o600)
+            KEY_FILE_PATH.write_text(key.decode(), encoding="utf-8")
+            if os.name != "nt":
+                KEY_FILE_PATH.chmod(0o600)
+            else:
+                logger.warning(
+                    "Key file %s written with default ACLs — "
+                    "restrict access manually on shared machines",
+                    KEY_FILE_PATH,
+                )
             logger.info(
                 "Generated new encryption key, stored in file: %s", KEY_FILE_PATH
             )

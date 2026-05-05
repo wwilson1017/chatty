@@ -84,6 +84,7 @@ _INTEGRATION_MODULES = {
     "quickbooks": ("integrations.quickbooks.tools", "QB_TOOL_DEFS"),
     "qb_csv": ("integrations.qb_csv.tools", "QB_CSV_TOOL_DEFS"),
     "paperclip": ("integrations.paperclip.tools", "PAPERCLIP_TOOL_DEFS"),
+    "todoist": ("integrations.todoist.tools", "TODOIST_TOOL_DEFS"),
 }
 
 
@@ -179,13 +180,20 @@ async def process_message(
     if not provider:
         return "No AI provider is configured. Please set up an AI provider in Settings."
 
-    from integrations.registry import is_enabled as _is_enabled
-    google_connected = _is_enabled("google")
+    ga = config.google_accounts
+    gmail_account_id = ga.get("gmail", "")
+    calendar_account_id = ga.get("calendar", "")
+    drive_account_id = ga.get("drive", "")
+    google_connected = bool(gmail_account_id or calendar_account_id or drive_account_id)
 
     integration_tool_defs, integration_executors = _load_integration_tools()
 
-    from integrations.registry import get_tool_mode
-    integration_tool_modes = {name: get_tool_mode(name) for name in _INTEGRATION_MODULES}
+    from integrations.registry import get_tool_mode, get_credentials
+    integration_tool_modes = {
+        name: get_tool_mode(name)
+        for name in _INTEGRATION_MODULES
+        if "tool_mode" in get_credentials(name)
+    }
 
     reminder_handlers, sa_handlers = _build_agent_handlers(slug)
     registry = ToolRegistry(
@@ -195,6 +203,9 @@ async def process_message(
         agent_slug=slug,
         reminder_handlers=reminder_handlers,
         scheduled_action_handlers=sa_handlers,
+        gmail_account_id=gmail_account_id,
+        calendar_account_id=calendar_account_id,
+        drive_account_id=drive_account_id,
     )
 
     # 5. Get/create Telegram conversation for multi-turn context
@@ -229,6 +240,7 @@ async def process_message(
         conversation_id=chatty_conv_id,
         integration_tool_defs=integration_tool_defs or None,
         integration_tool_modes=integration_tool_modes,
+        source="telegram",
     )
 
     return response or "I had trouble generating a response. Please try again."
@@ -264,13 +276,20 @@ async def process_group_message(
     if not provider:
         return "No AI provider is configured. Please set up an AI provider in Settings."
 
-    from integrations.registry import is_enabled as _is_enabled
-    google_connected = _is_enabled("google")
+    ga = config.google_accounts
+    gmail_account_id = ga.get("gmail", "")
+    calendar_account_id = ga.get("calendar", "")
+    drive_account_id = ga.get("drive", "")
+    google_connected = bool(gmail_account_id or calendar_account_id or drive_account_id)
 
     integration_tool_defs, integration_executors = _load_integration_tools()
 
-    from integrations.registry import get_tool_mode
-    integration_tool_modes = {name: get_tool_mode(name) for name in _INTEGRATION_MODULES}
+    from integrations.registry import get_tool_mode, get_credentials
+    integration_tool_modes = {
+        name: get_tool_mode(name)
+        for name in _INTEGRATION_MODULES
+        if "tool_mode" in get_credentials(name)
+    }
 
     reminder_handlers, sa_handlers = _build_agent_handlers(slug)
     registry = ToolRegistry(
@@ -280,6 +299,9 @@ async def process_group_message(
         agent_slug=slug,
         reminder_handlers=reminder_handlers,
         scheduled_action_handlers=sa_handlers,
+        gmail_account_id=gmail_account_id,
+        calendar_account_id=calendar_account_id,
+        drive_account_id=drive_account_id,
     )
 
     group_sender_id = f"group:{chat_id}"
@@ -311,6 +333,7 @@ async def process_group_message(
         conversation_id=chatty_conv_id,
         integration_tool_defs=integration_tool_defs or None,
         integration_tool_modes=integration_tool_modes,
+        source="telegram-group",
     )
 
     return response or "I had trouble generating a response. Please try again."
