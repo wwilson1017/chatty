@@ -597,8 +597,8 @@ def ensure_default_actions(agent_slug: str) -> None:
                 update_action(action["id"], always_on=True)
         return
 
-    # Check for legacy "cron" actions that haven't been migrated yet
-    legacy = list_actions(agent=agent_slug, action_type="cron")
+    # Check for legacy "cron" heartbeat actions that haven't been migrated yet
+    legacy = [a for a in list_actions(agent=agent_slug, action_type="cron") if a.get("name") == "Heartbeat"]
     if legacy:
         for action in legacy:
             if not action.get("always_on"):
@@ -665,11 +665,12 @@ def _run_one_time_migrations() -> None:
             (now,),
         ).rowcount
 
-        # Reclassify legacy "cron" heartbeat actions so the Heartbeat UI can find them
+        # Reclassify legacy "cron" heartbeat actions so the Heartbeat UI can find them.
+        # Only targets system-created heartbeats (name='Heartbeat'), not agent-created cron jobs.
         reclassified = conn.execute(
             """UPDATE scheduled_actions SET
                action_type = 'heartbeat', updated_at = ?
-               WHERE action_type = 'cron'""",
+               WHERE action_type = 'cron' AND name = 'Heartbeat'""",
             (now,),
         ).rowcount
 
