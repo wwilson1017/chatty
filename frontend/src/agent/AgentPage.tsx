@@ -8,6 +8,7 @@ import { AgentChatPanel } from './components/AgentChatPanel';
 import { AgentContextEditor } from './components/AgentContextEditor';
 import ReportsPanel from './reports/ReportsPanel';
 import AgentActivityPanel from './components/AgentActivityPanel';
+import AgentRemindersPanel from './components/AgentRemindersPanel';
 import { ConversationSidebar } from './components/ConversationSidebar';
 import { AvatarPicker } from './components/AvatarPicker';
 import { AgentMark } from '../shared/AgentMark';
@@ -34,12 +35,13 @@ interface AgentRow {
   telegram_max_bot_turns: number;
 }
 
-type Tab = 'chat' | 'knowledge' | 'reports' | 'activity';
+type Tab = 'chat' | 'knowledge' | 'reports' | 'reminders' | 'activity';
 
 const TABS: { key: Tab; label: string }[] = [
   { key: 'chat', label: 'Chat' },
   { key: 'knowledge', label: 'Knowledge' },
   { key: 'reports', label: 'Reports' },
+  { key: 'reminders', label: 'Reminders' },
   { key: 'activity', label: 'Activity' },
 ];
 
@@ -57,7 +59,7 @@ export function AgentPage() {
   const [agent, setAgent] = useState<AgentRow | null>(null);
   const [activeTab, setActiveTab] = useState<Tab>(() => {
     const tab = searchParams.get('tab');
-    return (tab && ['chat', 'knowledge', 'reports', 'activity'].includes(tab)) ? tab as Tab : 'chat';
+    return (tab && ['chat', 'knowledge', 'reports', 'reminders', 'activity'].includes(tab)) ? tab as Tab : 'chat';
   });
   const [showAvatarPicker, setShowAvatarPicker] = useState(false);
   const [showSidebar, setShowSidebar] = useState(false);
@@ -210,7 +212,7 @@ export function AgentPage() {
   // Handle tab from URL search params
   useEffect(() => {
     const tab = searchParams.get('tab');
-    if (tab && ['chat', 'knowledge', 'reports', 'activity'].includes(tab)) {
+    if (tab && ['chat', 'knowledge', 'reports', 'reminders', 'activity'].includes(tab)) {
       queueMicrotask(() => setActiveTab(tab as Tab));
       searchParams.delete('tab');
       setSearchParams(searchParams, { replace: true });
@@ -584,6 +586,10 @@ export function AgentPage() {
           <AgentContextEditor agentId={agentId!} />
         ) : activeTab === 'reports' ? (
           <ReportsPanel apiPrefix={apiPrefix} />
+        ) : activeTab === 'reminders' ? (
+          <div style={{ flex: 1, overflow: 'auto' }}>
+            <AgentRemindersPanel agentSlug={agent.slug} />
+          </div>
         ) : activeTab === 'activity' ? (
           <div style={{ flex: 1, overflow: 'auto' }}>
             <AgentActivityPanel apiPrefix={apiPrefix} />

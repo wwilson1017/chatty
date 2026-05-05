@@ -415,6 +415,8 @@ export function AgentChatPanel({
                 const alert = alerts.find(a => a.id === alertId);
                 if (alert) {
                   onSend(`Tell me about this alert: "${alert.title}" — ${alert.message}`);
+                  api(`/api/alerts/${alertId}/acknowledge`, { method: 'POST' }).catch(() => {});
+                  setAlerts(prev => prev.filter(a => a.id !== alertId));
                 }
               }}
             />

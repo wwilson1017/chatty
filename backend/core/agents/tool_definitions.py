@@ -1064,13 +1064,21 @@ REPORT_TOOLS = [
 REMINDER_TOOLS = [
     {
         "name": "create_reminder",
-        "description": "Set a reminder for yourself to follow up on something. When the reminder fires, you will receive the message as context in a new conversation turn.",
+        "description": "Set a reminder for yourself to follow up on something. When the reminder fires, you will receive the message as context in a new conversation turn and the user will be notified. Supports one-shot and recurring reminders.",
         "input_schema": {
             "type": "object",
             "properties": {
                 "message": {"type": "string", "description": "What to remind about"},
                 "due_at": {"type": "string", "description": "When the reminder should fire (ISO 8601 datetime, e.g. '2026-03-27T14:00:00')"},
                 "context": {"type": "string", "description": "Optional additional context for when the reminder fires"},
+                "recurrence": {
+                    "type": "string",
+                    "description": (
+                        "Optional recurrence pattern. Examples: 'daily', 'weekly:mon,wed,fri', "
+                        "'monthly:15', 'every 4 hours', 'cron:0 9 * * MON-FRI'. "
+                        "Omit for a one-shot reminder."
+                    ),
+                },
             },
             "required": ["message", "due_at"],
         },
@@ -1079,7 +1087,7 @@ REMINDER_TOOLS = [
     },
     {
         "name": "list_reminders",
-        "description": "List your active reminders.",
+        "description": "List your reminders. Shows recurrence pattern for recurring reminders.",
         "input_schema": {
             "type": "object",
             "properties": {
@@ -1092,7 +1100,7 @@ REMINDER_TOOLS = [
     },
     {
         "name": "cancel_reminder",
-        "description": "Cancel a pending reminder by its ID.",
+        "description": "Cancel a pending reminder by its ID. For recurring reminders, this stops the entire series.",
         "input_schema": {
             "type": "object",
             "properties": {
@@ -1203,7 +1211,9 @@ def get_scheduling_instructions() -> str:
     return """## Scheduling & Reminders
 
 ### Reminders
-Use `create_reminder` to set a follow-up for yourself. When the reminder fires, you'll receive the context and can take action. Use ISO 8601 format for due_at.
+Use `create_reminder` to set a follow-up for yourself. When the reminder fires, you'll receive the context and can take action, and the user will be notified via an in-app alert. Use ISO 8601 format for due_at.
+
+For **recurring reminders**, include the `recurrence` parameter: 'daily', 'weekly:mon,wed,fri', 'monthly:15', 'every 4 hours', or 'cron:0 9 * * MON-FRI'. Each occurrence fires independently, and the next one is auto-scheduled. Cancel to stop the series.
 
 ### Heartbeat (your main recurring loop)
 You already have a **heartbeat** that runs every 30 minutes and checks your HEARTBEAT.md file. This is your primary mechanism for recurring work.

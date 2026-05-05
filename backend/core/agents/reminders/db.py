@@ -164,6 +164,15 @@ def _setup_connection() -> None:
     if "leased_until" not in cols:
         _connection.execute("ALTER TABLE scheduled_actions ADD COLUMN leased_until TEXT")
     _connection.execute("CREATE INDEX IF NOT EXISTS idx_sa_lease ON scheduled_actions(lease_id, leased_until)")
+
+    # Migration: add recurring reminder columns if missing
+    rem_cols = {r[1] for r in _connection.execute("PRAGMA table_info(reminders)").fetchall()}
+    if "recurrence_rule" not in rem_cols:
+        _connection.execute("ALTER TABLE reminders ADD COLUMN recurrence_rule TEXT")
+    if "series_id" not in rem_cols:
+        _connection.execute("ALTER TABLE reminders ADD COLUMN series_id TEXT")
+    _connection.execute("CREATE INDEX IF NOT EXISTS idx_reminders_series ON reminders(series_id)")
+
     _connection.commit()
 
     logger.info("Reminders DB initialized at %s", DB_PATH)

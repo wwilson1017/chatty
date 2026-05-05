@@ -261,6 +261,9 @@ app.include_router(scheduled_actions_router, prefix="/api/scheduled-actions", ta
 
 from core.agents.alerts.router import router as alerts_router
 app.include_router(alerts_router, prefix="/api/alerts", tags=["alerts"])
+
+from core.agents.reminders.router import router as reminders_router
+app.include_router(reminders_router, prefix="/api/reminders", tags=["reminders"])
 app.include_router(setup_router, prefix="/api/setup", tags=["setup"])
 app.include_router(backup_router, prefix="/api/backup", tags=["backup"])
 app.include_router(telegram_router, prefix="/api/telegram", tags=["telegram"])
