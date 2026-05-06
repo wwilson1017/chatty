@@ -460,7 +460,8 @@ def _process_heartbeat(action: dict) -> None:
         system_prompt = (
             (
                 f"You are {agent['agent_name']}.\n\n"
-                f"# Heartbeat Check\n\n"
+                + (f"{ga_ctx}\n\n" if ga_ctx else "")
+                + f"# Heartbeat Check\n\n"
                 f"You are performing a periodic heartbeat check. Review your checklist "
                 f"and check each item against current data using your tools.\n\n"
                 f"## Your Checklist\n\n{checklist}\n\n"

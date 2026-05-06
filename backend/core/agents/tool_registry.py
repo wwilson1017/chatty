@@ -70,7 +70,8 @@ class ToolRegistry:
 
     _WRITE_TOOLS = {
         "gmail": {"send_email", "reply_to_email", "create_draft",
-                  "send_email_with_attachment", "reply_to_email_with_attachment"},
+                  "send_email_with_attachment", "reply_to_email_with_attachment",
+                  "mark_email_as_read", "batch_mark_emails_as_read"},
         "calendar": {"create_calendar_event", "update_calendar_event", "delete_calendar_event"},
         "drive": {"create_drive_folder", "create_drive_file", "move_drive_file",
                   "rename_drive_file", "copy_drive_file"},
