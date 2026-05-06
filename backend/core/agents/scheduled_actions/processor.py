@@ -371,9 +371,6 @@ def _process_heartbeat(action: dict) -> None:
     _cfg = _bac(agent)
     ga_ctx = _google_accounts_context(account_info_map, _cfg.google_accounts)
 
-    from core.agents.ai_service import _google_accounts_context
-    ga_ctx = _google_accounts_context(account_info_map, ga)
-
     start_time = time.monotonic()
     try:
         triage_data = None
