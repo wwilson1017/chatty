@@ -1,19 +1,31 @@
 # <img src="docs/chatty-logo.svg" alt="" width="28" /> Chatty
 
-A free, open-source browser-based personal AI agent platform built for professionals and small business owners. Learn more at [mechatty.ai](https://mechatty.ai).
+A free, open-source personal AI agent platform with a full browser-based UI — not a command-line tool. Create, train, and manage your agents from a dashboard that works on any device with a browser. Learn more at [mechatty.ai](https://mechatty.ai).
+
+Everything happens in the browser: creating agents, chatting, connecting integrations, managing your CRM, reviewing heartbeat schedules. Run it locally or deploy to Railway and access it from your phone, tablet, or desktop — no terminal required after setup.
 
 Create custom AI agents with their own personality, knowledge, and tools — powered by your own API keys or local AI model. No SaaS fees, no vendor lock-in. You only pay for the AI usage you consume.
 
 > **New to AI agents?** Read our [plain-English guide](docs/what-is-chatty.md) — no technical knowledge required.
 
+![Chatty login — "Hire a team of agents, not just a chatbot"](docs/screenshot-login.png)
+
 ## Features
 
+- **Browser-based UI** — Full dashboard for managing agents, integrations, and settings — no command line needed after initial setup
 - **Multi-agent** — Create and manage multiple AI agents, each with its own name, personality, and knowledge base
 - **Multi-provider AI** — Anthropic, OpenAI, Google Gemini, Ollama (local models), and Together AI
-- **Brandable** — Upload your logo, company name, and accent color to make it yours
+- **Heartbeat** — Agents run scheduled background tasks on their own — scanning emails, checking calendars, monitoring your CRM — and push alerts to you via Telegram
+- **Reminders** — Set one-time or recurring reminders (daily, weekly, monthly, cron) that trigger your agent to take action or notify you
+- **Training mode** — Conversational onboarding that teaches your agent about you, your business, and how you like to work
+- **Knowledge import** — Import an existing agent from [OpenClaw](https://github.com/claw-project/openclaw) or paste context from any AI tool to bootstrap a new agent in minutes
 - **Built-in CRM** — Manage your pipeline: contacts, companies, tasks and deals all with your AI agent
-- **Integrations** — Gmail, Google Calendar, Google Drive, QuickBooks Online, Todoist, WhatsApp, Telegram, Odoo, BambooHR, Paperclip
+- **Integrations** — Gmail (multiple accounts), Google Calendar, Google Drive, QuickBooks Online, Todoist, WhatsApp, Telegram (multiple bots), Odoo, BambooHR, Paperclip
 - **Agent orchestration** — Connect to [Paperclip](https://github.com/paperclipai/paperclip) for org charts, task management, and multi-agent coordination
+- **File uploads** — Drag and drop PDFs, DOCX, and text files into chat for your agent to read and analyze
+- **Two-factor auth** — Optional TOTP-based 2FA for your login
+- **Brandable** — Upload your logo, company name, and accent color to make it yours
+- **BYO OAuth** — Bring your own Google and QuickBooks OAuth credentials for full control over your integration apps
 - **Local-first** — SQLite database, no external services required
 - **One-click deploy** — Deploy to Railway for access from any device
 
@@ -61,11 +73,24 @@ Run AI models on your own hardware with no API key or usage fees:
 
 Models without tool support will still chat but won't have access to memory, search, or integrations.
 
-## Jumpstart Your Agent with Existing Knowledge
+## Import from OpenClaw
 
-Already have context about you or your business in another AI tool? You can bootstrap a new Chatty agent in minutes instead of starting from scratch.
+If you're already using [OpenClaw](https://github.com/claw-project/openclaw), you can import your agent's knowledge directly into Chatty — no copy-pasting, no re-training. Chatty detects your local OpenClaw installation, lists your agents, and imports their workspace files automatically. Your new Chatty agent starts with everything your OpenClaw agent already knows.
 
-**Export from an existing AI agent.** If you have an agent on another platform (ChatGPT, Claude, OpenClaw, etc.), ask it to create a markdown knowledge file summarizing what it knows about you — your role, your business, your preferences, how you like to work. Then paste that file into a Chatty conversation and your new agent is caught up immediately.
+1. Create a new agent in Chatty
+2. Chatty detects OpenClaw on your machine and offers to import
+3. Pick which OpenClaw agent to import from
+4. Your agent is ready — personality, knowledge, and context all carry over
+
+This works because both platforms store agent knowledge as markdown files. Chatty reads your OpenClaw workspace directly and scrubs out system-level details, keeping only the knowledge that matters.
+
+![Training mode — your agent learns about you through conversation](docs/screenshot-training.png)
+
+## Jumpstart Your Agent from Any AI Tool
+
+No OpenClaw? No problem. You can bootstrap a new Chatty agent from any existing AI conversation.
+
+**Export from an existing AI agent.** If you have an agent on another platform (ChatGPT, Claude, etc.), ask it to create a markdown knowledge file summarizing what it knows about you — your role, your business, your preferences, how you like to work. Then paste that file into a Chatty conversation and your new agent is caught up immediately.
 
 You can tailor the export to fit the new agent's purpose. For example, if your existing agent is a business assistant but you're setting up a personal agent in Chatty, tell it to leave out work-specific details and focus on personal preferences. Going the other direction, ask it to emphasize business context. You can also ask it to include a list of questions where it has gaps, so your new agent knows what to ask you about.
 
@@ -77,13 +102,13 @@ Chatty connects to your existing business tools so your agents can answer questi
 
 | Integration | Setup | What your agent can do |
 |---|---|---|
-| [Gmail](docs/gmail-setup.md) | Your own Google OAuth app — see [Google OAuth Setup](docs/google-oauth-setup.md) | Search, read, send, reply to, and draft emails |
-| [Google Calendar](docs/google-calendar-setup.md) | Your own Google OAuth app — see [Google OAuth Setup](docs/google-oauth-setup.md) | View, create, update, and delete calendar events |
-| [Google Drive](docs/google-drive-setup.md) | Your own Google OAuth app — see [Google OAuth Setup](docs/google-oauth-setup.md) | Search, read, and upload files |
-| [QuickBooks Online](docs/quickbooks-setup.md) | Your own Intuit OAuth app — see [QuickBooks Setup](docs/quickbooks-setup.md) | Invoices, estimates, payments, customers, vendors, and financial reports |
+| [Gmail](docs/gmail-setup.md) | Google OAuth — see [setup guide](docs/google-oauth-setup.md) | Search, read, send, reply to, and draft emails. Connect multiple Gmail accounts and assign them per agent |
+| [Google Calendar](docs/google-calendar-setup.md) | Google OAuth — see [setup guide](docs/google-oauth-setup.md) | View, create, update, and delete calendar events |
+| [Google Drive](docs/google-drive-setup.md) | Google OAuth — see [setup guide](docs/google-oauth-setup.md) | Search, read, and upload files |
+| [QuickBooks Online](docs/quickbooks-setup.md) | Intuit OAuth — see [setup guide](docs/quickbooks-setup.md) | Invoices, estimates, payments, customers, vendors, and financial reports |
 | [QuickBooks CSV](docs/quickbooks-csv-setup.md) | One-click | Analyze exported QuickBooks CSV files — no OAuth required |
 | [CRM Lite](docs/crm-lite-setup.md) | One-click | Manage contacts, deals, tasks, and activities — built in, ships with demo data you can clear when ready |
-| [Telegram](docs/telegram-setup.md) | Bot token | Chat with your agent from Telegram |
+| [Telegram](docs/telegram-setup.md) | Bot token | Chat with your agent from Telegram. Each agent gets its own bot; one user can talk to multiple agents |
 | [WhatsApp](docs/whatsapp-setup.md) | QR code scan | Chat with your agent from WhatsApp |
 | [Todoist](docs/todoist-setup.md) | API token | Create, manage, complete, and organize tasks and projects |
 | [Odoo](docs/odoo-setup.md) | API key | Sales, inventory, accounting, HR, and more from your Odoo ERP |

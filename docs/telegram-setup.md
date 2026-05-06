@@ -50,9 +50,28 @@ Your agent can also participate in Telegram group conversations. See [Telegram G
 
 Once connected, your agent has access to all its normal capabilities through Telegram — memory, integrations, tools, and personality all carry over. You're chatting with the same agent, just from a different interface.
 
+### Proactive Alerts via Heartbeat
+
+Telegram really shines when paired with the **Heartbeat** feature. Your agent can run scheduled background tasks — scanning emails, checking calendars, monitoring CRM tasks — and push alerts directly to you on Telegram. No need to open a browser; important things come to you.
+
+Here's an example of an agent configured to send all alerts via Telegram:
+
+![Heartbeat checklist with Telegram alerts](telegram-heartbeat-example.png)
+
+The same agent running on Railway, showing the heartbeat configuration in a deployed environment:
+
+![Heartbeat on Railway with Telegram notifications](telegram-heartbeat-railway.png)
+
+To set this up, configure your agent's **Heartbeat** tab with checklist items that mention Telegram, and your agent will use its Telegram connection to send you messages proactively.
+
+## Multiple Agents, Multiple Bots
+
+Each Chatty agent gets its own Telegram bot, so you can chat with different agents from different Telegram conversations. You can also link your Telegram account to multiple agents simultaneously — just message each bot and complete the registration for each one.
+
 ## Notes
 
 - Each Chatty agent needs its own Telegram bot (one token per agent)
+- A single Telegram user can be linked to multiple agents at once
 - Bot tokens are long-lived — no refresh or re-auth needed
 - Local: uses polling (no public URL required)
 - Railway: uses webhooks (automatic, no configuration needed)
