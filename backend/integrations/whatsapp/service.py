@@ -61,6 +61,7 @@ _INTEGRATION_MODULES = {
     "quickbooks": ("integrations.quickbooks.tools", "QB_TOOL_DEFS"),
     "qb_csv": ("integrations.qb_csv.tools", "QB_CSV_TOOL_DEFS"),
     "paperclip": ("integrations.paperclip.tools", "PAPERCLIP_TOOL_DEFS"),
+    "todoist": ("integrations.todoist.tools", "TODOIST_TOOL_DEFS"),
 }
 
 
@@ -178,13 +179,27 @@ def _process_message_locked(
 
     # 8. Build tool registry
     store = CredentialStore()
-    from integrations.registry import is_enabled as _is_enabled
-    google_connected = _is_enabled("google")
+    ga = config.google_accounts
+    gmail_ids = ga.get("gmail", [])
+    calendar_ids = ga.get("calendar", [])
+    drive_ids = ga.get("drive", [])
+    google_connected = bool(gmail_ids or calendar_ids or drive_ids)
+
+    from integrations.registry import list_google_accounts as _list_ga
+    all_ga = _list_ga()
+    account_info_map = {
+        aid: {"email": a.get("email", ""), "scope_grants": a.get("scope_grants", {}), "connection_status": a.get("connection_status", "ok")}
+        for aid, a in all_ga.items()
+    }
 
     integration_tool_defs, integration_executors = _load_integration_tools()
 
-    from integrations.registry import get_tool_mode
-    integration_tool_modes = {name: get_tool_mode(name) for name in _INTEGRATION_MODULES}
+    from integrations.registry import get_tool_mode, get_credentials
+    integration_tool_modes = {
+        name: get_tool_mode(name)
+        for name in _INTEGRATION_MODULES
+        if "tool_mode" in get_credentials(name)
+    }
 
     reminder_handlers = {
         "create_reminder": lambda **kw: create_reminder_handler(agent_slug, **kw),
@@ -205,16 +220,30 @@ def _process_message_locked(
         agent_slug=agent_slug,
         reminder_handlers=reminder_handlers,
         scheduled_action_handlers=sa_handlers,
+        gmail_account_ids=gmail_ids,
+        calendar_account_ids=calendar_ids,
+        drive_account_ids=drive_ids,
+        account_info_map=account_info_map,
     )
 
     # 9. Build tool definitions
     dynamic_real_tools = load_all_real_tools(agent_slug)
-    from integrations.google.policy import google_capabilities
-    google_caps = google_capabilities()
+    from integrations.google.policy import google_capabilities_union
+    gmail_caps = google_capabilities_union(gmail_ids)
+    cal_caps = google_capabilities_union(calendar_ids)
+    drive_caps = google_capabilities_union(drive_ids)
     tool_defs = get_tool_definitions(
         integration_tools=integration_tool_defs or None,
         dynamic_real_tools=dynamic_real_tools or None,
-        **google_caps,
+        gmail_read_enabled=gmail_caps["gmail_read_enabled"],
+        gmail_send_enabled=gmail_caps["gmail_send_enabled"],
+        calendar_read_enabled=cal_caps["calendar_read_enabled"],
+        calendar_write_enabled=cal_caps["calendar_write_enabled"],
+        drive_read_enabled=drive_caps["drive_read_enabled"],
+        drive_write_enabled=drive_caps["drive_write_enabled"],
+        multi_gmail=len(gmail_ids) > 1,
+        multi_calendar=len(calendar_ids) > 1,
+        multi_drive=len(drive_ids) > 1,
     )
 
     # Apply integration permission ceilings — messaging channels have no approval UI,
@@ -235,6 +264,7 @@ def _process_message_locked(
         registry=registry,
         max_iterations=5,
         model_override=config.model_override or None,
+        source="whatsapp",
     )
 
     response_text = result.text

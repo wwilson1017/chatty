@@ -20,7 +20,7 @@ Create custom AI agents with their own personality, knowledge, and tools — pow
 - **Training mode** — Conversational onboarding that teaches your agent about you, your business, and how you like to work
 - **Knowledge import** — Import an existing agent from [OpenClaw](https://github.com/claw-project/openclaw) or paste context from any AI tool to bootstrap a new agent in minutes
 - **Built-in CRM** — Manage your pipeline: contacts, companies, tasks and deals all with your AI agent
-- **Integrations** — Gmail (multiple accounts), Google Calendar, Google Drive, QuickBooks Online, WhatsApp, Telegram (multiple bots), Odoo, BambooHR, Paperclip
+- **Integrations** — Gmail (multiple accounts), Google Calendar, Google Drive, QuickBooks Online, Todoist, WhatsApp, Telegram (multiple bots), Odoo, BambooHR, Paperclip
 - **Agent orchestration** — Connect to [Paperclip](https://github.com/paperclipai/paperclip) for org charts, task management, and multi-agent coordination
 - **File uploads** — Drag and drop PDFs, DOCX, and text files into chat for your agent to read and analyze
 - **Two-factor auth** — Optional TOTP-based 2FA for your login
@@ -110,6 +110,7 @@ Chatty connects to your existing business tools so your agents can answer questi
 | [CRM Lite](docs/crm-lite-setup.md) | One-click | Manage contacts, deals, tasks, and activities — built in, ships with demo data you can clear when ready |
 | [Telegram](docs/telegram-setup.md) | Bot token | Chat with your agent from Telegram. Each agent gets its own bot; one user can talk to multiple agents |
 | [WhatsApp](docs/whatsapp-setup.md) | QR code scan | Chat with your agent from WhatsApp |
+| [Todoist](docs/todoist-setup.md) | API token | Create, manage, complete, and organize tasks and projects |
 | [Odoo](docs/odoo-setup.md) | API key | Sales, inventory, accounting, HR, and more from your Odoo ERP |
 | [BambooHR](docs/bamboohr-setup.md) | API key | Employee directory, time off, and HR data |
 
