@@ -33,7 +33,7 @@ class AgentConfig:
     drive_enabled: bool = False
     drive_write_enabled: bool = False
 
-    # Per-service Google account assignments {"gmail": "acc_id", "calendar": "acc_id", "drive": "acc_id"}
+    # Per-service Google account assignments {"gmail": ["acc_id", ...], "calendar": [...], "drive": [...]}
     google_accounts: dict = field(default_factory=dict)
 
     # Context directory (absolute path)

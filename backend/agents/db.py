@@ -134,10 +134,19 @@ def _normalize_agent(row: dict) -> dict:
     d = dict(row)
     raw = d.get("google_accounts", "{}")
     try:
-        d["google_accounts"] = json.loads(raw) if isinstance(raw, str) else (raw or {})
+        parsed = json.loads(raw) if isinstance(raw, str) else (raw or {})
     except (json.JSONDecodeError, TypeError):
         logger.warning("Malformed google_accounts for agent %s, treating as empty", d.get("id"))
-        d["google_accounts"] = {}
+        parsed = {}
+    for svc in ("gmail", "calendar", "drive"):
+        val = parsed.get(svc)
+        if isinstance(val, str):
+            parsed[svc] = [val] if val else []
+        elif not isinstance(val, list):
+            parsed[svc] = []
+        else:
+            parsed[svc] = [v for v in val if isinstance(v, str) and v]
+    d["google_accounts"] = parsed
     return d
 
 

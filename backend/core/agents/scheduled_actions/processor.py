@@ -155,18 +155,34 @@ def _within_active_hours(action: dict) -> bool:
         return current_minutes >= start_minutes or current_minutes < end_minutes
 
 
-def _build_tools(agent_slug: str, agent: dict) -> tuple[list[dict], ToolRegistry]:
-    """Build full tool definitions and registry with integration parity."""
+def _build_tools(agent_slug: str, agent: dict) -> tuple[list[dict], ToolRegistry, dict]:
+    """Build full tool definitions and registry with integration parity.
+
+    Returns (tool_defs, registry, account_info_map).
+    """
     from agents.tool_loader import load_integration_tools, build_agent_handlers, INTEGRATION_MODULES
     from agents.engine import build_agent_config
-    from integrations.registry import is_enabled as _is_enabled, get_tool_mode
-    from integrations.google.policy import google_capabilities
+    from integrations.registry import get_tool_mode, list_google_accounts as _list_ga
+    from integrations.google.policy import google_capabilities_union
     from core.agents.tools.real_tools import load_all_real_tools
 
     config = build_agent_config(agent)
-    google_connected = _is_enabled("google")
+    ga = config.google_accounts
+    gmail_ids = ga.get("gmail", [])
+    calendar_ids = ga.get("calendar", [])
+    drive_ids = ga.get("drive", [])
+    google_connected = bool(gmail_ids or calendar_ids or drive_ids)
+
+    all_ga = _list_ga()
+    account_info_map = {
+        aid: {"email": a.get("email", ""), "scope_grants": a.get("scope_grants", {}), "connection_status": a.get("connection_status", "ok")}
+        for aid, a in all_ga.items()
+    }
+
     integration_tool_defs, integration_executors = load_integration_tools()
-    google_caps = google_capabilities()
+    gmail_caps = google_capabilities_union(gmail_ids)
+    cal_caps = google_capabilities_union(calendar_ids)
+    drive_caps = google_capabilities_union(drive_ids)
     reminder_handlers, sa_handlers = build_agent_handlers(agent_slug)
 
     real_tools_dir = str(Path(config.context_dir).parent / "real_tools")
@@ -176,7 +192,15 @@ def _build_tools(agent_slug: str, agent: dict) -> tuple[list[dict], ToolRegistry
         integration_tools=integration_tool_defs,
         dynamic_real_tools=dynamic_real_tools or None,
         web_enabled=True,
-        **google_caps,
+        gmail_read_enabled=gmail_caps["gmail_read_enabled"],
+        gmail_send_enabled=gmail_caps["gmail_send_enabled"],
+        calendar_read_enabled=cal_caps["calendar_read_enabled"],
+        calendar_write_enabled=cal_caps["calendar_write_enabled"],
+        drive_read_enabled=drive_caps["drive_read_enabled"],
+        drive_write_enabled=drive_caps["drive_write_enabled"],
+        multi_gmail=len(gmail_ids) > 1,
+        multi_calendar=len(calendar_ids) > 1,
+        multi_drive=len(drive_ids) > 1,
     )
 
     integration_modes = {name: get_tool_mode(name) for name in INTEGRATION_MODULES}
@@ -195,9 +219,13 @@ def _build_tools(agent_slug: str, agent: dict) -> tuple[list[dict], ToolRegistry
         agent_name=config.agent_name,
         reminder_handlers=reminder_handlers,
         scheduled_action_handlers=sa_handlers,
+        gmail_account_ids=gmail_ids,
+        calendar_account_ids=calendar_ids,
+        drive_account_ids=drive_ids,
+        account_info_map=account_info_map,
     )
 
-    return tool_defs, registry
+    return tool_defs, registry, account_info_map
 
 
 def _make_lease_renewer(action_id: str, lease_id: str | None):
@@ -335,8 +363,13 @@ def _process_heartbeat(action: dict) -> None:
     context = ctx_manager.load_all_context()
     context_snippet = context[:30000] if context else "(no context files)"
 
-    tool_defs, registry = _build_tools(agent_slug, agent)
+    tool_defs, registry, account_info_map = _build_tools(agent_slug, agent)
     on_iteration = _make_lease_renewer(action["id"], lease_id)
+
+    from core.agents.ai_service import _google_accounts_context
+    from agents.engine import build_agent_config as _bac
+    _cfg = _bac(agent)
+    ga_ctx = _google_accounts_context(account_info_map, _cfg.google_accounts)
 
     start_time = time.monotonic()
     try:
@@ -345,7 +378,8 @@ def _process_heartbeat(action: dict) -> None:
             triage_result = run_background_turn(
                 system_prompt=(
                     f"You are {agent['agent_name']}.\n\n"
-                    f"# Quick Heartbeat Triage — {date_str}, {time_str}\n\n"
+                    + (f"{ga_ctx}\n\n" if ga_ctx else "")
+                    + f"# Quick Heartbeat Triage — {date_str}, {time_str}\n\n"
                     f"Quickly check the following items using your tools. "
                     f"Respond with ONLY one of:\n"
                     f"- NEEDS_ACTION: <brief reason>\n"
@@ -423,7 +457,8 @@ def _process_heartbeat(action: dict) -> None:
         system_prompt = (
             (
                 f"You are {agent['agent_name']}.\n\n"
-                f"# Heartbeat Check\n\n"
+                + (f"{ga_ctx}\n\n" if ga_ctx else "")
+                + f"# Heartbeat Check\n\n"
                 f"You are performing a periodic heartbeat check. Review your checklist "
                 f"and check each item against current data using your tools.\n\n"
                 f"## Your Checklist\n\n{checklist}\n\n"
@@ -537,10 +572,18 @@ def _process_cron(action: dict) -> None:
     from agents.tool_loader import format_current_time
     date_str, time_str = format_current_time(tz_name)
 
+    tool_defs, registry, _aim = _build_tools(agent_slug, agent)
+    on_iteration = _make_lease_renewer(action["id"], lease_id)
+
+    from core.agents.ai_service import _google_accounts_context
+    from agents.engine import build_agent_config as _bac2
+    _cfg2 = _bac2(agent)
+    ga_ctx2 = _google_accounts_context(_aim, _cfg2.google_accounts)
     system_prompt = (
         (
             f"You are {agent['agent_name']}.\n\n"
-            f"# Scheduled Action: {action.get('name', 'Unnamed')}\n\n"
+            + (f"{ga_ctx2}\n\n" if ga_ctx2 else "")
+            + f"# Scheduled Action: {action.get('name', 'Unnamed')}\n\n"
             f"{prompt}\n\n"
             f"# Your Knowledge (abbreviated)\n\n{context_snippet}\n\n"
         ),
@@ -551,9 +594,6 @@ def _process_cron(action: dict) -> None:
             f"Take appropriate action using your tools. Be concise."
         ),
     )
-
-    tool_defs, registry = _build_tools(agent_slug, agent)
-    on_iteration = _make_lease_renewer(action["id"], lease_id)
 
     start_time = time.monotonic()
     try:

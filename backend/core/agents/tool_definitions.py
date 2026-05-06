@@ -1417,6 +1417,9 @@ def get_tool_definitions(
     integration_tools: list[dict] | None = None,
     dynamic_real_tools: list[dict] | None = None,
     import_mode: bool = False,
+    multi_gmail: bool = False,
+    multi_calendar: bool = False,
+    multi_drive: bool = False,
 ) -> list[dict]:
     """Return the full list of tool definitions for the given feature flags.
 
@@ -1477,4 +1480,31 @@ def get_tool_definitions(
     # Append agent-created real tools (loaded from filesystem)
     if dynamic_real_tools:
         tools.extend(dynamic_real_tools)
+
+    multi_services = set()
+    if multi_gmail:
+        multi_services.add("gmail")
+    if multi_calendar:
+        multi_services.add("calendar")
+    if multi_drive:
+        multi_services.add("drive")
+    if multi_services:
+        import copy
+        _ACCOUNT_PROP = {
+            "type": "string",
+            "description": "Email address of the Google account to use. Omit to use the default account.",
+        }
+        tools = [
+            _inject_account_param(copy.deepcopy(t), _ACCOUNT_PROP)
+            if t.get("kind") in multi_services else t
+            for t in tools
+        ]
+
     return tools
+
+
+def _inject_account_param(tool: dict, prop: dict) -> dict:
+    schema = tool.get("input_schema", {})
+    props = schema.get("properties", {})
+    props["account"] = prop
+    return tool

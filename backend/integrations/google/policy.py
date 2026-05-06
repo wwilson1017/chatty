@@ -58,3 +58,16 @@ def google_capabilities(account_id: str = "") -> dict[str, bool]:
         "drive_read_enabled": drive in _DRIVE_READ_LEVELS,
         "drive_write_enabled": drive in _DRIVE_WRITE_LEVELS,
     }
+
+
+def google_capabilities_union(account_ids: list[str]) -> dict[str, bool]:
+    """Return capability flags as the union across multiple accounts."""
+    if not account_ids:
+        return dict(_ALL_DISABLED)
+    result = dict(_ALL_DISABLED)
+    for aid in account_ids:
+        caps = google_capabilities(aid)
+        for key, val in caps.items():
+            if val:
+                result[key] = True
+    return result
