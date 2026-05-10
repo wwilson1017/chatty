@@ -47,8 +47,8 @@ async def extract_facts_from_messages(
 
     Returns {extracted: int, skipped: int, error: str|None}.
     """
-    # Rate limit
-    conv_key = f"{data_dir}:{id(messages)}"
+    # Rate limit per agent
+    conv_key = data_dir
     now = time.time()
     if conv_key in _last_extraction and (now - _last_extraction[conv_key]) < _MIN_INTERVAL_SECONDS:
         return {"extracted": 0, "skipped": 0, "error": "rate_limited"}
@@ -242,7 +242,10 @@ async def _extract_google(text: str, profiles: dict, timeout) -> str | None:
     from core.providers.oauth import refresh_google_token
 
     profile = profiles.get("google:default", {})
-    access_token = await refresh_google_token(profile)
+    if not profile.get("refresh"):
+        return None
+    token_data = await refresh_google_token(profile["refresh"])
+    access_token = token_data.get("access_token") if token_data else None
     if not access_token:
         return None
 

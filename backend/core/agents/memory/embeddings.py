@@ -171,15 +171,15 @@ class EmbeddingService:
             return [item["embedding"] for item in data["data"]]
 
     async def _embed_google(self, texts: list[str]) -> list[list[float]]:
-        import google.generativeai as genai
         from core.providers.credentials import CredentialStore
         from core.providers.oauth import refresh_google_token
 
         store = CredentialStore()
         profile = store.data.get("profiles", {}).get("google:default", {})
 
-        if profile.get("type") == "oauth":
-            access_token = await refresh_google_token(profile)
+        if profile.get("type") == "oauth" and profile.get("refresh"):
+            token_data = await refresh_google_token(profile["refresh"])
+            access_token = token_data.get("access_token") if token_data else None
             if not access_token:
                 raise RuntimeError("Google token refresh failed")
         else:

@@ -837,7 +837,7 @@ class MemoryDB:
                 )
                 with self._write_lock:
                     conn.execute("DELETE FROM memory_vectors")
-                    conn.execute("DELETE FROM memory_chunks")
+                    # Keep chunks — they'll be re-embedded by backfill
                     conn.execute("DELETE FROM memory_embedding_config WHERE id=1")
                     conn.execute(
                         "INSERT INTO memory_embedding_config (id, provider, model, dimensions) VALUES (1, ?, ?, ?)",
