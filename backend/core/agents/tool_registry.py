@@ -564,9 +564,6 @@ class ToolRegistry:
             limit = max(1, min(int(args.get("limit", 20) or 20), 50))
         except (TypeError, ValueError):
             limit = 20
-        event_type = args.get("event_type")
-        if event_type and event_type not in ("scheduled_action", "chat"):
-            return {"error": f"Invalid event_type: {event_type}"}
         status = args.get("status")
         if status and status not in ("ok", "error", "action_taken", "skipped"):
             return {"error": f"Invalid status: {status}"}

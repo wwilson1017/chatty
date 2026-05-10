@@ -38,7 +38,7 @@ from .tool_definitions import get_tool_definitions, get_report_instructions, get
 from .tools.real_tools import load_all_real_tools
 from .deferred_tools import (
     should_defer_tools, build_tool_catalog, handle_deferred_tool_call,
-    build_provider_tools, FIND_TOOLS_DEF,
+    load_deferred_tools, build_provider_tools, FIND_TOOLS_DEF,
 )
 
 logger = logging.getLogger(__name__)
