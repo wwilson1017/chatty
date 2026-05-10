@@ -229,8 +229,8 @@ def execute_find_tools(query: str, deferred_tools: list[dict]) -> dict:
 
     query_lower = query.strip().lower()
 
-    # Priority 1: Exact name match
-    exact = [t for t in deferred_tools if t["name"] == query_lower]
+    # Priority 1: Exact name match (case-insensitive)
+    exact = [t for t in deferred_tools if t["name"].lower() == query_lower]
     if exact:
         return {
             "matched_tools": exact,
@@ -246,12 +246,18 @@ def execute_find_tools(query: str, deferred_tools: list[dict]) -> dict:
     if alias:
         alias_kinds, alias_integrations, alias_prefixes = alias
         matched: list[dict] = []
+        seen: set[str] = set()
         for t in deferred_tools:
+            if t["name"] in seen:
+                continue
             if t.get("kind", "") in alias_kinds:
+                seen.add(t["name"])
                 matched.append(t)
             elif t.get("integration", "") in alias_integrations:
+                seen.add(t["name"])
                 matched.append(t)
             elif any(t["name"].startswith(p) for p in alias_prefixes):
+                seen.add(t["name"])
                 matched.append(t)
         if matched:
             return _build_result(matched)
@@ -279,7 +285,7 @@ def execute_find_tools(query: str, deferred_tools: list[dict]) -> dict:
         "count": 0,
         "truncated": False,
         "total_matches": 0,
-        "note": f"No tools matched query '{query}'. Try a different keyword.",
+        "note": f"No tools matched query '{query[:200]}'. Try a different keyword.",
     }
 
 

@@ -165,7 +165,7 @@ async def _run_turn(
                 continue
 
             # ── Deferred: intercept find_tools ──
-            if tool_name == "find_tools" and deferred_tools:
+            if tool_name == "find_tools" and deferred_names is not None:
                 query = tool_args.get("query", "")
                 find_result = execute_find_tools(query, deferred_tools)
                 matched = find_result.pop("matched_tools", [])

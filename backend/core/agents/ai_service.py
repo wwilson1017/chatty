@@ -232,7 +232,7 @@ def _google_accounts_context(account_info_map: dict[str, dict], google_accounts:
             email = info.get("email", aid)
             suffix = " (default)" if i == 0 else ""
             entries.append(f"  - {email}{suffix}")
-        label = service.title() if service != "gmail" else "Gmail"
+        label = service.title()
         sections.append(f"**{label}** accounts:\n" + "\n".join(entries))
     if not sections:
         return ""
@@ -1020,7 +1020,12 @@ async def chat(
                 continue
 
             # ── Deferred: intercept find_tools ──
-            if tool_name == "find_tools" and deferred_tools:
+            if tool_name == "find_tools" and deferred_names is not None:
+                yield _sse({
+                    "type": "tool_start",
+                    "tool": tool_name,
+                    "tool_use_id": tool_use_id,
+                })
                 query = tool_args.get("query", "")
                 find_result = execute_find_tools(query, deferred_tools)
                 matched = find_result.pop("matched_tools", [])
@@ -1378,7 +1383,7 @@ async def run_sync(
                 continue
 
             # ── Deferred: intercept find_tools ──
-            if tool_name == "find_tools" and deferred_tools:
+            if tool_name == "find_tools" and deferred_names is not None:
                 query = tool_args.get("query", "")
                 find_result = execute_find_tools(query, deferred_tools)
                 matched = find_result.pop("matched_tools", [])

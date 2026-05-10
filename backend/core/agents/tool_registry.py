@@ -266,7 +266,7 @@ class ToolRegistry:
 
     def _resolve_account(self, service: str, email: str | None, tool_name: str) -> str | dict:
         """Resolve an account for a service. Returns account_id or error dict."""
-        ids = getattr(self, f"{service}_account_ids")
+        ids = getattr(self, f"{service}_account_ids", [])
         if not ids:
             return {"error": f"No {service.title()} account assigned. Assign one at Settings → Integrations → Google.",
                     "needs_reconnect": True}

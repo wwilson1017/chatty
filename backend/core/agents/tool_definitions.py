@@ -1518,7 +1518,7 @@ def get_tool_definitions(
 
 
 def _inject_account_param(tool: dict, prop: dict) -> dict:
-    schema = tool.get("input_schema", {})
-    props = schema.get("properties", {})
+    schema = tool.setdefault("input_schema", {})
+    props = schema.setdefault("properties", {})
     props["account"] = prop
     return tool
