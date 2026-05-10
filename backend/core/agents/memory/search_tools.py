@@ -39,7 +39,7 @@ def search_memory(
     date_to: str | None = None,
     limit: int = 20,
 ) -> dict:
-    """Full-text search across daily notes, MEMORY.md, topic files, and facts."""
+    """Hybrid search (FTS5 + vector) across daily notes, MEMORY.md, topic files, and facts."""
     if not query or not query.strip():
         return {"error": "query is required"}
     try:
@@ -48,8 +48,15 @@ def search_memory(
         limit = 20
 
     db = _get_db(data_dir, gcs_prefix)
-    results = db.search(
+
+    # Try to get a query embedding for hybrid search
+    query_embedding = None
+    if db.vec_available:
+        query_embedding = _get_query_embedding(query)
+
+    results = db.hybrid_search(
         query=query,
+        query_embedding=query_embedding,
         source_type=source_type,
         memory_type=validate_memory_type(memory_type),
         date_from=date_from,
@@ -57,6 +64,24 @@ def search_memory(
         limit=limit,
     )
     return {"query": query, "results": results, "total": len(results)}
+
+
+def _get_query_embedding(query: str) -> list[float] | None:
+    """Get embedding for a search query. Returns None on any failure."""
+    try:
+        import asyncio
+        from .embeddings import get_embedding_service
+        service = get_embedding_service()
+
+        try:
+            loop = asyncio.get_running_loop()
+            # If we're already in an async context, we can't run synchronously
+            # Return None and fall back to FTS5-only
+            return None
+        except RuntimeError:
+            return asyncio.run(service.embed_single(query))
+    except Exception:
+        return None
 
 
 # ------------------------------------------------------------------

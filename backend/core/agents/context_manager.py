@@ -429,14 +429,22 @@ class ContextManager:
     # match threshold; no fixed top-K, no content truncation.
     # ------------------------------------------------------------------
 
-    def relevance_prefetch(self, first_user_message: str) -> list[dict]:
+    def relevance_prefetch(self, first_user_message: str, memory_db=None) -> list[dict]:
         """Score topic files and recent daily notes against the user message.
 
+        If memory_db is provided and has vector search available, uses semantic
+        hybrid search for better recall. Falls back to BM25-lite keyword matching.
+
         Returns a list of `{"kind": "topic"|"daily", "name": str, "content": str}`
-        for every file whose match score exceeds 0. Caller injects them
-        fully (no truncation) into the system prompt under a "likely
-        relevant" block.
+        for every relevant match. Caller injects them into the system prompt.
         """
+        # Try semantic search first
+        if memory_db and memory_db.vec_available:
+            semantic_results = self._semantic_prefetch(first_user_message, memory_db)
+            if semantic_results:
+                return semantic_results
+
+        # Fallback: BM25-lite keyword matching
         query_tokens = _tokenize(first_user_message)
         if not query_tokens:
             return []
@@ -487,6 +495,52 @@ class ContextManager:
         # Sort by score descending, no truncation
         results.sort(key=lambda pair: pair[0], reverse=True)
         return [item for _, item in results]
+
+    def _semantic_prefetch(self, message: str, memory_db) -> list[dict]:
+        """Use hybrid search for proactive memory surfacing."""
+        try:
+            import asyncio
+            from core.agents.memory.embeddings import get_embedding_service
+
+            service = get_embedding_service()
+
+            # Get embedding for the message
+            try:
+                loop = asyncio.get_running_loop()
+                # Can't embed synchronously in async context — fall back
+                return []
+            except RuntimeError:
+                embedding = asyncio.run(service.embed_single(message))
+
+            if not embedding:
+                return []
+
+            # Run hybrid search
+            search_results = memory_db.hybrid_search(
+                query=message, query_embedding=embedding, limit=8,
+            )
+
+            if not search_results:
+                return []
+
+            # Hydrate full content for injection into prompt
+            conn = memory_db.get_db()
+            results = []
+            for hit in search_results:
+                row = conn.execute(
+                    "SELECT content FROM memory_documents WHERE id=?", (hit["id"],)
+                ).fetchone()
+                if row and row["content"]:
+                    results.append({
+                        "kind": hit["source_type"],
+                        "name": hit.get("title") or hit.get("source_id", ""),
+                        "content": row["content"],
+                    })
+
+            return results
+        except Exception as e:
+            logger.debug("Semantic prefetch failed: %s", e)
+            return []
 
 
 def _score_match(query_tokens: set[str], *, name: str, headline: str, body: str) -> float:

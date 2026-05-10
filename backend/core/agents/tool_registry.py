@@ -133,6 +133,9 @@ class ToolRegistry:
                 return self._execute_context(tool_name, tool_args)
             elif kind == "memory":
                 return self._execute_memory(tool_name, tool_args)
+            elif kind == "skill":
+                from core.agents.skills.tools import execute_skill_tool
+                return await execute_skill_tool(tool_name, tool_args, self.data_dir)
             elif kind == "shared_context":
                 return self._execute_shared_context(tool_name, tool_args)
             elif kind == "gmail":
