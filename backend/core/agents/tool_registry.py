@@ -159,6 +159,8 @@ class ToolRegistry:
                 return self._execute_import(tool_name, tool_args)
             elif kind == "activity_log":
                 return self._execute_activity_log(tool_name, tool_args)
+            elif kind == "meta":
+                return {"error": "Meta tools are handled by ai_service directly"}
             else:
                 return {"error": f"Unknown tool kind: {kind}"}
         except Exception as e:

@@ -15,6 +15,10 @@ from dataclasses import dataclass, field
 from core.providers import get_ai_provider
 from core.providers.credentials import CredentialStore
 from .tool_registry import ToolRegistry
+from .deferred_tools import (
+    should_defer_tools, build_tool_catalog, execute_find_tools,
+    load_deferred_tools, FIND_TOOLS_DEF,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -39,7 +43,11 @@ async def _run_turn(
     provider_override: str | None = None,
     on_iteration: Callable[[int], bool] | None = None,
 ) -> BackgroundResult:
-    """Run a single AI turn asynchronously, executing tools as needed."""
+    """Run a single AI turn asynchronously, executing tools as needed.
+
+    When deferred tool loading is active (tool count > threshold and
+    max_iterations >= 4), find_tools consumes one iteration.
+    """
     store = CredentialStore()
     provider = get_ai_provider(
         agent_provider=provider_override,
@@ -51,15 +59,29 @@ async def _run_turn(
     model_used = getattr(provider, "model", "") or ""
 
     # Convert tool defs to provider format (strip 'kind')
-    provider_tools = []
-    kind_map = {}
+    kind_map: dict[str, str] = {}
     for td in tool_defs:
         kind_map[td["name"]] = td.get("kind", "context")
-        provider_tools.append({
-            "name": td["name"],
-            "description": td.get("description", ""),
-            "input_schema": td.get("input_schema", {}),
-        })
+
+    # ── Deferred tool loading ────────────────────────────────────────
+    deferred_tools: list[dict] = []
+    deferred_names: set[str] = set()
+    if should_defer_tools(len(tool_defs), max_iterations):
+        active_tools, deferred_tools, deferred_names, catalog_text = build_tool_catalog(tool_defs)
+        tool_defs = active_tools + [FIND_TOOLS_DEF]
+        kind_map = {td["name"]: td.get("kind", "context") for td in tool_defs}
+
+        # Append catalog to system prompt
+        if catalog_text:
+            if isinstance(system_prompt, tuple):
+                system_prompt = (system_prompt[0] + "\n\n" + catalog_text, system_prompt[1])
+            else:
+                system_prompt = system_prompt + "\n\n" + catalog_text
+
+    provider_tools = [
+        {"name": td["name"], "description": td.get("description", ""), "input_schema": td.get("input_schema", {})}
+        for td in tool_defs
+    ]
 
     messages = [{"role": "user", "content": user_message}]
     accumulated_text = ""
@@ -131,6 +153,44 @@ async def _run_turn(
         for tc in tool_calls_this_turn:
             tool_name = tc.get("name", "")
             tool_args = tc.get("args", {})
+
+            # ── Deferred tool guard ──
+            if deferred_names and tool_name in deferred_names:
+                result = {"error": f"Tool '{tool_name}' is available but not loaded. Call find_tools('{tool_name}') first."}
+                results.append({
+                    "tool_use_id": tc.get("id", ""),
+                    "tool_name": tool_name,
+                    "content": json.dumps(result),
+                })
+                continue
+
+            # ── Deferred: intercept find_tools ──
+            if tool_name == "find_tools" and deferred_tools:
+                query = tool_args.get("query", "")
+                find_result = execute_find_tools(query, deferred_tools)
+                matched = find_result.pop("matched_tools", [])
+                if matched:
+                    load_deferred_tools(
+                        matched, tool_defs, kind_map, deferred_tools, deferred_names,
+                    )
+                    provider_tools = [
+                        {"name": td["name"], "description": td.get("description", ""), "input_schema": td.get("input_schema", {})}
+                        for td in tool_defs
+                    ]
+                result_str = json.dumps(find_result)
+                tool_log.append({
+                    "tool": tool_name,
+                    "args": json.dumps(tool_args)[:200],
+                    "result": result_str[:500],
+                    "duration_ms": 0,
+                })
+                results.append({
+                    "tool_use_id": tc.get("id", ""),
+                    "tool_name": tool_name,
+                    "content": result_str,
+                })
+                continue
+
             kind = kind_map.get(tool_name, "context")
 
             t0 = time.monotonic()

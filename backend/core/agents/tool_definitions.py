@@ -5,6 +5,20 @@ Defines the tool schemas sent to the AI provider. Actual execution
 is handled by ToolRegistry. No Odoo, DIMM, or voice tools here.
 """
 
+# ── Display labels for tool catalog grouping ─────────────────────────────────
+
+TOOL_KIND_LABELS: dict[str, str] = {
+    "gmail": "Email (Gmail)",
+    "calendar": "Calendar",
+    "drive": "Google Drive",
+    "web": "Web",
+    "real_tool": "Custom Tools",
+    "report": "Reports",
+    "setup": "Setup & Integrations",
+    "activity_log": "Activity Log",
+}
+
+
 # ── Context tools ─────────────────────────────────────────────────────────────
 
 CONTEXT_TOOLS = [

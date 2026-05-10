@@ -36,6 +36,10 @@ from .context_manager import ContextManager
 from .tool_registry import ToolRegistry
 from .tool_definitions import get_tool_definitions, get_report_instructions, get_scheduling_instructions, get_qb_csv_instructions, build_writes_map, build_context_memory_map
 from .tools.real_tools import load_all_real_tools
+from .deferred_tools import (
+    should_defer_tools, build_tool_catalog, execute_find_tools,
+    load_deferred_tools, FIND_TOOLS_DEF,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -725,9 +729,14 @@ async def chat(
         or _effective_mode(t["name"]) != "read-only"
     ]
 
-    # Strip internal fields before sending to provider
-    _internal_fields = {"kind", "writes", "context_memory", "integration"}
-    provider_tools = [{k: v for k, v in t.items() if k not in _internal_fields} for t in tool_defs]
+    # ── Deferred tool loading ────────────────────────────────────────
+    deferred_tools: list[dict] = []
+    deferred_names: set[str] = set()
+    catalog_text = ""
+    if should_defer_tools(len(tool_defs)):
+        active_tools, deferred_tools, deferred_names, catalog_text = build_tool_catalog(tool_defs)
+        tool_defs = active_tools + [FIND_TOOLS_DEF]
+        kind_map["find_tools"] = "meta"
 
     # ── Chat history persistence ──────────────────────────────────────
     if persist:
@@ -784,6 +793,9 @@ async def chat(
         }
         tool_defs.append(exit_plan_tool)
         kind_map["exit_plan_mode"] = "plan"
+
+    # ── Build provider_tools after all virtual tools are added ────────
+    provider_tools = _build_provider_tools(tool_defs)
 
     # ── Build system prompt ───────────────────────────────────────────
     # Determine first user message for relevance pre-fetch
@@ -843,6 +855,10 @@ async def chat(
                 "- Amounts are in the company's home currency.\n"
             )
 
+    # Append deferred tool catalog to static prompt
+    if catalog_text:
+        static_prompt += "\n\n" + catalog_text
+
     # Build the system prompt tuple for provider (enables prompt caching)
     system_prompt = (static_prompt, volatile_prompt)
 
@@ -854,6 +870,16 @@ async def chat(
         at_args = approved_tool.get("args", {})
         at_id = approved_tool.get("toolUseId", str(uuid.uuid4()))
         at_result = approved_tool.get("result", {})
+
+        # Auto-load deferred tool if needed for reconstruction
+        if at_tool in deferred_names:
+            match = [t for t in deferred_tools if t["name"] == at_tool]
+            if match:
+                load_deferred_tools(
+                    match, tool_defs, kind_map, deferred_tools, deferred_names,
+                    writes_map=writes_map, cm_map=cm_map, integration_map=integration_map,
+                )
+                provider_tools = _build_provider_tools(tool_defs)
 
         # Build fake tool_calls and results for provider reconstruction
         fake_tc = [{"name": at_tool, "id": at_id, "args": at_args}]
@@ -982,6 +1008,50 @@ async def chat(
             tool_name = tc.get("name", "")
             tool_use_id = tc.get("id", "")
             tool_args = tc.get("args", {})
+
+            # ── Deferred tool guard ──
+            if deferred_names and tool_name in deferred_names:
+                result = {"error": f"Tool '{tool_name}' is available but not loaded. Call find_tools('{tool_name}') first."}
+                results.append({
+                    "tool_use_id": tool_use_id,
+                    "tool_name": tool_name,
+                    "content": json.dumps(result),
+                })
+                continue
+
+            # ── Deferred: intercept find_tools ──
+            if tool_name == "find_tools" and deferred_tools:
+                query = tool_args.get("query", "")
+                find_result = execute_find_tools(query, deferred_tools)
+                matched = find_result.pop("matched_tools", [])
+                if matched:
+                    load_deferred_tools(
+                        matched, tool_defs, kind_map, deferred_tools, deferred_names,
+                        writes_map=writes_map, cm_map=cm_map, integration_map=integration_map,
+                    )
+                    provider_tools = _build_provider_tools(tool_defs)
+                result_str = json.dumps(find_result)
+                results.append({
+                    "tool_use_id": tool_use_id,
+                    "tool_name": tool_name,
+                    "content": result_str,
+                })
+                all_tool_calls.append({
+                    "tool": tool_name,
+                    "tool_use_id": tool_use_id,
+                    "args": tool_args,
+                    "result": result_str[:2000],
+                    "elapsed_ms": 0,
+                })
+                yield _sse({
+                    "type": "tool_end",
+                    "tool": tool_name,
+                    "tool_use_id": tool_use_id,
+                    "result": find_result,
+                    "elapsed_ms": 0,
+                })
+                continue
+
             kind = kind_map.get(tool_name, "context")
 
             # ── Plan mode: intercept exit_plan_mode ──
@@ -1165,10 +1235,18 @@ async def run_sync(
         ]
 
     kind_map = _build_kind_map(tool_defs)
+    integration_map = {t["name"]: t.get("integration", "") for t in tool_defs}
 
-    # Strip internal fields before sending to provider
-    _internal_fields = {"kind", "writes", "context_memory", "integration"}
-    provider_tools = [{k: v for k, v in t.items() if k not in _internal_fields} for t in tool_defs]
+    # ── Deferred tool loading ────────────────────────────────────────
+    deferred_tools: list[dict] = []
+    deferred_names: set[str] = set()
+    catalog_text = ""
+    if should_defer_tools(len(tool_defs)):
+        active_tools, deferred_tools, deferred_names, catalog_text = build_tool_catalog(tool_defs)
+        tool_defs = active_tools + [FIND_TOOLS_DEF]
+        kind_map["find_tools"] = "meta"
+
+    provider_tools = _build_provider_tools(tool_defs)
 
     # Build system prompt (returns tuple for caching)
     static_prompt, volatile_prompt = _build_system_prompt(
@@ -1202,6 +1280,9 @@ async def run_sync(
                 "- **Never guess IDs** — always query first to find the correct Customer, Item, or Invoice ID.\n"
                 "- Amounts are in the company's home currency.\n"
             )
+
+    if catalog_text:
+        static_prompt += "\n\n" + catalog_text
 
     system_prompt = (static_prompt, volatile_prompt)
 
@@ -1285,6 +1366,35 @@ async def run_sync(
             tool_name = tc.get("name", "")
             tool_args = tc.get("args", {})
             tool_use_id = tc.get("id", "")
+
+            # ── Deferred tool guard ──
+            if deferred_names and tool_name in deferred_names:
+                result = {"error": f"Tool '{tool_name}' is available but not loaded. Call find_tools('{tool_name}') first."}
+                results.append({
+                    "tool_use_id": tool_use_id,
+                    "tool_name": tool_name,
+                    "content": json.dumps(result),
+                })
+                continue
+
+            # ── Deferred: intercept find_tools ──
+            if tool_name == "find_tools" and deferred_tools:
+                query = tool_args.get("query", "")
+                find_result = execute_find_tools(query, deferred_tools)
+                matched = find_result.pop("matched_tools", [])
+                if matched:
+                    load_deferred_tools(
+                        matched, tool_defs, kind_map, deferred_tools, deferred_names,
+                        integration_map=integration_map,
+                    )
+                    provider_tools = _build_provider_tools(tool_defs)
+                results.append({
+                    "tool_use_id": tool_use_id,
+                    "tool_name": tool_name,
+                    "content": json.dumps(find_result),
+                })
+                continue
+
             kind = kind_map.get(tool_name, "context")
 
             t_start = time.time()
