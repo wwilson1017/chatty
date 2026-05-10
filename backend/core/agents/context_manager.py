@@ -497,25 +497,32 @@ class ContextManager:
         return [item for _, item in results]
 
     def _semantic_prefetch(self, message: str, memory_db) -> list[dict]:
-        """Use hybrid search for proactive memory surfacing."""
+        """Use hybrid search for proactive memory surfacing.
+
+        Note: This is called from a sync context (_build_system_prompt) but needs
+        async embedding. We use a dedicated thread to avoid blocking the event loop.
+        """
         try:
             import asyncio
+            import concurrent.futures
             from core.agents.memory.embeddings import get_embedding_service
 
             service = get_embedding_service()
 
-            # Get embedding for the message
-            try:
-                loop = asyncio.get_running_loop()
-                # Can't embed synchronously in async context — fall back
-                return []
-            except RuntimeError:
-                embedding = asyncio.run(service.embed_single(message))
+            async def _get_embedding():
+                if not await service.is_available():
+                    return None
+                return await service.embed_single(message)
+
+            # Run async embedding in a new thread to avoid event loop conflicts
+            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+                future = executor.submit(asyncio.run, _get_embedding())
+                embedding = future.result(timeout=10)
 
             if not embedding:
                 return []
 
-            # Run hybrid search
+            # Run hybrid search (sync — no async needed)
             search_results = memory_db.hybrid_search(
                 query=message, query_embedding=embedding, limit=8,
             )

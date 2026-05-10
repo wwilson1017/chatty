@@ -135,7 +135,7 @@ class ToolRegistry:
                 return self._execute_memory(tool_name, tool_args)
             elif kind == "skill":
                 from core.agents.skills.tools import execute_skill_tool
-                return await execute_skill_tool(tool_name, tool_args, self.data_dir)
+                return await execute_skill_tool(tool_name, tool_args, self.context_dir)
             elif kind == "shared_context":
                 return self._execute_shared_context(tool_name, tool_args)
             elif kind == "gmail":
@@ -187,7 +187,7 @@ class ToolRegistry:
             read_memory, update_memory, consolidate_memory,
         )
         from core.agents.memory.search_tools import (
-            search_memory, add_fact, query_facts, invalidate_fact,
+            search_memory_async, add_fact, query_facts, invalidate_fact,
         )
 
         # Memory tools use context_dir (not agent_data_dir) because
@@ -208,7 +208,7 @@ class ToolRegistry:
         elif tool_name == "update_memory":
             return update_memory(ctx_dir, prefix, args["content"])
         elif tool_name == "search_memory":
-            return search_memory(
+            return await search_memory_async(
                 ctx_dir, prefix, args["query"],
                 source_type=args.get("source_type"),
                 memory_type=args.get("memory_type"),

@@ -326,8 +326,8 @@ def _is_duplicate_import(ctx_manager: ContextManager, content_hash: str) -> bool
     """Check if content with this hash was already imported for this agent."""
     try:
         from agents import db as agent_db
-        # Get agent_id from the data_dir path (slug is the last component)
-        slug = Path(ctx_manager.data_dir).name
+        # data_dir is data/agents/{slug}/context — slug is the parent dir name
+        slug = Path(ctx_manager.data_dir).parent.name
         agent = agent_db.get_agent_by_slug(slug)
         if not agent:
             return False

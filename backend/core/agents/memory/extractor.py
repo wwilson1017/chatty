@@ -78,8 +78,20 @@ async def extract_facts_from_messages(
         if not facts_json:
             return {"extracted": 0, "skipped": 0}
 
-        facts = json.loads(facts_json)
-        if not isinstance(facts, list):
+        parsed = json.loads(facts_json)
+        # OpenAI json_object mode may wrap the array in a dict
+        if isinstance(parsed, dict):
+            # Look for a list value in the response
+            facts = None
+            for v in parsed.values():
+                if isinstance(v, list):
+                    facts = v
+                    break
+            if facts is None:
+                return {"extracted": 0, "skipped": 0, "error": "invalid_response"}
+        elif isinstance(parsed, list):
+            facts = parsed
+        else:
             return {"extracted": 0, "skipped": 0, "error": "invalid_response"}
 
         # Store facts
@@ -156,11 +168,11 @@ async def _call_extraction_api(conversation_text: str, agent_config: dict) -> st
 
     timeout = httpx.Timeout(10.0)
 
-    if active_provider == "anthropic" or "anthropic:default" in profiles:
+    if active_provider == "anthropic":
         return await _extract_anthropic(conversation_text, profiles, timeout)
-    elif active_provider == "openai" or "openai:default" in profiles:
+    elif active_provider == "openai":
         return await _extract_openai(conversation_text, profiles, timeout)
-    elif active_provider == "google" or "google:default" in profiles:
+    elif active_provider == "google":
         return await _extract_google(conversation_text, profiles, timeout)
 
     return None

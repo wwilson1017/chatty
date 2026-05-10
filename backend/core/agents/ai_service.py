@@ -771,9 +771,9 @@ async def chat(
                     from core.agents.memory.extractor import extract_facts_from_messages
                     asyncio.ensure_future(extract_facts_from_messages(
                         messages=current_messages,
-                        data_dir=str(config.data_dir),
+                        data_dir=config.context_dir,
                         gcs_prefix=config.gcs_prefix,
-                        agent_config={"auto_extract_facts": True},
+                        agent_config=config.__dict__,
                     ))
                 except Exception:
                     pass
