@@ -16,8 +16,8 @@ from core.providers import get_ai_provider
 from core.providers.credentials import CredentialStore
 from .tool_registry import ToolRegistry
 from .deferred_tools import (
-    should_defer_tools, build_tool_catalog, execute_find_tools,
-    load_deferred_tools, FIND_TOOLS_DEF,
+    should_defer_tools, build_tool_catalog, handle_deferred_tool_call,
+    build_provider_tools, FIND_TOOLS_DEF,
 )
 
 logger = logging.getLogger(__name__)
@@ -78,10 +78,7 @@ async def _run_turn(
             else:
                 system_prompt = system_prompt + "\n\n" + catalog_text
 
-    provider_tools = [
-        {"name": td["name"], "description": td.get("description", ""), "input_schema": td.get("input_schema", {})}
-        for td in tool_defs
-    ]
+    provider_tools = build_provider_tools(tool_defs)
 
     messages = [{"role": "user", "content": user_message}]
     accumulated_text = ""
@@ -154,30 +151,15 @@ async def _run_turn(
             tool_name = tc.get("name", "")
             tool_args = tc.get("args", {})
 
-            # ── Deferred tool guard ──
-            if deferred_names and tool_name in deferred_names:
-                result = {"error": f"Tool '{tool_name}' is available but not loaded. Call find_tools('{tool_name}') first."}
-                results.append({
-                    "tool_use_id": tc.get("id", ""),
-                    "tool_name": tool_name,
-                    "content": json.dumps(result),
-                })
-                continue
-
-            # ── Deferred: intercept find_tools ──
-            if tool_name == "find_tools" and deferred_names is not None:
-                query = tool_args.get("query", "")
-                find_result = execute_find_tools(query, deferred_tools)
-                matched = find_result.pop("matched_tools", [])
-                if matched:
-                    load_deferred_tools(
-                        matched, tool_defs, kind_map, deferred_tools, deferred_names,
-                    )
-                    provider_tools = [
-                        {"name": td["name"], "description": td.get("description", ""), "input_schema": td.get("input_schema", {})}
-                        for td in tool_defs
-                    ]
-                result_str = json.dumps(find_result)
+            # ── Deferred tool guard + find_tools intercept ──
+            deferred_result, tools_changed = handle_deferred_tool_call(
+                tool_name, tool_args, deferred_tools, deferred_names,
+                tool_defs, kind_map,
+            )
+            if deferred_result is not None:
+                if tools_changed:
+                    provider_tools = build_provider_tools(tool_defs)
+                result_str = json.dumps(deferred_result)
                 tool_log.append({
                     "tool": tool_name,
                     "args": json.dumps(tool_args)[:200],

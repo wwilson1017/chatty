@@ -574,7 +574,6 @@ class ToolRegistry:
             agent=self.agent_slug,
             limit=limit,
             status_filter=status,
-            event_type=event_type,
         )
         for r in records:
             r.pop("result_full", None)

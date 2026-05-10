@@ -7,6 +7,7 @@ catalog in the system prompt, and the AI loads full schemas via find_tools().
 
 from __future__ import annotations
 
+import json
 import logging
 from collections import defaultdict
 
@@ -353,3 +354,52 @@ def load_deferred_tools(
         deferred_tools[:] = [t for t in deferred_tools if t["name"] not in loaded_set]
 
     return loaded_names
+
+
+_INTERNAL_FIELDS = {"kind", "writes", "context_memory", "integration"}
+
+
+def build_provider_tools(tool_defs: list[dict]) -> list[dict]:
+    """Strip internal fields from tool defs for provider consumption."""
+    return [{k: v for k, v in t.items() if k not in _INTERNAL_FIELDS} for t in tool_defs]
+
+
+def handle_deferred_tool_call(
+    tool_name: str,
+    tool_args: dict,
+    deferred_tools: list[dict],
+    deferred_names: set[str],
+    tool_defs: list[dict],
+    kind_map: dict[str, str],
+    writes_map: dict[str, bool] | None = None,
+    cm_map: dict[str, bool] | None = None,
+    integration_map: dict[str, str] | None = None,
+) -> tuple[dict | None, bool]:
+    """Handle deferred tool guard and find_tools intercept.
+
+    Returns (result, tools_changed):
+      - result: a JSON-serializable dict if handled, None if not a deferred concern
+      - tools_changed: True if find_tools loaded new tools (caller should rebuild provider_tools)
+
+    Mutates tool_defs, kind_map, deferred_tools, deferred_names, and optional maps.
+    """
+    if deferred_names and tool_name in deferred_names:
+        return (
+            {"error": f"Tool '{tool_name}' is available but not loaded. Call find_tools('{tool_name}') first."},
+            False,
+        )
+
+    if tool_name == "find_tools" and deferred_names is not None:
+        query = tool_args.get("query", "")
+        find_result = execute_find_tools(query, deferred_tools)
+        matched = find_result.pop("matched_tools", [])
+        tools_changed = False
+        if matched:
+            load_deferred_tools(
+                matched, tool_defs, kind_map, deferred_tools, deferred_names,
+                writes_map=writes_map, cm_map=cm_map, integration_map=integration_map,
+            )
+            tools_changed = True
+        return find_result, tools_changed
+
+    return None, False

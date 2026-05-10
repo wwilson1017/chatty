@@ -37,8 +37,8 @@ from .tool_registry import ToolRegistry
 from .tool_definitions import get_tool_definitions, get_report_instructions, get_scheduling_instructions, get_qb_csv_instructions, build_writes_map, build_context_memory_map
 from .tools.real_tools import load_all_real_tools
 from .deferred_tools import (
-    should_defer_tools, build_tool_catalog, execute_find_tools,
-    load_deferred_tools, FIND_TOOLS_DEF,
+    should_defer_tools, build_tool_catalog, handle_deferred_tool_call,
+    build_provider_tools, FIND_TOOLS_DEF,
 )
 
 logger = logging.getLogger(__name__)
@@ -611,7 +611,7 @@ def _log_chat_completion(
             output_tokens=total_output_tokens,
             duration_ms=int((time.time() - chat_start_time) * 1000),
         )
-    except Exception:
+    except (ImportError, OSError):
         logger.warning("Activity log write failed", exc_info=True)
 
 
@@ -795,7 +795,7 @@ async def chat(
         kind_map["exit_plan_mode"] = "plan"
 
     # ── Build provider_tools after all virtual tools are added ────────
-    provider_tools = _build_provider_tools(tool_defs)
+    provider_tools = build_provider_tools(tool_defs)
 
     # ── Build system prompt ───────────────────────────────────────────
     # Determine first user message for relevance pre-fetch
@@ -879,7 +879,7 @@ async def chat(
                     match, tool_defs, kind_map, deferred_tools, deferred_names,
                     writes_map=writes_map, cm_map=cm_map, integration_map=integration_map,
                 )
-                provider_tools = _build_provider_tools(tool_defs)
+                provider_tools = build_provider_tools(tool_defs)
 
         # Build fake tool_calls and results for provider reconstruction
         fake_tc = [{"name": at_tool, "id": at_id, "args": at_args}]
@@ -1009,33 +1009,18 @@ async def chat(
             tool_use_id = tc.get("id", "")
             tool_args = tc.get("args", {})
 
-            # ── Deferred tool guard ──
-            if deferred_names and tool_name in deferred_names:
-                result = {"error": f"Tool '{tool_name}' is available but not loaded. Call find_tools('{tool_name}') first."}
-                results.append({
-                    "tool_use_id": tool_use_id,
-                    "tool_name": tool_name,
-                    "content": json.dumps(result),
-                })
-                continue
-
-            # ── Deferred: intercept find_tools ──
-            if tool_name == "find_tools" and deferred_names is not None:
-                yield _sse({
-                    "type": "tool_start",
-                    "tool": tool_name,
-                    "tool_use_id": tool_use_id,
-                })
-                query = tool_args.get("query", "")
-                find_result = execute_find_tools(query, deferred_tools)
-                matched = find_result.pop("matched_tools", [])
-                if matched:
-                    load_deferred_tools(
-                        matched, tool_defs, kind_map, deferred_tools, deferred_names,
-                        writes_map=writes_map, cm_map=cm_map, integration_map=integration_map,
-                    )
-                    provider_tools = _build_provider_tools(tool_defs)
-                result_str = json.dumps(find_result)
+            # ── Deferred tool guard + find_tools intercept ──
+            deferred_result, tools_changed = handle_deferred_tool_call(
+                tool_name, tool_args, deferred_tools, deferred_names,
+                tool_defs, kind_map,
+                writes_map=writes_map, cm_map=cm_map, integration_map=integration_map,
+            )
+            if deferred_result is not None:
+                if tool_name == "find_tools":
+                    yield _sse({"type": "tool_start", "tool": tool_name, "tool_use_id": tool_use_id})
+                if tools_changed:
+                    provider_tools = build_provider_tools(tool_defs)
+                result_str = json.dumps(deferred_result)
                 results.append({
                     "tool_use_id": tool_use_id,
                     "tool_name": tool_name,
@@ -1048,13 +1033,14 @@ async def chat(
                     "result": result_str[:2000],
                     "elapsed_ms": 0,
                 })
-                yield _sse({
-                    "type": "tool_end",
-                    "tool": tool_name,
-                    "tool_use_id": tool_use_id,
-                    "result": find_result,
-                    "elapsed_ms": 0,
-                })
+                if tool_name == "find_tools":
+                    yield _sse({
+                        "type": "tool_end",
+                        "tool": tool_name,
+                        "tool_use_id": tool_use_id,
+                        "result": deferred_result,
+                        "elapsed_ms": 0,
+                    })
                 continue
 
             kind = kind_map.get(tool_name, "context")
@@ -1240,6 +1226,8 @@ async def run_sync(
         ]
 
     kind_map = _build_kind_map(tool_defs)
+    writes_map = build_writes_map(tool_defs)
+    cm_map = build_context_memory_map(tool_defs)
     integration_map = {t["name"]: t.get("integration", "") for t in tool_defs}
 
     # ── Deferred tool loading ────────────────────────────────────────
@@ -1251,7 +1239,7 @@ async def run_sync(
         tool_defs = active_tools + [FIND_TOOLS_DEF]
         kind_map["find_tools"] = "meta"
 
-    provider_tools = _build_provider_tools(tool_defs)
+    provider_tools = build_provider_tools(tool_defs)
 
     # Build system prompt (returns tuple for caching)
     static_prompt, volatile_prompt = _build_system_prompt(
@@ -1372,31 +1360,19 @@ async def run_sync(
             tool_args = tc.get("args", {})
             tool_use_id = tc.get("id", "")
 
-            # ── Deferred tool guard ──
-            if deferred_names and tool_name in deferred_names:
-                result = {"error": f"Tool '{tool_name}' is available but not loaded. Call find_tools('{tool_name}') first."}
+            # ── Deferred tool guard + find_tools intercept ──
+            deferred_result, tools_changed = handle_deferred_tool_call(
+                tool_name, tool_args, deferred_tools, deferred_names,
+                tool_defs, kind_map,
+                writes_map=writes_map, cm_map=cm_map, integration_map=integration_map,
+            )
+            if deferred_result is not None:
+                if tools_changed:
+                    provider_tools = build_provider_tools(tool_defs)
                 results.append({
                     "tool_use_id": tool_use_id,
                     "tool_name": tool_name,
-                    "content": json.dumps(result),
-                })
-                continue
-
-            # ── Deferred: intercept find_tools ──
-            if tool_name == "find_tools" and deferred_names is not None:
-                query = tool_args.get("query", "")
-                find_result = execute_find_tools(query, deferred_tools)
-                matched = find_result.pop("matched_tools", [])
-                if matched:
-                    load_deferred_tools(
-                        matched, tool_defs, kind_map, deferred_tools, deferred_names,
-                        integration_map=integration_map,
-                    )
-                    provider_tools = _build_provider_tools(tool_defs)
-                results.append({
-                    "tool_use_id": tool_use_id,
-                    "tool_name": tool_name,
-                    "content": json.dumps(find_result),
+                    "content": json.dumps(deferred_result),
                 })
                 continue
 

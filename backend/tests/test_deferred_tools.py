@@ -13,6 +13,8 @@ from core.agents.deferred_tools import (
     build_tool_catalog,
     execute_find_tools,
     load_deferred_tools,
+    handle_deferred_tool_call,
+    build_provider_tools,
 )
 
 
@@ -220,16 +222,19 @@ class TestExecuteFindTools:
         assert result["total_matches"] == 30
         assert "more specific" in result["note"]
 
-    def test_result_has_no_input_schema(self):
-        """find_tools results must NOT contain full schemas — only names."""
+    def test_loaded_names_are_strings_only(self):
+        """The AI-facing result must contain only name strings, not full tool defs."""
         deferred = self._get_deferred()
         result = execute_find_tools("email", deferred)
 
-        # The returned dict should not contain input_schema at top level
-        assert "input_schema" not in result
-        # matched_tools are removed by the caller, but let's verify the shape
-        assert "loaded_names" in result
-        assert isinstance(result["loaded_names"], list)
+        assert result["count"] > 0
+        assert all(isinstance(n, str) for n in result["loaded_names"])
+
+        # After the caller pops matched_tools, the remaining dict must not
+        # contain any nested input_schema — only flat metadata.
+        matched = result.pop("matched_tools", [])
+        result_str = str(result)
+        assert "input_schema" not in result_str
 
     def test_matched_tools_have_full_schemas(self):
         """matched_tools (for provider_tools) must have full schemas."""
@@ -361,3 +366,123 @@ class TestFindToolsDef:
         props = FIND_TOOLS_DEF["input_schema"]["properties"]
         assert "query" in props
         assert FIND_TOOLS_DEF["input_schema"]["required"] == ["query"]
+
+
+# ── handle_deferred_tool_call ────────────────────────────────────────────────
+
+class TestHandleDeferredToolCall:
+    def _setup(self):
+        tools = _large_tool_set()
+        active, deferred, deferred_names, _ = build_tool_catalog(tools)
+        kind_map = {t["name"]: t.get("kind", "context") for t in active}
+        kind_map["find_tools"] = "meta"
+        return active, deferred, deferred_names, kind_map
+
+    def test_deferred_tool_returns_error(self):
+        """Calling a deferred tool without find_tools returns a helpful error."""
+        active, deferred, deferred_names, kind_map = self._setup()
+        deferred_name = next(iter(deferred_names))
+
+        result, tools_changed = handle_deferred_tool_call(
+            deferred_name, {}, deferred, deferred_names,
+            active, kind_map,
+        )
+
+        assert result is not None
+        assert "error" in result
+        assert "not loaded" in result["error"]
+        assert "find_tools" in result["error"]
+        assert tools_changed is False
+
+    def test_find_tools_loads_and_returns_names(self):
+        """find_tools call loads tools and returns names-only result."""
+        active, deferred, deferred_names, kind_map = self._setup()
+        initial_active_count = len(active)
+
+        result, tools_changed = handle_deferred_tool_call(
+            "find_tools", {"query": "email"}, deferred, deferred_names,
+            active, kind_map,
+        )
+
+        assert result is not None
+        assert tools_changed is True
+        assert result["count"] > 0
+        assert all(isinstance(n, str) for n in result["loaded_names"])
+        assert "matched_tools" not in result
+        assert len(active) > initial_active_count
+        for name in result["loaded_names"]:
+            assert name in kind_map
+
+    def test_find_tools_with_empty_pool(self):
+        """find_tools returns graceful empty result when pool is exhausted."""
+        active, deferred, deferred_names, kind_map = self._setup()
+        deferred.clear()
+        deferred_names.clear()
+
+        result, tools_changed = handle_deferred_tool_call(
+            "find_tools", {"query": "email"}, deferred, deferred_names,
+            active, kind_map,
+        )
+
+        assert result is not None
+        assert result["count"] == 0
+        assert tools_changed is False
+
+    def test_normal_tool_not_intercepted(self):
+        """A non-deferred, non-find_tools call returns None (not handled)."""
+        active, deferred, deferred_names, kind_map = self._setup()
+
+        result, tools_changed = handle_deferred_tool_call(
+            "read_context_file", {"filename": "test.md"}, deferred, deferred_names,
+            active, kind_map,
+        )
+
+        assert result is None
+        assert tools_changed is False
+
+    def test_hallucinated_tool_not_intercepted(self):
+        """A tool name not in deferred_names or kind_map is not caught by guard."""
+        active, deferred, deferred_names, kind_map = self._setup()
+
+        result, tools_changed = handle_deferred_tool_call(
+            "totally_fake_tool", {}, deferred, deferred_names,
+            active, kind_map,
+        )
+
+        assert result is None
+        assert tools_changed is False
+
+    def test_maps_updated_on_load(self):
+        """find_tools updates all provided maps."""
+        active, deferred, deferred_names, kind_map = self._setup()
+        writes_map: dict[str, bool] = {}
+        cm_map: dict[str, bool] = {}
+        integration_map: dict[str, str] = {}
+
+        result, _ = handle_deferred_tool_call(
+            "find_tools", {"query": "email"}, deferred, deferred_names,
+            active, kind_map,
+            writes_map=writes_map, cm_map=cm_map, integration_map=integration_map,
+        )
+
+        for name in result["loaded_names"]:
+            assert name in writes_map
+            assert name in cm_map
+            assert name in integration_map
+
+
+# ── build_provider_tools ─────────────────────────────────────────────────────
+
+class TestBuildProviderTools:
+    def test_strips_internal_fields(self):
+        tools = [_make_tool("test_tool", "gmail", writes=True, integration="test")]
+        provider = build_provider_tools(tools)
+
+        assert len(provider) == 1
+        assert "name" in provider[0]
+        assert "description" in provider[0]
+        assert "input_schema" in provider[0]
+        assert "kind" not in provider[0]
+        assert "writes" not in provider[0]
+        assert "context_memory" not in provider[0]
+        assert "integration" not in provider[0]
