@@ -5,6 +5,20 @@ Defines the tool schemas sent to the AI provider. Actual execution
 is handled by ToolRegistry. No Odoo, DIMM, or voice tools here.
 """
 
+# ── Display labels for tool catalog grouping ─────────────────────────────────
+
+TOOL_KIND_LABELS: dict[str, str] = {
+    "gmail": "Email (Gmail)",
+    "calendar": "Calendar",
+    "drive": "Google Drive",
+    "web": "Web",
+    "real_tool": "Custom Tools",
+    "report": "Reports",
+    "setup": "Setup & Integrations",
+    "activity_log": "Activity Log",
+}
+
+
 # ── Context tools ─────────────────────────────────────────────────────────────
 
 CONTEXT_TOOLS = [
@@ -1578,7 +1592,7 @@ def get_tool_definitions(
 
 
 def _inject_account_param(tool: dict, prop: dict) -> dict:
-    schema = tool.get("input_schema", {})
-    props = schema.get("properties", {})
+    schema = tool.setdefault("input_schema", {})
+    props = schema.setdefault("properties", {})
     props["account"] = prop
     return tool
