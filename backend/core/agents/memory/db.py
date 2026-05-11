@@ -149,7 +149,8 @@ def _chunk_text(text: str) -> list[str]:
                     end = nl_break + 1
 
         chunks.append(text[start:end])
-        start = max(start + 1, end - CHUNK_OVERLAP)
+        # Advance by at least half the chunk size to avoid near-duplicate chunks
+        start = max(start + CHUNK_SIZE // 2, end - CHUNK_OVERLAP)
 
     return chunks
 
@@ -393,55 +394,8 @@ class MemoryDB:
                 )
             conn.commit()
 
-        # Embed chunks (outside write lock — async would be ideal but keep sync for now)
-        if embed and self._vec_available:
-            self._embed_doc_chunks(doc_id)
-
-    def _embed_doc_chunks(self, doc_id: int) -> None:
-        """Embed all chunks for a document. Fire-and-forget on failure."""
-        import asyncio
-        try:
-            from .embeddings import get_embedding_service
-            service = get_embedding_service()
-
-            # Run async embedding in a new event loop if needed
-            try:
-                loop = asyncio.get_running_loop()
-                loop.create_task(self._async_embed_chunks(doc_id, service))
-            except RuntimeError:
-                asyncio.run(self._async_embed_chunks(doc_id, service))
-        except Exception as e:
-            logger.debug("Chunk embedding skipped: %s", e)
-
-    async def _async_embed_chunks(self, doc_id: int, service) -> None:
-        """Async helper to embed chunks for a document."""
-        if not await service.is_available():
-            return
-
-        conn = self.get_db()
-        chunks = conn.execute(
-            "SELECT id, content FROM memory_chunks WHERE doc_id=? ORDER BY chunk_index",
-            (doc_id,),
-        ).fetchall()
-        if not chunks:
-            return
-
-        texts = [c["content"] for c in chunks]
-        embeddings = await service.embed(texts)
-        if not embeddings:
-            return
-
-        import sqlite_vec
-        with self._write_lock:
-            for chunk_row, embedding in zip(chunks, embeddings):
-                try:
-                    conn.execute(
-                        "INSERT OR REPLACE INTO memory_vectors (chunk_id, embedding) VALUES (?, ?)",
-                        (chunk_row["id"], sqlite_vec.serialize_float32(embedding)),
-                    )
-                except Exception as e:
-                    logger.debug("Vector insert failed for chunk %d: %s", chunk_row["id"], e)
-            conn.commit()
+        # Embedding happens via backfill (avoids thread-safety issues with
+        # fire-and-forget async tasks accessing the SQLite connection).
 
     def remove_document(self, source_type: str, source_id: str) -> None:
         """Remove a document and its chunks/vectors from all indexes."""
@@ -836,8 +790,13 @@ class MemoryDB:
                     stored["provider"], stored["model"], info["provider"], info["model"],
                 )
                 with self._write_lock:
-                    conn.execute("DELETE FROM memory_vectors")
-                    # Keep chunks — they'll be re-embedded by backfill
+                    # Drop and recreate vector table (dimensions may have changed)
+                    conn.execute("DROP TABLE IF EXISTS memory_vectors")
+                    conn.execute(
+                        f"CREATE VIRTUAL TABLE memory_vectors USING vec0("
+                        f"chunk_id INTEGER PRIMARY KEY, "
+                        f"embedding float[{info['dimensions']}] distance_metric=cosine)"
+                    )
                     conn.execute("DELETE FROM memory_embedding_config WHERE id=1")
                     conn.execute(
                         "INSERT INTO memory_embedding_config (id, provider, model, dimensions) VALUES (1, ?, ?, ?)",

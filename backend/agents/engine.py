@@ -109,7 +109,6 @@ def _get_initialized_memory_db(slug: str):
 
     # Schedule background embedding backfill (non-blocking)
     if db.vec_available:
-        import asyncio
         try:
             loop = asyncio.get_running_loop()
             loop.create_task(_backfill_vectors(db))
@@ -130,8 +129,7 @@ async def _backfill_vectors(db):
             if remaining > 0:
                 await asyncio.sleep(5)
     except Exception as e:
-        import logging
-        logging.getLogger(__name__).debug("Vector backfill error: %s", e)
+        logger.debug("Vector backfill error: %s", e)
 
 
 def ensure_memory_db(slug: str):

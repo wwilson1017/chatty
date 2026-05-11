@@ -55,6 +55,10 @@ class EmbeddingService:
                 return await self._embed_google(texts)
         except Exception as e:
             logger.warning("Embedding failed (%s): %s", self._provider, e)
+            # Reset on auth failures so next call re-detects provider
+            if "401" in str(e) or "403" in str(e) or "auth" in str(e).lower():
+                self._checked = False
+                self._provider = None
             return None
         return None
 
@@ -194,7 +198,11 @@ class EmbeddingService:
                 headers={"Authorization": f"Bearer {access_token}"},
                 json={
                     "requests": [
-                        {"model": "models/text-embedding-004", "content": {"parts": [{"text": t}]}}
+                        {
+                            "model": "models/text-embedding-004",
+                            "content": {"parts": [{"text": t}]},
+                            "outputDimensionality": DIMENSIONS,
+                        }
                         for t in texts
                     ],
                 },

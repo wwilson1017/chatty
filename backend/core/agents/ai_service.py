@@ -767,16 +767,15 @@ async def chat(
                 }
                 # Fire background fact extraction
                 try:
-                    import asyncio
                     from core.agents.memory.extractor import extract_facts_from_messages
                     asyncio.ensure_future(extract_facts_from_messages(
-                        messages=current_messages,
+                        messages=list(current_messages),
                         data_dir=config.context_dir,
                         gcs_prefix=config.gcs_prefix,
-                        agent_config=config.__dict__,
+                        agent_config=dict(config.__dict__),
                     ))
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.debug("Background fact extraction failed to schedule: %s", e)
 
     # ── Plan mode: add virtual exit_plan_mode tool ──────────────────
     if plan_mode:
