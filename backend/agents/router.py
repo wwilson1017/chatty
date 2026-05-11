@@ -88,7 +88,6 @@ def _inject_pending_setup_context(context_dir: Path, pending: dict) -> None:
 
 
 
-
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 def _get_agent_or_404(agent_id: str) -> dict:
@@ -487,7 +486,6 @@ def _stream_chat(agent: dict, messages: list, training_mode: bool, conversation_
         for name in INTEGRATION_MODULES
         if "tool_mode" in get_credentials(name)
     }
-
     reminder_handlers, sa_handlers = build_agent_handlers(agent["slug"])
     registry = ToolRegistry(
         context_dir=config.context_dir,

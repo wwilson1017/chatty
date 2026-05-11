@@ -5,7 +5,7 @@
 **Chatty** — a free, open-source personal AI agent platform with a browser-based UI, built for small business owners.
 - **Free and open source** — no paid tiers, no vendor lock-in, no SaaS fees. Users only pay for their own AI provider API usage
 - **Target audience**: small business owners who want a powerful AI chatbot without enterprise pricing or technical complexity
-- **Browser-based** — full dashboard UI for creating agents, chatting, managing integrations, and settings. Not a CLI tool.
+- **Browser-based** — full dashboard UI for creating agents, chatting, managing integrations, and settings. Also includes a CLI test harness for terminal-based agent interaction.
 - Single user (password login + optional TOTP 2FA), multiple agents
 - User creates agents from a dashboard; each has name/personality/knowledge via conversational onboarding (training mode)
 - Optional branding: logo, company name, accent color
@@ -41,6 +41,24 @@ For dev mode with hot reload, run backend and frontend separately:
 - Backend: `cd backend && ../.venv/bin/python -m uvicorn main:app --host 127.0.0.1 --port 8000 --reload`
 - Frontend: `cd frontend && npm run dev` (Vite dev server on port 5173, proxies `/api` to backend)
 
+### CLI Test Harness
+
+Chat with agents from the terminal — no web server required:
+
+```bash
+cd backend && ../.venv/bin/python -m cli
+```
+
+- `--agent <slug>` — select agent by slug (auto-selects if only one exists)
+- `--ephemeral` — don't save conversation to chat.db
+- `--power` — skip write tool confirmations
+- `--readonly` — disable all write tools
+- `--verbose` / `-v` — show full tool args and results
+- `--list` / `-l` — list all agents and exit
+- `--new` — create a new agent interactively
+
+Slash commands inside the REPL: `/help`, `/search`, `/facts`, `/memory`, `/context`, `/read`, `/daily`, `/history`, `/dreams`, `/shared`, `/reset`, `/agent`, `/agents`, `/switch`, `/new`, `/usage`, `/mode`, `/verbose`, `/quit`
+
 ## Key Architecture
 
 - **Provider-agnostic engine** — `ai_service.py` calls an `AIProvider` ABC, never Anthropic/OpenAI directly
@@ -59,6 +77,13 @@ For dev mode with hot reload, run backend and frontend separately:
 ```
 backend/
 ├── main.py                          # FastAPI entry point
+├── cli/                             # CLI test harness (terminal REPL, no web server needed)
+│   ├── __main__.py                  # Entry point, agent selection, arg parsing
+│   ├── app.py                       # REPL loop, message sending, tool confirmation flow
+│   ├── bootstrap.py                 # Lightweight backend init (DB, encryption, seed data)
+│   ├── commands.py                  # Slash command dispatcher (/search, /memory, /mode, etc.)
+│   ├── output.py                    # SSE parser, StreamRenderer for terminal output
+│   └── session.py                   # Session state, agent switching, tool execution
 ├── agents/                          # Multi-agent management (db, engine, router, onboarding, templates)
 │   └── import_service/              # Knowledge import with source adapters (OpenClaw, paste, folder, ZIP)
 ├── core/

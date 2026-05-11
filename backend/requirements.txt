@@ -25,3 +25,5 @@ croniter
 pyotp
 qrcode[pil]
 todoist-api-python
+prompt_toolkit
+rich
