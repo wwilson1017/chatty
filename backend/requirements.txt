@@ -24,3 +24,5 @@ apscheduler
 croniter
 pyotp
 qrcode[pil]
+prompt_toolkit
+rich
