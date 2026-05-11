@@ -159,6 +159,8 @@ class ToolRegistry:
                 return self._execute_import(tool_name, tool_args)
             elif kind == "activity_log":
                 return self._execute_activity_log(tool_name, tool_args)
+            elif kind == "meta":
+                return {"error": "Meta tools are handled by ai_service directly"}
             else:
                 return {"error": f"Unknown tool kind: {kind}"}
         except Exception as e:
@@ -264,7 +266,7 @@ class ToolRegistry:
 
     def _resolve_account(self, service: str, email: str | None, tool_name: str) -> str | dict:
         """Resolve an account for a service. Returns account_id or error dict."""
-        ids = getattr(self, f"{service}_account_ids")
+        ids = getattr(self, f"{service}_account_ids", [])
         if not ids:
             return {"error": f"No {service.title()} account assigned. Assign one at Settings → Integrations → Google.",
                     "needs_reconnect": True}
@@ -562,9 +564,6 @@ class ToolRegistry:
             limit = max(1, min(int(args.get("limit", 20) or 20), 50))
         except (TypeError, ValueError):
             limit = 20
-        event_type = args.get("event_type")
-        if event_type and event_type not in ("scheduled_action", "chat"):
-            return {"error": f"Invalid event_type: {event_type}"}
         status = args.get("status")
         if status and status not in ("ok", "error", "action_taken", "skipped"):
             return {"error": f"Invalid status: {status}"}
@@ -572,7 +571,6 @@ class ToolRegistry:
             agent=self.agent_slug,
             limit=limit,
             status_filter=status,
-            event_type=event_type,
         )
         for r in records:
             r.pop("result_full", None)
