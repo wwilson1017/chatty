@@ -377,9 +377,11 @@ def _build_system_prompt(
             "",
         ])
 
-    # Relevance pre-fetch — on first message, inject relevant context
+    # Relevance pre-fetch — on first message, inject relevant context (semantic + keyword)
     if first_user_message:
-        relevant = ctx_manager.relevance_prefetch(first_user_message)
+        from core.agents.memory.db import get_instance as _get_memory_db
+        _memory_db = _get_memory_db(str(ctx_manager.data_dir))
+        relevant = ctx_manager.relevance_prefetch(first_user_message, memory_db=_memory_db)
         if relevant:
             prefetch_parts: list[str] = []
             prefetch_chars = 0
@@ -772,6 +774,17 @@ async def chat(
                     **last,
                     "content": last.get("content", "") + "\n\n[KNOWLEDGE CHECKPOINT]",
                 }
+                # Fire background fact extraction
+                try:
+                    from core.agents.memory.extractor import extract_facts_from_messages
+                    asyncio.ensure_future(extract_facts_from_messages(
+                        messages=list(current_messages),
+                        data_dir=config.context_dir,
+                        gcs_prefix=config.gcs_prefix,
+                        agent_config=dict(config.__dict__),
+                    ))
+                except Exception as e:
+                    logger.debug("Background fact extraction failed to schedule: %s", e)
 
     # ── Plan mode: add virtual exit_plan_mode tool ──────────────────
     if plan_mode:

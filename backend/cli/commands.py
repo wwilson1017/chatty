@@ -61,7 +61,7 @@ async def handle_command(input_str: str, session, renderer) -> "str | Session | 
         _cmd_help()
 
     elif cmd == "/search":
-        _cmd_search(arg, session)
+        await _cmd_search(arg, session)
 
     elif cmd == "/facts":
         _cmd_facts(arg, session)
@@ -148,12 +148,12 @@ def _cmd_help():
     console.print(table)
 
 
-def _cmd_search(query: str, session):
+async def _cmd_search(query: str, session):
     if not query:
         console.print("[red]Usage: /search <query>[/]")
         return
-    from core.agents.memory.search_tools import search_memory
-    result = search_memory(
+    from core.agents.memory.search_tools import search_memory_async
+    result = await search_memory_async(
         str(session.ctx_manager.data_dir),
         session.config.gcs_prefix,
         query,

@@ -307,12 +307,43 @@ def _write_import_context(args: dict, ctx_manager: ContextManager) -> dict:
     if not _safe_import_filename(filename):
         return {"error": f"Cannot write to '{filename}'. Allowed targets: {sorted(_ALLOWED_WRITE_TARGETS)} or daily/YYYY-MM-DD.md"}
 
+    # Content dedup: check if identical content was already imported
+    if content:
+        content_hash = hashlib.sha256(content.encode()).hexdigest()
+        if _is_duplicate_import(ctx_manager, content_hash):
+            logger.info("Import dedup: skipping '%s' (content already imported)", filename)
+            return {"skipped": filename, "reason": "duplicate_content"}
+
     if _DAILY_RE.match(filename):
         daily_dir = Path(ctx_manager.data_dir) / "daily"
         daily_dir.mkdir(exist_ok=True)
 
     ctx_manager.write_context(filename, content)
     return {"written": filename, "size_bytes": len(content.encode("utf-8"))}
+
+
+def _is_duplicate_import(ctx_manager: ContextManager, content_hash: str) -> bool:
+    """Check if content with this hash was already imported for this agent."""
+    try:
+        from agents import db as agent_db
+        # data_dir is data/agents/{slug}/context — slug is the parent dir name
+        slug = Path(ctx_manager.data_dir).parent.name
+        agent = agent_db.get_agent_by_slug(slug)
+        if not agent:
+            return False
+
+        source = agent_db.get_import_source(agent["id"])
+        if source:
+            hashes_json = source.get("file_hashes", "{}")
+            if isinstance(hashes_json, str):
+                hashes = json.loads(hashes_json)
+            else:
+                hashes = hashes_json
+            if content_hash in hashes.values():
+                return True
+    except Exception as e:
+        logger.debug("Dedup check failed: %s", e)
+    return False
 
 
 def _finalize_import(

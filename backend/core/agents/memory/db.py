@@ -1,12 +1,13 @@
-"""Per-agent memory database — FTS5 full-text search + temporal facts.
+"""Per-agent memory database — FTS5 full-text search + semantic vectors + temporal facts.
 
 Follows the same patterns as ChatHistoryDB: single shared SQLite connection,
 WAL mode, threading write-lock, GCS backup/restore.  Each agent gets its own
 memory.db alongside its chat_history.db.
 
-Zero new dependencies — FTS5 is built into Python's sqlite3.
+Vector search via sqlite-vec (optional — graceful degradation if unavailable).
 """
 
+import hashlib
 import logging
 import re
 import sqlite3
@@ -46,6 +47,7 @@ CREATE TABLE IF NOT EXISTS memory_documents (
     content     TEXT    NOT NULL,
     memory_type TEXT,
     date        TEXT,
+    content_hash TEXT,
     created_at  TEXT    NOT NULL DEFAULT (datetime('now')),
     updated_at  TEXT    NOT NULL DEFAULT (datetime('now')),
     UNIQUE(source_type, source_id)
@@ -54,6 +56,42 @@ CREATE TABLE IF NOT EXISTS memory_documents (
 CREATE INDEX IF NOT EXISTS idx_memdoc_source ON memory_documents(source_type, source_id);
 CREATE INDEX IF NOT EXISTS idx_memdoc_type   ON memory_documents(memory_type) WHERE memory_type IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_memdoc_date   ON memory_documents(date)        WHERE date IS NOT NULL;
+
+-- Chunks for vector embeddings (one document → many chunks)
+CREATE TABLE IF NOT EXISTS memory_chunks (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    doc_id      INTEGER NOT NULL,
+    chunk_index INTEGER NOT NULL,
+    content     TEXT    NOT NULL,
+    created_at  TEXT    NOT NULL DEFAULT (datetime('now')),
+    UNIQUE(doc_id, chunk_index)
+);
+
+CREATE INDEX IF NOT EXISTS idx_chunks_doc ON memory_chunks(doc_id);
+
+-- Embedding provider/model config (singleton row)
+CREATE TABLE IF NOT EXISTS memory_embedding_config (
+    id          INTEGER PRIMARY KEY CHECK (id = 1),
+    provider    TEXT    NOT NULL,
+    model       TEXT    NOT NULL,
+    dimensions  INTEGER NOT NULL,
+    created_at  TEXT    NOT NULL DEFAULT (datetime('now'))
+);
+
+-- Skill packs (reusable prompt recipes)
+CREATE TABLE IF NOT EXISTS skill_packs (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    name            TEXT    NOT NULL UNIQUE,
+    description     TEXT    NOT NULL DEFAULT '',
+    prompt          TEXT    NOT NULL,
+    category        TEXT,
+    tags            TEXT,
+    trigger_pattern TEXT,
+    usage_count     INTEGER NOT NULL DEFAULT 0,
+    auto_generated  INTEGER NOT NULL DEFAULT 0,
+    created_at      TEXT    NOT NULL DEFAULT (datetime('now')),
+    updated_at      TEXT    NOT NULL DEFAULT (datetime('now'))
+);
 
 -- Temporal facts (entity-relationship triples with validity windows)
 CREATE TABLE IF NOT EXISTS facts (
@@ -75,6 +113,46 @@ CREATE INDEX IF NOT EXISTS idx_facts_subject ON facts(subject);
 CREATE INDEX IF NOT EXISTS idx_facts_valid   ON facts(valid_from, valid_to);
 CREATE INDEX IF NOT EXISTS idx_facts_type    ON facts(memory_type) WHERE memory_type IS NOT NULL;
 """
+
+# Chunking constants
+CHUNK_SIZE = 2000  # ~500 tokens
+CHUNK_OVERLAP = 100
+
+
+def _chunk_text(text: str) -> list[str]:
+    """Split text into chunks for embedding. Prefers paragraph/sentence boundaries."""
+    if len(text) <= CHUNK_SIZE:
+        return [text]
+
+    chunks = []
+    start = 0
+    while start < len(text):
+        end = start + CHUNK_SIZE
+
+        if end >= len(text):
+            chunks.append(text[start:])
+            break
+
+        # Try to break at paragraph boundary
+        para_break = text.rfind("\n\n", start + CHUNK_SIZE // 2, end)
+        if para_break > start:
+            end = para_break + 2
+        else:
+            # Try sentence boundary
+            sent_break = text.rfind(". ", start + CHUNK_SIZE // 2, end)
+            if sent_break > start:
+                end = sent_break + 2
+            else:
+                # Try newline
+                nl_break = text.rfind("\n", start + CHUNK_SIZE // 2, end)
+                if nl_break > start:
+                    end = nl_break + 1
+
+        chunks.append(text[start:end])
+        # Advance by at least half the chunk size to avoid near-duplicate chunks
+        start = max(start + CHUNK_SIZE // 2, end - CHUNK_OVERLAP)
+
+    return chunks
 
 # FTS5 setup is separate because CREATE VIRTUAL TABLE doesn't support IF NOT EXISTS
 # inside executescript cleanly on all Python/SQLite combos.
@@ -128,7 +206,7 @@ def _sanitize_fts_query(raw: str) -> str:
 # ---------------------------------------------------------------------------
 
 class MemoryDB:
-    """Per-agent memory database with FTS5 search and temporal facts."""
+    """Per-agent memory database with FTS5 search, vector embeddings, and temporal facts."""
 
     def __init__(self, data_dir: Path, gcs_prefix: str, db_filename: str = "memory.db"):
         self.data_dir = data_dir
@@ -137,6 +215,7 @@ class MemoryDB:
         self._connection: sqlite3.Connection | None = None
         self._write_lock = threading.Lock()
         self._backup_mutex = threading.Lock()
+        self._vec_available = False
 
     def get_db(self) -> sqlite3.Connection:
         if self._connection is None:
@@ -146,6 +225,10 @@ class MemoryDB:
     @property
     def write_lock(self) -> threading.Lock:
         return self._write_lock
+
+    @property
+    def vec_available(self) -> bool:
+        return self._vec_available
 
     # ------------------------------------------------------------------
     # Lifecycle
@@ -172,8 +255,50 @@ class MemoryDB:
             else:
                 raise
 
+        self._load_sqlite_vec()
+        self._migrate_schema()
+
         _instances[str(self.data_dir)] = self
-        logger.info("MemoryDB initialized at %s", self.db_path)
+        logger.info("MemoryDB initialized at %s (vec=%s)", self.db_path, self._vec_available)
+
+    def _load_sqlite_vec(self) -> None:
+        """Attempt to load sqlite-vec extension."""
+        try:
+            import sqlite_vec  # noqa: F401
+            conn = self.get_db()
+            conn.enable_load_extension(True)
+            try:
+                sqlite_vec.load(conn)
+                self._vec_available = True
+            finally:
+                conn.enable_load_extension(False)
+        except ImportError:
+            logger.info("sqlite-vec not installed — vector search disabled")
+        except Exception as e:
+            logger.warning("sqlite-vec failed to load: %s", e)
+
+    def _migrate_schema(self) -> None:
+        """Apply incremental schema migrations."""
+        conn = self.get_db()
+        # Add content_hash column if missing
+        try:
+            conn.execute("SELECT content_hash FROM memory_documents LIMIT 0")
+        except sqlite3.OperationalError:
+            conn.execute("ALTER TABLE memory_documents ADD COLUMN content_hash TEXT")
+            conn.commit()
+
+        # Create vector table if sqlite-vec available
+        if self._vec_available:
+            try:
+                conn.execute("SELECT chunk_id FROM memory_vectors LIMIT 0")
+            except sqlite3.OperationalError:
+                from .embeddings import DIMENSIONS
+                conn.execute(
+                    f"CREATE VIRTUAL TABLE IF NOT EXISTS memory_vectors USING vec0("
+                    f"chunk_id INTEGER PRIMARY KEY, "
+                    f"embedding float[{DIMENSIONS}] distance_metric=cosine)"
+                )
+                conn.commit()
 
     def init_db(self) -> dict:
         """Initialize with integrity check and GCS restore."""
@@ -201,33 +326,103 @@ class MemoryDB:
         content: str,
         memory_type: str | None = None,
         date: str | None = None,
+        embed: bool = True,
     ) -> None:
-        """Upsert a document into memory_documents (FTS5 triggers handle the index)."""
+        """Upsert a document into memory_documents and optionally create chunks/vectors.
+
+        If embed=False, chunks are still created (for later backfill) but no
+        embeddings are computed.
+        """
         memory_type = validate_memory_type(memory_type)
         conn = self.get_db()
+        content_hash = hashlib.sha256(content.encode()).hexdigest()
+
         with self._write_lock:
+            # Check if content is unchanged
+            existing = conn.execute(
+                "SELECT id, content_hash FROM memory_documents WHERE source_type=? AND source_id=?",
+                (source_type, source_id),
+            ).fetchone()
+
+            if existing and existing["content_hash"] == content_hash:
+                # Content unchanged — check if chunks exist
+                chunk_count = conn.execute(
+                    "SELECT COUNT(*) FROM memory_chunks WHERE doc_id=?", (existing["id"],)
+                ).fetchone()[0]
+                if chunk_count > 0:
+                    return  # Nothing to do
+
+            # Upsert the document
             conn.execute(
                 """INSERT INTO memory_documents
-                       (source_type, source_id, title, content, memory_type, date, updated_at)
-                   VALUES (?, ?, ?, ?, ?, ?, datetime('now'))
+                       (source_type, source_id, title, content, memory_type, date, content_hash, updated_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))
                    ON CONFLICT(source_type, source_id)
                    DO UPDATE SET title=excluded.title,
                                  content=excluded.content,
                                  memory_type=excluded.memory_type,
                                  date=excluded.date,
+                                 content_hash=excluded.content_hash,
                                  updated_at=datetime('now')""",
-                (source_type, source_id, title, content, memory_type, date),
+                (source_type, source_id, title, content, memory_type, date, content_hash),
             )
             conn.commit()
 
+            # Get the doc_id
+            row = conn.execute(
+                "SELECT id FROM memory_documents WHERE source_type=? AND source_id=?",
+                (source_type, source_id),
+            ).fetchone()
+            doc_id = row["id"]
+
+            # Delete old chunks and their vectors
+            old_chunks = conn.execute(
+                "SELECT id FROM memory_chunks WHERE doc_id=?", (doc_id,)
+            ).fetchall()
+            if old_chunks and self._vec_available:
+                for c in old_chunks:
+                    try:
+                        conn.execute("DELETE FROM memory_vectors WHERE chunk_id=?", (c["id"],))
+                    except Exception:
+                        pass
+            conn.execute("DELETE FROM memory_chunks WHERE doc_id=?", (doc_id,))
+
+            # Create new chunks
+            chunks = _chunk_text(content)
+            for i, chunk_text in enumerate(chunks):
+                conn.execute(
+                    "INSERT INTO memory_chunks (doc_id, chunk_index, content) VALUES (?, ?, ?)",
+                    (doc_id, i, chunk_text),
+                )
+            conn.commit()
+
+        # Embedding happens via backfill (avoids thread-safety issues with
+        # fire-and-forget async tasks accessing the SQLite connection).
+
     def remove_document(self, source_type: str, source_id: str) -> None:
-        """Remove a document from the index."""
+        """Remove a document and its chunks/vectors from all indexes."""
         conn = self.get_db()
         with self._write_lock:
-            conn.execute(
-                "DELETE FROM memory_documents WHERE source_type=? AND source_id=?",
+            doc = conn.execute(
+                "SELECT id FROM memory_documents WHERE source_type=? AND source_id=?",
                 (source_type, source_id),
-            )
+            ).fetchone()
+            if doc:
+                # Explicit vector deletion (virtual tables don't honor CASCADE)
+                if self._vec_available:
+                    chunks = conn.execute(
+                        "SELECT id FROM memory_chunks WHERE doc_id=?", (doc["id"],)
+                    ).fetchall()
+                    for c in chunks:
+                        try:
+                            conn.execute("DELETE FROM memory_vectors WHERE chunk_id=?", (c["id"],))
+                        except Exception:
+                            pass
+                conn.execute("DELETE FROM memory_chunks WHERE doc_id=?", (doc["id"],))
+                conn.execute(
+                    "DELETE FROM memory_documents WHERE source_type=? AND source_id=?",
+                    (source_type, source_id),
+                )
             conn.commit()
 
     def search(
@@ -288,48 +483,71 @@ class MemoryDB:
     # ------------------------------------------------------------------
 
     def reindex_all(self, ctx_manager) -> dict:
-        """Full rebuild of FTS5 index from files on disk.
+        """Rebuild FTS5 index from files on disk, preserving chunks/vectors for unchanged content.
 
         *ctx_manager* is a ContextManager instance for this agent.
         Called on startup after init_db().
         """
         conn = self.get_db()
-        stats = {"documents_indexed": 0, "facts_reindexed": 0}
+        stats = {"documents_indexed": 0, "unchanged": 0, "removed": 0, "facts_reindexed": 0}
 
-        with self._write_lock:
-            # Clear existing document index (facts survive in their own table)
-            conn.execute("DELETE FROM memory_documents WHERE source_type != 'fact'")
-            conn.commit()
+        # 1. Collect all files that should exist
+        expected: dict[tuple[str, str], tuple[str, str, str | None, str | None]] = {}
+        # Format: (source_type, source_id) → (title, content, memory_type, date)
 
-        # 1. Index MEMORY.md
+        # MEMORY.md
         memory = ctx_manager.read_memory()
         if memory:
-            self.index_document("memory", "MEMORY.md", "MEMORY.md", memory)
-            stats["documents_indexed"] += 1
+            expected[("memory", "MEMORY.md")] = ("MEMORY.md", memory, None, None)
 
-        # 2. Index daily notes
+        # Daily notes
         daily_dir = ctx_manager.daily_dir
         if daily_dir.exists():
             for f in sorted(daily_dir.glob("*.md")):
-                note_date = f.stem  # e.g. "2026-04-12"
+                note_date = f.stem
                 content = f.read_text(encoding="utf-8", errors="replace")
                 if content.strip():
-                    self.index_document("daily", note_date, note_date, content, date=note_date)
-                    stats["documents_indexed"] += 1
+                    expected[("daily", note_date)] = (note_date, content, None, note_date)
 
-        # 3. Index topic files (skip soul.md, MEMORY.md, _-prefixed)
+        # Topic files (skip soul.md, MEMORY.md, _-prefixed)
         skip = {"soul.md", "memory.md"}
         for f in sorted(ctx_manager.data_dir.glob("*.md")):
             if f.name.startswith("_") or f.name.lower() in skip:
                 continue
             content = f.read_text(encoding="utf-8", errors="replace")
             if content.strip():
-                self.index_document("topic", f.name, f.name, content)
-                stats["documents_indexed"] += 1
+                expected[("topic", f.name)] = (f.name, content, None, None)
 
-        # 4. Re-index existing facts from the facts table
-        rows = conn.execute("SELECT id, subject, predicate, object, valid_from, memory_type FROM facts WHERE valid_to IS NULL").fetchall()
-        for row in rows:
+        # 2. Upsert expected docs (skipping unchanged ones)
+        for (src_type, src_id), (title, content, mem_type, doc_date) in expected.items():
+            new_hash = hashlib.sha256(content.encode()).hexdigest()
+            existing = conn.execute(
+                "SELECT id, content_hash FROM memory_documents WHERE source_type=? AND source_id=?",
+                (src_type, src_id),
+            ).fetchone()
+
+            if existing and existing["content_hash"] == new_hash:
+                stats["unchanged"] += 1
+                continue
+
+            self.index_document(src_type, src_id, title, content, memory_type=mem_type, date=doc_date, embed=False)
+            stats["documents_indexed"] += 1
+
+        # 3. Remove docs that no longer exist on disk
+        all_docs = conn.execute(
+            "SELECT source_type, source_id FROM memory_documents WHERE source_type != 'fact'"
+        ).fetchall()
+        for row in all_docs:
+            key = (row["source_type"], row["source_id"])
+            if key not in expected:
+                self.remove_document(row["source_type"], row["source_id"])
+                stats["removed"] += 1
+
+        # 4. Re-index active facts
+        fact_rows = conn.execute(
+            "SELECT id, subject, predicate, object, valid_from, memory_type FROM facts WHERE valid_to IS NULL"
+        ).fetchall()
+        for row in fact_rows:
             self.index_document(
                 "fact",
                 str(row["id"]),
@@ -337,11 +555,268 @@ class MemoryDB:
                 f"{row['subject']} {row['predicate']} {row['object']}",
                 memory_type=row["memory_type"],
                 date=row["valid_from"],
+                embed=False,
             )
             stats["facts_reindexed"] += 1
 
         logger.info("MemoryDB reindex complete: %s", stats)
         return stats
+
+    # ------------------------------------------------------------------
+    # Hybrid search (FTS5 + vector)
+    # ------------------------------------------------------------------
+
+    def hybrid_search(
+        self,
+        query: str,
+        query_embedding: list[float] | None = None,
+        source_type: str | None = None,
+        memory_type: str | None = None,
+        date_from: str | None = None,
+        date_to: str | None = None,
+        limit: int = 20,
+    ) -> list[dict]:
+        """Hybrid search combining FTS5 keyword + vector similarity via RRF."""
+        # FTS5 results
+        fts_results = self.search(
+            query, source_type=source_type, memory_type=memory_type,
+            date_from=date_from, date_to=date_to, limit=50,
+        )
+
+        # If no vector search possible, return FTS5 only
+        if not self._vec_available or not query_embedding:
+            return fts_results[:limit]
+
+        # Vector results
+        vec_results = self._vector_search(
+            query_embedding, source_type=source_type, memory_type=memory_type,
+            date_from=date_from, date_to=date_to, limit=50,
+        )
+
+        # RRF merge
+        return self._rrf_merge(fts_results, vec_results, limit)
+
+    def _vector_search(
+        self,
+        query_embedding: list[float],
+        source_type: str | None = None,
+        memory_type: str | None = None,
+        date_from: str | None = None,
+        date_to: str | None = None,
+        limit: int = 50,
+    ) -> list[dict]:
+        """KNN vector search with post-filtering."""
+        conn = self.get_db()
+        try:
+            import sqlite_vec
+            query_blob = sqlite_vec.serialize_float32(query_embedding)
+
+            # Over-fetch to account for post-filtering
+            rows = conn.execute(
+                """SELECT v.chunk_id, v.distance, mc.doc_id
+                   FROM memory_vectors v
+                   JOIN memory_chunks mc ON mc.id = v.chunk_id
+                   WHERE v.embedding MATCH ? AND k = 200""",
+                (query_blob,),
+            ).fetchall()
+
+            # Post-filter and deduplicate by doc_id
+            seen_docs: dict[int, float] = {}  # doc_id → best distance
+            for row in rows:
+                doc_id = row["doc_id"]
+                distance = row["distance"]
+                if doc_id not in seen_docs or distance < seen_docs[doc_id]:
+                    seen_docs[doc_id] = distance
+
+            if not seen_docs:
+                return []
+
+            # Hydrate document metadata and apply filters
+            placeholders = ",".join("?" * len(seen_docs))
+            sql = f"SELECT id, source_type, source_id, title, memory_type, date FROM memory_documents WHERE id IN ({placeholders})"
+            params: list = list(seen_docs.keys())
+
+            docs = conn.execute(sql, params).fetchall()
+
+            results = []
+            for doc in docs:
+                # Apply filters
+                if source_type and doc["source_type"] != source_type:
+                    continue
+                if memory_type and doc["memory_type"] != memory_type:
+                    continue
+                if date_from:
+                    if not doc["date"] or doc["date"] < date_from:
+                        continue
+                if date_to:
+                    if not doc["date"] or doc["date"] > date_to:
+                        continue
+
+                # Get snippet from best matching chunk
+                chunk_snippet = self._get_chunk_snippet(doc["id"])
+                results.append({
+                    "id": doc["id"],
+                    "source_type": doc["source_type"],
+                    "source_id": doc["source_id"],
+                    "title": doc["title"],
+                    "memory_type": doc["memory_type"],
+                    "date": doc["date"],
+                    "snippet": chunk_snippet,
+                    "rank": -1.0 / (1.0 + seen_docs[doc["id"]]),  # Convert distance to negative rank
+                })
+
+            # Sort by distance (best first)
+            results.sort(key=lambda r: seen_docs[r["id"]])
+            return results[:limit]
+
+        except Exception as e:
+            logger.warning("Vector search failed: %s", e)
+            return []
+
+    def _get_chunk_snippet(self, doc_id: int) -> str:
+        """Get a 200-char snippet from the first chunk of a document."""
+        conn = self.get_db()
+        row = conn.execute(
+            "SELECT content FROM memory_chunks WHERE doc_id=? ORDER BY chunk_index LIMIT 1",
+            (doc_id,),
+        ).fetchone()
+        if row:
+            text = row["content"]
+            return text[:200] + "…" if len(text) > 200 else text
+        return ""
+
+    def _rrf_merge(self, fts_results: list[dict], vec_results: list[dict], limit: int) -> list[dict]:
+        """Reciprocal Rank Fusion merge of FTS5 and vector results."""
+        K = 60  # RRF constant
+        scores: dict[int, float] = {}
+        docs_by_id: dict[int, dict] = {}
+
+        for rank, doc in enumerate(fts_results):
+            doc_id = doc["id"]
+            scores[doc_id] = scores.get(doc_id, 0) + 1.0 / (K + rank)
+            docs_by_id[doc_id] = doc
+
+        for rank, doc in enumerate(vec_results):
+            doc_id = doc["id"]
+            scores[doc_id] = scores.get(doc_id, 0) + 1.0 / (K + rank)
+            if doc_id not in docs_by_id:
+                docs_by_id[doc_id] = doc
+
+        # Sort by RRF score descending
+        sorted_ids = sorted(scores.keys(), key=lambda x: scores[x], reverse=True)
+
+        results = []
+        for doc_id in sorted_ids[:limit]:
+            doc = docs_by_id[doc_id]
+            doc["rank"] = -scores[doc_id]  # Negative for BM25 compatibility
+            results.append(doc)
+
+        return results
+
+    # ------------------------------------------------------------------
+    # Vector backfill
+    # ------------------------------------------------------------------
+
+    async def backfill_embeddings(self, batch_size: int = 32) -> dict:
+        """Embed chunks that are missing vectors. Returns {processed, remaining}."""
+        if not self._vec_available:
+            return {"processed": 0, "remaining": 0, "error": "sqlite-vec not available"}
+
+        from .embeddings import get_embedding_service
+        service = get_embedding_service()
+        if not await service.is_available():
+            return {"processed": 0, "remaining": 0, "error": "no embedding provider"}
+
+        conn = self.get_db()
+
+        # Find chunks without vectors
+        rows = conn.execute(
+            """SELECT mc.id, mc.content
+               FROM memory_chunks mc
+               LEFT JOIN memory_vectors mv ON mv.chunk_id = mc.id
+               WHERE mv.chunk_id IS NULL
+               LIMIT ?""",
+            (batch_size,),
+        ).fetchall()
+
+        if not rows:
+            return {"processed": 0, "remaining": 0}
+
+        texts = [r["content"] for r in rows]
+        embeddings = await service.embed(texts)
+        if not embeddings:
+            return {"processed": 0, "remaining": len(rows), "error": "embedding call failed"}
+
+        import sqlite_vec
+        processed = 0
+        with self._write_lock:
+            for row, embedding in zip(rows, embeddings):
+                try:
+                    conn.execute(
+                        "INSERT OR REPLACE INTO memory_vectors (chunk_id, embedding) VALUES (?, ?)",
+                        (row["id"], sqlite_vec.serialize_float32(embedding)),
+                    )
+                    processed += 1
+                except Exception as e:
+                    logger.debug("Vector insert failed for chunk %d: %s", row["id"], e)
+            conn.commit()
+
+        # Count remaining
+        remaining = conn.execute(
+            """SELECT COUNT(*) FROM memory_chunks mc
+               LEFT JOIN memory_vectors mv ON mv.chunk_id = mc.id
+               WHERE mv.chunk_id IS NULL""",
+        ).fetchone()[0]
+
+        result = {"processed": processed, "remaining": remaining}
+        if processed == 0 and remaining > 0:
+            result["error"] = "all row inserts failed"
+        return result
+
+    async def check_embedding_config(self) -> None:
+        """Check if embedding provider changed; invalidate vectors if so."""
+        if not self._vec_available:
+            return
+
+        from .embeddings import get_embedding_service
+        service = get_embedding_service()
+        if not await service.is_available():
+            return
+
+        info = service.get_provider_info()
+        if not info:
+            return
+
+        conn = self.get_db()
+        stored = conn.execute("SELECT provider, model FROM memory_embedding_config WHERE id=1").fetchone()
+
+        if stored:
+            if stored["provider"] != info["provider"] or stored["model"] != info["model"]:
+                logger.info(
+                    "Embedding provider changed (%s/%s → %s/%s) — invalidating vectors",
+                    stored["provider"], stored["model"], info["provider"], info["model"],
+                )
+                with self._write_lock:
+                    # Drop and recreate vector table (dimensions may have changed)
+                    conn.execute("DROP TABLE IF EXISTS memory_vectors")
+                    conn.execute(
+                        f"CREATE VIRTUAL TABLE memory_vectors USING vec0("
+                        f"chunk_id INTEGER PRIMARY KEY, "
+                        f"embedding float[{info['dimensions']}] distance_metric=cosine)"
+                    )
+                    conn.execute("DELETE FROM memory_embedding_config WHERE id=1")
+                    conn.execute(
+                        "INSERT INTO memory_embedding_config (id, provider, model, dimensions) VALUES (1, ?, ?, ?)",
+                        (info["provider"], info["model"], info["dimensions"]),
+                    )
+                    conn.commit()
+        else:
+            with self._write_lock:
+                conn.execute(
+                    "INSERT OR REPLACE INTO memory_embedding_config (id, provider, model, dimensions) VALUES (1, ?, ?, ?)",
+                    (info["provider"], info["model"], info["dimensions"]),
+                )
+                conn.commit()
 
     # ------------------------------------------------------------------
     # Temporal facts

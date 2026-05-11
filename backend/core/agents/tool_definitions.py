@@ -312,6 +312,79 @@ MEMORY_TOOLS = [
     },
 ]
 
+# ── Skill pack tools ────────────────────────────────────────────────────────
+
+SKILL_TOOLS = [
+    {
+        "name": "list_skills",
+        "description": "List available skill packs (reusable prompt recipes you've saved).",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "category": {
+                    "type": "string",
+                    "description": "Optional category filter.",
+                },
+            },
+        },
+        "kind": "skill",
+        "writes": False,
+    },
+    {
+        "name": "run_skill",
+        "description": "Execute a saved skill pack by name. Returns the expanded prompt text for you to follow.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "name": {
+                    "type": "string",
+                    "description": "Name of the skill to execute.",
+                },
+                "params": {
+                    "type": "object",
+                    "description": "Key-value parameters to substitute into {{param}} placeholders.",
+                },
+            },
+            "required": ["name"],
+        },
+        "kind": "skill",
+        "writes": True,
+    },
+    {
+        "name": "save_skill",
+        "description": "Save a reusable skill pack (prompt recipe) for future use. Use {{param_name}} for variable placeholders.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "name": {
+                    "type": "string",
+                    "description": "Unique name for this skill.",
+                },
+                "prompt": {
+                    "type": "string",
+                    "description": "The prompt template. Use {{param}} for variable parts.",
+                },
+                "description": {
+                    "type": "string",
+                    "description": "Brief description of what this skill does.",
+                },
+                "category": {
+                    "type": "string",
+                    "description": "Category for organization (e.g. 'email', 'analysis', 'writing').",
+                },
+                "tags": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Tags for discovery.",
+                },
+            },
+            "required": ["name", "prompt"],
+        },
+        "kind": "skill",
+        "writes": True,
+    },
+]
+
 # ── Shared context tools ─────────────────────────────────────────────────────
 
 SHARED_CONTEXT_TOOLS = [
@@ -1451,6 +1524,7 @@ def get_tool_definitions(
     tools = list(CONTEXT_TOOLS)
     if memory_enabled:
         tools.extend(MEMORY_TOOLS)
+        tools.extend(SKILL_TOOLS)
     if shared_context_enabled:
         tools.extend(SHARED_CONTEXT_TOOLS)
 

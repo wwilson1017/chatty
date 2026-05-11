@@ -11,6 +11,7 @@ The LRU cache holds the initialized DB + context manager so we don't
 re-init SQLite on every request.
 """
 
+import asyncio
 import logging
 from functools import lru_cache
 from pathlib import Path
@@ -105,7 +106,37 @@ def _get_initialized_memory_db(slug: str):
     # Reindex all files on first init so FTS5 has data
     ctx_manager = get_context_manager(slug)
     db.reindex_all(ctx_manager)
+
+    # Schedule background embedding backfill (non-blocking)
+    if db.vec_available:
+        try:
+            loop = asyncio.get_running_loop()
+            loop.create_task(_backfill_vectors(db))
+        except RuntimeError:
+            pass  # No event loop — backfill will happen on first async access
+
     return db
+
+
+async def _backfill_vectors(db):
+    """Background task to embed chunks missing vectors."""
+    try:
+        await db.check_embedding_config()
+        remaining = 1
+        failures = 0
+        while remaining > 0 and failures < 3:
+            result = await db.backfill_embeddings(batch_size=32)
+            remaining = result.get("remaining", 0)
+            if result.get("error"):
+                failures += 1
+            else:
+                failures = 0
+            if remaining > 0:
+                await asyncio.sleep(5)
+        if failures >= 3:
+            logger.warning("Vector backfill stopped after %d consecutive failures", failures)
+    except Exception as e:
+        logger.debug("Vector backfill error: %s", e)
 
 
 def ensure_memory_db(slug: str):
