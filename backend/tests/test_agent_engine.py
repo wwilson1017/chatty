@@ -10,7 +10,6 @@ from agents.engine import (
     get_chat_service,
     get_context_manager,
     invalidate_cache,
-    _context_dir,
 )
 from core.agents.config import AgentConfig
 from core.agents.context_manager import ContextManager
