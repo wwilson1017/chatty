@@ -78,12 +78,12 @@ class TestShouldDeferTools:
         assert should_defer_tools(DEFERRED_TOOL_THRESHOLD + 1) is True
 
     def test_low_iterations_skips(self):
-        assert should_defer_tools(50, max_iterations=2) is False
-        assert should_defer_tools(50, max_iterations=3) is False
+        assert should_defer_tools(DEFERRED_TOOL_THRESHOLD + 1, max_iterations=2) is False
+        assert should_defer_tools(DEFERRED_TOOL_THRESHOLD + 1, max_iterations=3) is False
 
     def test_sufficient_iterations(self):
-        assert should_defer_tools(50, max_iterations=MIN_ITERATIONS_FOR_DEFERRAL) is True
-        assert should_defer_tools(50, max_iterations=20) is True
+        assert should_defer_tools(DEFERRED_TOOL_THRESHOLD + 1, max_iterations=MIN_ITERATIONS_FOR_DEFERRAL) is True
+        assert should_defer_tools(DEFERRED_TOOL_THRESHOLD + 1, max_iterations=20) is True
 
 
 # ── build_tool_catalog ───────────────────────────────────────────────────────
