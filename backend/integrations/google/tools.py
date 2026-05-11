@@ -1,9 +1,11 @@
 """
-Chatty — Google tool handlers (Gmail + Calendar + Drive).
+Chatty — Google tool handlers (Gmail + Calendar + Drive), multi-account.
 
 These are the functions that ToolRegistry._execute_gmail /
 _execute_calendar / _execute_drive dispatch to. Each wraps the underlying
 ops with call_with_refresh() for automatic token refresh on 401.
+
+Every tool function takes account_id as its first parameter.
 """
 
 from __future__ import annotations
@@ -22,10 +24,10 @@ from . import gmail_ops, calendar_ops, drive_ops
 logger = logging.getLogger(__name__)
 
 
-def _wrap(service_factory, op, **kwargs):
+def _wrap(account_id, service_factory, op, **kwargs):
     """Call an op with auto-refresh; surface GoogleAuthError + generic errors as dicts."""
     try:
-        return call_with_refresh(service_factory, op, **kwargs)
+        return call_with_refresh(account_id, service_factory, op, **kwargs)
     except GoogleAuthError as e:
         return {"error": str(e), "needs_reconnect": True}
     except Exception as e:
@@ -35,58 +37,57 @@ def _wrap(service_factory, op, **kwargs):
 
 # ── Gmail ────────────────────────────────────────────────────────────────────
 
-def search_emails(query: str, max_results: int = 10) -> dict:
-    result = _wrap(get_gmail_service, gmail_ops.list_messages_op, query=query, max_results=max_results)
+def search_emails(account_id: str, query: str, max_results: int = 10) -> dict:
+    result = _wrap(account_id, get_gmail_service, gmail_ops.list_messages_op, query=query, max_results=max_results)
     if isinstance(result, list):
         return {"messages": result, "count": len(result)}
     return result
 
 
-def get_email(message_id: str) -> dict:
-    return _wrap(get_gmail_service, gmail_ops.get_message_op, message_id=message_id)
+def get_email(account_id: str, message_id: str) -> dict:
+    return _wrap(account_id, get_gmail_service, gmail_ops.get_message_op, message_id=message_id)
 
 
-def get_email_thread(thread_id: str) -> dict:
-    return _wrap(get_gmail_service, gmail_ops.get_thread_op, thread_id=thread_id)
+def get_email_thread(account_id: str, thread_id: str) -> dict:
+    return _wrap(account_id, get_gmail_service, gmail_ops.get_thread_op, thread_id=thread_id)
 
 
-def send_email(to: str, subject: str, body: str, cc: str = "", bcc: str = "") -> dict:
-    return _wrap(get_gmail_service, gmail_ops.send_email_op,
+def send_email(account_id: str, to: str, subject: str, body: str, cc: str = "", bcc: str = "") -> dict:
+    return _wrap(account_id, get_gmail_service, gmail_ops.send_email_op,
                  to=to, subject=subject, body=body, cc=cc, bcc=bcc)
 
 
-def reply_to_email(message_id: str, body: str, reply_all: bool = False) -> dict:
-    return _wrap(get_gmail_service, gmail_ops.reply_to_email_op,
+def reply_to_email(account_id: str, message_id: str, body: str, reply_all: bool = False) -> dict:
+    return _wrap(account_id, get_gmail_service, gmail_ops.reply_to_email_op,
                  message_id=message_id, body=body, reply_all=reply_all)
 
 
-def create_draft(to: str, subject: str, body: str, cc: str = "", bcc: str = "") -> dict:
-    return _wrap(get_gmail_service, gmail_ops.create_draft_op,
+def create_draft(account_id: str, to: str, subject: str, body: str, cc: str = "", bcc: str = "") -> dict:
+    return _wrap(account_id, get_gmail_service, gmail_ops.create_draft_op,
                  to=to, subject=subject, body=body, cc=cc, bcc=bcc)
 
 
-def mark_email_as_read(message_id: str) -> dict:
-    return _wrap(get_gmail_service, gmail_ops.mark_as_read_op,
+def mark_email_as_read(account_id: str, message_id: str) -> dict:
+    return _wrap(account_id, get_gmail_service, gmail_ops.mark_as_read_op,
                  message_id=message_id)
 
 
 _MAX_BATCH_MARK_READ = 50
 
 
-def batch_mark_emails_as_read(message_ids: list[str]) -> dict:
+def batch_mark_emails_as_read(account_id: str, message_ids: list[str]) -> dict:
     if not message_ids:
         return {"error": "message_ids must be a non-empty list"}
     if len(message_ids) > _MAX_BATCH_MARK_READ:
         return {"error": f"Too many message IDs ({len(message_ids)}). Maximum is {_MAX_BATCH_MARK_READ}."}
-    return _wrap(get_gmail_service, gmail_ops.batch_mark_as_read_op,
+    return _wrap(account_id, get_gmail_service, gmail_ops.batch_mark_as_read_op,
                  message_ids=message_ids)
 
 
-def download_email_attachment(message_id: str, filename: str, cache_dir: str | None = None) -> dict:
+def download_email_attachment(account_id: str, message_id: str, filename: str, cache_dir: str | None = None) -> dict:
     """Download an email attachment, extract text, and cache for forwarding."""
     import base64 as b64
 
-    from integrations.google.client import get_gmail_service as _get_svc, call_with_refresh, GoogleAuthError
     from core.agents.tools.text_extraction import (
         classify_mimetype, is_text_extractable, extract_text,
         MAX_FILE_SIZE,
@@ -124,7 +125,7 @@ def download_email_attachment(message_id: str, filename: str, cache_dir: str | N
         ).execute()
 
     try:
-        msg = call_with_refresh(_get_svc, _fetch_message, message_id=message_id)
+        msg = call_with_refresh(account_id, get_gmail_service, _fetch_message, message_id=message_id)
     except GoogleAuthError as e:
         return {"error": str(e), "needs_reconnect": True}
     except Exception as e:
@@ -155,7 +156,7 @@ def download_email_attachment(message_id: str, filename: str, cache_dir: str | N
             return {"error": "Attachment has no downloadable content"}
     else:
         try:
-            raw = call_with_refresh(_get_svc, gmail_ops.get_attachment_content_op,
+            raw = call_with_refresh(account_id, get_gmail_service, gmail_ops.get_attachment_content_op,
                                     message_id=message_id, attachment_id=attachment_id)
         except Exception as e:
             return {"error": f"Failed to download attachment: {e}"}
@@ -245,6 +246,7 @@ def _resolve_attachment(
 
 
 def send_email_with_attachment(
+    account_id: str,
     to: str, subject: str, body: str,
     attachment_filename: str,
     attachment_base64: str = "",
@@ -265,12 +267,13 @@ def send_email_with_attachment(
         return {"ok": False, "error": f"Attachment too large (~{decoded_mb:.1f} MB). Gmail rejects messages over ~35 MB."}
 
     attachments = [{"filename": att_fn, "content_base64": att_b64, "mime_type": att_mt}]
-    return _wrap(get_gmail_service, gmail_ops.send_email_op,
+    return _wrap(account_id, get_gmail_service, gmail_ops.send_email_op,
                  to=to, subject=subject, body=body, cc=cc, bcc=bcc,
                  attachments=attachments)
 
 
 def reply_to_email_with_attachment(
+    account_id: str,
     message_id: str, body: str,
     attachment_filename: str,
     attachment_base64: str = "",
@@ -291,31 +294,32 @@ def reply_to_email_with_attachment(
         return {"ok": False, "error": f"Attachment too large (~{decoded_mb:.1f} MB). Gmail rejects messages over ~35 MB."}
 
     attachments = [{"filename": att_fn, "content_base64": att_b64, "mime_type": att_mt}]
-    return _wrap(get_gmail_service, gmail_ops.reply_to_email_op,
+    return _wrap(account_id, get_gmail_service, gmail_ops.reply_to_email_op,
                  message_id=message_id, body=body,
                  reply_all=reply_all, attachments=attachments)
 
 
 # ── Calendar ─────────────────────────────────────────────────────────────────
 
-def _user_timezone() -> str:
-    """Read the cached timezone from data/integrations/google.json."""
+def _user_timezone(account_id: str) -> str:
+    """Read the cached timezone from the specific account in google.json."""
     try:
-        from integrations.registry import get_credentials
-        creds = get_credentials("google")
-        return creds.get("calendar_timezone", "UTC") or "UTC"
+        from integrations.registry import get_google_account
+        acct = get_google_account(account_id)
+        return acct.get("calendar_timezone", "UTC") or "UTC"
     except Exception:
         return "UTC"
 
 
 def list_calendar_events(
+    account_id: str,
     time_min: str = "",
     time_max: str = "",
     calendar_id: str = "primary",
     max_results: int = 10,
 ) -> dict:
     result = _wrap(
-        get_calendar_service, calendar_ops.list_events_op,
+        account_id, get_calendar_service, calendar_ops.list_events_op,
         time_min=time_min, time_max=time_max,
         calendar_id=calendar_id, max_results=max_results,
     )
@@ -324,12 +328,13 @@ def list_calendar_events(
     return result
 
 
-def get_calendar_event(event_id: str, calendar_id: str = "primary") -> dict:
-    return _wrap(get_calendar_service, calendar_ops.get_event_op,
+def get_calendar_event(account_id: str, event_id: str, calendar_id: str = "primary") -> dict:
+    return _wrap(account_id, get_calendar_service, calendar_ops.get_event_op,
                  event_id=event_id, calendar_id=calendar_id)
 
 
 def search_calendar_events(
+    account_id: str,
     query: str,
     time_min: str = "",
     time_max: str = "",
@@ -337,7 +342,7 @@ def search_calendar_events(
     calendar_id: str = "primary",
 ) -> dict:
     result = _wrap(
-        get_calendar_service, calendar_ops.search_events_op,
+        account_id, get_calendar_service, calendar_ops.search_events_op,
         query=query, time_min=time_min, time_max=time_max,
         max_results=max_results, calendar_id=calendar_id,
     )
@@ -347,20 +352,22 @@ def search_calendar_events(
 
 
 def find_free_slot(
+    account_id: str,
     duration_minutes: int,
     between_start: str,
     between_end: str,
     calendar_ids: list[str] | None = None,
 ) -> dict:
     return _wrap(
-        get_calendar_service, calendar_ops.find_free_slot_op,
+        account_id, get_calendar_service, calendar_ops.find_free_slot_op,
         duration_minutes=duration_minutes,
         between_start=between_start, between_end=between_end,
-        calendar_ids=calendar_ids, timezone_str=_user_timezone(),
+        calendar_ids=calendar_ids, timezone_str=_user_timezone(account_id),
     )
 
 
 def create_calendar_event(
+    account_id: str,
     summary: str,
     start: str,
     end: str,
@@ -370,15 +377,16 @@ def create_calendar_event(
     calendar_id: str = "primary",
 ) -> dict:
     return _wrap(
-        get_calendar_service, calendar_ops.create_event_op,
+        account_id, get_calendar_service, calendar_ops.create_event_op,
         summary=summary, start=start, end=end,
         description=description, location=location,
         attendees=attendees, calendar_id=calendar_id,
-        timezone_str=_user_timezone(),
+        timezone_str=_user_timezone(account_id),
     )
 
 
 def update_calendar_event(
+    account_id: str,
     event_id: str,
     calendar_id: str = "primary",
     summary: str | None = None,
@@ -389,68 +397,69 @@ def update_calendar_event(
     attendees: list[str] | None = None,
 ) -> dict:
     return _wrap(
-        get_calendar_service, calendar_ops.update_event_op,
+        account_id, get_calendar_service, calendar_ops.update_event_op,
         event_id=event_id, calendar_id=calendar_id,
         summary=summary, start=start, end=end,
         description=description, location=location, attendees=attendees,
-        timezone_str=_user_timezone(),
+        timezone_str=_user_timezone(account_id),
     )
 
 
-def delete_calendar_event(event_id: str, calendar_id: str = "primary") -> dict:
-    return _wrap(get_calendar_service, calendar_ops.delete_event_op,
+def delete_calendar_event(account_id: str, event_id: str, calendar_id: str = "primary") -> dict:
+    return _wrap(account_id, get_calendar_service, calendar_ops.delete_event_op,
                  event_id=event_id, calendar_id=calendar_id)
 
 
 # ── Drive ────────────────────────────────────────────────────────────────────
 
-def search_drive_files(query: str, max_results: int = 20) -> dict:
-    result = _wrap(get_drive_service, drive_ops.search_files_op,
+def search_drive_files(account_id: str, query: str, max_results: int = 20) -> dict:
+    result = _wrap(account_id, get_drive_service, drive_ops.search_files_op,
                    query=query, max_results=max_results)
     if isinstance(result, list):
         return {"count": len(result), "query": query, "files": result}
     return result
 
 
-def list_drive_folder(folder_id: str = "root", max_results: int = 50) -> dict:
-    result = _wrap(get_drive_service, drive_ops.list_folder_op,
+def list_drive_folder(account_id: str, folder_id: str = "root", max_results: int = 50) -> dict:
+    result = _wrap(account_id, get_drive_service, drive_ops.list_folder_op,
                    folder_id=folder_id, max_results=max_results)
     if isinstance(result, list):
         return {"count": len(result), "folder_id": folder_id, "files": result}
     return result
 
 
-def get_drive_file_info(file_id: str) -> dict:
-    return _wrap(get_drive_service, drive_ops.get_file_info_op, file_id=file_id)
+def get_drive_file_info(account_id: str, file_id: str) -> dict:
+    return _wrap(account_id, get_drive_service, drive_ops.get_file_info_op, file_id=file_id)
 
 
-def read_drive_file_content(file_id: str, max_chars: int = 50000) -> dict:
-    return _wrap(get_drive_service, drive_ops.read_file_content_op,
+def read_drive_file_content(account_id: str, file_id: str, max_chars: int = 50000) -> dict:
+    return _wrap(account_id, get_drive_service, drive_ops.read_file_content_op,
                  file_id=file_id, max_chars=max_chars)
 
 
-def create_drive_folder(name: str, parent_folder_id: str = "root") -> dict:
-    return _wrap(get_drive_service, drive_ops.create_folder_op,
+def create_drive_folder(account_id: str, name: str, parent_folder_id: str = "root") -> dict:
+    return _wrap(account_id, get_drive_service, drive_ops.create_folder_op,
                  name=name, parent_folder_id=parent_folder_id)
 
 
 def create_drive_file(
+    account_id: str,
     name: str, content: str = "", file_type: str = "document", folder_id: str = "root",
 ) -> dict:
-    return _wrap(get_drive_service, drive_ops.create_file_op,
+    return _wrap(account_id, get_drive_service, drive_ops.create_file_op,
                  name=name, content=content, file_type=file_type, folder_id=folder_id)
 
 
-def move_drive_file(file_id: str, new_parent_id: str) -> dict:
-    return _wrap(get_drive_service, drive_ops.move_file_op,
+def move_drive_file(account_id: str, file_id: str, new_parent_id: str) -> dict:
+    return _wrap(account_id, get_drive_service, drive_ops.move_file_op,
                  file_id=file_id, new_parent_id=new_parent_id)
 
 
-def rename_drive_file(file_id: str, new_name: str) -> dict:
-    return _wrap(get_drive_service, drive_ops.rename_file_op,
+def rename_drive_file(account_id: str, file_id: str, new_name: str) -> dict:
+    return _wrap(account_id, get_drive_service, drive_ops.rename_file_op,
                  file_id=file_id, new_name=new_name)
 
 
-def copy_drive_file(file_id: str, new_name: str | None = None, folder_id: str | None = None) -> dict:
-    return _wrap(get_drive_service, drive_ops.copy_file_op,
+def copy_drive_file(account_id: str, file_id: str, new_name: str | None = None, folder_id: str | None = None) -> dict:
+    return _wrap(account_id, get_drive_service, drive_ops.copy_file_op,
                  file_id=file_id, new_name=new_name, folder_id=folder_id)

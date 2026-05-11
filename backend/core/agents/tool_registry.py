@@ -68,11 +68,30 @@ logger = logging.getLogger(__name__)
 class ToolRegistry:
     """Per-agent tool executor. Routes tool calls to the correct handler."""
 
+    _WRITE_TOOLS = {
+        "gmail": {"send_email", "reply_to_email", "create_draft",
+                  "send_email_with_attachment", "reply_to_email_with_attachment",
+                  "mark_email_as_read", "batch_mark_emails_as_read"},
+        "calendar": {"create_calendar_event", "update_calendar_event", "delete_calendar_event"},
+        "drive": {"create_drive_folder", "create_drive_file", "move_drive_file",
+                  "rename_drive_file", "copy_drive_file"},
+    }
+    _WRITE_SCOPE_KEY = {"gmail": "gmail", "calendar": "calendar", "drive": "drive"}
+    _WRITE_SCOPE_LEVELS = {
+        "gmail": {"send"},
+        "calendar": {"full"},
+        "drive": {"file", "full"},
+    }
+
     def __init__(
         self,
         context_dir: str,
         gcs_prefix: str = "",
         google_connected: bool = False,
+        gmail_account_ids: list[str] | None = None,
+        calendar_account_ids: list[str] | None = None,
+        drive_account_ids: list[str] | None = None,
+        account_info_map: dict[str, dict] | None = None,
         integration_executors: dict | None = None,
         agent_slug: str = "",
         agent_name: str = "",
@@ -82,6 +101,10 @@ class ToolRegistry:
         self.context_dir = context_dir
         self.gcs_prefix = gcs_prefix
         self.google_connected = google_connected
+        self.gmail_account_ids = gmail_account_ids or []
+        self.calendar_account_ids = calendar_account_ids or []
+        self.drive_account_ids = drive_account_ids or []
+        self.account_info_map: dict[str, dict] = account_info_map or {}
         self.integration_executors: dict = integration_executors or {}
         self.agent_slug = agent_slug
         self.agent_name = agent_name
@@ -134,6 +157,8 @@ class ToolRegistry:
                 return self._execute_setup(tool_name, tool_args)
             elif kind == "import":
                 return self._execute_import(tool_name, tool_args)
+            elif kind == "activity_log":
+                return self._execute_activity_log(tool_name, tool_args)
             else:
                 return {"error": f"Unknown tool kind: {kind}"}
         except Exception as e:
@@ -237,43 +262,89 @@ class ToolRegistry:
             )
         return {"error": f"Unknown shared_context tool: {tool_name}"}
 
-    def _execute_gmail(self, tool_name: str, args: dict) -> dict:
-        if not self.google_connected:
-            return {"error": "Google not connected. Connect at Settings → Integrations → Google.",
+    def _resolve_account(self, service: str, email: str | None, tool_name: str) -> str | dict:
+        """Resolve an account for a service. Returns account_id or error dict."""
+        ids = getattr(self, f"{service}_account_ids")
+        if not ids:
+            return {"error": f"No {service.title()} account assigned. Assign one at Settings → Integrations → Google.",
                     "needs_reconnect": True}
+        is_write = tool_name in self._WRITE_TOOLS.get(service, set())
+        if email:
+            matched_id = ""
+            for aid in ids:
+                info = self.account_info_map.get(aid, {})
+                if info.get("email", "").lower() == email.lower():
+                    matched_id = aid
+                    break
+            if not matched_id:
+                available = [self.account_info_map.get(a, {}).get("email", a) for a in ids]
+                return {"error": f"Account '{email}' is not assigned to this agent for {service.title()}. Available: {', '.join(available)}"}
+            info = self.account_info_map.get(matched_id, {})
+            if info.get("connection_status") == "broken":
+                return {"error": f"Account '{email}' has a broken connection. Reconnect at Settings → Integrations → Google.",
+                        "needs_reconnect": True}
+            if is_write:
+                grants = info.get("scope_grants", {})
+                level = grants.get(self._WRITE_SCOPE_KEY.get(service, service), "none")
+                if level not in self._WRITE_SCOPE_LEVELS.get(service, set()):
+                    return {"error": f"Account '{email}' has read-only {service.title()} access and cannot perform write operations."}
+            return matched_id
+        if is_write:
+            for aid in ids:
+                info = self.account_info_map.get(aid, {})
+                if info.get("connection_status") == "broken":
+                    continue
+                grants = info.get("scope_grants", {})
+                level = grants.get(self._WRITE_SCOPE_KEY.get(service, service), "none")
+                if level in self._WRITE_SCOPE_LEVELS.get(service, set()):
+                    return aid
+            return {"error": f"No assigned {service.title()} account has write access for this operation."}
+        for aid in ids:
+            info = self.account_info_map.get(aid, {})
+            if info.get("connection_status") != "broken":
+                return aid
+        return {"error": f"All assigned {service.title()} accounts have broken connections. Reconnect at Settings → Integrations → Google.",
+                "needs_reconnect": True}
+
+    def _execute_gmail(self, tool_name: str, args: dict) -> dict:
+        email = args.get("account")
+        args = {k: v for k, v in args.items() if k != "account"}
+        aid = self._resolve_account("gmail", email, tool_name)
+        if isinstance(aid, dict):
+            return aid
         if tool_name == "search_emails":
-            return search_emails(query=args["query"], max_results=args.get("max_results", 10))
+            return search_emails(aid, query=args["query"], max_results=args.get("max_results", 10))
         elif tool_name == "get_email":
-            return get_email(message_id=args["message_id"])
+            return get_email(aid, message_id=args["message_id"])
         elif tool_name == "get_email_thread":
-            return get_email_thread(thread_id=args["thread_id"])
+            return get_email_thread(aid, thread_id=args["thread_id"])
         elif tool_name == "send_email":
             return send_email(
-                to=args["to"], subject=args["subject"], body=args["body"],
+                aid, to=args["to"], subject=args["subject"], body=args["body"],
                 cc=args.get("cc", ""), bcc=args.get("bcc", ""),
             )
         elif tool_name == "reply_to_email":
             return reply_to_email(
-                message_id=args["message_id"], body=args["body"],
+                aid, message_id=args["message_id"], body=args["body"],
                 reply_all=args.get("reply_all", False),
             )
         elif tool_name == "create_draft":
             return create_draft(
-                to=args["to"], subject=args["subject"], body=args["body"],
+                aid, to=args["to"], subject=args["subject"], body=args["body"],
                 cc=args.get("cc", ""), bcc=args.get("bcc", ""),
             )
         elif tool_name == "mark_email_as_read":
-            return mark_email_as_read(message_id=args["message_id"])
+            return mark_email_as_read(aid, message_id=args["message_id"])
         elif tool_name == "batch_mark_emails_as_read":
-            return batch_mark_emails_as_read(message_ids=args["message_ids"])
+            return batch_mark_emails_as_read(aid, message_ids=args["message_ids"])
         elif tool_name == "download_email_attachment":
             return download_email_attachment(
-                message_id=args["message_id"], filename=args["filename"],
+                aid, message_id=args["message_id"], filename=args["filename"],
                 cache_dir=self.file_cache_dir,
             )
         elif tool_name == "send_email_with_attachment":
             return send_email_with_attachment(
-                to=args["to"], subject=args["subject"], body=args["body"],
+                aid, to=args["to"], subject=args["subject"], body=args["body"],
                 attachment_filename=args.get("attachment_filename", ""),
                 attachment_base64=args.get("attachment_base64", ""),
                 attachment_mime_type=args.get("attachment_mime_type", "application/pdf"),
@@ -283,7 +354,7 @@ class ToolRegistry:
             )
         elif tool_name == "reply_to_email_with_attachment":
             return reply_to_email_with_attachment(
-                message_id=args["message_id"], body=args["body"],
+                aid, message_id=args["message_id"], body=args["body"],
                 attachment_filename=args.get("attachment_filename", ""),
                 attachment_base64=args.get("attachment_base64", ""),
                 attachment_mime_type=args.get("attachment_mime_type", "application/pdf"),
@@ -294,24 +365,26 @@ class ToolRegistry:
         return {"error": f"Unknown gmail tool: {tool_name}"}
 
     def _execute_calendar(self, tool_name: str, args: dict) -> dict:
-        if not self.google_connected:
-            return {"error": "Google not connected. Connect at Settings → Integrations → Google.",
-                    "needs_reconnect": True}
+        email = args.get("account")
+        args = {k: v for k, v in args.items() if k != "account"}
+        aid = self._resolve_account("calendar", email, tool_name)
+        if isinstance(aid, dict):
+            return aid
         if tool_name == "list_calendar_events":
             return list_calendar_events(
-                calendar_id=args.get("calendar_id", "primary"),
+                aid, calendar_id=args.get("calendar_id", "primary"),
                 max_results=args.get("max_results", 10),
                 time_min=args.get("time_min", ""),
                 time_max=args.get("time_max", ""),
             )
         elif tool_name == "get_calendar_event":
             return get_calendar_event(
-                event_id=args["event_id"],
+                aid, event_id=args["event_id"],
                 calendar_id=args.get("calendar_id", "primary"),
             )
         elif tool_name == "search_calendar_events":
             return search_calendar_events(
-                query=args["query"],
+                aid, query=args["query"],
                 time_min=args.get("time_min", ""),
                 time_max=args.get("time_max", ""),
                 max_results=args.get("max_results", 20),
@@ -319,21 +392,21 @@ class ToolRegistry:
             )
         elif tool_name == "find_free_slot":
             return find_free_slot(
-                duration_minutes=args["duration_minutes"],
+                aid, duration_minutes=args["duration_minutes"],
                 between_start=args["between_start"],
                 between_end=args["between_end"],
                 calendar_ids=args.get("calendar_ids"),
             )
         elif tool_name == "create_calendar_event":
             return create_calendar_event(
-                summary=args["summary"], start=args["start"], end=args["end"],
+                aid, summary=args["summary"], start=args["start"], end=args["end"],
                 description=args.get("description", ""), location=args.get("location", ""),
                 attendees=args.get("attendees"),
                 calendar_id=args.get("calendar_id", "primary"),
             )
         elif tool_name == "update_calendar_event":
             return update_calendar_event(
-                event_id=args["event_id"],
+                aid, event_id=args["event_id"],
                 calendar_id=args.get("calendar_id", "primary"),
                 summary=args.get("summary"), start=args.get("start"), end=args.get("end"),
                 description=args.get("description"), location=args.get("location"),
@@ -341,57 +414,59 @@ class ToolRegistry:
             )
         elif tool_name == "delete_calendar_event":
             return delete_calendar_event(
-                event_id=args["event_id"],
+                aid, event_id=args["event_id"],
                 calendar_id=args.get("calendar_id", "primary"),
             )
         return {"error": f"Unknown calendar tool: {tool_name}"}
 
     def _execute_drive(self, tool_name: str, args: dict) -> dict:
-        if not self.google_connected:
-            return {"error": "Google not connected. Connect at Settings → Integrations → Google.",
-                    "needs_reconnect": True}
+        email = args.get("account")
+        args = {k: v for k, v in args.items() if k != "account"}
+        aid = self._resolve_account("drive", email, tool_name)
+        if isinstance(aid, dict):
+            return aid
         if tool_name == "search_drive_files":
             return search_drive_files(
-                query=args["query"],
+                aid, query=args["query"],
                 max_results=args.get("max_results", 20),
             )
         elif tool_name == "list_drive_folder":
             return list_drive_folder(
-                folder_id=args.get("folder_id", "root"),
+                aid, folder_id=args.get("folder_id", "root"),
                 max_results=args.get("max_results", 50),
             )
         elif tool_name == "get_drive_file_info":
-            return get_drive_file_info(file_id=args["file_id"])
+            return get_drive_file_info(aid, file_id=args["file_id"])
         elif tool_name == "read_drive_file_content":
             return read_drive_file_content(
-                file_id=args["file_id"],
+                aid, file_id=args["file_id"],
                 max_chars=args.get("max_chars", 50000),
             )
         elif tool_name == "create_drive_folder":
             return create_drive_folder(
-                name=args["name"],
+                aid, name=args["name"],
                 parent_folder_id=args.get("parent_folder_id", "root"),
             )
         elif tool_name == "create_drive_file":
             return create_drive_file(
-                name=args["name"],
+                aid, name=args["name"],
                 content=args.get("content", ""),
                 file_type=args.get("file_type", "document"),
                 folder_id=args.get("folder_id", "root"),
             )
         elif tool_name == "move_drive_file":
             return move_drive_file(
-                file_id=args["file_id"],
+                aid, file_id=args["file_id"],
                 new_parent_id=args["new_parent_id"],
             )
         elif tool_name == "rename_drive_file":
             return rename_drive_file(
-                file_id=args["file_id"],
+                aid, file_id=args["file_id"],
                 new_name=args["new_name"],
             )
         elif tool_name == "copy_drive_file":
             return copy_drive_file(
-                file_id=args["file_id"],
+                aid, file_id=args["file_id"],
                 new_name=args.get("new_name"),
                 folder_id=args.get("folder_id"),
             )
@@ -480,6 +555,36 @@ class ToolRegistry:
         session = getattr(self, "_import_session", None)
         ctx_manager = ContextManager(Path(self.context_dir), gcs_prefix=self.gcs_prefix)
         return execute_import_tool(tool_name, args, session, ctx_manager)
+
+    def _execute_activity_log(self, tool_name: str, args: dict) -> dict:
+        from core.agents.scheduled_actions.history import get_history
+        try:
+            limit = max(1, min(int(args.get("limit", 20) or 20), 50))
+        except (TypeError, ValueError):
+            limit = 20
+        event_type = args.get("event_type")
+        if event_type and event_type not in ("scheduled_action", "chat"):
+            return {"error": f"Invalid event_type: {event_type}"}
+        status = args.get("status")
+        if status and status not in ("ok", "error", "action_taken", "skipped"):
+            return {"error": f"Invalid status: {status}"}
+        records = get_history(
+            agent=self.agent_slug,
+            limit=limit,
+            status_filter=status,
+            event_type=event_type,
+        )
+        for r in records:
+            r.pop("result_full", None)
+            r.pop("notification_sent", None)
+            if r.get("result_summary"):
+                r["result_summary"] = r["result_summary"][:200]
+            if isinstance(r.get("tool_calls"), list):
+                r["tool_calls"] = [
+                    {"tool": tc.get("tool", ""), "result": str(tc.get("result", ""))[:200]}
+                    for tc in r["tool_calls"]
+                ]
+        return {"entries": records, "count": len(records)}
 
     def _mark_setup_complete(self, integration_name: str) -> None:
         """Auto-update _pending-setup.md to check off a completed integration."""

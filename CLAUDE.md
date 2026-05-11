@@ -2,15 +2,18 @@
 
 ## What This Is
 
-**Chatty** — a free, open-source personal AI agent platform built for small business owners.
+**Chatty** — a free, open-source personal AI agent platform with a browser-based UI, built for small business owners.
 - **Free and open source** — no paid tiers, no vendor lock-in, no SaaS fees. Users only pay for their own AI provider API usage
 - **Target audience**: small business owners who want a powerful AI chatbot without enterprise pricing or technical complexity
-- Single user (password login), multiple agents
-- User creates agents from a dashboard; each has name/personality/knowledge via onboarding wizard
+- **Browser-based** — full dashboard UI for creating agents, chatting, managing integrations, and settings. Not a CLI tool.
+- Single user (password login + optional TOTP 2FA), multiple agents
+- User creates agents from a dashboard; each has name/personality/knowledge via conversational onboarding (training mode)
 - Optional branding: logo, company name, accent color
 - Multi-provider AI: Anthropic, OpenAI, Google Gemini, Ollama (local), Together AI — all via API key paste (no OAuth for AI providers)
-- Integrations: QuickBooks Online (OAuth), QuickBooks CSV import, Gmail, Google Calendar, Google Drive, WhatsApp (Baileys bridge), Telegram, CRM Lite, Odoo, BambooHR
-- Agent features: memory system, dreaming/reflection, shared context across agents, scheduled actions, reminders
+- Integrations: QuickBooks Online (OAuth), QuickBooks CSV import, Gmail (multiple accounts), Google Calendar, Google Drive, WhatsApp (Baileys bridge), Telegram (multiple bots), CRM Lite, Odoo, BambooHR, Paperclip (agent orchestration)
+- Agent features: memory system, dreaming/context archival, shared context across agents, scheduled actions (heartbeat), reminders (one-time and recurring), alerts, knowledge import (OpenClaw, paste, folder, ZIP)
+- File uploads: PDF, DOCX, and text files via drag-and-drop in chat
+- BYO OAuth: users can bring their own Google and QuickBooks OAuth app credentials
 - One-click cloud deployment via Railway
 
 ## Deployment
@@ -44,6 +47,10 @@ For dev mode with hot reload, run backend and frontend separately:
 - **Per-agent isolation** — each agent has its own context files, chat.db, and slug dir under `data/agents/{slug}/`
 - **Global credentials** — provider auth lives in `data/auth-profiles.json`, shared across all agents
 - **Encryption at rest** — API keys and OAuth tokens encrypted via Fernet; key stored in OS keychain (local) or env var (Railway)
+- **Heartbeat system** — APScheduler fires every 60s, processing due reminders and scheduled actions as background AI turns with full tool access
+- **Alerts** — proactive notification system (golden banner + dashboard badge) triggered by reminders and scheduled actions
+- **Knowledge import** — `agents/import_service/` with pluggable source adapters (OpenClaw, paste, folder, ZIP); auto-detects OpenClaw installations via `~/.openclaw/openclaw.json`
+- **Dreaming** — nightly background process that scores context file usage and archives dormant files to prevent knowledge bloat (no AI calls, pure algorithmic scoring)
 - **No voice tab** — explicitly removed from scope
 - **Single user only** — multi-user roughed in behind `MULTI_USER_ENABLED=false` flag for Phase 2
 
@@ -53,24 +60,27 @@ For dev mode with hot reload, run backend and frontend separately:
 backend/
 ├── main.py                          # FastAPI entry point
 ├── agents/                          # Multi-agent management (db, engine, router, onboarding, templates)
+│   └── import_service/              # Knowledge import with source adapters (OpenClaw, paste, folder, ZIP)
 ├── core/
 │   ├── config.py                    # Settings from env vars
 │   ├── auth.py                      # Password login + JWT
+│   ├── auth_2fa.py                  # Optional TOTP two-factor authentication
 │   ├── encryption.py                # Fernet encryption for credentials
 │   ├── providers/                   # AI provider abstraction (Anthropic, OpenAI, Gemini, Ollama, Together AI)
-│   └── agents/                      # Agent engine (ai_service, tool_registry, context_manager, chat_history, memory, dreaming, shared_context, reminders, scheduled_actions)
-├── integrations/                    # Google (Gmail/Calendar/Drive), QuickBooks, QB CSV, Telegram, WhatsApp, CRM, Odoo, BambooHR
+│   └── agents/                      # Agent engine (ai_service, tool_registry, context_manager, chat_history, memory, dreaming, shared_context, reminders, scheduled_actions, alerts)
+├── integrations/                    # Google (Gmail/Calendar/Drive), QuickBooks, QB CSV, Telegram, WhatsApp, CRM, Odoo, BambooHR, Paperclip
 ├── branding/                        # Logo/name/color
 └── whatsapp-bridge/                 # Node.js Baileys sidecar
 
 frontend/src/
-├── agent/                           # Agent chat page + components
+├── agent/                           # Agent chat page + components (includes heartbeat panel, reminders panel)
 ├── dashboard/                       # Agent grid, settings, integrations
 ├── onboarding/                      # Agent creation wizard
 ├── setup/                           # First-run provider setup
 ├── login/                           # Login page
 ├── core/                            # API client, auth context, types
-└── crm/                             # CRM interface
+├── crm/                             # CRM interface
+└── shared/                          # Shared components and utilities
 ```
 
 ## Adding Integrations
@@ -102,8 +112,9 @@ integrations/{name}/
 ### Tool auto-discovery
 
 Tools appear for agents automatically when their integration is enabled globally:
-- **QB/Odoo/BambooHR/CRM/QB CSV**: `_load_integration_tools()` in `agents/router.py` checks `is_enabled(name)` and injects tools + executors
-- **Google (Gmail/Calendar/Drive)**: `google_capabilities()` in `integrations/google/policy.py` reads scope grants from `google.json` and returns capability flags passed to `get_tool_definitions()`
+- **QB/Odoo/BambooHR/CRM/QB CSV/Paperclip**: `_load_integration_tools()` in `agents/router.py` checks `is_enabled(name)` and injects tools + executors
+- **Google (Gmail/Calendar/Drive)**: `google_capabilities()` in `integrations/google/policy.py` reads scope grants from `google.json` and returns capability flags passed to `get_tool_definitions()`. Supports multiple Google accounts with per-agent, per-service assignment.
+- **Telegram**: each agent gets its own bot token; a single Telegram user can be linked to multiple agents simultaneously
 - **Do NOT require per-agent flags** for new integrations. Connect once → all agents get the tools.
 
 ### Write tools

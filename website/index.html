@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Chatty — Free AI Agent Platform for Small Business</title>
-  <meta name="description" content="A free, open-source browser-based AI agent platform built for professionals and small business owners. Create custom AI agents powered by your own API keys.">
+  <meta name="description" content="A free, open-source AI agent platform with a full browser-based UI — not a command line. Create custom AI agents for your business, powered by your own API keys or local models.">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300..600;1,9..144,300..600&family=Geist:wght@300..600&family=JetBrains+Mono:wght@300..500&display=swap" rel="stylesheet">
@@ -63,7 +63,7 @@
 
     <h1 class="hero-heading">Your own AI agents,<br><em>on your own machine.</em></h1>
 
-    <p class="hero-sub">A free, open-source browser-based AI agent platform built for professionals and small business owners.</p>
+    <p class="hero-sub">A free, open-source AI agent platform with a full browser-based UI &mdash; not a command line. Built for professionals and small business owners.</p>
 
     <div class="hero-actions">
       <a href="#install" class="btn btn-primary">
@@ -77,6 +77,11 @@
     </div>
 
     <div class="hero-meta">One-click deploy to the cloud, or run it fully local on your own hardware.</div>
+
+    <figure class="screenshot-real">
+      <img src="screenshot-login.png" alt="Chatty login page — hire a team of agents, not just a chatbot" loading="lazy">
+      <figcaption>Sign in to your Chatty instance — everything runs in the browser</figcaption>
+    </figure>
 
     <!-- Product screenshot chrome -->
     <div class="screenshot-chrome">
@@ -136,6 +141,8 @@
         </div>
       </div>
     </div>
+  </div>
+
   </div>
 </section>
 
@@ -288,6 +295,7 @@
         </div>
       </div>
     </div>
+
   </div>
 </section>
 
@@ -318,8 +326,8 @@
         <div class="feature-icon accent">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h12a4 4 0 0 1 4 4v12H8a4 4 0 0 1-4-4V4zM4 16a4 4 0 0 1 4-4h12"/></svg>
         </div>
-        <div class="feature-title">Knowledge</div>
-        <div class="feature-body">Feed an agent your docs, notes, or scraped pages. It cites what it used, you see every source.</div>
+        <div class="feature-title">Knowledge &amp; import</div>
+        <div class="feature-body">Feed an agent docs, notes, or files. Or import a full agent from OpenClaw &mdash; personality, knowledge, and context carry over in one click.</div>
       </div>
       <div class="feature-card">
         <div class="feature-icon accent">
@@ -333,7 +341,7 @@
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2 3 14h9l-1 8 10-12h-9l1-8z"/></svg>
         </div>
         <div class="feature-title">Tools &amp; integrations</div>
-        <div class="feature-body">Gmail, Calendar, QuickBooks, WhatsApp, Telegram. Agents use them; you approve what matters.</div>
+        <div class="feature-body">Gmail (multiple accounts), Calendar, Drive, QuickBooks, Telegram (multiple bots), WhatsApp, Odoo, BambooHR, and more.</div>
       </div>
       <div class="feature-card">
         <div class="feature-icon accent">
@@ -355,6 +363,27 @@
         </div>
         <div class="feature-title">Deploy anywhere</div>
         <div class="feature-body">One-click to Railway, or run it on a spare Raspberry Pi. Anywhere Python runs, Chatty runs.</div>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon gold">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>
+        </div>
+        <div class="feature-title">Reminders</div>
+        <div class="feature-body">One-time or recurring &mdash; daily, weekly, monthly, or cron. Your agents set their own and act on them automatically.</div>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon accent">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M12 18v-6M9 15l3-3 3 3"/></svg>
+        </div>
+        <div class="feature-title">File uploads</div>
+        <div class="feature-body">Drag and drop PDFs, Word docs, or text files into the chat. Your agent reads and analyzes them inline.</div>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon accent">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+        </div>
+        <div class="feature-title">Secure by default</div>
+        <div class="feature-body">API keys encrypted at rest, optional TOTP two-factor auth, and bring-your-own OAuth credentials for full control.</div>
       </div>
     </div>
   </div>
@@ -449,7 +478,7 @@
     <div class="section-header">
       <div class="eyebrow">Agents</div>
       <h2>Start with one, <em>build a team.</em></h2>
-      <p class="section-sub">Create an agent with just a name, then give it a role, that's it. Your agent will guide you through the training process, or you can import existing agent training knowledge.</p>
+      <p class="section-sub">Create an agent with just a name, then give it a role, that's it. Your agent walks you through training in a natural conversation &mdash; or import an existing agent from <a href="https://github.com/claw-project/openclaw" target="_blank" rel="noopener" style="color: var(--gold); text-decoration: underline; text-underline-offset: 3px;">OpenClaw</a> and skip training entirely. Chatty detects your local OpenClaw installation and imports your agent's knowledge automatically.</p>
       <p class="section-sub"><strong>You own everything your agents learn.</strong> Every conversation, every memory, every piece of knowledge lives on your machine or your server &mdash; not in someone else's cloud. Switch providers, move hosts, or go offline. Your agents and everything they know come with you.</p>
     </div>
     <div class="chat-demo" id="chat-demo" role="region" aria-label="Demo conversation with Parker">
@@ -472,6 +501,11 @@
       <div class="agent-spot"><div class="mark mark-L">L</div><div class="agent-info"><div class="agent-name">Lane</div><div class="muted">Lead qualification</div><div class="agent-stats"><span>1,899 tasks</span><span>4 tools</span></div></div></div>
       <div class="agent-spot"><div class="mark mark-T">T</div><div class="agent-info"><div class="agent-name">Theo</div><div class="muted">On-call triage</div><div class="agent-stats"><span>260 tasks</span><span>9 tools</span></div></div></div>
     </div>
+
+    <figure class="screenshot-real">
+      <img src="screenshot-training.png" alt="Training mode — agent learning about your business through conversation" loading="lazy">
+      <figcaption>Training mode — your agent learns about you through conversation</figcaption>
+    </figure>
   </div>
 </section>
 
@@ -521,10 +555,10 @@
           <div class="featured-tagline">Chat with your agents <em>from anywhere.</em></div>
         </div>
         <div class="featured-bullets">
-          <div class="bullet"><span></span>Talk to any agent from your phone &mdash; no extra app to install</div>
+          <div class="bullet"><span></span>Talk to any agent from your phone &mdash; each agent gets its own bot, one user can talk to all of them</div>
+          <div class="bullet"><span></span>Proactive alerts: agents push email summaries, calendar conflicts, and CRM reminders to you via Telegram</div>
           <div class="bullet"><span></span>Full tool access: bookkeeping, CRM, email drafts, all over text</div>
-          <div class="bullet"><span></span>One-to-one or group chats; threads stay in sync with your desktop</div>
-          <div class="bullet"><span></span>Run an ops team that never leaves the group chat</div>
+          <div class="bullet"><span></span>One-to-one or group chats &mdash; run an ops team that never leaves the group chat</div>
         </div>
       </div>
     </div>
@@ -532,10 +566,14 @@
     <div class="also-connected">
       <div class="mono-label" style="margin-bottom: 18px">Also connected</div>
       <div class="integrations-grid">
-        <div class="integ-item"><div class="integ-icon">G</div><div><div class="integ-name">Gmail</div><div class="mono-label">Tool</div></div></div>
+        <div class="integ-item"><div class="integ-icon">G</div><div><div class="integ-name">Gmail</div><div class="mono-label">Tool &middot; multi-account</div></div></div>
         <div class="integ-item"><div class="integ-icon">G</div><div><div class="integ-name">Google Calendar</div><div class="mono-label">Tool</div></div></div>
+        <div class="integ-item"><div class="integ-icon">G</div><div><div class="integ-name">Google Drive</div><div class="mono-label">Tool</div></div></div>
         <div class="integ-item"><div class="integ-icon">Q</div><div><div class="integ-name">QuickBooks Online</div><div class="mono-label">Tool</div></div></div>
         <div class="integ-item"><div class="integ-icon">W</div><div><div class="integ-name">WhatsApp</div><div class="mono-label">Tool</div></div></div>
+        <div class="integ-item"><div class="integ-icon">B</div><div><div class="integ-name">BambooHR</div><div class="mono-label">Tool</div></div></div>
+        <div class="integ-item"><div class="integ-icon">C</div><div><div class="integ-name">CRM Lite</div><div class="mono-label">Built in</div></div></div>
+        <div class="integ-item"><div class="integ-icon">P</div><div><div class="integ-name">Paperclip</div><div class="mono-label">Orchestration</div></div></div>
         <div class="integ-item"><div class="integ-icon">A</div><div><div class="integ-name">Anthropic</div><div class="mono-label">Model</div></div></div>
         <div class="integ-item"><div class="integ-icon">O</div><div><div class="integ-name">OpenAI</div><div class="mono-label">Model</div></div></div>
         <div class="integ-item"><div class="integ-icon">G</div><div><div class="integ-name">Google Gemini</div><div class="mono-label">Model</div></div></div>
@@ -565,7 +603,7 @@
     <div class="install-grid" style="display:grid; grid-template-columns: 1fr 1fr; gap: 32px; margin-top: 8px;">
       <div>
         <h3 style="font-family: 'Fraunces', Georgia, serif; font-size: 18px; font-weight: 400; color: var(--gold); margin: 0 0 8px;">Recommended</h3>
-        <p class="section-sub" style="margin: 0 0 16px;">Deploy to Railway and get a cloud URL you can access from your phone, laptop, or anywhere. No terminal, no Python install, no server to maintain. Click the button, set a password, and you're live.</p>
+        <p class="section-sub" style="margin: 0 0 16px;">Deploy to Railway and get a cloud URL you can access from your phone, laptop, or anywhere. Everything runs in the browser &mdash; no terminal, no Python install, no server to maintain. Click the button, set a password, and you're live.</p>
         <a href="https://railway.com/deploy/chatty?referralCode=HMgK-M" target="_blank" rel="noopener" class="btn" style="background: linear-gradient(135deg, #B63BCE, #5016A1); color: #fff; border: none;">
           Deploy on Railway
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 5l7 7-7 7"/></svg>
@@ -573,7 +611,7 @@
       </div>
       <div>
         <h3 style="font-family: 'Fraunces', Georgia, serif; font-size: 18px; font-weight: 400; color: var(--ink); margin: 0 0 8px;">For developers &amp; tinkerers</h3>
-        <p class="section-sub" style="margin: 0 0 16px;">Run Chatty on your own machine &mdash; full control, no cloud dependency. Three commands and you're up.</p>
+        <p class="section-sub" style="margin: 0 0 16px;">Run Chatty on your own machine &mdash; full control, no cloud dependency. Three commands to start, then everything happens in the browser.</p>
         <div class="code-block" style="margin-bottom: 12px;">
           <span class="dim">$ </span>git clone https://github.com/WWilson1017/chatty.git<br>
           <span class="dim">$ </span>cd chatty<br>

@@ -42,7 +42,7 @@ def create_session(slug: str, tool_mode: str = "normal",
     )
     from core.providers import get_ai_provider
     from core.providers.credentials import CredentialStore
-    from agents.wiring import load_integration_tools, build_agent_handlers, INTEGRATION_MODULES
+    from agents.tool_loader import load_integration_tools, build_agent_handlers, INTEGRATION_MODULES
     from integrations.registry import is_enabled as _is_enabled, get_tool_mode
     from integrations.google.policy import google_capabilities
     from core.agents.tool_definitions import get_tool_definitions, build_writes_map
@@ -69,15 +69,37 @@ def create_session(slug: str, tool_mode: str = "normal",
     if not provider:
         raise SystemExit("No AI provider configured. Set one up in the web UI first.")
 
-    google_connected = _is_enabled("google")
+    ga = config.google_accounts if hasattr(config, "google_accounts") else {}
+    gmail_ids = ga.get("gmail", [])
+    calendar_ids = ga.get("calendar", [])
+    drive_ids = ga.get("drive", [])
+    google_connected = bool(gmail_ids or calendar_ids or drive_ids)
+
+    from integrations.registry import list_google_accounts as _list_ga
+    all_ga = _list_ga()
+    account_info_map = {
+        aid: {"email": a.get("email", ""), "scope_grants": a.get("scope_grants", {}), "connection_status": a.get("connection_status", "ok")}
+        for aid, a in all_ga.items()
+    }
+
     integration_tool_defs, integration_executors = load_integration_tools()
-    integration_tool_modes = {name: get_tool_mode(name) for name in INTEGRATION_MODULES}
+
+    from integrations.registry import get_credentials
+    integration_tool_modes = {
+        name: get_tool_mode(name)
+        for name in INTEGRATION_MODULES
+        if "tool_mode" in get_credentials(name)
+    }
 
     reminder_handlers, sa_handlers = build_agent_handlers(slug)
     registry = ToolRegistry(
         context_dir=config.context_dir,
         gcs_prefix=config.gcs_prefix,
         google_connected=google_connected,
+        gmail_account_ids=gmail_ids,
+        calendar_account_ids=calendar_ids,
+        drive_account_ids=drive_ids,
+        account_info_map=account_info_map,
         integration_executors=integration_executors,
         agent_slug=slug,
         agent_name=config.agent_name,

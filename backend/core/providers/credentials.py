@@ -46,7 +46,7 @@ class CredentialStore:
     def _load(self) -> dict:
         if PROFILES_PATH.exists():
             try:
-                raw = json.loads(PROFILES_PATH.read_text())
+                raw = json.loads(PROFILES_PATH.read_text(encoding="utf-8"))
                 decrypted = decrypt_dict(raw)
                 # Auto-migrate plaintext credentials to encrypted on disk
                 if needs_migration(raw):

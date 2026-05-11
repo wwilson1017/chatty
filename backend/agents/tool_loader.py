@@ -1,11 +1,13 @@
-"""Chatty — Shared agent session wiring.
+"""Chatty — Shared integration tool loading and agent handler construction.
 
-Functions used by both the FastAPI router and the CLI to build
-the integration tool set and per-agent handler dicts.
+Extracted from agents/router.py so both the chat flow and the scheduled
+actions processor can build a full tool set with integration parity.
 """
 
 import importlib
 import logging
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
 from core.agents.reminders.tools import (
     create_reminder_handler,
@@ -21,6 +23,17 @@ from core.agents.scheduled_actions.tools import (
 
 logger = logging.getLogger(__name__)
 
+
+def format_current_time(tz_name: str = "America/Chicago") -> tuple[str, str]:
+    """Return (date_str, time_str) for system prompt injection."""
+    try:
+        tz = ZoneInfo(tz_name)
+    except Exception:
+        tz = ZoneInfo("America/Chicago")
+    now = datetime.now(tz)
+    return now.strftime("%A, %B %d, %Y"), now.strftime("%I:%M %p %Z")
+
+
 INTEGRATION_MODULES = {
     "crm_lite": ("integrations.crm_lite.tools", "CRM_LITE_TOOL_DEFS"),
     "odoo": ("integrations.odoo.tools", "ODOO_TOOL_DEFS"),
@@ -28,6 +41,7 @@ INTEGRATION_MODULES = {
     "quickbooks": ("integrations.quickbooks.tools", "QB_TOOL_DEFS"),
     "qb_csv": ("integrations.qb_csv.tools", "QB_CSV_TOOL_DEFS"),
     "paperclip": ("integrations.paperclip.tools", "PAPERCLIP_TOOL_DEFS"),
+    "todoist": ("integrations.todoist.tools", "TODOIST_TOOL_DEFS"),
 }
 
 
