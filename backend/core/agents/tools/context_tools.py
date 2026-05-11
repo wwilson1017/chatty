@@ -103,23 +103,38 @@ def _safe_filename(filename: str) -> bool:
     return True
 
 
+def _source_type_for(filename: str) -> str | None:
+    """Return the index source_type for a context file, or None to skip."""
+    if filename == "MEMORY.md":
+        return "memory"
+    if filename == "soul.md" or filename.startswith("_"):
+        return None
+    return "topic"
+
+
 def _index_context_file(data_dir: str, filename: str, content: str) -> None:
     """Update the FTS5/vector index for a context file write."""
+    src_type = _source_type_for(filename)
+    if not src_type:
+        return
     try:
         from core.agents.memory.db import get_instance
         db = get_instance(data_dir)
         if db:
-            db.index_document("topic", filename, filename, content, embed=True)
+            db.index_document(src_type, filename, filename, content, embed=True)
     except Exception as e:
         logger.debug("Context file indexing skipped for %s: %s", filename, e)
 
 
 def _remove_context_index(data_dir: str, filename: str) -> None:
     """Remove a deleted context file from the FTS5/vector index."""
+    src_type = _source_type_for(filename)
+    if not src_type:
+        return
     try:
         from core.agents.memory.db import get_instance
         db = get_instance(data_dir)
         if db:
-            db.remove_document("topic", filename)
+            db.remove_document(src_type, filename)
     except Exception as e:
         logger.debug("Context file index removal skipped for %s: %s", filename, e)

@@ -123,11 +123,18 @@ async def _backfill_vectors(db):
     try:
         await db.check_embedding_config()
         remaining = 1
-        while remaining > 0:
+        failures = 0
+        while remaining > 0 and failures < 3:
             result = await db.backfill_embeddings(batch_size=32)
             remaining = result.get("remaining", 0)
+            if result.get("error"):
+                failures += 1
+            else:
+                failures = 0
             if remaining > 0:
                 await asyncio.sleep(5)
+        if failures >= 3:
+            logger.warning("Vector backfill stopped after %d consecutive failures", failures)
     except Exception as e:
         logger.debug("Vector backfill error: %s", e)
 

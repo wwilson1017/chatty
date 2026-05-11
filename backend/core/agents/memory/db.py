@@ -267,9 +267,11 @@ class MemoryDB:
             import sqlite_vec  # noqa: F401
             conn = self.get_db()
             conn.enable_load_extension(True)
-            sqlite_vec.load(conn)
-            conn.enable_load_extension(False)
-            self._vec_available = True
+            try:
+                sqlite_vec.load(conn)
+                self._vec_available = True
+            finally:
+                conn.enable_load_extension(False)
         except ImportError:
             logger.info("sqlite-vec not installed — vector search disabled")
         except Exception as e:
@@ -643,10 +645,12 @@ class MemoryDB:
                     continue
                 if memory_type and doc["memory_type"] != memory_type:
                     continue
-                if date_from and doc["date"] and doc["date"] < date_from:
-                    continue
-                if date_to and doc["date"] and doc["date"] > date_to:
-                    continue
+                if date_from:
+                    if not doc["date"] or doc["date"] < date_from:
+                        continue
+                if date_to:
+                    if not doc["date"] or doc["date"] > date_to:
+                        continue
 
                 # Get snippet from best matching chunk
                 chunk_snippet = self._get_chunk_snippet(doc["id"])
@@ -764,7 +768,10 @@ class MemoryDB:
                WHERE mv.chunk_id IS NULL""",
         ).fetchone()[0]
 
-        return {"processed": processed, "remaining": remaining}
+        result = {"processed": processed, "remaining": remaining}
+        if processed == 0 and remaining > 0:
+            result["error"] = "all row inserts failed"
+        return result
 
     async def check_embedding_config(self) -> None:
         """Check if embedding provider changed; invalidate vectors if so."""

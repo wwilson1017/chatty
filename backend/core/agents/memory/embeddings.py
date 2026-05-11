@@ -82,8 +82,7 @@ class EmbeddingService:
             base_url = ollama_profile["base_url"].rstrip("/")
             if await self._check_ollama(base_url):
                 self._provider = "ollama"
-                self._model = _OLLAMA_EMBED_MODEL
-                logger.info("Embedding provider: Ollama (%s)", base_url)
+                logger.info("Embedding provider: Ollama (%s, model=%s)", base_url, self._model)
                 return
 
         # 2. Try OpenAI
@@ -124,6 +123,7 @@ class EmbeddingService:
                 # Check if any embedding model is available
                 embed_models = [m for m in models if "embed" in m or "nomic" in m]
                 if embed_models:
+                    self._model = embed_models[0].split(":")[0]
                     return True
                 # Pull nomic-embed-text if not present (don't block on it)
                 logger.info("Ollama available but no embedding model found")
@@ -140,7 +140,7 @@ class EmbeddingService:
         async with httpx.AsyncClient(timeout=30.0) as client:
             resp = await client.post(
                 f"{base_url}/api/embed",
-                json={"model": _OLLAMA_EMBED_MODEL, "input": texts},
+                json={"model": self._model or _OLLAMA_EMBED_MODEL, "input": texts},
             )
             resp.raise_for_status()
             data = resp.json()

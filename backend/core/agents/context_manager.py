@@ -515,9 +515,15 @@ class ContextManager:
                     return None
                 return await service.embed_single(message)
 
-            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
-                future = executor.submit(asyncio.run, _get_embedding())
+            executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+            future = executor.submit(asyncio.run, _get_embedding())
+            try:
                 embedding = future.result(timeout=5)
+            except (concurrent.futures.TimeoutError, TimeoutError):
+                executor.shutdown(wait=False, cancel_futures=True)
+                return []
+            finally:
+                executor.shutdown(wait=False)
 
             if not embedding:
                 return []

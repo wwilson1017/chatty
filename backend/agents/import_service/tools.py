@@ -332,8 +332,8 @@ def _is_duplicate_import(ctx_manager: ContextManager, content_hash: str) -> bool
         if not agent:
             return False
 
-        sources = agent_db.get_import_sources(agent["id"])
-        for source in sources:
+        source = agent_db.get_import_source(agent["id"])
+        if source:
             hashes_json = source.get("file_hashes", "{}")
             if isinstance(hashes_json, str):
                 hashes = json.loads(hashes_json)
