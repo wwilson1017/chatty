@@ -13,6 +13,17 @@ DEAL_STAGES = ["lead", "qualified", "proposal", "negotiation", "won", "lost"]
 CONTACT_STATUSES = ["active", "inactive", "archived"]
 TASK_PRIORITIES = ["low", "medium", "high"]
 
+# SQL fragment for whitespace-tolerant boundary matching against the comma-separated tags column.
+# Strips whitespace adjacent to commas so the filter survives free-form input like "PT, ET, MT".
+_TAGS_NORMALIZED_SQL = "(',' || REPLACE(REPLACE(tags, ', ', ','), ' ,', ',') || ',')"
+
+
+def _normalize_tags(raw: str) -> str:
+    """Clean a comma-separated tag string: strip whitespace around each label, drop empties."""
+    if not raw:
+        return ""
+    return ",".join(label for label in (part.strip() for part in raw.split(",")) if label)
+
 
 # ── Contacts ──────────────────────────────────────────────────────────────────
 
@@ -26,7 +37,7 @@ def create_contact(
         cursor = db.execute(
             """INSERT INTO contacts (name, email, phone, company, title, source, status, tags, notes)
                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-            (name, email, phone, company, title, source, status, tags, notes),
+            (name, email, phone, company, title, source, status, _normalize_tags(tags), notes),
         )
         db.commit()
     return get_contact(cursor.lastrowid)
@@ -45,8 +56,9 @@ def search_contacts(query: str, status: str | None = None, tags: str | None = No
         conditions.append("status = ?")
         params.append(status)
     if tags:
-        conditions.append("tags LIKE ?")
-        params.append(f"%{tags}%")
+        # Boundary-aware match so tag "ET" doesn't accidentally match "WEST" or "BUDGET"
+        conditions.append(f"{_TAGS_NORMALIZED_SQL} LIKE ?")
+        params.append(f"%,{tags.strip()},%")
     params.append(limit)
     where = " AND ".join(conditions)
     rows = _get_db().execute(
@@ -56,7 +68,10 @@ def search_contacts(query: str, status: str | None = None, tags: str | None = No
     return [dict(r) for r in rows]
 
 
-def list_contacts(offset: int = 0, limit: int = 50, status: str | None = None, sort: str = "updated_at") -> dict:
+def list_contacts(
+    offset: int = 0, limit: int = 50, status: str | None = None,
+    tags: str | None = None, sort: str = "updated_at",
+) -> dict:
     allowed_sorts = {"updated_at", "created_at", "name", "company"}
     sort_col = sort if sort in allowed_sorts else "updated_at"
 
@@ -65,6 +80,9 @@ def list_contacts(offset: int = 0, limit: int = 50, status: str | None = None, s
     if status:
         conditions.append("status = ?")
         params.append(status)
+    if tags:
+        conditions.append(f"{_TAGS_NORMALIZED_SQL} LIKE ?")
+        params.append(f"%,{tags.strip()},%")
 
     where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
 
@@ -78,9 +96,25 @@ def list_contacts(offset: int = 0, limit: int = 50, status: str | None = None, s
     return {"contacts": [dict(r) for r in rows], "total": total, "limit": limit, "offset": offset}
 
 
+def list_distinct_tags() -> list[str]:
+    """Return sorted list of unique tag labels currently in use across all contacts."""
+    rows = _get_db().execute(
+        "SELECT tags FROM contacts WHERE tags != ''"
+    ).fetchall()
+    seen: set[str] = set()
+    for row in rows:
+        for raw in row["tags"].split(","):
+            label = raw.strip()
+            if label:
+                seen.add(label)
+    return sorted(seen, key=str.lower)
+
+
 def update_contact(contact_id: int, **fields) -> dict | None:
     allowed = {"name", "email", "phone", "company", "title", "source", "status", "tags", "notes"}
     filtered = {k: v for k, v in fields.items() if k in allowed}
+    if "tags" in filtered:
+        filtered["tags"] = _normalize_tags(filtered["tags"] or "")
     if not filtered:
         return get_contact(contact_id)
     set_clause = ", ".join(f"{k} = ?" for k in filtered)

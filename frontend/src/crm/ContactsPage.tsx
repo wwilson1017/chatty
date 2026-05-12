@@ -22,23 +22,35 @@ export function ContactsPage() {
   const [total, setTotal] = useState(0);
   const [search, setSearch] = useState('');
   const [status, setStatus] = useState<string>('all');
+  const [tagFilter, setTagFilter] = useState<string>('');
+  const [availableTags, setAvailableTags] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [showCreate, setShowCreate] = useState(false);
   const [showImport, setShowImport] = useState(false);
   const navigate = useNavigate();
   const isMobile = useIsMobile();
 
+  const loadTags = useCallback(async () => {
+    try {
+      const data = await api<{ tags: string[] }>('/api/crm/tags');
+      setAvailableTags(data.tags);
+    } catch { /* ignore */ }
+  }, []);
+
+  useEffect(() => { loadTags(); }, [loadTags]);
+
   const load = useCallback(async () => {
     setLoading(true);
     const params = new URLSearchParams();
     if (search) params.set('q', search);
     if (status !== 'all') params.set('status', status);
+    if (tagFilter) params.set('tags', tagFilter);
     params.set('limit', '100');
     const data = await api<{ contacts: CrmContact[]; total: number }>(`/api/crm/contacts?${params}`);
     setContacts(data.contacts);
     setTotal(data.total);
     setLoading(false);
-  }, [search, status]);
+  }, [search, status, tagFilter]);
 
   useEffect(() => {
     const t = setTimeout(load, search ? 300 : 0);
@@ -87,6 +99,23 @@ export function ContactsPage() {
             );
           })}
         </div>
+        {availableTags.length > 0 && (
+          <select
+            value={tagFilter}
+            onChange={e => setTagFilter(e.target.value)}
+            style={{
+              background: BG_RAISED, border: `1px solid ${LINE}`, color: INK,
+              borderRadius: 4, padding: '8px 10px', fontSize: 13,
+              fontFamily: FONT_SANS, outline: 'none', flexShrink: 0,
+              minWidth: isMobile ? '100%' : 160,
+            }}
+          >
+            <option value="">All tags</option>
+            {availableTags.map(t => (
+              <option key={t} value={t}>{t}</option>
+            ))}
+          </select>
+        )}
       </div>
 
       {loading ? (
@@ -146,8 +175,8 @@ export function ContactsPage() {
         </>
       )}
 
-      {showCreate && <ContactForm onClose={() => setShowCreate(false)} onSaved={() => { setShowCreate(false); load(); }} />}
-      {showImport && <SmartImportModal onClose={() => setShowImport(false)} onImported={() => { setShowImport(false); load(); }} />}
+      {showCreate && <ContactForm onClose={() => setShowCreate(false)} onSaved={() => { setShowCreate(false); load(); loadTags(); }} />}
+      {showImport && <SmartImportModal onClose={() => setShowImport(false)} onImported={() => { setShowImport(false); load(); loadTags(); }} />}
     </div>
   );
 }
