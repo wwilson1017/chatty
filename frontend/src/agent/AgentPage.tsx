@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { api } from '../core/api/client';
+import type { ProviderStatus } from '../core/types';
 import { useAgentChat, type ToolMode } from './hooks/useAgentChat';
 import { useConversations } from './hooks/useConversations';
 import { useScrollDirection } from './hooks/useScrollDirection';
@@ -69,6 +70,8 @@ export function AgentPage() {
   const [showSidebar, setShowSidebar] = useState(false);
   const [openaiAvailable, setOpenaiAvailable] = useState(false);
   const [alwaysPowerMode, setAlwaysPowerMode] = useState(false);
+  const [activeProvider, setActiveProvider] = useState('');
+  const [activeModel, setActiveModel] = useState('');
   const isMobile = useIsMobile();
   const prevOnboardingComplete = useRef<boolean | null>(null);
 
@@ -112,6 +115,27 @@ export function AgentPage() {
       .then(d => setOpenaiAvailable(d.generate_available))
       .catch(() => {});
   }, [agentId]);
+
+  useEffect(() => {
+    api<ProviderStatus>('/api/providers')
+      .then(p => { setActiveProvider(p.active_provider); setActiveModel(p.active_model); })
+      .catch(() => {});
+  }, []);
+
+  const handleSwitchModel = useCallback(async (model: string) => {
+    if (!activeProvider) return;
+    const prev = activeModel;
+    setActiveModel(model);
+    try {
+      await api('/api/providers/active', {
+        method: 'PUT',
+        body: JSON.stringify({ provider: activeProvider, model }),
+      });
+    } catch (e) {
+      setActiveModel(prev);
+      alert(`Failed to switch model: ${e instanceof Error ? e.message : 'unknown error'}`);
+    }
+  }, [activeProvider, activeModel]);
 
   useEffect(() => {
     api<{ always_power_mode: boolean }>('/api/setup/admin-settings')
@@ -587,6 +611,9 @@ export function AgentPage() {
               toolMode={chat.toolMode}
               onToolModeChange={handleToolModeChange}
               alwaysPowerMode={alwaysPowerMode}
+              activeProvider={activeProvider}
+              activeModel={activeModel}
+              onSwitchModel={handleSwitchModel}
               agentName={agent.agent_name}
               agentSlug={agent.slug}
               conversationSource={convs.conversations.find(c => c.id === convs.activeId)?.source}

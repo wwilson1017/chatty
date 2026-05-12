@@ -36,6 +36,9 @@ interface Props {
   importMode?: boolean;
   onCancelImport?: () => void;
   greetingPending?: boolean;
+  activeProvider?: string;
+  activeModel?: string;
+  onSwitchModel?: (model: string) => void;
 }
 
 const TOOL_MODES: { key: ToolMode; label: string }[] = [
@@ -44,11 +47,16 @@ const TOOL_MODES: { key: ToolMode; label: string }[] = [
   { key: 'power', label: 'Power' },
 ];
 
+const ANTHROPIC_MODEL_TABS: { id: string; label: string }[] = [
+  { id: 'claude-opus-4-6', label: 'Opus' },
+  { id: 'claude-sonnet-4-6', label: 'Sonnet' },
+];
+
 export function AgentChatPanel({
   messages, isStreaming, onSend, onStop, onApprove, onDeny,
   onApprovePlan, onIteratePlan, scrollRef: externalScrollRef,
   contextUsage, toolMode, onToolModeChange, alwaysPowerMode, agentName, agentSlug, conversationSource, importMode, onCancelImport,
-  greetingPending,
+  greetingPending, activeProvider, activeModel, onSwitchModel,
 }: Props) {
   const [input, setInput] = useState('');
   const [pendingFiles, setPendingFiles] = useState<File[]>([]);
@@ -263,6 +271,38 @@ export function AgentChatPanel({
                       {m.label}
                     </div>
                   ))}
+                </div>
+              )}
+
+              {/* Anthropic model switcher (Opus / Sonnet) */}
+              {activeProvider === 'anthropic' && onSwitchModel && (
+                <div
+                  title="Switch Anthropic model"
+                  style={{
+                    display: 'flex', border: '1px solid rgba(230,235,242,0.07)',
+                    borderRadius: 3, overflow: 'hidden',
+                    opacity: isStreaming ? 0.5 : 1,
+                  }}
+                >
+                  {ANTHROPIC_MODEL_TABS.map(m => {
+                    const isActive = activeModel === m.id;
+                    return (
+                      <div
+                        key={m.id}
+                        onClick={() => !isStreaming && !isActive && onSwitchModel(m.id)}
+                        style={{
+                          padding: '3px 10px',
+                          fontFamily: "'JetBrains Mono', ui-monospace, monospace",
+                          fontSize: 10, letterSpacing: '0.12em', textTransform: 'uppercase',
+                          color: isActive ? '#0E1013' : 'rgba(237,240,244,0.62)',
+                          background: isActive ? 'var(--color-ch-accent, #C8D1D9)' : 'transparent',
+                          cursor: isStreaming || isActive ? 'default' : 'pointer',
+                        }}
+                      >
+                        {m.label}
+                      </div>
+                    );
+                  })}
                 </div>
               )}
             </div>
