@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../core/api/client';
 import type { CrmContact } from '../core/types';
@@ -16,6 +16,7 @@ import {
 const STATUS_TABS = ['all', 'active', 'inactive', 'archived'] as const;
 
 const COLS = '2fr 1.5fr 2fr 1.2fr 80px';
+const PAGE_SIZE = 50;
 
 export function ContactsPage() {
   const [contacts, setContacts] = useState<CrmContact[]>([]);
@@ -23,27 +24,62 @@ export function ContactsPage() {
   const [search, setSearch] = useState('');
   const [status, setStatus] = useState<string>('all');
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [showCreate, setShowCreate] = useState(false);
   const [showImport, setShowImport] = useState(false);
   const navigate = useNavigate();
   const isMobile = useIsMobile();
+  const sentinelRef = useRef<HTMLDivElement | null>(null);
+  // Track current request so a stale response (filter change mid-flight) can't overwrite fresh data
+  const loadIdRef = useRef(0);
 
-  const load = useCallback(async () => {
-    setLoading(true);
+  const fetchPage = useCallback(async (offset: number) => {
     const params = new URLSearchParams();
     if (search) params.set('q', search);
     if (status !== 'all') params.set('status', status);
-    params.set('limit', '100');
-    const data = await api<{ contacts: CrmContact[]; total: number }>(`/api/crm/contacts?${params}`);
+    params.set('limit', String(PAGE_SIZE));
+    params.set('offset', String(offset));
+    return api<{ contacts: CrmContact[]; total: number }>(`/api/crm/contacts?${params}`);
+  }, [search, status]);
+
+  const reload = useCallback(async () => {
+    const id = ++loadIdRef.current;
+    setLoading(true);
+    const data = await fetchPage(0);
+    if (id !== loadIdRef.current) return;
     setContacts(data.contacts);
     setTotal(data.total);
     setLoading(false);
-  }, [search, status]);
+  }, [fetchPage]);
+
+  const loadMore = useCallback(async () => {
+    if (loading || loadingMore) return;
+    const id = loadIdRef.current;
+    setLoadingMore(true);
+    const data = await fetchPage(contacts.length);
+    if (id !== loadIdRef.current) return;
+    setContacts(prev => [...prev, ...data.contacts]);
+    setTotal(data.total);
+    setLoadingMore(false);
+  }, [fetchPage, contacts.length, loading, loadingMore]);
 
   useEffect(() => {
-    const t = setTimeout(load, search ? 300 : 0);
+    const t = setTimeout(reload, search ? 300 : 0);
     return () => clearTimeout(t);
-  }, [load, search]);
+  }, [reload, search]);
+
+  useEffect(() => {
+    if (loading) return;
+    if (contacts.length >= total) return;
+    const el = sentinelRef.current;
+    if (!el) return;
+    const observer = new IntersectionObserver(
+      entries => { if (entries[0].isIntersecting) loadMore(); },
+      { rootMargin: '200px' },
+    );
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [loading, loadingMore, contacts.length, total, loadMore]);
 
   return (
     <div style={{ padding: isMobile ? '20px 16px' : '32px 44px', maxWidth: 1000 }}>
@@ -143,11 +179,16 @@ export function ContactsPage() {
               ))}
             </div>
           )}
+          {contacts.length < total && (
+            <div ref={sentinelRef} style={{ display: 'flex', justifyContent: 'center', padding: '20px 0', ...mono(12), color: INK_DIM }}>
+              {loadingMore ? 'Loading more…' : `${total - contacts.length} more`}
+            </div>
+          )}
         </>
       )}
 
-      {showCreate && <ContactForm onClose={() => setShowCreate(false)} onSaved={() => { setShowCreate(false); load(); }} />}
-      {showImport && <SmartImportModal onClose={() => setShowImport(false)} onImported={() => { setShowImport(false); load(); }} />}
+      {showCreate && <ContactForm onClose={() => setShowCreate(false)} onSaved={() => { setShowCreate(false); reload(); }} />}
+      {showImport && <SmartImportModal onClose={() => setShowImport(false)} onImported={() => { setShowImport(false); reload(); }} />}
     </div>
   );
 }
