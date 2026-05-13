@@ -105,6 +105,12 @@ async def setup_from_oauth(
 
     save_google_account(account_id, account_data, create=True)
 
+    try:
+        from core.agents.alerts.service import resolve_by_source
+        resolve_by_source("google_connection", f"google:{account_id}")
+    except Exception:
+        pass
+
     _clear_stale_assignments(account_id, scope_grants)
 
     logger.info("Google account connected: id=%s email=%s scope_grants=%s", account_id, email, scope_grants)

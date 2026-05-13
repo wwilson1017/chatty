@@ -109,6 +109,24 @@ def resolve_alert(alert_id: str) -> dict:
     return {"ok": True, "id": alert_id}
 
 
+def resolve_by_source(source: str, source_id: str, agent: str | None = None) -> int:
+    """Resolve all active/acknowledged alerts matching the given source and source_id."""
+    conn = db.get_db()
+    now = _now_utc()
+    query = (
+        "UPDATE alerts SET status = 'resolved', resolved_at = ? "
+        "WHERE source = ? AND source_id = ? AND status IN ('active', 'acknowledged')"
+    )
+    params: list = [now, source, source_id]
+    if agent:
+        query += " AND agent = ?"
+        params.append(agent)
+    with db.write_lock():
+        cursor = conn.execute(query, params)
+        conn.commit()
+    return cursor.rowcount
+
+
 def get_active_alerts_text(agent: str, max_alerts: int = 5) -> str:
     alerts = list_alerts(agent=agent, status="active", limit=max_alerts)
     if not alerts:
