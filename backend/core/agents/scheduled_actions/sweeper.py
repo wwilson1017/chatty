@@ -27,13 +27,27 @@ def sweep() -> None:
 
         service.ensure_default_actions_all()
 
-        if cleaned_history or cleaned_alerts or cleaned_usage or fixed_drift or released_leases:
+        healed_google = _try_heal_google()
+
+        if cleaned_history or cleaned_alerts or cleaned_usage or fixed_drift or released_leases or healed_google:
             logger.info(
-                "Sweeper: cleaned %d history, %d alerts, %d usage, fixed %d drifted, released %d leases",
-                cleaned_history, cleaned_alerts, cleaned_usage, fixed_drift, released_leases,
+                "Sweeper: cleaned %d history, %d alerts, %d usage, fixed %d drifted, released %d leases, healed %d Google",
+                cleaned_history, cleaned_alerts, cleaned_usage, fixed_drift, released_leases, healed_google,
             )
     except Exception as e:
         logger.error("Sweeper failed: %s", e)
+
+
+def _try_heal_google() -> int:
+    try:
+        from integrations.google.client import try_heal_broken_accounts
+        healed = try_heal_broken_accounts()
+        if healed:
+            logger.info("Sweeper: self-healed %d Google account(s): %s", len(healed), healed)
+        return len(healed)
+    except Exception as e:
+        logger.debug("Google self-heal skipped: %s", e)
+        return 0
 
 
 def _cleanup_context_usage(retention_days: int = 90) -> int:
