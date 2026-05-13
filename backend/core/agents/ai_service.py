@@ -244,7 +244,7 @@ def _google_accounts_context(account_info_map: dict[str, dict], google_accounts:
             info = account_info_map.get(aid, {})
             email = info.get("email", aid)
             status = " **[DISCONNECTED]**" if info.get("connection_status") == "broken" else ""
-            suffix = " (default)" if i == 0 and not status else ""
+            suffix = " (default)" if i == 0 else ""
             entries.append(f"  - {email}{suffix}{status}")
         label = service.title()
         sections.append(f"**{label}** accounts:\n" + "\n".join(entries))

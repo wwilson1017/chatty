@@ -108,8 +108,8 @@ async def setup_from_oauth(
     try:
         from core.agents.alerts.service import resolve_by_source
         resolve_by_source("google_connection", f"google:{account_id}")
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug("Resolve alerts on reconnect: %s", e)
 
     _clear_stale_assignments(account_id, scope_grants)
 
