@@ -127,6 +127,7 @@ class UpdateAgentRequest(BaseModel):
     drive_enabled: bool | None = None
     drive_write_enabled: bool | None = None
     google_accounts: dict | None = None
+    model_tier: str | None = None
     telegram_enabled: bool | None = None
     telegram_group_enabled: bool | None = None
     telegram_respond_to_bots: bool | None = None
@@ -230,6 +231,14 @@ async def update_agent(agent_id: str, body: UpdateAgentRequest, user=Depends(get
     updates = {k: v for k, v in body.model_dump().items() if v is not None}
     if not updates:
         raise HTTPException(status_code=400, detail="No fields to update")
+
+    if "model_tier" in updates:
+        if updates["model_tier"] not in ("auto", "top", "mid", "light"):
+            raise HTTPException(status_code=400, detail="model_tier must be one of: auto, top, mid, light")
+        updates["model_override"] = ""
+
+    if "model_override" in updates and updates["model_override"]:
+        updates["model_tier"] = "auto"
 
     if "google_accounts" in updates:
         ga = updates["google_accounts"]
@@ -445,7 +454,7 @@ async def get_avatar(agent_id: str, request: Request, token: str | None = None):
 def _stream_chat(agent: dict, messages: list, training_mode: bool, conversation_id: str | None,
                   training_type: str | None = None, plan_mode: bool = False,
                   tool_mode: str = "normal", approved_tool: dict | None = None,
-                  import_mode: bool = False):
+                  import_mode: bool = False, has_attachments: bool = False):
     """Build provider, registry, and return a StreamingResponse for agent chat."""
     config = build_agent_config(agent)
     ctx_manager = get_context_manager(agent["slug"])
@@ -458,9 +467,22 @@ def _stream_chat(agent: dict, messages: list, training_mode: bool, conversation_
         pass  # Non-critical — search will degrade gracefully
 
     store = CredentialStore()
+
+    # ── Tier resolution ──────────────────────────────────────────────
+    # model_override takes absolute precedence — skip all tier logic
+    triage_info: dict | None = None
+    resolved_model = config.model_override or None
+
+    if not resolved_model and config.model_tier != "auto":
+        from core.providers.tiers import resolve_tier_model
+        provider_key = config.provider_override or store.data.get("active_provider", "")
+        resolved_model = resolve_tier_model(provider_key, config.model_tier)
+        triage_info = {"tier": config.model_tier, "method": "manual"}
+
     provider = get_ai_provider(
         agent_provider=config.provider_override or None,
-        agent_model=config.model_override or None,
+        agent_model=resolved_model,
+        agent_model_tier=config.model_tier if not resolved_model else None,
     )
     if not provider:
         raise HTTPException(status_code=400, detail="No AI provider configured")
@@ -512,6 +534,41 @@ def _stream_chat(agent: dict, messages: list, training_mode: bool, conversation_
     anthropic_api_key = (anthropic_profile or {}).get("key", "")
 
     async def event_generator():
+        nonlocal triage_info, provider
+
+        # Run auto-triage if tier is "auto" and we haven't resolved yet
+        if not triage_info and config.model_tier == "auto" and not config.model_override:
+            skip_triage = training_mode or plan_mode or approved_tool is not None
+            if not skip_triage:
+                from core.providers.tiers import supports_auto_triage
+                provider_key = config.provider_override or store.data.get("active_provider", "")
+                if supports_auto_triage(provider_key):
+                    from core.providers.triage import classify_tier, extract_classifier_credentials
+                    last_user = next((m for m in reversed(messages) if m.get("role") == "user"), None)
+                    raw_content = last_user.get("content", "") if last_user else ""
+                    user_text = raw_content if isinstance(raw_content, str) else " ".join(
+                        p.get("text", "") for p in raw_content if isinstance(p, dict) and p.get("type") == "text"
+                    )
+                    creds = extract_classifier_credentials(provider_key, store)
+                    tier, method = await classify_tier(
+                        user_message=user_text,
+                        provider=provider_key,
+                        credentials=creds,
+                        conversation_id=conversation_id,
+                        has_attachments=has_attachments,
+                    )
+                    triage_info = {"tier": tier, "method": method}
+                    if tier != "top":
+                        from core.providers.tiers import resolve_tier_model
+                        resolved = resolve_tier_model(provider_key, tier)
+                        if resolved:
+                            new_provider = get_ai_provider(
+                                agent_provider=config.provider_override or None,
+                                agent_model=resolved,
+                            )
+                            if new_provider:
+                                provider = new_provider
+
         async for event in ai_service.chat(
             config=config,
             provider=provider,
@@ -529,6 +586,7 @@ def _stream_chat(agent: dict, messages: list, training_mode: bool, conversation_
             tool_mode=tool_mode,
             approved_tool=approved_tool,
             integration_tool_modes=integration_tool_modes,
+            triage_info=triage_info,
         ):
             yield event
 
@@ -887,7 +945,7 @@ async def agent_chat_upload(
         agent, messages, body.get("training_mode", False), body.get("conversation_id"),
         training_type=body.get("training_type"), plan_mode=body.get("plan_mode", False),
         tool_mode=body.get("tool_mode", "normal"), approved_tool=body.get("approved_tool"),
-        import_mode=import_mode,
+        import_mode=import_mode, has_attachments=bool(files),
     )
 
 

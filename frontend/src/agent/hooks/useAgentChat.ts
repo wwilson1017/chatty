@@ -23,6 +23,7 @@ function uuid(): string {
 }
 
 export type ToolMode = 'read-only' | 'normal' | 'power';
+export type ModelTier = 'auto' | 'top' | 'mid' | 'light';
 export type TrainingType = 'topic' | 'improve' | null;
 
 export interface ToolCallInfo {
@@ -70,6 +71,8 @@ export interface ChatMessage {
   pendingConfirm?: PendingConfirmation;
   pendingPlan?: PendingPlan;
   reports?: InlineReport[];
+  model?: string;
+  tier?: string;
 }
 
 export interface ContextUsage {
@@ -323,6 +326,15 @@ export function useAgentChat(apiPrefix: string, options?: Options) {
               setConversationId(event.id);
             } else if (event.type === 'title_update' && event.title && event.conversation_id) {
               options?.onTitleUpdate?.(event.conversation_id, event.title);
+            } else if (event.type === 'done') {
+              flushPendingText();
+              if (event.model || event.tier) {
+                updateLastAssistant(last => ({
+                  ...last,
+                  ...(event.model && { model: event.model }),
+                  ...(event.tier && { tier: event.tier }),
+                }));
+              }
             } else if (event.type === 'error') {
               flushPendingText();
               updateLastAssistant(last => ({

@@ -42,6 +42,7 @@ async def _run_turn(
     model_override: str | None = None,
     provider_override: str | None = None,
     on_iteration: Callable[[int], bool] | None = None,
+    model_tier: str | None = None,
 ) -> BackgroundResult:
     """Run a single AI turn asynchronously, executing tools as needed.
 
@@ -52,6 +53,7 @@ async def _run_turn(
     provider = get_ai_provider(
         agent_provider=provider_override,
         agent_model=model_override,
+        agent_model_tier=model_tier,
     )
     if not provider:
         return BackgroundResult(text="No AI provider configured", error=True)
@@ -215,6 +217,7 @@ def run_background_turn(
     provider_override: str | None = None,
     on_iteration: Callable[[int], bool] | None = None,
     source: str | None = None,
+    model_tier: str | None = None,
 ) -> BackgroundResult:
     """Synchronous wrapper for running a background AI turn.
 
@@ -238,14 +241,14 @@ def run_background_turn(
                     asyncio.run,
                     _run_turn(system_prompt, user_message, tool_defs, registry,
                               max_iterations, model_override, provider_override,
-                              on_iteration)
+                              on_iteration, model_tier=model_tier)
                 )
                 result = future.result(timeout=300)
         else:
             result = asyncio.run(
                 _run_turn(system_prompt, user_message, tool_defs, registry,
                           max_iterations, model_override, provider_override,
-                          on_iteration)
+                          on_iteration, model_tier=model_tier)
             )
     except Exception as exc:
         if source:

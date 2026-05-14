@@ -238,5 +238,5 @@ export type SSEEvent =
   | { type: 'usage'; input_tokens: number; context_window: number }
   | { type: 'report'; report: { id: string; title: string; subtitle?: string; sections: unknown[]; created_at: string } }
   | { type: 'title_update'; title: string; conversation_id: string }
-  | { type: 'done' }
+  | { type: 'done'; model?: string; tier?: string }
   | { type: 'error'; error: string };
