@@ -1216,8 +1216,8 @@ SCHEDULED_ACTION_TOOLS = [
                 "interval_minutes": {"type": "integer", "description": "Interval in minutes (for schedule_type='interval', min 5)"},
                 "run_at": {"type": "string", "description": "ISO 8601 datetime (for schedule_type='once')"},
                 "prompt": {"type": "string", "description": "The prompt to execute on each run"},
-                "active_hours_start": {"type": "integer", "description": "Start hour for active window (0-23, default: 6). Actions only run during this window."},
-                "active_hours_end": {"type": "integer", "description": "End hour for active window (0-23, default: 20). Actions only run during this window."},
+                "active_hours_start": {"type": "integer", "description": "Start hour for active window (0-23, default: 0). Actions only run during this window."},
+                "active_hours_end": {"type": "integer", "description": "End hour for active window (0-23, default: 23). Actions only run during this window."},
                 "always_on": {"type": "boolean", "description": "Set true for 24/7 operation, bypassing active hours. Default: false"},
             },
             "required": ["name", "prompt", "schedule_type"],
@@ -1316,7 +1316,7 @@ Use `create_scheduled_action` only when you need a task with its own independent
 
 ### Active Hours
 - Scheduled actions have an **active hours window** — they only run during this window.
-- Default is 6 AM to 8 PM. To change, set `active_hours_start` and `active_hours_end` (integers 0-23).
+- Default is 24/7. To restrict, set `active_hours_start` and `active_hours_end` (integers 0-23).
 - For 24/7 operation, set `always_on=true` — this bypasses active hours entirely.
 - Your heartbeat runs 24/7 by default (`always_on`). Time-gating belongs in your HEARTBEAT.md checklist items (e.g., "Only on weekdays before 10 AM: ..."), not on the heartbeat's active hours.
 
