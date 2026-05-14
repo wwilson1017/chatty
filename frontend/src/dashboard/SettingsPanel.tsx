@@ -329,6 +329,11 @@ export function SettingsPanel({ branding, onBrandingUpdate, onClose }: Props) {
                   <option value="always_cheap">Always Cheap</option>
                 </select>
               </div>
+              {triageMode !== 'standard' && (
+                <p style={{ fontSize: 11, color: 'rgba(237,240,244,0.32)', margin: '4px 0 0' }}>
+                  Tip: Add an OpenAI API key for the best triage model (GPT-4.1 Nano)
+                </p>
+              )}
             </div>
           )}
 
