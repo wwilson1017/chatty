@@ -102,9 +102,12 @@ def extract_classifier_credentials(provider: str, store: CredentialStore) -> dic
     return {}
 
 
+_CLASSIFIER_TIMEOUT = 5
+
+
 async def _classify_anthropic(text: str, creds: dict) -> str:
     import anthropic
-    client = anthropic.AsyncAnthropic(api_key=creds["api_key"])
+    client = anthropic.AsyncAnthropic(api_key=creds["api_key"], timeout=_CLASSIFIER_TIMEOUT)
     response = await client.messages.create(
         model=TRIAGE_CLASSIFIERS["anthropic"],
         max_tokens=5,
@@ -116,7 +119,7 @@ async def _classify_anthropic(text: str, creds: dict) -> str:
 
 async def _classify_openai(text: str, creds: dict) -> str:
     import openai
-    kwargs: dict = {"api_key": creds["api_key"]}
+    kwargs: dict = {"api_key": creds["api_key"], "timeout": _CLASSIFIER_TIMEOUT}
     if creds.get("use_chatgpt_api"):
         kwargs["base_url"] = "http://127.0.0.1:9877/v1"
     client = openai.AsyncOpenAI(**kwargs)
@@ -132,6 +135,7 @@ async def _classify_openai(text: str, creds: dict) -> str:
 
 
 async def _classify_google(text: str, creds: dict) -> str:
+    import asyncio
     import google.generativeai as genai
     if creds.get("api_key"):
         genai.configure(api_key=creds["api_key"])
@@ -141,9 +145,12 @@ async def _classify_google(text: str, creds: dict) -> str:
         TRIAGE_CLASSIFIERS["google"],
         system_instruction=_TRIAGE_SYSTEM_PROMPT,
     )
-    response = await model.generate_content_async(
-        text[:_MAX_INPUT_CHARS],
-        generation_config=genai.types.GenerationConfig(max_output_tokens=5),
+    response = await asyncio.wait_for(
+        model.generate_content_async(
+            text[:_MAX_INPUT_CHARS],
+            generation_config=genai.types.GenerationConfig(max_output_tokens=5),
+        ),
+        timeout=_CLASSIFIER_TIMEOUT,
     )
     return response.text or ""
 
@@ -190,7 +197,7 @@ async def classify_tier(
 
     # If cached, promote upward only
     classify_fn = _CLASSIFY_DISPATCH.get(provider)
-    if not classify_fn or not credentials.get("api_key") and not credentials.get("access_token"):
+    if not classify_fn or (not credentials.get("api_key") and not credentials.get("access_token")):
         return ("top", "skip")
 
     try:
