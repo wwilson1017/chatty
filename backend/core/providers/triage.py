@@ -121,7 +121,8 @@ async def _classify_openai(text: str, creds: dict) -> str:
     import openai
     kwargs: dict = {"api_key": creds["api_key"], "timeout": _CLASSIFIER_TIMEOUT}
     if creds.get("use_chatgpt_api"):
-        kwargs["base_url"] = "http://127.0.0.1:9877/v1"
+        from core.providers.openai_provider import CHATGPT_PROXY_URL
+        kwargs["base_url"] = CHATGPT_PROXY_URL
     client = openai.AsyncOpenAI(**kwargs)
     response = await client.chat.completions.create(
         model=TRIAGE_CLASSIFIERS["openai"],

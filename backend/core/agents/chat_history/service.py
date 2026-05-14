@@ -111,7 +111,7 @@ class ChatHistoryService:
         If seq is None, atomically computes the next sequence number under
         the write lock so concurrent callers never collide.
         tool_calls is an optional JSON string of tool call data for assistant messages.
-        model is the AI model used for assistant messages (for "via Model" badge).
+        model is the AI model ID that generated this message.
         """
         db = self._db.get_db()
         with self._db.write_lock():

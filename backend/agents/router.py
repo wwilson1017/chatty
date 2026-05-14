@@ -542,7 +542,10 @@ def _stream_chat(agent: dict, messages: list, training_mode: bool, conversation_
                 if supports_auto_triage(provider_key):
                     from core.providers.triage import classify_tier, extract_classifier_credentials
                     last_user = next((m for m in reversed(messages) if m.get("role") == "user"), None)
-                    user_text = last_user.get("content", "") if last_user else ""
+                    raw_content = last_user.get("content", "") if last_user else ""
+                    user_text = raw_content if isinstance(raw_content, str) else " ".join(
+                        p.get("text", "") for p in raw_content if isinstance(p, dict) and p.get("type") == "text"
+                    )
                     creds = extract_classifier_credentials(provider_key, store)
                     tier, method = await classify_tier(
                         user_message=user_text,

@@ -72,6 +72,7 @@ export interface ChatMessage {
   pendingPlan?: PendingPlan;
   reports?: InlineReport[];
   model?: string;
+  tier?: string;
 }
 
 export interface ContextUsage {
@@ -327,8 +328,12 @@ export function useAgentChat(apiPrefix: string, options?: Options) {
               options?.onTitleUpdate?.(event.conversation_id, event.title);
             } else if (event.type === 'done') {
               flushPendingText();
-              if (event.model) {
-                updateLastAssistant(last => ({ ...last, model: event.model }));
+              if (event.model || event.tier) {
+                updateLastAssistant(last => ({
+                  ...last,
+                  ...(event.model && { model: event.model }),
+                  ...(event.tier && { tier: event.tier }),
+                }));
               }
             } else if (event.type === 'error') {
               flushPendingText();

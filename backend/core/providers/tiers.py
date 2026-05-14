@@ -6,10 +6,6 @@ Hardcoded, updated occasionally when new models are released.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
-
-if TYPE_CHECKING:
-    from core.agents.config import AgentConfig
 
 TIER_MODELS: dict[str, dict[str, str]] = {
     "anthropic": {
@@ -66,17 +62,3 @@ def supports_auto_triage(provider: str) -> bool:
 
 def get_triage_classifier(provider: str) -> str | None:
     return TRIAGE_CLASSIFIERS.get(provider)
-
-
-def resolve_model_for_agent(config: AgentConfig, provider: str) -> str | None:
-    """Full resolution: model_override > model_tier > None.
-
-    Returns None if the tier/provider combination has no mapping,
-    letting the caller fall back to the global active_model.
-    """
-    if config.model_override:
-        return config.model_override
-    tier = config.model_tier or "auto"
-    if tier == "auto":
-        tier = "top"
-    return resolve_tier_model(provider, tier)
