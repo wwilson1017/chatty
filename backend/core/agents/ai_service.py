@@ -220,7 +220,20 @@ When you've naturally covered the key topics:
 
 
 def _google_accounts_context(account_info_map: dict[str, dict], google_accounts: dict) -> str:
-    """Build system prompt section listing available Google accounts per service."""
+    """Build system prompt section listing available and broken Google accounts."""
+    # Collect broken accounts across all assigned services
+    broken_emails = []
+    seen_broken = set()
+    for svc in ("gmail", "calendar", "drive"):
+        for aid in google_accounts.get(svc, []):
+            if aid in seen_broken:
+                continue
+            info = account_info_map.get(aid, {})
+            if info.get("connection_status") == "broken":
+                broken_emails.append(info.get("email", aid))
+                seen_broken.add(aid)
+
+    # Multi-account context (existing behavior)
     sections = []
     for service in ("gmail", "calendar", "drive"):
         ids = google_accounts.get(service, [])
@@ -230,22 +243,35 @@ def _google_accounts_context(account_info_map: dict[str, dict], google_accounts:
         for i, aid in enumerate(ids):
             info = account_info_map.get(aid, {})
             email = info.get("email", aid)
+            status = " **[DISCONNECTED]**" if info.get("connection_status") == "broken" else ""
             suffix = " (default)" if i == 0 else ""
-            entries.append(f"  - {email}{suffix}")
+            entries.append(f"  - {email}{suffix}{status}")
         label = service.title()
         sections.append(f"**{label}** accounts:\n" + "\n".join(entries))
-    if not sections:
-        return ""
-    return (
-        "## Google Accounts\n\n"
-        "You have multiple Google accounts available. Use the `account` parameter "
-        "in Gmail/Calendar/Drive tools to specify which account to use.\n"
-        "- For read operations: the first listed account is used by default.\n"
-        "- For write operations (send email, create event, etc.): the first account "
-        "with write access is used by default.\n"
-        "Always specify `account` when context makes the intended account clear.\n\n"
-        + "\n\n".join(sections)
-    )
+
+    parts = []
+    if sections:
+        parts.append(
+            "## Google Accounts\n\n"
+            "You have multiple Google accounts available. Use the `account` parameter "
+            "in Gmail/Calendar/Drive tools to specify which account to use.\n"
+            "- For read operations: the first listed connected account is used by default.\n"
+            "- For write operations (send email, create event, etc.): the first connected "
+            "account with write access is used by default.\n"
+            "Always specify `account` when context makes the intended account clear.\n\n"
+            + "\n\n".join(sections)
+        )
+
+    if broken_emails:
+        parts.append(
+            "## Google Connection Issues\n\n"
+            "The following Google accounts have broken connections. "
+            "Their tools (Gmail, Calendar, Drive) are unavailable until reconnected. "
+            "If the user asks, direct them to Settings → Integrations → Google to reconnect.\n\n"
+            + "\n".join(f"- {email}" for email in broken_emails)
+        )
+
+    return "\n\n".join(parts)
 
 
 def _build_system_prompt(
@@ -636,6 +662,7 @@ async def chat(
     tool_mode: str = "normal",
     approved_tool: dict | None = None,
     integration_tool_modes: dict[str, str] | None = None,
+    triage_info: dict | None = None,
 ) -> AsyncGenerator[str, None]:
     """Stream a chat response as SSE events.
 
@@ -978,6 +1005,7 @@ async def chat(
                             role="assistant",
                             content=turn_text,
                             tool_calls=tc_json,
+                            model=model_used,
                         )
                     except Exception as e:
                         logger.warning("Chat history save (assistant) failed: %s", e)
@@ -996,7 +1024,10 @@ async def chat(
                     _log_chat_completion(config.slug, conversation_id, "chat", "ok",
                                         accumulated_text, all_tool_calls, model_used,
                                         total_input_tokens, total_output_tokens, chat_start_time)
-                    yield _sse({"type": "done"})
+                    done_event = {"type": "done", "model": model_used}
+                    if triage_info:
+                        done_event["tier"] = triage_info.get("tier")
+                    yield _sse(done_event)
                     return
 
             elif etype == "error":
@@ -1011,7 +1042,10 @@ async def chat(
             _log_chat_completion(config.slug, conversation_id, "chat", "ok",
                                 accumulated_text, all_tool_calls, model_used,
                                 total_input_tokens, total_output_tokens, chat_start_time)
-            yield _sse({"type": "done"})
+            done_event = {"type": "done", "model": model_used}
+            if triage_info:
+                done_event["tier"] = triage_info.get("tier")
+            yield _sse(done_event)
             return
 
         results = []
@@ -1084,7 +1118,10 @@ async def chat(
                 _log_chat_completion(config.slug, conversation_id, "chat", "ok",
                                     accumulated_text, all_tool_calls, model_used,
                                     total_input_tokens, total_output_tokens, chat_start_time)
-                yield _sse({"type": "done"})
+                done_event = {"type": "done", "model": model_used}
+                if triage_info:
+                    done_event["tier"] = triage_info.get("tier")
+                yield _sse(done_event)
                 return
 
             # ── Intercept write tools that need approval ──
@@ -1165,7 +1202,10 @@ async def chat(
             _log_chat_completion(config.slug, conversation_id, "chat", "ok",
                                 accumulated_text, all_tool_calls, model_used,
                                 total_input_tokens, total_output_tokens, chat_start_time)
-            yield _sse({"type": "done"})
+            done_event = {"type": "done", "model": model_used}
+            if triage_info:
+                done_event["tier"] = triage_info.get("tier")
+            yield _sse(done_event)
             return
 
     # Exceeded max iterations
@@ -1355,6 +1395,7 @@ async def run_sync(
                     role="assistant",
                     content=turn_text,
                     tool_calls=tc_json,
+                    model=model_used,
                 )
             except Exception as e:
                 logger.warning("run_sync: chat history save (assistant) failed: %s", e)

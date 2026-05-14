@@ -13,6 +13,23 @@ interface Props {
   onApprovePlan?: (msgId: string) => void;
   onIteratePlan?: (msgId: string) => void;
   agentName?: string;
+  showModelBadge?: boolean;
+}
+
+const FRIENDLY_MODEL_NAMES: Record<string, string> = {
+  'claude-opus-4-6': 'Opus',
+  'claude-sonnet-4-6': 'Sonnet',
+  'claude-haiku-4-5-20251001': 'Haiku',
+  'gpt-5.4': 'GPT-5.4',
+  'gpt-5.4-mini': 'Mini',
+  'gpt-5.4-nano': 'Nano',
+  'gemini-2.5-pro': 'Pro',
+  'gemini-2.5-flash': 'Flash',
+  'gemini-2.0-flash-lite': 'Lite',
+};
+
+function friendlyModelName(model: string): string {
+  return FRIENDLY_MODEL_NAMES[model] || model.split('/').pop() || model;
 }
 
 const HUNG_THRESHOLD_SEC = 30;
@@ -296,7 +313,7 @@ function TypingDots() {
   );
 }
 
-function AgentMessageBubbleInner({ message, onApprove, onDeny, onApprovePlan, onIteratePlan, agentName }: Props) {
+function AgentMessageBubbleInner({ message, onApprove, onDeny, onApprovePlan, onIteratePlan, agentName, showModelBadge }: Props) {
   const isUser = message.role === 'user';
   const [expandedTools, setExpandedTools] = useState<Set<string>>(new Set());
   const { copied, copy } = useCopyToClipboard();
@@ -365,12 +382,21 @@ function AgentMessageBubbleInner({ message, onApprove, onDeny, onApprovePlan, on
     <div style={{ display: 'flex', gap: 12 }}>
       <AgentMark letter={letter} size={30} />
       <div style={{ flex: 1, maxWidth: '85%' }}>
-        {/* Agent name + timestamp */}
+        {/* Agent name + model badge */}
         <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, marginBottom: 6 }}>
           <div style={{
             fontFamily: "'Fraunces', Georgia, serif",
             fontSize: 14, color: '#D4A85A',
           }}>{agentName || 'Agent'}</div>
+          {message.model && showModelBadge && (
+            <span style={{
+              fontFamily: "'JetBrains Mono', ui-monospace, monospace",
+              fontSize: 9, letterSpacing: '0.1em',
+              color: 'rgba(237,240,244,0.3)',
+            }}>
+              via {friendlyModelName(message.model)}
+            </span>
+          )}
         </div>
 
         {/* Tool calls */}

@@ -22,6 +22,7 @@ class AgentConfig:
     # Provider override — if empty, uses the globally active provider
     provider_override: str = ""
     model_override: str = ""
+    model_tier: str = "auto"
 
     # Feature flags (per-agent capability toggles). Agent can only use a
     # capability if the global Google connection has also granted the

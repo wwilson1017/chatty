@@ -107,4 +107,8 @@ class ChatHistoryDB:
         if "mode" not in conv_cols:
             conn.execute("ALTER TABLE conversations ADD COLUMN mode TEXT NOT NULL DEFAULT 'normal'")
 
+        msg_cols = {r[1] for r in conn.execute("PRAGMA table_info(messages)").fetchall()}
+        if "model" not in msg_cols:
+            conn.execute("ALTER TABLE messages ADD COLUMN model TEXT NOT NULL DEFAULT ''")
+
         conn.commit()

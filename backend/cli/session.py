@@ -65,6 +65,7 @@ def create_session(slug: str, tool_mode: str = "normal",
     provider = get_ai_provider(
         agent_provider=config.provider_override or None,
         agent_model=config.model_override or None,
+        agent_model_tier=config.model_tier,
     )
     if not provider:
         raise SystemExit("No AI provider configured. Set one up in the web UI first.")

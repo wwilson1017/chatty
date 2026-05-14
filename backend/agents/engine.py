@@ -70,6 +70,7 @@ def build_agent_config(agent_row: dict) -> AgentConfig:
         personality=personality,
         provider_override=agent_row.get("provider_override", ""),
         model_override=agent_row.get("model_override", ""),
+        model_tier=agent_row.get("model_tier", "auto"),
         gmail_enabled=bool(agent_row.get("gmail_enabled", 0)),
         gmail_send_enabled=bool(agent_row.get("gmail_send_enabled", 0)),
         calendar_enabled=bool(agent_row.get("calendar_enabled", 0)),

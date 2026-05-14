@@ -27,6 +27,21 @@
 - Keep deployment simple — avoid requiring Postgres, Redis, or any external services
 - See `DEPLOY.md` for full Railway setup guide
 
+### Railway CLI
+
+For debugging production or running diagnostics against the deployed instance:
+
+```bash
+brew install railway
+railway login          # opens browser for auth
+railway link           # select project, environment, and service
+railway ssh -- "cd /app/backend && python3 -c 'print(\"hello\")'"
+```
+
+SSH requires a registered key: `railway ssh keys add --key ~/.ssh/id_ed25519.pub`
+
+If host key verification fails, add Railway's SSH host: `ssh-keyscan -H ssh.railway.com >> ~/.ssh/known_hosts`
+
 ## Local Development
 
 ```bash
