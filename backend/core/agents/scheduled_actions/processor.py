@@ -137,6 +137,8 @@ def _within_active_hours(action: dict) -> bool:
     end_str = action.get("active_hours_end")
     if not start_str or not end_str:
         return True
+    if start_str == "00:00" and end_str == "23:59":
+        return True
 
     tz_name = action.get("active_hours_tz") or "America/Chicago"
     try:

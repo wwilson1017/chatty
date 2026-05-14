@@ -12,8 +12,8 @@ export function HeartbeatConfig({ action, onUpdateConfig }: Props) {
   const [interval, setInterval_] = useState(action.interval_minutes || 30);
   const [triage, setTriage] = useState(action.triage_enabled);
   const [alwaysOn, setAlwaysOn] = useState(action.always_on);
-  const [hoursStart, setHoursStart] = useState(action.active_hours_start || '06:00');
-  const [hoursEnd, setHoursEnd] = useState(action.active_hours_end || '20:00');
+  const [hoursStart, setHoursStart] = useState(action.active_hours_start || '00:00');
+  const [hoursEnd, setHoursEnd] = useState(action.active_hours_end || '23:59');
   const [modelOverride, setModelOverride] = useState(action.model_override || '');
   const [maxIterations, setMaxIterations] = useState(action.max_tool_iterations || 10);
   const [showAdvanced, setShowAdvanced] = useState(false);
@@ -24,8 +24,8 @@ export function HeartbeatConfig({ action, onUpdateConfig }: Props) {
     setInterval_(action.interval_minutes || 30);
     setTriage(action.triage_enabled);
     setAlwaysOn(action.always_on);
-    setHoursStart(action.active_hours_start || '06:00');
-    setHoursEnd(action.active_hours_end || '20:00');
+    setHoursStart(action.active_hours_start || '00:00');
+    setHoursEnd(action.active_hours_end || '23:59');
     setModelOverride(action.model_override || '');
     setMaxIterations(action.max_tool_iterations || 10);
     setDirty(false);

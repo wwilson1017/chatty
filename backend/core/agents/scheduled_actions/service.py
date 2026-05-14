@@ -107,8 +107,8 @@ def create_action(
     cron_expression: str | None = None,
     interval_minutes: int | None = None,
     run_at: str | None = None,
-    active_hours_start: str = "06:00",
-    active_hours_end: str = "20:00",
+    active_hours_start: str = "00:00",
+    active_hours_end: str = "23:59",
     active_hours_tz: str = "America/Chicago",
     prompt: str = "",
     model_override: str | None = None,
@@ -144,8 +144,8 @@ def create_action(
             return {"error": f"run_at must be a valid ISO 8601 datetime, got: {run_at}"}
 
     max_tool_iterations = min(max(max_tool_iterations, 1), MAX_TOOL_ITERATIONS_CAP)
-    active_hours_start = _normalize_hour(active_hours_start, "06:00")
-    active_hours_end = _normalize_hour(active_hours_end, "20:00")
+    active_hours_start = _normalize_hour(active_hours_start, "00:00")
+    active_hours_end = _normalize_hour(active_hours_end, "23:59")
 
     action_id = str(uuid.uuid4())
     action_dict = {
@@ -266,9 +266,9 @@ def update_action(action_id: str, **fields) -> dict:
             updates["max_tool_iterations"] = min(max(updates["max_tool_iterations"], 1), MAX_TOOL_ITERATIONS_CAP)
 
         if "active_hours_start" in updates:
-            updates["active_hours_start"] = _normalize_hour(updates["active_hours_start"], "06:00")
+            updates["active_hours_start"] = _normalize_hour(updates["active_hours_start"], "00:00")
         if "active_hours_end" in updates:
-            updates["active_hours_end"] = _normalize_hour(updates["active_hours_end"], "20:00")
+            updates["active_hours_end"] = _normalize_hour(updates["active_hours_end"], "23:59")
 
         for bool_field in ("enabled", "triage_enabled", "notify_on_action", "always_on"):
             if bool_field in updates:
@@ -611,6 +611,8 @@ def ensure_default_actions(agent_slug: str) -> None:
         name="Heartbeat",
         description="Periodic check against HEARTBEAT.md checklist",
         interval_minutes=30,
+        active_hours_start="00:00",
+        active_hours_end="23:59",
         active_hours_tz="America/Chicago",
         prompt="Perform your heartbeat check now.",
         action_type="heartbeat",
@@ -674,13 +676,25 @@ def _run_one_time_migrations() -> None:
             (now,),
         ).rowcount
 
-        if re_enabled or bumped or reclassified:
+        # Patch active hours from old 06:00-20:00 defaults to 24/7 for heartbeats.
+        # Heartbeat prompts handle their own timing —
+        # the active hours window was double-gating them.
+        active_hours_patched = conn.execute(
+            """UPDATE scheduled_actions SET
+               active_hours_start = '00:00', active_hours_end = '23:59', updated_at = ?
+               WHERE active_hours_start = '06:00' AND active_hours_end = '20:00'
+               AND action_type = 'heartbeat'""",
+            (now,),
+        ).rowcount
+
+        if re_enabled or bumped or reclassified or active_hours_patched:
             conn.commit()
             logger.info(
                 "One-time migration: re-enabled %d actions (old threshold), "
                 "bumped max_tool_iterations on %d actions, "
-                "reclassified %d cron→heartbeat",
-                re_enabled, bumped, reclassified,
+                "reclassified %d cron→heartbeat, "
+                "patched active_hours to 24/7 on %d actions",
+                re_enabled, bumped, reclassified, active_hours_patched,
             )
 
 
