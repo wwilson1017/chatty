@@ -73,7 +73,6 @@ export function AgentPage() {
   const [openaiAvailable, setOpenaiAvailable] = useState(false);
   const [alwaysPowerMode, setAlwaysPowerMode] = useState(false);
   const [activeProvider, setActiveProvider] = useState('');
-  const [activeModel, setActiveModel] = useState('');
   const [modelTier, setModelTier] = useState<ModelTier>('auto');
   const [tierLabels, setTierLabels] = useState<Record<string, string>>({});
   const isMobile = useIsMobile();
@@ -109,7 +108,10 @@ export function AgentPage() {
     if (!agentId) return;
     localStorage.setItem('chatty_last_agent', agentId);
     api<AgentRow>(`/api/agents/${agentId}`)
-      .then(setAgent)
+      .then(a => {
+        setAgent(a);
+        if (a.model_tier) setModelTier(a.model_tier as ModelTier);
+      })
       .catch(() => navigate('/'));
   }, [agentId, navigate]);
 
@@ -122,7 +124,7 @@ export function AgentPage() {
 
   useEffect(() => {
     api<ProviderStatus>('/api/providers')
-      .then(p => { setActiveProvider(p.active_provider); setActiveModel(p.active_model); })
+      .then(p => { setActiveProvider(p.active_provider); })
       .catch(() => {});
   }, []);
 
@@ -136,10 +138,6 @@ export function AgentPage() {
       .catch(() => {});
   }, [agent, activeProvider]);
 
-  // Load model_tier from agent data
-  useEffect(() => {
-    if (agent?.model_tier) setModelTier(agent.model_tier as ModelTier);
-  }, [agent]);
 
   const handleSwitchTier = useCallback(async (tier: ModelTier) => {
     if (!agentId) return;
@@ -154,21 +152,6 @@ export function AgentPage() {
       setModelTier(prev);
     }
   }, [agentId, modelTier]);
-
-  const handleSwitchModel = useCallback(async (model: string) => {
-    if (!activeProvider) return;
-    const prev = activeModel;
-    setActiveModel(model);
-    try {
-      await api('/api/providers/active', {
-        method: 'PUT',
-        body: JSON.stringify({ provider: activeProvider, model }),
-      });
-    } catch (e) {
-      setActiveModel(prev);
-      alert(`Failed to switch model: ${e instanceof Error ? e.message : 'unknown error'}`);
-    }
-  }, [activeProvider, activeModel]);
 
   useEffect(() => {
     api<{ always_power_mode: boolean }>('/api/setup/admin-settings')
@@ -644,9 +627,6 @@ export function AgentPage() {
               toolMode={chat.toolMode}
               onToolModeChange={handleToolModeChange}
               alwaysPowerMode={alwaysPowerMode}
-              activeProvider={activeProvider}
-              activeModel={activeModel}
-              onSwitchModel={handleSwitchModel}
               modelTier={modelTier}
               tierLabels={tierLabels}
               onSwitchTier={handleSwitchTier}

@@ -36,9 +36,6 @@ interface Props {
   importMode?: boolean;
   onCancelImport?: () => void;
   greetingPending?: boolean;
-  activeProvider?: string;
-  activeModel?: string;
-  onSwitchModel?: (model: string) => void;
   modelTier?: ModelTier;
   tierLabels?: Record<string, string>;
   onSwitchTier?: (tier: ModelTier) => void;
@@ -56,7 +53,7 @@ export function AgentChatPanel({
   messages, isStreaming, onSend, onStop, onApprove, onDeny,
   onApprovePlan, onIteratePlan, scrollRef: externalScrollRef,
   contextUsage, toolMode, onToolModeChange, alwaysPowerMode, agentName, agentSlug, conversationSource, importMode, onCancelImport,
-  greetingPending, activeProvider, activeModel, onSwitchModel,
+  greetingPending,
   modelTier, tierLabels, onSwitchTier,
 }: Props) {
   const [input, setInput] = useState('');
