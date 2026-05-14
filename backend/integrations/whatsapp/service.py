@@ -265,6 +265,7 @@ def _process_message_locked(
         max_iterations=5,
         model_override=config.model_override or None,
         source="whatsapp",
+        model_tier=config.model_tier,
     )
 
     response_text = result.text
@@ -277,6 +278,7 @@ def _process_message_locked(
                 msg_id=str(uuid.uuid4()),
                 role="assistant",
                 content=response_text,
+                model=result.model_used,
             )
         except Exception as e:
             logger.warning("Failed to save assistant message to chat history: %s", e)

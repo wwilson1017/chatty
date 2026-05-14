@@ -662,6 +662,7 @@ async def chat(
     tool_mode: str = "normal",
     approved_tool: dict | None = None,
     integration_tool_modes: dict[str, str] | None = None,
+    triage_info: dict | None = None,
 ) -> AsyncGenerator[str, None]:
     """Stream a chat response as SSE events.
 
@@ -1004,6 +1005,7 @@ async def chat(
                             role="assistant",
                             content=turn_text,
                             tool_calls=tc_json,
+                            model=model_used,
                         )
                     except Exception as e:
                         logger.warning("Chat history save (assistant) failed: %s", e)
@@ -1022,7 +1024,10 @@ async def chat(
                     _log_chat_completion(config.slug, conversation_id, "chat", "ok",
                                         accumulated_text, all_tool_calls, model_used,
                                         total_input_tokens, total_output_tokens, chat_start_time)
-                    yield _sse({"type": "done"})
+                    done_event = {"type": "done", "model": model_used}
+                    if triage_info:
+                        done_event["tier"] = triage_info.get("tier")
+                    yield _sse(done_event)
                     return
 
             elif etype == "error":
@@ -1037,7 +1042,10 @@ async def chat(
             _log_chat_completion(config.slug, conversation_id, "chat", "ok",
                                 accumulated_text, all_tool_calls, model_used,
                                 total_input_tokens, total_output_tokens, chat_start_time)
-            yield _sse({"type": "done"})
+            done_event = {"type": "done", "model": model_used}
+            if triage_info:
+                done_event["tier"] = triage_info.get("tier")
+            yield _sse(done_event)
             return
 
         results = []
@@ -1110,7 +1118,10 @@ async def chat(
                 _log_chat_completion(config.slug, conversation_id, "chat", "ok",
                                     accumulated_text, all_tool_calls, model_used,
                                     total_input_tokens, total_output_tokens, chat_start_time)
-                yield _sse({"type": "done"})
+                done_event = {"type": "done", "model": model_used}
+                if triage_info:
+                    done_event["tier"] = triage_info.get("tier")
+                yield _sse(done_event)
                 return
 
             # ── Intercept write tools that need approval ──
@@ -1191,7 +1202,10 @@ async def chat(
             _log_chat_completion(config.slug, conversation_id, "chat", "ok",
                                 accumulated_text, all_tool_calls, model_used,
                                 total_input_tokens, total_output_tokens, chat_start_time)
-            yield _sse({"type": "done"})
+            done_event = {"type": "done", "model": model_used}
+            if triage_info:
+                done_event["tier"] = triage_info.get("tier")
+            yield _sse(done_event)
             return
 
     # Exceeded max iterations
@@ -1381,6 +1395,7 @@ async def run_sync(
                     role="assistant",
                     content=turn_text,
                     tool_calls=tc_json,
+                    model=model_used,
                 )
             except Exception as e:
                 logger.warning("run_sync: chat history save (assistant) failed: %s", e)

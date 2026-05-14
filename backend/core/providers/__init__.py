@@ -8,13 +8,19 @@ from core.providers.base import AIProvider
 from core.providers.credentials import CredentialStore
 
 
-def get_ai_provider(agent_provider: str | None = None, agent_model: str | None = None) -> AIProvider | None:
+def get_ai_provider(
+    agent_provider: str | None = None,
+    agent_model: str | None = None,
+    agent_model_tier: str | None = None,
+) -> AIProvider | None:
     """
     Return an initialized AIProvider for the active (or specified) provider.
 
     Args:
         agent_provider: Optional per-agent provider override ("anthropic", "openai", "google").
-        agent_model: Optional per-agent model override.
+        agent_model: Optional per-agent model override (takes precedence over tier).
+        agent_model_tier: Optional tier ("auto", "top", "mid", "light").
+            For "auto", resolves to "top" here (triage runs separately in _stream_chat).
 
     Returns None if no provider is configured.
     """
@@ -25,7 +31,20 @@ def get_ai_provider(agent_provider: str | None = None, agent_model: str | None =
         return None
 
     provider_type = profile.get("type")
-    raw_model = agent_model or store.data.get("active_model", "")
+
+    # Resolve model: agent_model > tier > global active_model
+    if agent_model:
+        raw_model = agent_model
+    elif agent_model_tier and agent_model_tier != "auto":
+        from core.providers.tiers import resolve_tier_model
+        provider_key = agent_provider or store.data.get("active_provider", "")
+        raw_model = resolve_tier_model(provider_key, agent_model_tier) or ""
+    elif agent_model_tier == "auto":
+        from core.providers.tiers import resolve_tier_model
+        provider_key = agent_provider or store.data.get("active_provider", "")
+        raw_model = resolve_tier_model(provider_key, "top") or ""
+    else:
+        raw_model = store.data.get("active_model", "")
     model = raw_model if raw_model and raw_model != "default" else ""
 
     if profile_name.startswith("anthropic:"):

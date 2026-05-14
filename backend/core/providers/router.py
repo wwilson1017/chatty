@@ -37,6 +37,19 @@ async def get_providers(user=Depends(get_current_user)):
     return result
 
 
+@router.get("/tiers")
+async def get_tiers(user=Depends(get_current_user)):
+    """Return tier configuration for all providers."""
+    from core.providers.tiers import TIER_MODELS, TIER_LABELS, supports_auto_triage
+    store = CredentialStore()
+    return {
+        "active_provider": store.data.get("active_provider", ""),
+        "tier_models": TIER_MODELS,
+        "tier_labels": TIER_LABELS,
+        "auto_triage_providers": [p for p in TIER_MODELS if supports_auto_triage(p)],
+    }
+
+
 # ── Connect Anthropic (API key) ───────────────────────────────────────────────
 
 class AnthropicConnectRequest(BaseModel):

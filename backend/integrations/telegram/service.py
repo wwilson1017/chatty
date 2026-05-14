@@ -170,6 +170,7 @@ async def process_message(
     provider = get_ai_provider(
         agent_provider=config.provider_override or None,
         agent_model=config.model_override or None,
+        agent_model_tier=config.model_tier,
     )
     if not provider:
         return "No AI provider is configured. Please set up an AI provider in Settings."
@@ -274,6 +275,7 @@ async def process_group_message(
     provider = get_ai_provider(
         agent_provider=config.provider_override or None,
         agent_model=config.model_override or None,
+        agent_model_tier=config.model_tier,
     )
     if not provider:
         return "No AI provider is configured. Please set up an AI provider in Settings."

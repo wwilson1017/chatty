@@ -76,6 +76,7 @@ def create_agent_router(
         provider = get_ai_provider(
             agent_provider=config.provider_override or None,
             agent_model=config.model_override or None,
+            agent_model_tier=config.model_tier,
         )
         if not provider:
             raise HTTPException(status_code=400, detail="No AI provider configured")
