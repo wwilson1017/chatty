@@ -237,6 +237,9 @@ async def update_agent(agent_id: str, body: UpdateAgentRequest, user=Depends(get
             raise HTTPException(status_code=400, detail="model_tier must be one of: auto, top, mid, light")
         updates["model_override"] = ""
 
+    if "model_override" in updates and updates["model_override"]:
+        updates["model_tier"] = "auto"
+
     if "google_accounts" in updates:
         ga = updates["google_accounts"]
         _ALLOWED_GA_KEYS = {"gmail", "calendar", "drive"}

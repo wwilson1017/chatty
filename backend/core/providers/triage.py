@@ -64,7 +64,7 @@ def _cache_set(conversation_id: str, tier: str) -> None:
 
 
 def _max_tier(a: str, b: str) -> str:
-    return a if _TIER_RANK.get(a, 2) >= _TIER_RANK.get(b, 2) else b
+    return a if _TIER_RANK.get(a, -1) >= _TIER_RANK.get(b, -1) else b
 
 
 def _parse_tier(raw: str) -> str:
