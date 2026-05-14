@@ -227,8 +227,9 @@ class OpenAIProvider(AIProvider):
     async def validate(self) -> bool:
         try:
             client = openai.OpenAI(**self._build_client_kwargs())
+            model = "gpt-4o-mini"
             client.chat.completions.create(
-                model="gpt-5.4-mini",
+                model=model,
                 messages=[{"role": "user", "content": "hi"}],
                 max_tokens=1,
             )
