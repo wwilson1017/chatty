@@ -56,9 +56,11 @@ def search_contacts(query: str, status: str | None = None, tags: str | None = No
         conditions.append("status = ?")
         params.append(status)
     if tags:
-        # Boundary-aware match so tag "ET" doesn't accidentally match "WEST" or "BUDGET"
-        conditions.append(f"{_TAGS_NORMALIZED_SQL} LIKE ?")
-        params.append(f"%,{tags.strip()},%")
+        labels = [l.strip() for l in tags.split(",") if l.strip()]
+        if labels:
+            tag_clauses = " OR ".join(f"{_TAGS_NORMALIZED_SQL} LIKE ?" for _ in labels)
+            conditions.append(f"({tag_clauses})")
+            params.extend(f"%,{l},%"  for l in labels)
     params.append(limit)
     where = " AND ".join(conditions)
     rows = _get_db().execute(
@@ -81,8 +83,11 @@ def list_contacts(
         conditions.append("status = ?")
         params.append(status)
     if tags:
-        conditions.append(f"{_TAGS_NORMALIZED_SQL} LIKE ?")
-        params.append(f"%,{tags.strip()},%")
+        labels = [l.strip() for l in tags.split(",") if l.strip()]
+        if labels:
+            tag_clauses = " OR ".join(f"{_TAGS_NORMALIZED_SQL} LIKE ?" for _ in labels)
+            conditions.append(f"({tag_clauses})")
+            params.extend(f"%,{l},%"  for l in labels)
 
     where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
 

@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../core/api/client';
 import type { CrmContact } from '../core/types';
@@ -22,33 +22,40 @@ export function ContactsPage() {
   const [total, setTotal] = useState(0);
   const [search, setSearch] = useState('');
   const [status, setStatus] = useState<string>('all');
-  const [tagFilter, setTagFilter] = useState<string>('');
+  const [tagFilter, setTagFilter] = useState<string[]>([]);
   const [availableTags, setAvailableTags] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [showCreate, setShowCreate] = useState(false);
   const [showImport, setShowImport] = useState(false);
+  const [tagDropdownOpen, setTagDropdownOpen] = useState(false);
+  const tagDropdownRef = useRef<HTMLDivElement>(null);
   const navigate = useNavigate();
   const isMobile = useIsMobile();
 
-  const loadTags = useCallback(async () => {
-    try {
-      const data = await api<{ tags: string[] }>('/api/crm/tags');
-      setAvailableTags(data.tags);
-    } catch { /* ignore */ }
-  }, []);
-
-  useEffect(() => { loadTags(); }, [loadTags]);
+  useEffect(() => {
+    if (!tagDropdownOpen) return;
+    const handler = (e: MouseEvent) => {
+      if (tagDropdownRef.current && !tagDropdownRef.current.contains(e.target as Node))
+        setTagDropdownOpen(false);
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [tagDropdownOpen]);
 
   const load = useCallback(async () => {
     setLoading(true);
     const params = new URLSearchParams();
     if (search) params.set('q', search);
     if (status !== 'all') params.set('status', status);
-    if (tagFilter) params.set('tags', tagFilter);
+    if (tagFilter.length) params.set('tags', tagFilter.join(','));
     params.set('limit', '100');
-    const data = await api<{ contacts: CrmContact[]; total: number }>(`/api/crm/contacts?${params}`);
-    setContacts(data.contacts);
-    setTotal(data.total);
+    const [contactData, tagData] = await Promise.all([
+      api<{ contacts: CrmContact[]; total: number }>(`/api/crm/contacts?${params}`),
+      api<{ tags: string[] }>('/api/crm/tags').catch(() => null),
+    ]);
+    setContacts(contactData.contacts);
+    setTotal(contactData.total);
+    if (tagData) setAvailableTags(tagData.tags);
     setLoading(false);
   }, [search, status, tagFilter]);
 
@@ -100,21 +107,59 @@ export function ContactsPage() {
           })}
         </div>
         {availableTags.length > 0 && (
-          <select
-            value={tagFilter}
-            onChange={e => setTagFilter(e.target.value)}
-            style={{
-              background: BG_RAISED, border: `1px solid ${LINE}`, color: INK,
-              borderRadius: 4, padding: '8px 10px', fontSize: 13,
-              fontFamily: FONT_SANS, outline: 'none', flexShrink: 0,
-              minWidth: isMobile ? '100%' : 160,
-            }}
-          >
-            <option value="">All tags</option>
-            {availableTags.map(t => (
-              <option key={t} value={t}>{t}</option>
-            ))}
-          </select>
+          <div ref={tagDropdownRef} style={{ position: 'relative', flexShrink: 0 }}>
+            <button onClick={() => setTagDropdownOpen(v => !v)} style={{
+              background: tagFilter.length ? 'rgba(99,179,237,0.10)' : 'rgba(200,209,217,0.06)',
+              border: `1px solid ${tagFilter.length ? 'rgba(99,179,237,0.45)' : LINE}`,
+              color: tagFilter.length ? '#7ec8f0' : INK_MUTE,
+              borderRadius: 4, padding: isMobile ? '10px 30px 10px 12px' : '12px 32px 12px 16px',
+              fontSize: 14, fontWeight: 500,
+              fontFamily: FONT_SANS, cursor: 'pointer', outline: 'none',
+              minWidth: isMobile ? '100%' : 140, textAlign: 'left',
+              position: 'relative',
+            }}>
+              {tagFilter.length ? `Tags (${tagFilter.length})` : 'Tags'}
+              <span style={{
+                position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)',
+                fontSize: 10, color: INK_DIM, pointerEvents: 'none',
+              }}>{tagDropdownOpen ? '\u25B2' : '\u25BC'}</span>
+            </button>
+            {tagDropdownOpen && (
+              <div style={{
+                position: 'absolute', top: 'calc(100% + 4px)', left: 0, zIndex: 50,
+                background: BG_RAISED, border: `1px solid ${LINE}`, borderRadius: 6,
+                minWidth: 180, maxHeight: 260, overflowY: 'auto',
+                boxShadow: '0 8px 24px rgba(0,0,0,0.35)',
+              }}>
+                {tagFilter.length > 0 && (
+                  <button onClick={() => setTagFilter([])} style={{
+                    width: '100%', padding: '7px 12px', fontSize: 12,
+                    fontFamily: FONT_SANS, border: 'none', borderBottom: `1px solid ${LINE}`,
+                    background: 'transparent', color: INK_DIM, cursor: 'pointer',
+                    textAlign: 'left',
+                  }}>Clear all</button>
+                )}
+                {availableTags.map(t => {
+                  const checked = tagFilter.includes(t);
+                  return (
+                    <label key={t} style={{
+                      display: 'flex', alignItems: 'center', gap: 8,
+                      padding: '7px 12px', cursor: 'pointer', fontSize: 13,
+                      fontFamily: FONT_SANS, color: checked ? INK : INK_MUTE,
+                    }}
+                      onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = 'rgba(200,209,217,0.08)'; }}
+                      onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = 'transparent'; }}
+                    >
+                      <input type="checkbox" checked={checked} onChange={() => setTagFilter(prev =>
+                        checked ? prev.filter(x => x !== t) : [...prev, t]
+                      )} style={{ accentColor: '#63b3ed' }} />
+                      {t}
+                    </label>
+                  );
+                })}
+              </div>
+            )}
+          </div>
         )}
       </div>
 
@@ -175,8 +220,8 @@ export function ContactsPage() {
         </>
       )}
 
-      {showCreate && <ContactForm onClose={() => setShowCreate(false)} onSaved={() => { setShowCreate(false); load(); loadTags(); }} />}
-      {showImport && <SmartImportModal onClose={() => setShowImport(false)} onImported={() => { setShowImport(false); load(); loadTags(); }} />}
+      {showCreate && <ContactForm onClose={() => setShowCreate(false)} onSaved={() => { setShowCreate(false); load(); }} />}
+      {showImport && <SmartImportModal onClose={() => setShowImport(false)} onImported={() => { setShowImport(false); load(); }} />}
     </div>
   );
 }
