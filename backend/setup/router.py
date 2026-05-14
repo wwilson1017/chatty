@@ -24,13 +24,19 @@ ADMIN_SETTINGS_FILE = Path(__file__).resolve().parent.parent / "data" / "admin-s
 
 ADMIN_DEFAULTS = {
     "always_power_mode": False,
+    "triage_mode": "always_cheap",
 }
+
+VALID_TRIAGE_MODES = {"standard", "cheap", "always_cheap"}
 
 
 def load_admin_settings() -> dict:
     if ADMIN_SETTINGS_FILE.exists():
         try:
-            return {**ADMIN_DEFAULTS, **json.loads(ADMIN_SETTINGS_FILE.read_text(encoding="utf-8"))}
+            result = {**ADMIN_DEFAULTS, **json.loads(ADMIN_SETTINGS_FILE.read_text(encoding="utf-8"))}
+            if not isinstance(result.get("triage_mode"), str) or result["triage_mode"] not in VALID_TRIAGE_MODES:
+                result["triage_mode"] = ADMIN_DEFAULTS["triage_mode"]
+            return result
         except Exception:
             pass
     return dict(ADMIN_DEFAULTS)
@@ -106,5 +112,8 @@ async def update_admin_settings(body: dict, user=Depends(get_current_user)):
     for key in ADMIN_DEFAULTS:
         if key in body:
             settings[key] = body[key]
+    if not isinstance(settings.get("triage_mode"), str) or settings["triage_mode"] not in VALID_TRIAGE_MODES:
+        prev = load_admin_settings()
+        settings["triage_mode"] = prev.get("triage_mode", ADMIN_DEFAULTS["triage_mode"])
     atomic_write_json(ADMIN_SETTINGS_FILE, settings)
     return settings

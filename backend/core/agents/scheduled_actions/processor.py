@@ -31,6 +31,12 @@ _AGENT_TURN_ERRORS = frozenset({
     "(max iterations reached)",
 })
 
+TRIAGE_MODELS = {
+    "anthropic": "claude-haiku-4-5-20251001",
+    "openai": "gpt-5.4-nano",
+    "google": "gemini-2.0-flash-lite",
+}
+
 # -- In-flight tracking --------------------------------------------------
 _in_flight_count = 0
 _in_flight_agents: set[str] = set()
@@ -313,6 +319,20 @@ def _process_action(action: dict) -> None:
         _mark_and_alert(action, "skipped", f"unknown action_type: {action_type}", 0, lease_id=action.get("lease_id"), agent_slug=action["agent"])
 
 
+def _resolve_triage_provider(agent: dict) -> str:
+    """Return provider type for triage model lookup, or '' if cheap triage is not applicable."""
+    from core.providers.credentials import CredentialStore
+    store = CredentialStore()
+    profile_name, profile = store.get_active_profile(
+        provider_override=agent.get("provider_override") or None
+    )
+    if not profile:
+        return ""
+    if profile.get("type") == "chatgpt_oauth":
+        return ""
+    return profile_name.split(":", 1)[0]
+
+
 def _resolve_agent(agent_slug: str) -> dict | None:
     """Resolve agent row from DB."""
     from agents import db as agent_db
@@ -374,7 +394,24 @@ def _process_heartbeat(action: dict) -> None:
     start_time = time.monotonic()
     try:
         triage_data = None
-        if action.get("triage_enabled", 1):
+
+        from setup.router import load_admin_settings
+        admin = load_admin_settings()
+        triage_mode = admin.get("triage_mode", "always_cheap")
+
+        triage_model_override = model_override
+        cheap_model = None
+        if triage_mode in ("cheap", "always_cheap"):
+            cheap_model = TRIAGE_MODELS.get(_resolve_triage_provider(agent))
+            if cheap_model:
+                triage_model_override = cheap_model
+
+        if triage_mode == "always_cheap" and cheap_model:
+            do_triage = True
+        else:
+            do_triage = bool(action.get("triage_enabled", 1))
+
+        if do_triage:
             triage_result = run_background_turn(
                 system_prompt=(
                     f"You are {agent['agent_name']}.\n\n"
@@ -391,7 +428,7 @@ def _process_heartbeat(action: dict) -> None:
                 registry=registry,
                 max_iterations=2,
                 provider_override=provider_override,
-                model_override=model_override,
+                model_override=triage_model_override,
                 on_iteration=on_iteration,
             )
 

@@ -38,11 +38,15 @@ export function SettingsPanel({ branding, onBrandingUpdate, onClose }: Props) {
     localStorage.getItem('chatty_show_tool_calls') === 'true'
   );
   const [alwaysPowerMode, setAlwaysPowerMode] = useState(false);
+  const [triageMode, setTriageMode] = useState<string>('always_cheap');
 
   useEffect(() => {
     if (tab === 'chat') {
-      api<{ always_power_mode: boolean }>('/api/setup/admin-settings')
-        .then(s => setAlwaysPowerMode(s.always_power_mode))
+      api<{ always_power_mode: boolean; triage_mode: string }>('/api/setup/admin-settings')
+        .then(s => {
+          setAlwaysPowerMode(s.always_power_mode);
+          setTriageMode(s.triage_mode);
+        })
         .catch(() => {});
     }
   }, [tab]);
@@ -283,6 +287,42 @@ export function SettingsPanel({ branding, onBrandingUpdate, onClose }: Props) {
                     left: alwaysPowerMode ? 22 : 2,
                   }} />
                 </button>
+              </div>
+
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <div>
+                  <p style={{ fontSize: 14, color: '#EDF0F4', margin: 0 }}>Heartbeat triage</p>
+                  <p style={{ fontSize: 12, color: 'rgba(237,240,244,0.38)', marginTop: 2 }}>
+                    {triageMode === 'standard' && 'Uses agent model for triage'}
+                    {triageMode === 'cheap' && 'Uses cheaper triage model when supported'}
+                    {triageMode === 'always_cheap' && 'Forces triage on with cheapest model (supported providers)'}
+                  </p>
+                </div>
+                <select
+                  value={triageMode}
+                  onChange={async (e) => {
+                    const next = e.target.value;
+                    setTriageMode(next);
+                    await api('/api/setup/admin-settings', {
+                      method: 'PUT',
+                      body: JSON.stringify({ triage_mode: next }),
+                    });
+                  }}
+                  style={{
+                    background: 'rgba(230,235,242,0.08)',
+                    border: '1px solid rgba(230,235,242,0.14)',
+                    color: '#EDF0F4',
+                    borderRadius: 4,
+                    padding: '6px 10px',
+                    fontSize: 13,
+                    outline: 'none',
+                    cursor: 'pointer',
+                  }}
+                >
+                  <option value="standard">Standard</option>
+                  <option value="cheap">Cheap</option>
+                  <option value="always_cheap">Always Cheap</option>
+                </select>
               </div>
             </div>
           )}
