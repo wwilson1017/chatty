@@ -14,6 +14,8 @@ import logging
 import threading
 import time
 
+import httpx
+
 from core.providers.oauth import refresh_google_token
 
 logger = logging.getLogger(__name__)
@@ -80,17 +82,33 @@ def _ensure_fresh_token(account_id: str, force: bool = False) -> str:
             return access
 
         if not refresh:
+            _mark_broken(account_id)
             raise GoogleAuthError(
                 "Google access expired and no refresh token is stored. Reconnect Google."
             )
 
         try:
             tokens = _run_sync(refresh_google_token(refresh))
-        except Exception as e:
-            logger.error("Google token refresh failed for account %s: %s", account_id, e)
-            _mark_broken(account_id)
+        except httpx.HTTPStatusError as e:
+            is_permanent = (
+                e.response.status_code == 400
+                and "invalid_grant" in e.response.text
+            )
+            if is_permanent:
+                logger.error("Google refresh token revoked for account %s", account_id)
+                _mark_broken(account_id)
+                raise GoogleAuthError(
+                    "Google refresh token revoked. Reconnect at Settings → Integrations → Google."
+                ) from e
+            logger.warning("Transient Google refresh error for account %s (HTTP %d): %s",
+                           account_id, e.response.status_code, e)
             raise GoogleAuthError(
-                "Google connection expired. Reconnect at Settings → Integrations → Google."
+                "Temporary Google error. Will retry on next request."
+            ) from e
+        except Exception as e:
+            logger.warning("Transient Google refresh error for account %s: %s", account_id, e)
+            raise GoogleAuthError(
+                "Temporary Google error. Will retry on next request."
             ) from e
 
         new_access = tokens.get("access_token", "")
@@ -98,6 +116,7 @@ def _ensure_fresh_token(account_id: str, force: bool = False) -> str:
         new_refresh = tokens.get("refresh_token", refresh)
 
         _save_refreshed_tokens(account_id, new_access, new_refresh, new_expires)
+        _mark_ok(account_id)
         return new_access
 
 
@@ -114,15 +133,107 @@ def _run_sync(coro):
 
 
 def _mark_broken(account_id: str) -> None:
-    """Set connection_status=broken for a specific account."""
+    """Set connection_status=broken for a specific account and alert assigned agents."""
     try:
         from integrations.registry import get_google_account, save_google_account
         acct = get_google_account(account_id)
         if acct:
             acct["connection_status"] = "broken"
+            first_break = not acct.get("broken_at")
+            if first_break:
+                acct["broken_at"] = time.time()
             save_google_account(account_id, acct)
+            if first_break:
+                _fire_broken_alerts(account_id, acct.get("email", account_id))
     except Exception as e:
         logger.warning("Failed to mark Google account %s broken: %s", account_id, e)
+
+
+def _mark_ok(account_id: str) -> None:
+    """Restore connection_status=ok and resolve alerts if previously broken."""
+    try:
+        from integrations.registry import get_google_account, save_google_account
+        acct = get_google_account(account_id)
+        if not acct:
+            return
+        was_broken = acct.get("connection_status") == "broken"
+        if not was_broken:
+            return
+        acct["connection_status"] = "ok"
+        acct.pop("broken_at", None)
+        save_google_account(account_id, acct)
+        try:
+            from core.agents.alerts.service import resolve_by_source
+            resolve_by_source("google_connection", f"google:{account_id}")
+        except Exception as e:
+            logger.warning("Failed to resolve alerts for Google account %s: %s", account_id, e)
+        logger.info("Google account %s (%s) restored to ok", account_id, acct.get("email", "?"))
+    except Exception as e:
+        logger.warning("Failed to mark Google account %s ok: %s", account_id, e)
+
+
+def _fire_broken_alerts(account_id: str, email: str) -> None:
+    """Create a google_connection alert for each agent assigned to this account."""
+    try:
+        from agents.db import list_agents
+        from core.agents.alerts.service import create_alert
+        for agent in list_agents():
+            ga = agent.get("google_accounts", {})
+            if not isinstance(ga, dict):
+                continue
+            uses_account = any(
+                account_id in (ga.get(svc) or [])
+                for svc in ("gmail", "calendar", "drive")
+            )
+            if uses_account:
+                create_alert(
+                    agent=agent["slug"],
+                    title=f"Google connection broken: {email}",
+                    message=(
+                        f"The Google account {email} has lost its connection. "
+                        f"Email, calendar, and drive tools for this account are disabled. "
+                        f"Reconnect at Settings → Integrations → Google."
+                    ),
+                    source="google_connection",
+                    source_id=f"google:{account_id}",
+                )
+    except Exception as e:
+        logger.warning("Failed to create broken connection alerts: %s", e)
+
+
+def try_heal_broken_accounts() -> list[str]:
+    """Retry refresh for legacy broken accounts (no broken_at). Returns healed IDs."""
+    from integrations.registry import list_google_accounts
+    healed = []
+    for account_id, acct in list_google_accounts().items():
+        if acct.get("connection_status") != "broken":
+            continue
+        if acct.get("broken_at"):
+            continue
+        refresh_token = acct.get("refresh_token", "")
+        if not refresh_token:
+            continue
+        try:
+            tokens = _run_sync(refresh_google_token(refresh_token))
+            _save_refreshed_tokens(
+                account_id,
+                tokens.get("access_token", ""),
+                tokens.get("refresh_token", refresh_token),
+                tokens.get("expires_in", 3600),
+            )
+            _mark_ok(account_id)
+            healed.append(account_id)
+            logger.info("Self-healed legacy broken Google account %s (%s)",
+                         account_id, acct.get("email", "?"))
+        except httpx.HTTPStatusError as e:
+            if e.response.status_code == 400 and "invalid_grant" in e.response.text:
+                _mark_broken(account_id)
+                logger.info("Legacy broken account %s confirmed revoked", account_id)
+            else:
+                logger.debug("Legacy heal retry failed for %s (HTTP %d)", account_id, e.response.status_code)
+        except Exception as e:
+            logger.debug("Legacy heal retry failed for %s: %s", account_id, e)
+    return healed
 
 
 # ── Service factories ────────────────────────────────────────────────────────
