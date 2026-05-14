@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { api } from '../core/api/client';
 import type { ProviderStatus } from '../core/types';
-import { useAgentChat, type ToolMode } from './hooks/useAgentChat';
+import { useAgentChat, type ToolMode, type ModelTier } from './hooks/useAgentChat';
 import { useConversations } from './hooks/useConversations';
 import { useScrollDirection } from './hooks/useScrollDirection';
 import { AgentChatPanel } from './components/AgentChatPanel';
@@ -34,6 +34,8 @@ interface AgentRow {
   telegram_group_enabled: boolean;
   telegram_respond_to_bots: boolean;
   telegram_max_bot_turns: number;
+  model_tier?: string;
+  provider_override?: string;
 }
 
 type Tab = 'chat' | 'knowledge' | 'reports' | 'reminders' | 'heartbeat';
@@ -72,6 +74,8 @@ export function AgentPage() {
   const [alwaysPowerMode, setAlwaysPowerMode] = useState(false);
   const [activeProvider, setActiveProvider] = useState('');
   const [activeModel, setActiveModel] = useState('');
+  const [modelTier, setModelTier] = useState<ModelTier>('auto');
+  const [tierLabels, setTierLabels] = useState<Record<string, string>>({});
   const isMobile = useIsMobile();
   const prevOnboardingComplete = useRef<boolean | null>(null);
 
@@ -121,6 +125,35 @@ export function AgentPage() {
       .then(p => { setActiveProvider(p.active_provider); setActiveModel(p.active_model); })
       .catch(() => {});
   }, []);
+
+  // Fetch tier labels and resolve for the agent's provider
+  useEffect(() => {
+    if (!agent) return;
+    const providerKey = agent.provider_override || activeProvider;
+    if (!providerKey) return;
+    api<{ tier_labels: Record<string, Record<string, string>> }>('/api/providers/tiers')
+      .then(d => setTierLabels(d.tier_labels[providerKey] || {}))
+      .catch(() => {});
+  }, [agent, activeProvider]);
+
+  // Load model_tier from agent data
+  useEffect(() => {
+    if (agent?.model_tier) setModelTier(agent.model_tier as ModelTier);
+  }, [agent]);
+
+  const handleSwitchTier = useCallback(async (tier: ModelTier) => {
+    if (!agentId) return;
+    const prev = modelTier;
+    setModelTier(tier);
+    try {
+      await api(`/api/agents/${agentId}`, {
+        method: 'PUT',
+        body: JSON.stringify({ model_tier: tier }),
+      });
+    } catch {
+      setModelTier(prev);
+    }
+  }, [agentId, modelTier]);
 
   const handleSwitchModel = useCallback(async (model: string) => {
     if (!activeProvider) return;
@@ -614,6 +647,9 @@ export function AgentPage() {
               activeProvider={activeProvider}
               activeModel={activeModel}
               onSwitchModel={handleSwitchModel}
+              modelTier={modelTier}
+              tierLabels={tierLabels}
+              onSwitchTier={handleSwitchTier}
               agentName={agent.agent_name}
               agentSlug={agent.slug}
               conversationSource={convs.conversations.find(c => c.id === convs.activeId)?.source}

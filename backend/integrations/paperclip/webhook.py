@@ -158,6 +158,7 @@ async def handle_heartbeat(request: Request):
         provider = get_ai_provider(
             agent_provider=config.provider_override or None,
             agent_model=config.model_override or None,
+            agent_model_tier=config.model_tier,
         )
         if not provider:
             return JSONResponse(

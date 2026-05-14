@@ -44,7 +44,7 @@ export function useConversations(apiPrefix: string) {
     try {
       const data = await api<{
         id: string; title: string;
-        messages: { id: string; role: string; content: string; seq: number; tool_calls?: string }[];
+        messages: { id: string; role: string; content: string; seq: number; tool_calls?: string; model?: string }[];
       }>(`${apiPrefix}/conversations/${id}`);
       setActiveId(id);
       return data.messages.map(m => {
@@ -53,6 +53,7 @@ export function useConversations(apiPrefix: string) {
           role: m.role as 'user' | 'assistant',
           content: m.content,
           timestamp: Date.now(),
+          model: m.model,
         };
         if (m.tool_calls) {
           try {

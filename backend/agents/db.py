@@ -81,6 +81,7 @@ def _setup_connection() -> None:
         ("drive_enabled", "INTEGER NOT NULL DEFAULT 0"),
         ("drive_write_enabled", "INTEGER NOT NULL DEFAULT 0"),
         ("google_accounts", "TEXT NOT NULL DEFAULT '{}'"),
+        ("model_tier", "TEXT NOT NULL DEFAULT 'auto'"),
     ]:
         try:
             _connection.execute(f"ALTER TABLE agents ADD COLUMN {col} {typedef}")
@@ -194,6 +195,7 @@ UPDATABLE_FIELDS = {
     "whatsapp_session_id",
     "telegram_enabled", "telegram_bot_token", "telegram_bot_username",
     "telegram_group_enabled", "telegram_respond_to_bots", "telegram_max_bot_turns",
+    "model_tier",
 }
 
 

@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useCallback, type RefObject, type KeyboardEvent, type DragEvent, type MouseEvent } from 'react';
-import type { ChatMessage, ContextUsage, ToolMode } from '../hooks/useAgentChat';
+import type { ChatMessage, ContextUsage, ToolMode, ModelTier } from '../hooks/useAgentChat';
 import type { AgentAlert } from '../../core/types';
 import { AgentMessageBubble } from './AgentMessageBubble';
 import AlertBanner from './AlertBanner';
@@ -39,6 +39,9 @@ interface Props {
   activeProvider?: string;
   activeModel?: string;
   onSwitchModel?: (model: string) => void;
+  modelTier?: ModelTier;
+  tierLabels?: Record<string, string>;
+  onSwitchTier?: (tier: ModelTier) => void;
 }
 
 const TOOL_MODES: { key: ToolMode; label: string }[] = [
@@ -47,16 +50,14 @@ const TOOL_MODES: { key: ToolMode; label: string }[] = [
   { key: 'power', label: 'Power' },
 ];
 
-const ANTHROPIC_MODEL_TABS: { id: string; label: string }[] = [
-  { id: 'claude-opus-4-6', label: 'Opus' },
-  { id: 'claude-sonnet-4-6', label: 'Sonnet' },
-];
+const TIER_KEYS: ModelTier[] = ['auto', 'top', 'mid', 'light'];
 
 export function AgentChatPanel({
   messages, isStreaming, onSend, onStop, onApprove, onDeny,
   onApprovePlan, onIteratePlan, scrollRef: externalScrollRef,
   contextUsage, toolMode, onToolModeChange, alwaysPowerMode, agentName, agentSlug, conversationSource, importMode, onCancelImport,
   greetingPending, activeProvider, activeModel, onSwitchModel,
+  modelTier, tierLabels, onSwitchTier,
 }: Props) {
   const [input, setInput] = useState('');
   const [pendingFiles, setPendingFiles] = useState<File[]>([]);
@@ -274,22 +275,23 @@ export function AgentChatPanel({
                 </div>
               )}
 
-              {/* Anthropic model switcher (Opus / Sonnet) */}
-              {activeProvider === 'anthropic' && onSwitchModel && (
+              {/* Model tier toggle */}
+              {tierLabels && Object.keys(tierLabels).length > 0 && onSwitchTier && !isMobile && (
                 <div
-                  title="Switch Anthropic model"
+                  title="Model tier"
                   style={{
                     display: 'flex', border: '1px solid rgba(230,235,242,0.07)',
                     borderRadius: 3, overflow: 'hidden',
                     opacity: isStreaming ? 0.5 : 1,
                   }}
                 >
-                  {ANTHROPIC_MODEL_TABS.map(m => {
-                    const isActive = activeModel === m.id;
+                  {TIER_KEYS.map(tier => {
+                    const isActive = modelTier === tier;
+                    const label = tier === 'auto' ? 'Auto' : tierLabels[tier] || tier;
                     return (
                       <div
-                        key={m.id}
-                        onClick={() => !isStreaming && !isActive && onSwitchModel(m.id)}
+                        key={tier}
+                        onClick={() => !isStreaming && !isActive && onSwitchTier(tier)}
                         style={{
                           padding: '3px 10px',
                           fontFamily: "'JetBrains Mono', ui-monospace, monospace",
@@ -299,11 +301,34 @@ export function AgentChatPanel({
                           cursor: isStreaming || isActive ? 'default' : 'pointer',
                         }}
                       >
-                        {m.label}
+                        {label}
                       </div>
                     );
                   })}
                 </div>
+              )}
+              {/* Mobile tier dropdown */}
+              {tierLabels && Object.keys(tierLabels).length > 0 && onSwitchTier && isMobile && (
+                <select
+                  value={modelTier}
+                  onChange={e => !isStreaming && onSwitchTier(e.target.value as ModelTier)}
+                  disabled={isStreaming}
+                  style={{
+                    fontFamily: "'JetBrains Mono', ui-monospace, monospace",
+                    fontSize: 10, letterSpacing: '0.08em', textTransform: 'uppercase',
+                    color: 'rgba(237,240,244,0.62)',
+                    background: 'transparent',
+                    border: '1px solid rgba(230,235,242,0.07)',
+                    borderRadius: 3, padding: '3px 6px',
+                    opacity: isStreaming ? 0.5 : 1,
+                  }}
+                >
+                  {TIER_KEYS.map(tier => (
+                    <option key={tier} value={tier}>
+                      {tier === 'auto' ? 'Auto' : tierLabels[tier] || tier}
+                    </option>
+                  ))}
+                </select>
               )}
             </div>
 
@@ -491,6 +516,7 @@ export function AgentChatPanel({
                   onApprovePlan={onApprovePlan}
                   onIteratePlan={onIteratePlan}
                   agentName={agentName}
+                  showModelBadge={modelTier === 'auto'}
                 />
               );
             })}
