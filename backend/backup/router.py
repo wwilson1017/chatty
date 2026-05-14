@@ -194,10 +194,25 @@ def _do_restore(file: UploadFile, content: bytes) -> dict:
         zf.extractall(tmp_dir)
         zf.close()
 
-        # Swap: remove old data, move new data into place
+        # Clear contents of DATA_DIR without removing the directory itself
+        # (Railway mounts a persistent volume at this path — can't delete mount points)
         if DATA_DIR.exists():
-            shutil.rmtree(DATA_DIR)
-        shutil.move(str(tmp_dir), str(DATA_DIR))
+            for item in DATA_DIR.iterdir():
+                if item.is_dir():
+                    shutil.rmtree(item)
+                else:
+                    item.unlink()
+        else:
+            DATA_DIR.mkdir(parents=True)
+
+        # Copy restored files into the existing directory
+        for item in tmp_dir.iterdir():
+            dest = DATA_DIR / item.name
+            if item.is_dir():
+                shutil.copytree(item, dest)
+            else:
+                shutil.copy2(item, dest)
+        shutil.rmtree(tmp_dir)
     except Exception:
         # Clean up temp dir on failure; original data is intact if rmtree hasn't run
         shutil.rmtree(tmp_dir, ignore_errors=True)
