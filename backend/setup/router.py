@@ -112,8 +112,9 @@ async def update_admin_settings(body: dict, user=Depends(get_current_user)):
     for key in ADMIN_DEFAULTS:
         if key in body:
             settings[key] = body[key]
+    if "always_power_mode" in settings:
+        settings["always_power_mode"] = bool(settings["always_power_mode"])
     if not isinstance(settings.get("triage_mode"), str) or settings["triage_mode"] not in VALID_TRIAGE_MODES:
-        prev = load_admin_settings()
-        settings["triage_mode"] = prev.get("triage_mode", ADMIN_DEFAULTS["triage_mode"])
+        settings["triage_mode"] = ADMIN_DEFAULTS["triage_mode"]
     atomic_write_json(ADMIN_SETTINGS_FILE, settings)
     return settings

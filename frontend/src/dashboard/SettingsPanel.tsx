@@ -302,11 +302,16 @@ export function SettingsPanel({ branding, onBrandingUpdate, onClose }: Props) {
                   value={triageMode}
                   onChange={async (e) => {
                     const next = e.target.value;
+                    const prev = triageMode;
                     setTriageMode(next);
-                    await api('/api/setup/admin-settings', {
-                      method: 'PUT',
-                      body: JSON.stringify({ triage_mode: next }),
-                    });
+                    try {
+                      await api('/api/setup/admin-settings', {
+                        method: 'PUT',
+                        body: JSON.stringify({ triage_mode: next }),
+                      });
+                    } catch {
+                      setTriageMode(prev);
+                    }
                   }}
                   style={{
                     background: 'rgba(230,235,242,0.08)',

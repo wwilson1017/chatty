@@ -31,9 +31,9 @@ _AGENT_TURN_ERRORS = frozenset({
     "(max iterations reached)",
 })
 
-TRIAGE_MODELS = {
+_TRIAGE_MODELS = {
     "anthropic": "claude-haiku-4-5-20251001",
-    "openai": "gpt-5.4-nano",
+    "openai": "gpt-4.1-nano",
     "google": "gemini-2.0-flash-lite",
 }
 
@@ -397,12 +397,12 @@ def _process_heartbeat(action: dict) -> None:
 
         from setup.router import load_admin_settings
         admin = load_admin_settings()
-        triage_mode = admin.get("triage_mode", "always_cheap")
+        triage_mode = admin["triage_mode"]
 
         triage_model_override = model_override
         cheap_model = None
         if triage_mode in ("cheap", "always_cheap"):
-            cheap_model = TRIAGE_MODELS.get(_resolve_triage_provider(agent))
+            cheap_model = _TRIAGE_MODELS.get(_resolve_triage_provider(agent))
             if cheap_model:
                 triage_model_override = cheap_model
 
