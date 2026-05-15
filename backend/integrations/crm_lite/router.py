@@ -140,13 +140,23 @@ class ActivityCreate(BaseModel):
 
 @router.get("/contacts")
 async def list_contacts(
-    q: str = "", status: str = "", limit: int = Query(50, ge=1, le=1000), offset: int = Query(0, ge=0),
+    q: str = "", status: str = "", tags: str = "",
+    limit: int = Query(50, ge=1, le=1000), offset: int = Query(0, ge=0),
     user=Depends(_require_crm),
 ):
     if q:
-        contacts = crm.search_contacts(q, status=status or None)
+        contacts = crm.search_contacts(q, status=status or None, tags=tags or None)
         return {"contacts": contacts, "total": len(contacts)}
-    return crm.list_contacts(offset=offset, limit=limit, status=status or None)
+    return crm.list_contacts(
+        offset=offset, limit=limit,
+        status=status or None, tags=tags or None,
+    )
+
+
+@router.get("/tags")
+async def list_tags(user=Depends(_require_crm)):
+    """Return all distinct tag labels currently used by contacts."""
+    return {"tags": crm.list_distinct_tags()}
 
 
 @router.get("/contacts/{contact_id}")
