@@ -613,6 +613,22 @@ GMAIL_WRITE_TOOLS = [
         "kind": "gmail",
         "writes": True,
     },
+    {
+        "name": "mark_all_emails_as_read",
+        "description": "Mark all unread emails as read in Gmail. Searches for all unread messages, paginates through results, and marks them as read in batches. Optionally accepts a query to narrow scope (e.g., 'from:newsletters@example.com'). The query is always combined with 'is:unread'. Safety cap of 5000 messages per invocation.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "Optional Gmail search query to narrow which unread emails to mark as read. Examples: 'from:bob@example.com', 'older_than:7d', 'label:promotions'. Always combined with 'is:unread'. If omitted, marks ALL unread emails as read.",
+                },
+            },
+            "required": [],
+        },
+        "kind": "gmail",
+        "writes": True,
+    },
 ]
 
 GMAIL_ATTACHMENT_READ_TOOLS = [

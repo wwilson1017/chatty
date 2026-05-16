@@ -24,6 +24,7 @@ from integrations.google.tools import (
     get_email,
     get_email_thread,
     batch_mark_emails_as_read,
+    mark_all_emails_as_read,
     mark_email_as_read,
     reply_to_email,
     reply_to_email_with_attachment,
@@ -71,7 +72,8 @@ class ToolRegistry:
     _WRITE_TOOLS = {
         "gmail": {"send_email", "reply_to_email", "create_draft",
                   "send_email_with_attachment", "reply_to_email_with_attachment",
-                  "mark_email_as_read", "batch_mark_emails_as_read"},
+                  "mark_email_as_read", "batch_mark_emails_as_read",
+                  "mark_all_emails_as_read"},
         "calendar": {"create_calendar_event", "update_calendar_event", "delete_calendar_event"},
         "drive": {"create_drive_folder", "create_drive_file", "move_drive_file",
                   "rename_drive_file", "copy_drive_file"},
@@ -342,6 +344,8 @@ class ToolRegistry:
             return mark_email_as_read(aid, message_id=args["message_id"])
         elif tool_name == "batch_mark_emails_as_read":
             return batch_mark_emails_as_read(aid, message_ids=args["message_ids"])
+        elif tool_name == "mark_all_emails_as_read":
+            return mark_all_emails_as_read(aid, query=args.get("query", ""))
         elif tool_name == "download_email_attachment":
             return download_email_attachment(
                 aid, message_id=args["message_id"], filename=args["filename"],

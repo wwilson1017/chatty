@@ -187,6 +187,70 @@ def batch_mark_as_read_op(service, message_ids: list[str]) -> dict:
     return {"ok": True, "count": len(message_ids)}
 
 
+_BATCH_MODIFY_CHUNK = 1000
+
+
+def mark_all_as_read_op(service, query: str = "", max_messages: int = 5000) -> dict:
+    """Paginate all unread messages and batch-mark them as read."""
+    search_query = f"is:unread {query}".strip() if query else "is:unread"
+
+    message_ids: list[str] = []
+    page_token: str | None = None
+    capped = False
+
+    while True:
+        remaining = max_messages - len(message_ids)
+        if remaining <= 0:
+            capped = True
+            break
+        kwargs = {"userId": "me", "q": search_query, "maxResults": min(500, remaining)}
+        if page_token:
+            kwargs["pageToken"] = page_token
+        results = service.users().messages().list(**kwargs).execute()
+        batch = results.get("messages", [])
+        if not batch:
+            break
+        message_ids.extend(m["id"] for m in batch)
+        page_token = results.get("nextPageToken")
+        if not page_token:
+            break
+
+    if not message_ids:
+        return {"ok": True, "count": 0, "message": "No unread emails found"}
+
+    if len(message_ids) > max_messages:
+        message_ids = message_ids[:max_messages]
+        capped = True
+
+    marked = 0
+    for i in range(0, len(message_ids), _BATCH_MODIFY_CHUNK):
+        chunk = message_ids[i : i + _BATCH_MODIFY_CHUNK]
+        try:
+            service.users().messages().batchModify(
+                userId="me",
+                body={"ids": chunk, "removeLabelIds": ["UNREAD"]},
+            ).execute()
+            marked += len(chunk)
+        except Exception as exc:
+            if marked:
+                return {
+                    "ok": False,
+                    "error": f"Partial failure: marked {marked} of {len(message_ids)} emails as read before error: {exc}",
+                    "count": marked,
+                    "total": len(message_ids),
+                }
+            raise
+
+    result: dict = {"ok": True, "count": marked}
+    if capped:
+        result["capped"] = True
+        result["message"] = (
+            f"Marked {marked} emails as read (safety cap reached). "
+            "There may be more unread emails remaining."
+        )
+    return result
+
+
 def get_attachment_content_op(service, message_id: str, attachment_id: str) -> bytes:
     """Download attachment content from a Gmail message. Returns raw bytes."""
     result = service.users().messages().attachments().get(
