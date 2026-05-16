@@ -45,7 +45,7 @@ def evaluate_and_notify(
         agent=agent_slug,
         title=f"{action.get('name', 'check')}",
         message=result_summary[:500],
-        source="heartbeat" if not is_cron else "cron",
+        source="cron" if is_cron else "heartbeat",
         source_id=action["id"],
     )
 

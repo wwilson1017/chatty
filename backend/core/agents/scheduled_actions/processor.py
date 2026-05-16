@@ -669,7 +669,7 @@ def _process_cron(action: dict) -> None:
                 )
             return
 
-        notified = notifications.evaluate_and_notify(action, status, result.text[:2000], agent_slug)
+        notified = notifications.evaluate_and_notify(action, status, result.text[:3500], agent_slug)
 
         if completed and execution_id:
             history.record_complete(
