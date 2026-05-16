@@ -24,39 +24,52 @@ def evaluate_and_notify(
 ) -> bool:
     """Create in-app alert and optionally send external notification.
 
-    Returns True if an alert was created.
+    For heartbeats, only notifies on "action_taken".
+    For cron jobs, notifies on any successful completion ("ok" or "action_taken")
+    since the whole point of a cron job is to produce output.
+
+    Returns True if an external notification was actually sent.
     """
-    if status != "action_taken":
-        return False
+    action_type = action.get("action_type", "heartbeat")
+    is_cron = action_type == "cron"
+
+    if is_cron:
+        if status not in ("ok", "action_taken"):
+            return False
+    else:
+        if status != "action_taken":
+            return False
 
     from core.agents.alerts.service import create_alert
     create_alert(
         agent=agent_slug,
-        title=f"Heartbeat: {action.get('name', 'check')}",
+        title=f"{action.get('name', 'check')}",
         message=result_summary[:500],
-        source="heartbeat",
+        source="cron" if is_cron else "heartbeat",
         source_id=action["id"],
     )
 
-    if action.get("notify_on_action"):
-        _send_external(agent_slug, action, result_summary)
+    if not action.get("notify_on_action"):
+        return False
 
-    return True
+    return _send_external(agent_slug, action, result_summary)
 
 
-def _send_external(agent_slug: str, action: dict, result_summary: str) -> None:
-    """Try Telegram first, then WhatsApp. Fire-and-forget."""
+def _send_external(agent_slug: str, action: dict, result_summary: str) -> bool:
+    """Try Telegram first, then WhatsApp. Returns True if any channel succeeded."""
     try:
-        if _try_telegram(agent_slug, result_summary):
-            return
-        if _try_whatsapp(agent_slug, result_summary):
-            return
+        if _try_telegram(agent_slug, result_summary, action=action):
+            return True
+        if _try_whatsapp(agent_slug, result_summary, action=action):
+            return True
         logger.debug("No external notification channel configured for %s", agent_slug)
+        return False
     except Exception as e:
         logger.warning("External notification failed for %s: %s", agent_slug, e)
+        return False
 
 
-def _try_telegram(agent_slug: str, message: str) -> bool:
+def _try_telegram(agent_slug: str, message: str, action: dict | None = None) -> bool:
     try:
         from agents.db import list_agents
         from integrations.telegram.client import send_message
@@ -69,7 +82,6 @@ def _try_telegram(agent_slug: str, message: str) -> bool:
 
         bot_token = agent["telegram_bot_token"]
 
-        # Find the registered Telegram user for this agent
         tg_conn = get_tg_db()
         row = tg_conn.execute(
             "SELECT platform_user_id FROM user_mappings WHERE agent_id = ? AND platform = 'telegram' LIMIT 1",
@@ -79,12 +91,19 @@ def _try_telegram(agent_slug: str, message: str) -> bool:
             return False
 
         chat_id = row["platform_user_id"]
-        text = f"[Heartbeat] {agent['agent_name']}:\n{message[:300]}"
+        action_type = (action or {}).get("action_type", "heartbeat")
+        action_name = (action or {}).get("name", "")
+
+        if action_type == "cron" and action_name:
+            text = f"**{action_name}**\n\n{message[:3500]}"
+        else:
+            text = f"[Heartbeat] {agent['agent_name']}:\n{message[:3500]}"
+
         send_message(chat_id, text, bot_token)
-        logger.info("Heartbeat notification sent via Telegram for %s", agent_slug)
+        logger.info("Notification sent via Telegram for %s (%s)", agent_slug, action_type)
         return True
     except Exception as e:
-        logger.debug("Telegram notification skipped for %s: %s", agent_slug, e)
+        logger.warning("Telegram notification failed for %s: %s", agent_slug, e)
         return False
 
 
@@ -134,7 +153,7 @@ def evaluate_failure_alert(
     return True
 
 
-def _try_whatsapp(agent_slug: str, message: str) -> bool:
+def _try_whatsapp(agent_slug: str, message: str, action: dict | None = None) -> bool:
     try:
         from agents.db import list_agents
         from integrations.whatsapp.client import send_message
