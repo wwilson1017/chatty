@@ -669,6 +669,8 @@ def _process_cron(action: dict) -> None:
                 )
             return
 
+        notified = notifications.evaluate_and_notify(action, status, result.text[:2000], agent_slug)
+
         if completed and execution_id:
             history.record_complete(
                 execution_id, status=status,
@@ -679,8 +681,9 @@ def _process_cron(action: dict) -> None:
                 input_tokens=result.input_tokens,
                 output_tokens=result.output_tokens,
                 duration_ms=duration_ms,
+                notification_sent=notified,
             )
-        logger.info("Cron %s/%s: %s (%dms)", agent_slug, action["id"][:8], status, duration_ms)
+        logger.info("Cron %s/%s: %s (%dms, notified=%s)", agent_slug, action["id"][:8], status, duration_ms, notified)
     except Exception as e:
         duration_ms = int((time.monotonic() - start_time) * 1000)
         logger.error("Cron %s failed: %s", agent_slug, e)
