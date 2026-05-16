@@ -84,6 +84,11 @@ def batch_mark_emails_as_read(account_id: str, message_ids: list[str]) -> dict:
                  message_ids=message_ids)
 
 
+def mark_all_emails_as_read(account_id: str, query: str = "") -> dict:
+    return _wrap(account_id, get_gmail_service, gmail_ops.mark_all_as_read_op,
+                 query=query)
+
+
 def download_email_attachment(account_id: str, message_id: str, filename: str, cache_dir: str | None = None) -> dict:
     """Download an email attachment, extract text, and cache for forwarding."""
     import base64 as b64
