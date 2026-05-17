@@ -271,6 +271,35 @@ def _google_accounts_context(account_info_map: dict[str, dict], google_accounts:
             + "\n".join(f"- {email}" for email in broken_emails)
         )
 
+    # Detect connected Google accounts with services not assigned to this agent.
+    # Compare per-service so partially-assigned accounts still surface
+    # their unassigned services (e.g. assigned for Gmail but not Calendar).
+    unassigned = []
+    for aid, info in account_info_map.items():
+        if info.get("connection_status") == "broken":
+            continue
+        email = info.get("email", aid)
+        grants = info.get("scope_grants", {})
+        missing_services = []
+        for svc in ("gmail", "calendar", "drive"):
+            has_grant = grants.get(svc, "none") != "none"
+            is_assigned = aid in google_accounts.get(svc, [])
+            if has_grant and not is_assigned:
+                missing_services.append(svc.title())
+        if missing_services:
+            unassigned.append(f"- {email} ({', '.join(missing_services)} not assigned to you)")
+    if unassigned:
+        parts.append(
+            "## Google Services Not Assigned to You\n\n"
+            "The following Google services are connected but not assigned to you. "
+            "If the user asks you to do something that requires a Google service you don't "
+            "have assigned, let them know it's available and how to assign it:\n\n"
+            "**How to assign:** Go to Settings (gear icon) → Integrations tab → "
+            "scroll down to the Google card → under \"Agent Assignments\" check the boxes "
+            "next to your name for each service (Gmail, Calendar, Drive) they want you to have.\n\n"
+            + "\n".join(unassigned)
+        )
+
     return "\n\n".join(parts)
 
 
