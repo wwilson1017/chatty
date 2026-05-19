@@ -63,7 +63,7 @@ def build_agent_config(agent_row: dict) -> AgentConfig:
 
     google_accounts = agent_row.get("google_accounts") or {}
 
-    return AgentConfig(
+    config = AgentConfig(
         agent_id=agent_row["id"],
         agent_name=agent_row["agent_name"],
         slug=slug,
@@ -84,6 +84,14 @@ def build_agent_config(agent_row: dict) -> AgentConfig:
         onboarding_complete=bool(agent_row.get("onboarding_complete", 0)),
         training_topics=topics,
     )
+
+    if not config.model_override:
+        from setup.router import load_admin_settings
+        global_tier = load_admin_settings().get("default_model_tier", "auto")
+        if global_tier != "auto":
+            config.model_tier = global_tier
+
+    return config
 
 
 def get_context_manager(slug: str) -> ContextManager:

@@ -75,6 +75,7 @@ export function AgentPage() {
   const [activeProvider, setActiveProvider] = useState('');
   const [modelTier, setModelTier] = useState<ModelTier>('auto');
   const [tierLabels, setTierLabels] = useState<Record<string, string>>({});
+  const [globalModelTier, setGlobalModelTier] = useState<ModelTier>('auto');
   const isMobile = useIsMobile();
   const prevOnboardingComplete = useRef<boolean | null>(null);
 
@@ -154,10 +155,11 @@ export function AgentPage() {
   }, [agentId, modelTier]);
 
   useEffect(() => {
-    api<{ always_power_mode: boolean }>('/api/setup/admin-settings')
+    api<{ always_power_mode: boolean; default_model_tier: string }>('/api/setup/admin-settings')
       .then(s => {
         setAlwaysPowerMode(s.always_power_mode);
         if (s.always_power_mode) chat.setToolMode('power');
+        setGlobalModelTier((s.default_model_tier || 'auto') as ModelTier);
       })
       .catch(() => {});
   }, []);
@@ -627,9 +629,9 @@ export function AgentPage() {
               toolMode={chat.toolMode}
               onToolModeChange={handleToolModeChange}
               alwaysPowerMode={alwaysPowerMode}
-              modelTier={modelTier}
+              modelTier={globalModelTier !== 'auto' ? globalModelTier : modelTier}
               tierLabels={tierLabels}
-              onSwitchTier={handleSwitchTier}
+              onSwitchTier={globalModelTier === 'auto' ? handleSwitchTier : undefined}
               agentName={agent.agent_name}
               agentSlug={agent.slug}
               conversationSource={convs.conversations.find(c => c.id === convs.activeId)?.source}
