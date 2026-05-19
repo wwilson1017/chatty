@@ -170,6 +170,7 @@ def _process_self_reminder(reminder: dict) -> None:
             tool_defs=tool_defs,
             registry=registry,
             max_iterations=_MAX_TOOL_ITERATIONS,
+            model_tier=config.model_tier,
         )
         service.mark_fired(reminder["id"], f"processed: {result.text[:500]}")
         _schedule_next_if_recurring(reminder)

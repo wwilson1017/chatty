@@ -39,14 +39,20 @@ export function SettingsPanel({ branding, onBrandingUpdate, onClose }: Props) {
   );
   const [alwaysPowerMode, setAlwaysPowerMode] = useState(false);
   const [triageMode, setTriageMode] = useState<string>('always_cheap');
+  const [defaultModelTier, setDefaultModelTier] = useState<string>('auto');
+  const [tierLabels, setTierLabels] = useState<Record<string, string>>({});
 
   useEffect(() => {
     if (tab === 'chat') {
-      api<{ always_power_mode: boolean; triage_mode: string }>('/api/setup/admin-settings')
+      api<{ always_power_mode: boolean; triage_mode: string; default_model_tier: string }>('/api/setup/admin-settings')
         .then(s => {
           setAlwaysPowerMode(s.always_power_mode);
           setTriageMode(s.triage_mode);
+          setDefaultModelTier(s.default_model_tier || 'auto');
         })
+        .catch(() => {});
+      api<{ tier_labels: Record<string, Record<string, string>>; active_provider: string }>('/api/providers/tiers')
+        .then(d => setTierLabels(d.tier_labels[d.active_provider] || {}))
         .catch(() => {});
     }
   }, [tab]);
@@ -287,6 +293,44 @@ export function SettingsPanel({ branding, onBrandingUpdate, onClose }: Props) {
                     left: alwaysPowerMode ? 22 : 2,
                   }} />
                 </button>
+              </div>
+
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <div>
+                  <p style={{ fontSize: 14, color: '#EDF0F4', margin: 0 }}>Default model</p>
+                  <p style={{ fontSize: 12, color: 'rgba(237,240,244,0.38)', marginTop: 2 }}>Auto selects the best model per message. Pin one to always use it.</p>
+                </div>
+                <select
+                  value={defaultModelTier}
+                  onChange={async (e) => {
+                    const next = e.target.value;
+                    const prev = defaultModelTier;
+                    setDefaultModelTier(next);
+                    try {
+                      await api('/api/setup/admin-settings', {
+                        method: 'PUT',
+                        body: JSON.stringify({ default_model_tier: next }),
+                      });
+                    } catch {
+                      setDefaultModelTier(prev);
+                    }
+                  }}
+                  style={{
+                    background: 'rgba(230,235,242,0.08)',
+                    border: '1px solid rgba(230,235,242,0.14)',
+                    color: '#EDF0F4',
+                    borderRadius: 4,
+                    padding: '6px 10px',
+                    fontSize: 13,
+                    outline: 'none',
+                    cursor: 'pointer',
+                  }}
+                >
+                  <option value="auto">Auto (smart routing)</option>
+                  {(['top', 'mid', 'light'] as const).map(tier => (
+                    <option key={tier} value={tier}>{tierLabels[tier] || tier}</option>
+                  ))}
+                </select>
               </div>
 
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>

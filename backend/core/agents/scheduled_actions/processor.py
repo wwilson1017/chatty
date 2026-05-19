@@ -524,6 +524,7 @@ def _process_heartbeat(action: dict) -> None:
             provider_override=provider_override,
             model_override=model_override,
             on_iteration=on_iteration,
+            model_tier=_cfg.model_tier,
         )
         duration_ms = int((time.monotonic() - start_time) * 1000)
 
@@ -645,6 +646,7 @@ def _process_cron(action: dict) -> None:
             provider_override=provider_override,
             model_override=model_override,
             on_iteration=on_iteration,
+            model_tier=_cfg2.model_tier,
         )
         duration_ms = int((time.monotonic() - start_time) * 1000)
 
