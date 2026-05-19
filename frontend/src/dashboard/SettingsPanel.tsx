@@ -52,7 +52,7 @@ export function SettingsPanel({ branding, onBrandingUpdate, onClose }: Props) {
         })
         .catch(() => {});
       api<{ tier_labels: Record<string, Record<string, string>>; active_provider: string }>('/api/providers/tiers')
-        .then(d => setTierLabels(d.tier_labels[d.active_provider] || {}))
+        .then(d => setTierLabels(d.tier_labels?.[d.active_provider] || {}))
         .catch(() => {});
     }
   }, [tab]);
