@@ -605,7 +605,7 @@ def ensure_default_actions(agent_slug: str) -> None:
                 update_action(action["id"], always_on=True)
         return
 
-    create_action(
+    result = create_action(
         agent=agent_slug,
         schedule_type="interval",
         name="Heartbeat",
@@ -618,6 +618,8 @@ def ensure_default_actions(agent_slug: str) -> None:
         action_type="heartbeat",
         always_on=True,
     )
+    if result.get("ok") and result.get("id"):
+        update_action(result["id"], notify_on_action=True)
     logger.info("Created default heartbeat for agent %s", agent_slug)
 
 

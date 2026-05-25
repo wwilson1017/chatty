@@ -164,6 +164,8 @@ class ToolRegistry:
                 return self._execute_import(tool_name, tool_args)
             elif kind == "activity_log":
                 return self._execute_activity_log(tool_name, tool_args)
+            elif kind == "post_message":
+                return self._execute_post_message(tool_name, tool_args)
             elif kind == "meta":
                 return {"error": "Meta tools are handled by ai_service directly"}
             else:
@@ -590,6 +592,35 @@ class ToolRegistry:
                     for tc in r["tool_calls"]
                 ]
         return {"entries": records, "count": len(records)}
+
+    def _execute_post_message(self, tool_name: str, args: dict) -> dict:
+        message = args.get("message", "")
+        if not message:
+            return {"error": "message is required"}
+
+        title = (args.get("title", "") or self.agent_name or "Agent Message")[:200]
+
+        from core.agents.alerts.service import create_alert
+        create_alert(
+            agent=self.agent_slug,
+            title=title,
+            message=message[:500],
+            source="post_message",
+        )
+
+        external_sent = False
+        try:
+            from core.agents.scheduled_actions.notifications import send_external_for_agent
+            external_sent = send_external_for_agent(self.agent_slug, message, title=title)
+        except Exception as e:
+            logger.warning("post_message external delivery failed for %s: %s", self.agent_slug, e)
+
+        return {
+            "ok": True,
+            "alert_created": True,
+            "external_sent": external_sent,
+            "message": f"Message posted{' and sent via Telegram/WhatsApp' if external_sent else ''}.",
+        }
 
     def _mark_setup_complete(self, integration_name: str) -> None:
         """Auto-update _pending-setup.md to check off a completed integration."""
