@@ -418,15 +418,19 @@ def _process_heartbeat(action: dict) -> None:
                 system_prompt=(
                     f"You are {agent['agent_name']}.\n\n"
                     + (f"{ga_ctx}\n\n" if ga_ctx else "")
-                    + f"# Quick Heartbeat Triage — {date_str}, {time_str}\n\n"
-                    f"Quickly check the following items using your tools. "
+                    + f"# Heartbeat Triage — {date_str}, {time_str}\n\n"
+                    f"Look at the checklist items below and their time conditions. "
+                    f"Based on the current date and time ({date_str}, {time_str}), "
+                    f"determine if any items are due now.\n\n"
+                    f"If an item has no explicit time condition, assume it NEEDS_ACTION.\n\n"
+                    f"Do NOT use tools — just assess the time conditions.\n\n"
                     f"Respond with ONLY one of:\n"
                     f"- NEEDS_ACTION: <brief reason>\n"
                     f"- ALL_CLEAR\n\n"
                     f"## Checklist\n\n{checklist}\n"
                 ),
                 user_message="Quick triage check — anything need attention?",
-                tool_defs=tool_defs,
+                tool_defs=[],
                 registry=registry,
                 max_iterations=2,
                 provider_override=provider_override,
@@ -509,7 +513,9 @@ def _process_heartbeat(action: dict) -> None:
                 f"- Time: {time_str}\n\n"
                 f"## Rules\n\n"
                 f"- If everything is normal and no action is needed, respond with exactly: HEARTBEAT_OK\n"
-                f"- If something needs attention, take action and respond with: ACTION_TAKEN: <brief description>\n"
+                f"- If something needs attention, take action using your tools.\n"
+                f"- Use `post_message` to communicate findings or alerts to the user — this sends via Telegram/WhatsApp and creates an in-app notification.\n"
+                f"- After completing your checks, respond with: ACTION_TAKEN: <brief description of what you found/did>\n"
                 f"- Be concise. This is an automated check, not a conversation.\n"
                 f"{error_context}"
             ),
@@ -556,7 +562,11 @@ def _process_heartbeat(action: dict) -> None:
                 )
             return
 
-        notified = notifications.evaluate_and_notify(action, status, result.text[:300], agent_slug)
+        post_message_used = any(tc.get("tool") == "post_message" for tc in result.tool_log)
+        if post_message_used:
+            notified = True
+        else:
+            notified = notifications.evaluate_and_notify(action, status, result.text[:3500], agent_slug)
 
         if execution_id:
             history.record_complete(

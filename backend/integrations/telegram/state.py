@@ -30,6 +30,10 @@ def _get_db() -> sqlite3.Connection:
     return _connection
 
 
+def get_db() -> sqlite3.Connection:
+    return _get_db()
+
+
 def _migrate_user_mappings_v2(conn: sqlite3.Connection) -> None:
     """Migrate user_mappings from UNIQUE(platform, platform_user_id) to
     UNIQUE(platform, platform_user_id, agent_id) so one Telegram user

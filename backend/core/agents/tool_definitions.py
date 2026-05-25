@@ -16,6 +16,7 @@ TOOL_KIND_LABELS: dict[str, str] = {
     "report": "Reports",
     "setup": "Setup & Integrations",
     "activity_log": "Activity Log",
+    "post_message": "Messaging",
 }
 
 
@@ -1336,6 +1337,9 @@ Use `create_scheduled_action` only when you need a task with its own independent
 - For 24/7 operation, set `always_on=true` — this bypasses active hours entirely.
 - Your heartbeat runs 24/7 by default (`always_on`). Time-gating belongs in your HEARTBEAT.md checklist items (e.g., "Only on weekdays before 10 AM: ..."), not on the heartbeat's active hours.
 
+### Posting Messages
+Use `post_message` to communicate findings, alerts, or updates to the user. This creates an in-app alert and sends via Telegram/WhatsApp if configured. During heartbeat checks, use `post_message` whenever you find something noteworthy — don't rely on the heartbeat response text alone to reach the user.
+
 ### Guidelines
 - Always confirm with the user before creating scheduled actions
 - Use descriptive names for scheduled actions
@@ -1500,6 +1504,33 @@ ACTIVITY_LOG_TOOLS = [
     },
 ]
 
+POST_MESSAGE_TOOLS = [
+    {
+        "name": "post_message",
+        "description": (
+            "Post a message to the user. Creates an in-app alert and sends "
+            "via Telegram/WhatsApp if configured. Use this to proactively "
+            "communicate findings, alerts, or updates."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "message": {
+                    "type": "string",
+                    "description": "The message content to send to the user",
+                },
+                "title": {
+                    "type": "string",
+                    "description": "Short title for the alert (e.g. 'Weather Alert', 'Email Summary'). Defaults to agent name.",
+                },
+            },
+            "required": ["message"],
+        },
+        "kind": "post_message",
+        "writes": True,
+    },
+]
+
 
 def get_tool_definitions(
     gmail_enabled: bool = False,
@@ -1581,6 +1612,7 @@ def get_tool_definitions(
         tools.extend(integration_tools)
     tools.extend(SETUP_TOOLS)
     tools.extend(ACTIVITY_LOG_TOOLS)
+    tools.extend(POST_MESSAGE_TOOLS)
     # Append agent-created real tools (loaded from filesystem)
     if dynamic_real_tools:
         tools.extend(dynamic_real_tools)

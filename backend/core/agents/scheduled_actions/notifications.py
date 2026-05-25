@@ -69,7 +69,26 @@ def _send_external(agent_slug: str, action: dict, result_summary: str) -> bool:
         return False
 
 
-def _try_telegram(agent_slug: str, message: str, action: dict | None = None) -> bool:
+def send_external_for_agent(agent_slug: str, message: str, title: str = "") -> bool:
+    """Send an external notification on behalf of an agent.
+
+    Used by the post_message tool. Bypasses notify_on_action checks
+    since the agent is explicitly requesting delivery.
+    """
+    formatted = f"**{title}**\n\n{message[:3500]}" if title else message[:3500]
+    try:
+        if _try_telegram(agent_slug, message, formatted_text=formatted):
+            return True
+        if _try_whatsapp(agent_slug, message, formatted_text=formatted):
+            return True
+        logger.debug("No external channel configured for %s", agent_slug)
+        return False
+    except Exception as e:
+        logger.warning("External send for %s failed: %s", agent_slug, e)
+        return False
+
+
+def _try_telegram(agent_slug: str, message: str, action: dict | None = None, formatted_text: str | None = None) -> bool:
     try:
         from agents.db import list_agents
         from integrations.telegram.client import send_message
@@ -94,7 +113,9 @@ def _try_telegram(agent_slug: str, message: str, action: dict | None = None) -> 
         action_type = (action or {}).get("action_type", "heartbeat")
         action_name = (action or {}).get("name", "")
 
-        if action_type == "cron" and action_name:
+        if formatted_text:
+            text = formatted_text
+        elif action_type == "cron" and action_name:
             text = f"**{action_name}**\n\n{message[:3500]}"
         else:
             text = f"[Heartbeat] {agent['agent_name']}:\n{message[:3500]}"
@@ -153,7 +174,7 @@ def evaluate_failure_alert(
     return True
 
 
-def _try_whatsapp(agent_slug: str, message: str, action: dict | None = None) -> bool:
+def _try_whatsapp(agent_slug: str, message: str, action: dict | None = None, formatted_text: str | None = None) -> bool:
     try:
         from agents.db import list_agents
         from integrations.whatsapp.client import send_message
@@ -164,9 +185,9 @@ def _try_whatsapp(agent_slug: str, message: str, action: dict | None = None) -> 
             return False
 
         phone = agent["whatsapp_phone"]
-        text = f"[Heartbeat] {agent['agent_name']}:\n{message[:300]}"
+        text = formatted_text if formatted_text else f"[Heartbeat] {agent['agent_name']}:\n{message[:3500]}"
         send_message(phone, text)
-        logger.info("Heartbeat notification sent via WhatsApp for %s", agent_slug)
+        logger.info("Notification sent via WhatsApp for %s", agent_slug)
         return True
     except Exception as e:
         logger.debug("WhatsApp notification skipped for %s: %s", agent_slug, e)

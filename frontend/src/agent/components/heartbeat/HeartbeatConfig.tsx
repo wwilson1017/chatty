@@ -16,6 +16,7 @@ export function HeartbeatConfig({ action, onUpdateConfig }: Props) {
   const [hoursEnd, setHoursEnd] = useState(action.active_hours_end || '23:59');
   const [modelOverride, setModelOverride] = useState(action.model_override || '');
   const [maxIterations, setMaxIterations] = useState(action.max_tool_iterations || 10);
+  const [notifyOnAction, setNotifyOnAction] = useState(action.notify_on_action);
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [saving, setSaving] = useState(false);
   const [dirty, setDirty] = useState(false);
@@ -28,6 +29,7 @@ export function HeartbeatConfig({ action, onUpdateConfig }: Props) {
     setHoursEnd(action.active_hours_end || '23:59');
     setModelOverride(action.model_override || '');
     setMaxIterations(action.max_tool_iterations || 10);
+    setNotifyOnAction(action.notify_on_action);
     setDirty(false);
   }, [action]);
 
@@ -43,6 +45,7 @@ export function HeartbeatConfig({ action, onUpdateConfig }: Props) {
         active_hours_start: hoursStart,
         active_hours_end: hoursEnd,
         max_tool_iterations: maxIterations,
+        notify_on_action: notifyOnAction,
       };
       fields.model_override = modelOverride.trim() || '';
       await onUpdateConfig(fields);
@@ -87,6 +90,7 @@ export function HeartbeatConfig({ action, onUpdateConfig }: Props) {
           />
         </div>
 
+        <Toggle on={notifyOnAction} onChange={setNotifyOnAction} label="Notify on action (Telegram / WhatsApp)" />
         <Toggle on={triage} onChange={setTriage} label="Triage (quick check before full run)" />
       </div>
 
