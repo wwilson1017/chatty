@@ -20,7 +20,6 @@ export interface ScheduledAction {
   triage_enabled: boolean;
   enabled: boolean;
   always_on: boolean;
-  notify_on_action: boolean;
   next_run: string | null;
   last_run: string | null;
   last_status: string | null;
@@ -127,7 +126,6 @@ function normalizeAction(raw: Record<string, unknown>): ScheduledAction {
     enabled: Boolean(raw.enabled),
     always_on: Boolean(raw.always_on),
     triage_enabled: Boolean(raw.triage_enabled),
-    notify_on_action: Boolean(raw.notify_on_action),
   } as ScheduledAction;
 }
 

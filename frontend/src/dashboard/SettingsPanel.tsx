@@ -6,6 +6,7 @@ import { IntegrationsTab } from './IntegrationsTab';
 import { DataTab } from './DataTab';
 import { LogsTab } from './LogsTab';
 import { SecurityTab } from './SecurityTab';
+import { NotificationSettings } from './NotificationSettings';
 import { DeleteAgentModal } from './DeleteAgentModal';
 import { AgentMark } from '../shared/AgentMark';
 
@@ -378,6 +379,7 @@ export function SettingsPanel({ branding, onBrandingUpdate, onClose }: Props) {
                   Tip: Add an OpenAI API key for the best triage model (GPT-4.1 Nano)
                 </p>
               )}
+              <NotificationSettings />
             </div>
           )}
 

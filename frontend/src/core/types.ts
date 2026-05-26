@@ -41,6 +41,17 @@ export interface AgentAlert {
   resolved_at: string | null;
 }
 
+export interface AgentNotification {
+  id: string;
+  agent: string;
+  title: string;
+  message: string;
+  status: 'active' | 'dismissed';
+  channels_sent: string[];
+  created_at: string;
+  dismissed_at: string | null;
+}
+
 export interface Reminder {
   id: string;
   agent: string;

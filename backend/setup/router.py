@@ -26,6 +26,9 @@ ADMIN_DEFAULTS = {
     "always_power_mode": False,
     "triage_mode": "always_cheap",
     "default_model_tier": "auto",
+    "notifications_web_push": True,
+    "notifications_telegram": True,
+    "notifications_whatsapp": True,
 }
 
 VALID_TRIAGE_MODES = {"standard", "cheap", "always_cheap"}

@@ -28,3 +28,4 @@ todoist-api-python
 prompt_toolkit
 rich
 sqlite-vec
+pywebpush

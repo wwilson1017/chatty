@@ -1531,6 +1531,35 @@ POST_MESSAGE_TOOLS = [
     },
 ]
 
+NOTIFY_USER_TOOLS = [
+    {
+        "name": "notify_user",
+        "description": (
+            "Send a notification to the user. Use when you have important "
+            "findings, completed actions, or time-sensitive information. "
+            "The notification appears in their notification log and triggers "
+            "push notifications on their devices. Only use when you have "
+            "something genuinely worth alerting the user about."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "title": {
+                    "type": "string",
+                    "description": "Short headline (e.g. 'Weather Alert', 'Email Summary')",
+                },
+                "message": {
+                    "type": "string",
+                    "description": "The notification body with details",
+                },
+            },
+            "required": ["title", "message"],
+        },
+        "kind": "notification",
+        "writes": True,
+    },
+]
+
 
 def get_tool_definitions(
     gmail_enabled: bool = False,
@@ -1554,6 +1583,7 @@ def get_tool_definitions(
     multi_gmail: bool = False,
     multi_calendar: bool = False,
     multi_drive: bool = False,
+    background_mode: bool = False,
 ) -> list[dict]:
     """Return the full list of tool definitions for the given feature flags.
 
@@ -1613,6 +1643,8 @@ def get_tool_definitions(
     tools.extend(SETUP_TOOLS)
     tools.extend(ACTIVITY_LOG_TOOLS)
     tools.extend(POST_MESSAGE_TOOLS)
+    if background_mode:
+        tools.extend(NOTIFY_USER_TOOLS)
     # Append agent-created real tools (loaded from filesystem)
     if dynamic_real_tools:
         tools.extend(dynamic_real_tools)

@@ -15,16 +15,18 @@ def notify_reminder_fired(
     agent_slug: str,
     error: bool = False,
 ) -> bool:
-    """Create in-app alert and optionally send external notification.
+    """Handle reminder completion notifications.
 
-    Returns True if an alert was created.
+    For errors: creates an alert and delivers via unified notification channels.
+    For successes: the AI handles notification via the notify_user tool during execution.
     """
+    if not error:
+        return False
+
     from core.agents.alerts.service import create_alert
 
     title = f"Reminder: {reminder['message'][:80]}"
-    body = result_text[:300] if result_text else "(no result)"
-    if error:
-        body = f"Error: {body}"
+    body = f"Error: {result_text[:300]}" if result_text else "Error: (no result)"
 
     create_alert(
         agent=agent_slug,
@@ -34,7 +36,12 @@ def notify_reminder_fired(
         source_id=reminder["id"],
     )
 
-    _send_external(agent_slug, reminder, result_text)
+    try:
+        from core.agents.notifications.delivery import deliver_notification
+        deliver_notification(agent_slug, title, body)
+    except Exception as e:
+        logger.warning("Reminder error notification delivery failed for %s: %s", agent_slug, e)
+
     return True
 
 

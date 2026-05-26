@@ -468,6 +468,15 @@ function StepAllSet({ agentName, botUsername }: {
   agentName: string;
   botUsername: string;
 }) {
+  const [showPushPrompt, setShowPushPrompt] = useState(false);
+  const [pushDone, setPushDone] = useState(false);
+
+  useEffect(() => {
+    if (typeof Notification !== 'undefined' && 'PushManager' in window && Notification.permission === 'default') {
+      setShowPushPrompt(true);
+    }
+  }, []);
+
   return (
     <div className="space-y-4">
       <div className="bg-gradient-to-b from-[#0088cc]/10 to-transparent rounded-xl border border-[#0088cc]/30 p-6 text-center space-y-4">
@@ -481,6 +490,31 @@ function StepAllSet({ agentName, botUsername }: {
           Messages sent to the bot will be answered by your agent with full access to tools and knowledge.
         </p>
       </div>
+
+      {showPushPrompt && !pushDone && (
+        <div className="rounded-xl border border-gray-600 p-4 space-y-3">
+          <p className="text-gray-300 text-sm">Enable web push notifications too?</p>
+          <div className="flex gap-2">
+            <button
+              onClick={async () => {
+                const { subscribeToPush } = await import('../../core/notifications/pushSubscription');
+                await subscribeToPush();
+                setPushDone(true);
+              }}
+              className="flex-1 py-2 rounded-lg text-sm font-medium text-white"
+              style={{ backgroundColor: '#C8D1D9', color: '#0A0C0F' }}
+            >
+              Enable
+            </button>
+            <button
+              onClick={() => setShowPushPrompt(false)}
+              className="flex-1 py-2 rounded-lg text-sm font-medium text-gray-400 border border-gray-600"
+            >
+              Skip
+            </button>
+          </div>
+        </div>
+      )}
 
       <a
         href={`https://t.me/${botUsername}`}

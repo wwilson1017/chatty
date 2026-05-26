@@ -236,7 +236,7 @@ def update_action(action_id: str, **fields) -> dict:
         "name", "description", "schedule_type", "cron_expression",
         "interval_minutes", "run_at", "active_hours_start", "active_hours_end",
         "active_hours_tz", "prompt", "model_override", "max_tool_iterations",
-        "enabled", "triage_enabled", "notify_on_action", "always_on",
+        "enabled", "triage_enabled", "always_on",
     }
 
     updates = {k: v for k, v in fields.items() if k in allowed and v is not None}
@@ -270,7 +270,7 @@ def update_action(action_id: str, **fields) -> dict:
         if "active_hours_end" in updates:
             updates["active_hours_end"] = _normalize_hour(updates["active_hours_end"], "23:59")
 
-        for bool_field in ("enabled", "triage_enabled", "notify_on_action", "always_on"):
+        for bool_field in ("enabled", "triage_enabled", "always_on"):
             if bool_field in updates:
                 updates[bool_field] = 1 if updates[bool_field] else 0
         if "enabled" in updates and updates["enabled"] == 1 and action.get("consecutive_errors", 0) >= AUTO_DISABLE_THRESHOLD:
@@ -618,8 +618,6 @@ def ensure_default_actions(agent_slug: str) -> None:
         action_type="heartbeat",
         always_on=True,
     )
-    if result.get("ok") and result.get("id"):
-        update_action(result["id"], notify_on_action=True)
     logger.info("Created default heartbeat for agent %s", agent_slug)
 
 

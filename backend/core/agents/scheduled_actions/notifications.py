@@ -22,37 +22,11 @@ def evaluate_and_notify(
     result_summary: str,
     agent_slug: str,
 ) -> bool:
-    """Create in-app alert and optionally send external notification.
+    """No-op — notification decisions are now made by the AI via the notify_user tool.
 
-    For heartbeats, only notifies on "action_taken".
-    For cron jobs, notifies on any successful completion ("ok" or "action_taken")
-    since the whole point of a cron job is to produce output.
-
-    Returns True if an external notification was actually sent.
+    Kept for backwards compatibility (callers may still reference it).
     """
-    action_type = action.get("action_type", "heartbeat")
-    is_cron = action_type == "cron"
-
-    if is_cron:
-        if status not in ("ok", "action_taken"):
-            return False
-    else:
-        if status != "action_taken":
-            return False
-
-    from core.agents.alerts.service import create_alert
-    create_alert(
-        agent=agent_slug,
-        title=f"{action.get('name', 'check')}",
-        message=result_summary[:500],
-        source="cron" if is_cron else "heartbeat",
-        source_id=action["id"],
-    )
-
-    if not action.get("notify_on_action"):
-        return False
-
-    return _send_external(agent_slug, action, result_summary)
+    return False
 
 
 def _send_external(agent_slug: str, action: dict, result_summary: str) -> bool:
@@ -167,8 +141,15 @@ def evaluate_failure_alert(
         )
         conn.commit()
 
-    if action.get("notify_on_action"):
-        _send_external(agent_slug, action, f"Action '{action_name}' has failed {consecutive_errors} times. Last: {last_error[:200]}")
+    try:
+        from core.agents.notifications.delivery import deliver_notification
+        deliver_notification(
+            agent_slug,
+            f"Repeated failures: {action_name}",
+            f"Failed {consecutive_errors} times. Last error: {last_error[:300]}",
+        )
+    except Exception as e:
+        logger.warning("Failure notification delivery failed for %s: %s", agent_slug, e)
 
     logger.info("Failure alert sent for %s/%s (%d errors)", agent_slug, action["id"][:8], consecutive_errors)
     return True

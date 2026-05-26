@@ -23,7 +23,6 @@ class UpdateActionRequest(BaseModel):
     model_override: str | None = None
     max_tool_iterations: int | None = None
     triage_enabled: bool | None = None
-    notify_on_action: bool | None = None
     always_on: bool | None = None
 
 

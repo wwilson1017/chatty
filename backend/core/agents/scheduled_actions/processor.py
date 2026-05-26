@@ -163,7 +163,7 @@ def _within_active_hours(action: dict) -> bool:
         return current_minutes >= start_minutes or current_minutes < end_minutes
 
 
-def _build_tools(agent_slug: str, agent: dict) -> tuple[list[dict], ToolRegistry, dict]:
+def _build_tools(agent_slug: str, agent: dict, *, background_mode: bool = False) -> tuple[list[dict], ToolRegistry, dict]:
     """Build full tool definitions and registry with integration parity.
 
     Returns (tool_defs, registry, account_info_map).
@@ -209,6 +209,7 @@ def _build_tools(agent_slug: str, agent: dict) -> tuple[list[dict], ToolRegistry
         multi_gmail=len(gmail_ids) > 1,
         multi_calendar=len(calendar_ids) > 1,
         multi_drive=len(drive_ids) > 1,
+        background_mode=background_mode,
     )
 
     integration_modes = {name: get_tool_mode(name) for name in INTEGRATION_MODULES}
@@ -385,7 +386,7 @@ def _process_heartbeat(action: dict) -> None:
     context = ctx_manager.load_all_context()
     context_snippet = context[:30000] if context else "(no context files)"
 
-    tool_defs, registry, account_info_map = _build_tools(agent_slug, agent)
+    tool_defs, registry, account_info_map = _build_tools(agent_slug, agent, background_mode=True)
     on_iteration = _make_lease_renewer(action["id"], lease_id)
 
     from core.agents.ai_service import _google_accounts_context
@@ -514,7 +515,7 @@ def _process_heartbeat(action: dict) -> None:
                 f"## Rules\n\n"
                 f"- If everything is normal and no action is needed, respond with exactly: HEARTBEAT_OK\n"
                 f"- If something needs attention, take action using your tools.\n"
-                f"- Use `post_message` to communicate findings or alerts to the user — this sends via Telegram/WhatsApp and creates an in-app notification.\n"
+                f"- Use `notify_user` to alert the user about important findings or actions taken — this sends push notifications to their devices. Only call it when you have something genuinely worth alerting about.\n"
                 f"- After completing your checks, respond with: ACTION_TAKEN: <brief description of what you found/did>\n"
                 f"- Be concise. This is an automated check, not a conversation.\n"
                 f"{error_context}"
@@ -562,11 +563,10 @@ def _process_heartbeat(action: dict) -> None:
                 )
             return
 
-        post_message_used = any(tc.get("tool") == "post_message" for tc in result.tool_log)
-        if post_message_used:
-            notified = True
-        else:
-            notified = notifications.evaluate_and_notify(action, status, result.text[:3500], agent_slug)
+        notified = any(
+            tc.get("tool") in ("notify_user", "post_message")
+            for tc in result.tool_log
+        )
 
         if execution_id:
             history.record_complete(
@@ -622,7 +622,7 @@ def _process_cron(action: dict) -> None:
     from agents.tool_loader import format_current_time
     date_str, time_str = format_current_time(tz_name)
 
-    tool_defs, registry, _aim = _build_tools(agent_slug, agent)
+    tool_defs, registry, _aim = _build_tools(agent_slug, agent, background_mode=True)
     on_iteration = _make_lease_renewer(action["id"], lease_id)
 
     from core.agents.ai_service import _google_accounts_context
@@ -641,7 +641,8 @@ def _process_cron(action: dict) -> None:
             f"# Current Date & Time\n\n"
             f"- Date: {date_str}\n"
             f"- Time: {time_str}\n\n"
-            f"Take appropriate action using your tools. Be concise."
+            f"Take appropriate action using your tools. Be concise.\n"
+            f"Use `notify_user` to alert the user about important findings or completed actions."
         ),
     )
 
@@ -681,7 +682,10 @@ def _process_cron(action: dict) -> None:
                 )
             return
 
-        notified = notifications.evaluate_and_notify(action, status, result.text[:3500], agent_slug)
+        notified = any(
+            tc.get("tool") in ("notify_user", "post_message")
+            for tc in result.tool_log
+        )
 
         if completed and execution_id:
             history.record_complete(
