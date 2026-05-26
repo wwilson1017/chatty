@@ -1539,7 +1539,8 @@ NOTIFY_USER_TOOLS = [
             "findings, completed actions, or time-sensitive information. "
             "The notification appears in their notification log and triggers "
             "push notifications on their devices. Only use when you have "
-            "something genuinely worth alerting the user about."
+            "something genuinely worth alerting the user about. "
+            "Limited to one notification per background execution."
         ),
         "input_schema": {
             "type": "object",

@@ -1,8 +1,7 @@
 """Chatty — Heartbeat notifications.
 
-Creates in-app alerts for every action_taken heartbeat result.
-Optionally sends external notifications via Telegram or WhatsApp.
-Failure alerts fire when consecutive errors hit a threshold.
+External delivery helpers (Telegram, WhatsApp) used by delivery.py and
+post_message. Failure alerts fire when consecutive errors hit a threshold.
 """
 
 import logging
@@ -14,33 +13,6 @@ logger = logging.getLogger(__name__)
 
 FAILURE_ALERT_THRESHOLD = 3
 _FAILURE_ALERT_COOLDOWN_SECONDS = 3600
-
-
-def evaluate_and_notify(
-    action: dict,
-    status: str,
-    result_summary: str,
-    agent_slug: str,
-) -> bool:
-    """No-op — notification decisions are now made by the AI via the notify_user tool.
-
-    Kept for backwards compatibility (callers may still reference it).
-    """
-    return False
-
-
-def _send_external(agent_slug: str, action: dict, result_summary: str) -> bool:
-    """Try Telegram first, then WhatsApp. Returns True if any channel succeeded."""
-    try:
-        if _try_telegram(agent_slug, result_summary, action=action):
-            return True
-        if _try_whatsapp(agent_slug, result_summary, action=action):
-            return True
-        logger.debug("No external notification channel configured for %s", agent_slug)
-        return False
-    except Exception as e:
-        logger.warning("External notification failed for %s: %s", agent_slug, e)
-        return False
 
 
 def send_external_for_agent(agent_slug: str, message: str, title: str = "") -> bool:
