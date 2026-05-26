@@ -687,15 +687,6 @@ def _process_cron(action: dict) -> None:
             for tc in result.tool_log
         )
 
-        if not notified and status in ("ok", "action_taken") and result.text:
-            try:
-                from core.agents.notifications.delivery import deliver_notification
-                action_name = action.get("name") or "Scheduled action"
-                deliver_notification(agent_slug, action_name, result.text[:3500])
-                notified = True
-            except Exception as e:
-                logger.warning("Cron fallback notification failed for %s: %s", agent_slug, e)
-
         if completed and execution_id:
             history.record_complete(
                 execution_id, status=status,

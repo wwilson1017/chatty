@@ -110,6 +110,7 @@ class ToolRegistry:
         self.integration_executors: dict = integration_executors or {}
         self.agent_slug = agent_slug
         self.agent_name = agent_name
+        self._notify_user_called = False
 
         # Derived paths
         agent_data_dir = str(Path(context_dir).parent)
@@ -629,7 +630,7 @@ class ToolRegistry:
         if not title or not message:
             return {"error": "Both title and message are required"}
 
-        if getattr(self, "_notify_user_called", False):
+        if self._notify_user_called:
             return {"error": "notify_user already called this run. Only one notification per execution."}
         self._notify_user_called = True
 

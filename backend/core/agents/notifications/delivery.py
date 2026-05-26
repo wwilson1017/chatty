@@ -105,7 +105,7 @@ def _send_web_push(
                 subscription_info=subscription_info,
                 data=payload,
                 vapid_private_key=private_key,
-                vapid_claims=vapid_claims,
+                vapid_claims=vapid_claims.copy(),
             )
             sent += 1
         except WebPushException as e:
@@ -125,7 +125,7 @@ def _send_telegram(agent_slug: str, title: str, message: str) -> bool:
         from core.agents.scheduled_actions.notifications import _try_telegram
 
         formatted = f"**{title}**\n\n{message[:3500]}"
-        return _try_telegram(agent_slug, message, formatted_text=formatted)
+        return _try_telegram(agent_slug, f"{title}: {message[:3500]}", formatted_text=formatted)
     except Exception as e:
         logger.warning("Telegram delivery failed for %s: %s", agent_slug, e)
         return False
@@ -136,7 +136,7 @@ def _send_whatsapp(agent_slug: str, title: str, message: str) -> bool:
         from core.agents.scheduled_actions.notifications import _try_whatsapp
 
         formatted = f"**{title}**\n\n{message[:3500]}"
-        return _try_whatsapp(agent_slug, message, formatted_text=formatted)
+        return _try_whatsapp(agent_slug, f"{title}: {message[:3500]}", formatted_text=formatted)
     except Exception as e:
         logger.warning("WhatsApp delivery failed for %s: %s", agent_slug, e)
         return False
