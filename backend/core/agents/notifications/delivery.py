@@ -21,11 +21,10 @@ def deliver_notification(agent_slug: str, title: str, message: str) -> dict:
     # Web Push
     if settings.get("notifications_web_push", True):
         subs = subscriptions.list_subscriptions()
-        if subs:
-            _send_web_push(
-                subs, agent_slug, title, message, notification_id,
-                get_vapid_private_key(), get_vapid_claims(),
-            )
+        if subs and _send_web_push(
+            subs, agent_slug, title, message, notification_id,
+            get_vapid_private_key(), get_vapid_claims(),
+        ):
             channels_sent.append("web_push")
 
     # Telegram
@@ -57,12 +56,12 @@ def _send_web_push(
     notification_id: str,
     private_key: str,
     vapid_claims: dict,
-) -> None:
+) -> bool:
     try:
         from pywebpush import WebPushException, webpush
     except ImportError:
         logger.warning("pywebpush not installed, skipping web push")
-        return
+        return False
 
     from . import subscriptions as sub_module
 
@@ -115,6 +114,8 @@ def _send_web_push(
                 logger.warning("Web push failed for %s: %s", sub["endpoint"][:60], e)
         except Exception as e:
             logger.warning("Web push error: %s", e)
+
+    return True
 
 
 def _send_telegram(agent_slug: str, title: str, message: str) -> bool:

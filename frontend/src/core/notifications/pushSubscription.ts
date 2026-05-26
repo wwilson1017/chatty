@@ -69,7 +69,7 @@ export async function unsubscribeFromPush(): Promise<boolean> {
     await subscription.unsubscribe();
 
     await api('/api/notifications/push/unsubscribe', {
-      method: 'DELETE',
+      method: 'POST',
       body: JSON.stringify({ endpoint }),
     });
 

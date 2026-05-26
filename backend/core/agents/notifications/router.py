@@ -48,7 +48,7 @@ async def push_subscribe(body: dict, user=Depends(get_current_user)):
     return subscriptions.save_subscription(endpoint, p256dh, auth, user_agent)
 
 
-@router.delete("/push/unsubscribe")
+@router.post("/push/unsubscribe")
 async def push_unsubscribe(body: dict, user=Depends(get_current_user)):
     from fastapi import HTTPException
 
