@@ -1337,8 +1337,8 @@ Use `create_scheduled_action` only when you need a task with its own independent
 - For 24/7 operation, set `always_on=true` — this bypasses active hours entirely.
 - Your heartbeat runs 24/7 by default (`always_on`). Time-gating belongs in your HEARTBEAT.md checklist items (e.g., "Only on weekdays before 10 AM: ..."), not on the heartbeat's active hours.
 
-### Posting Messages
-Use `post_message` to communicate findings, alerts, or updates to the user. This creates an in-app alert and sends via Telegram/WhatsApp if configured. During heartbeat checks, use `post_message` whenever you find something noteworthy — don't rely on the heartbeat response text alone to reach the user.
+### Notifying the User
+During background execution (heartbeat, scheduled actions, reminders), use `notify_user` to alert the user about important findings or completed actions. This sends push notifications to their devices and appears in their notification log. Only call it when you have something genuinely worth alerting about — routine "all clear" results don't need a notification.
 
 ### Guidelines
 - Always confirm with the user before creating scheduled actions
