@@ -11,7 +11,7 @@
 - Optional branding: logo, company name, accent color
 - Multi-provider AI: Anthropic, OpenAI, Google Gemini, Ollama (local), Together AI — all via API key paste (no OAuth for AI providers)
 - Integrations: QuickBooks Online (OAuth), QuickBooks CSV import, Gmail (multiple accounts), Google Calendar, Google Drive, WhatsApp (Baileys bridge), Telegram (multiple bots), CRM Lite, Odoo, BambooHR, Paperclip (agent orchestration)
-- Agent features: memory system, dreaming/context archival, shared context across agents, scheduled actions (heartbeat), reminders (one-time and recurring), alerts, knowledge import (OpenClaw, paste, folder, ZIP)
+- Agent features: memory system, dreaming/context archival, shared context across agents, scheduled actions (heartbeat), reminders (one-time and recurring), notifications (web push, Telegram, WhatsApp), knowledge import (OpenClaw, paste, folder, ZIP)
 - File uploads: PDF, DOCX, and text files via drag-and-drop in chat
 - BYO OAuth: users can bring their own Google and QuickBooks OAuth app credentials
 - One-click cloud deployment via Railway
@@ -81,7 +81,8 @@ Slash commands inside the REPL: `/help`, `/search`, `/facts`, `/memory`, `/conte
 - **Global credentials** — provider auth lives in `data/auth-profiles.json`, shared across all agents
 - **Encryption at rest** — API keys and OAuth tokens encrypted via Fernet; key stored in OS keychain (local) or env var (Railway)
 - **Heartbeat system** — APScheduler fires every 60s, processing due reminders and scheduled actions as background AI turns with full tool access
-- **Alerts** — proactive notification system (golden banner + dashboard badge) triggered by reminders and scheduled actions
+- **Notifications** — AI-driven notification system: during background execution, the AI decides when findings are worth alerting the user via `notify_user` tool. Delivers to browser push (Web Push / VAPID), Telegram, and WhatsApp. Notification log in chat UI, channel settings in dashboard.
+- **Alerts** — reserved for system-level issues (e.g. 3+ consecutive heartbeat failures). Golden banner + dashboard badge.
 - **Knowledge import** — `agents/import_service/` with pluggable source adapters (OpenClaw, paste, folder, ZIP); auto-detects OpenClaw installations via `~/.openclaw/openclaw.json`
 - **Dreaming** — nightly background process that scores context file usage and archives dormant files to prevent knowledge bloat (no AI calls, pure algorithmic scoring)
 - **No voice tab** — explicitly removed from scope
@@ -107,7 +108,7 @@ backend/
 │   ├── auth_2fa.py                  # Optional TOTP two-factor authentication
 │   ├── encryption.py                # Fernet encryption for credentials
 │   ├── providers/                   # AI provider abstraction (Anthropic, OpenAI, Gemini, Ollama, Together AI)
-│   └── agents/                      # Agent engine (ai_service, tool_registry, context_manager, chat_history, memory, dreaming, shared_context, reminders, scheduled_actions, alerts)
+│   └── agents/                      # Agent engine (ai_service, tool_registry, context_manager, chat_history, memory, dreaming, shared_context, reminders, scheduled_actions, alerts, notifications)
 ├── integrations/                    # Google (Gmail/Calendar/Drive), QuickBooks, QB CSV, Telegram, WhatsApp, CRM, Odoo, BambooHR, Paperclip
 ├── branding/                        # Logo/name/color
 └── whatsapp-bridge/                 # Node.js Baileys sidecar

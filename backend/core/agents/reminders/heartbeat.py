@@ -117,6 +117,7 @@ def _process_self_reminder(reminder: dict) -> None:
         multi_gmail=len(gmail_ids) > 1,
         multi_calendar=len(calendar_ids) > 1,
         multi_drive=len(drive_ids) > 1,
+        background_mode=True,
     )
 
     integration_modes = {name: get_tool_mode(name) for name in INTEGRATION_MODULES}
@@ -159,7 +160,8 @@ def _process_self_reminder(reminder: dict) -> None:
             f"# Current Date & Time\n\n"
             f"- Date: {date_str}\n"
             f"- Time: {time_str}\n\n"
-            f"Take any appropriate action using your tools. Be concise."
+            f"Take any appropriate action using your tools. Be concise.\n"
+            f"Use `notify_user` to alert the user about important findings or actions taken."
         ),
     )
 

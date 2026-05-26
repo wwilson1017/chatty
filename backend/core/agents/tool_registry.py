@@ -110,6 +110,7 @@ class ToolRegistry:
         self.integration_executors: dict = integration_executors or {}
         self.agent_slug = agent_slug
         self.agent_name = agent_name
+        self._notify_user_called = False
 
         # Derived paths
         agent_data_dir = str(Path(context_dir).parent)
@@ -166,6 +167,8 @@ class ToolRegistry:
                 return self._execute_activity_log(tool_name, tool_args)
             elif kind == "post_message":
                 return self._execute_post_message(tool_name, tool_args)
+            elif kind == "notification":
+                return self._execute_notify_user(tool_name, tool_args)
             elif kind == "meta":
                 return {"error": "Meta tools are handled by ai_service directly"}
             else:
@@ -600,12 +603,11 @@ class ToolRegistry:
 
         title = (args.get("title", "") or self.agent_name or "Agent Message")[:200]
 
-        from core.agents.alerts.service import create_alert
-        create_alert(
+        from core.agents.notifications.service import create_notification
+        create_notification(
             agent=self.agent_slug,
             title=title,
-            message=message[:500],
-            source="post_message",
+            message=message[:5000],
         )
 
         external_sent = False
@@ -617,9 +619,30 @@ class ToolRegistry:
 
         return {
             "ok": True,
-            "alert_created": True,
+            "notification_created": True,
             "external_sent": external_sent,
             "message": f"Message posted{' and sent via Telegram/WhatsApp' if external_sent else ''}.",
+        }
+
+    def _execute_notify_user(self, tool_name: str, args: dict) -> dict:
+        title = args.get("title", "")
+        message = args.get("message", "")
+        if not title or not message:
+            return {"error": "Both title and message are required"}
+
+        if self._notify_user_called:
+            return {"error": "notify_user already called this run. Only one notification per execution."}
+        self._notify_user_called = True
+
+        from core.agents.notifications.delivery import deliver_notification
+
+        result = deliver_notification(self.agent_slug, title, message)
+        channels = result.get("channels_sent", [])
+        return {
+            "ok": True,
+            "notification_id": result.get("notification_id"),
+            "channels_sent": channels,
+            "message": f"Notification sent via {', '.join(channels) if channels else 'notification log only'}.",
         }
 
     def _mark_setup_complete(self, integration_name: str) -> None:

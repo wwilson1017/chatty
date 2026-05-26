@@ -15,7 +15,7 @@ Create custom AI agents with their own personality, knowledge, and tools — pow
 - **Browser-based UI** — Full dashboard for managing agents, integrations, and settings — no command line needed after initial setup
 - **Multi-agent** — Create and manage multiple AI agents, each with its own name, personality, and knowledge base
 - **Multi-provider AI** — Anthropic, OpenAI, Google Gemini, Ollama (local models), and Together AI
-- **Heartbeat** — Agents run scheduled background tasks on their own — scanning emails, checking calendars, monitoring your CRM — and push alerts to you via Telegram
+- **Heartbeat** — Agents run scheduled background tasks on their own — scanning emails, checking calendars, monitoring your CRM — and notify you via browser push notifications, Telegram, or WhatsApp
 - **Reminders** — Set one-time or recurring reminders (daily, weekly, monthly, cron) that trigger your agent to take action or notify you
 - **Training mode** — Conversational onboarding that teaches your agent about you, your business, and how you like to work
 - **Knowledge import** — Import an existing agent from [OpenClaw](https://github.com/claw-project/openclaw) or paste context from any AI tool to bootstrap a new agent in minutes

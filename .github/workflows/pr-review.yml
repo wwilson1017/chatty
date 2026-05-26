@@ -236,7 +236,7 @@ jobs:
             --rawfile system /tmp/system_prompt.txt \
             --rawfile user /tmp/user_message.txt \
             '{
-              model: "claude-opus-4-6",
+              model: "claude-opus-4-7",
               max_tokens: 16384,
               temperature: 0.3,
               system: $system,
@@ -303,7 +303,7 @@ jobs:
           ${REVIEW}
 
           ---
-          *Automated review by Claude Opus 4.6 · This is an AI-generated review — use your judgment on the suggestions.*"
+          *Automated review by Claude Opus 4.7 · This is an AI-generated review — use your judgment on the suggestions.*"
 
           # Find existing bot comment by marker
           EXISTING_ID=$(gh api \
@@ -338,7 +338,7 @@ jobs:
           No reviewable code changes detected. Skipping AI review.
 
           ---
-          *Automated review by Claude Opus 4.6*"
+          *Automated review by Claude Opus 4.7*"
 
           elif [ "${{ steps.diff.outputs.diff_status }}" = "too_large" ]; then
             DIFF_CHARS="${{ steps.diff.outputs.diff_chars }}"
@@ -348,7 +348,7 @@ jobs:
           :information_source: This PR is too large for automated review (**${DIFF_CHARS}** characters). Please review manually.
 
           ---
-          *Automated review by Claude Opus 4.6*"
+          *Automated review by Claude Opus 4.7*"
 
           elif [ "${{ steps.review.outputs.api_error }}" = "true" ]; then
             ERROR_DETAIL=""
@@ -370,7 +370,7 @@ jobs:
           </details>
 
           ---
-          *Automated review by Claude Opus 4.6*"
+          *Automated review by Claude Opus 4.7*"
           fi
 
           # Upsert: find existing comment or create new

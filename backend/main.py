@@ -152,6 +152,10 @@ async def lifespan(app: FastAPI):
     from core.auth_2fa import cleanup_expired_devices
     _scheduler.add_job(cleanup_expired_devices, "interval", hours=24, id="2fa_device_cleanup")
 
+    from core.agents.notifications.service import cleanup_old as _cleanup_notifications
+    _scheduler.add_job(_cleanup_notifications, "cron", hour=3, minute=30, id="notification_cleanup",
+                       timezone="America/Chicago")
+
     from agents.import_service.sessions import sweep_expired as _sweep_import_sessions
     _scheduler.add_job(_sweep_import_sessions, "interval", seconds=600, id="import_session_sweep")
 
@@ -263,6 +267,9 @@ app.include_router(scheduled_actions_router, prefix="/api/scheduled-actions", ta
 
 from core.agents.alerts.router import router as alerts_router
 app.include_router(alerts_router, prefix="/api/alerts", tags=["alerts"])
+
+from core.agents.notifications.router import router as notifications_router
+app.include_router(notifications_router)
 
 from core.agents.reminders.router import router as reminders_router
 app.include_router(reminders_router, prefix="/api/reminders", tags=["reminders"])

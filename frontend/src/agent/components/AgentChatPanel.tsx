@@ -3,6 +3,7 @@ import type { ChatMessage, ContextUsage, ToolMode, ModelTier } from '../hooks/us
 import type { AgentAlert } from '../../core/types';
 import { AgentMessageBubble } from './AgentMessageBubble';
 import AlertBanner from './AlertBanner';
+import NotificationLog from './NotificationLog';
 import { IconAttach, IconArrowUp } from '../../shared/icons';
 import { useIsMobile } from '../../shared/useIsMobile';
 import { api } from '../../core/api/client';
@@ -467,6 +468,7 @@ export function AgentChatPanel({
                 )}
               </div>
             )}
+            {agentSlug && <NotificationLog agentSlug={agentSlug} />}
             <AlertBanner
               alerts={alerts}
               onDismiss={async (alertId) => {

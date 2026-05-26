@@ -188,6 +188,35 @@ def _setup_connection() -> None:
     _connection.execute("CREATE INDEX IF NOT EXISTS idx_eh_event_type ON execution_history(event_type, started_at DESC)")
     _connection.commit()
 
+    # Migration: notifications table (for notify_user tool output)
+    existing_tables = {r[0] for r in _connection.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()}
+    if "notifications" not in existing_tables:
+        _connection.executescript("""
+            CREATE TABLE notifications (
+                id TEXT PRIMARY KEY,
+                agent TEXT NOT NULL,
+                title TEXT NOT NULL,
+                message TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active', 'dismissed')),
+                channels_sent TEXT NOT NULL DEFAULT '[]',
+                created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                dismissed_at TEXT
+            );
+            CREATE INDEX idx_notifications_agent_status ON notifications(agent, status, created_at DESC);
+        """)
+    if "push_subscriptions" not in existing_tables:
+        _connection.executescript("""
+            CREATE TABLE push_subscriptions (
+                id TEXT PRIMARY KEY,
+                endpoint TEXT NOT NULL UNIQUE,
+                p256dh TEXT NOT NULL,
+                auth TEXT NOT NULL,
+                user_agent TEXT NOT NULL DEFAULT '',
+                created_at TEXT NOT NULL DEFAULT (datetime('now'))
+            );
+        """)
+    _connection.commit()
+
     logger.info("Reminders DB initialized at %s", DB_PATH)
 
 

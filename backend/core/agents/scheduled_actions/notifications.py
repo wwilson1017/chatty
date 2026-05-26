@@ -1,8 +1,7 @@
 """Chatty — Heartbeat notifications.
 
-Creates in-app alerts for every action_taken heartbeat result.
-Optionally sends external notifications via Telegram or WhatsApp.
-Failure alerts fire when consecutive errors hit a threshold.
+External delivery helpers (Telegram, WhatsApp) used by delivery.py and
+post_message. Failure alerts fire when consecutive errors hit a threshold.
 """
 
 import logging
@@ -14,59 +13,6 @@ logger = logging.getLogger(__name__)
 
 FAILURE_ALERT_THRESHOLD = 3
 _FAILURE_ALERT_COOLDOWN_SECONDS = 3600
-
-
-def evaluate_and_notify(
-    action: dict,
-    status: str,
-    result_summary: str,
-    agent_slug: str,
-) -> bool:
-    """Create in-app alert and optionally send external notification.
-
-    For heartbeats, only notifies on "action_taken".
-    For cron jobs, notifies on any successful completion ("ok" or "action_taken")
-    since the whole point of a cron job is to produce output.
-
-    Returns True if an external notification was actually sent.
-    """
-    action_type = action.get("action_type", "heartbeat")
-    is_cron = action_type == "cron"
-
-    if is_cron:
-        if status not in ("ok", "action_taken"):
-            return False
-    else:
-        if status != "action_taken":
-            return False
-
-    from core.agents.alerts.service import create_alert
-    create_alert(
-        agent=agent_slug,
-        title=f"{action.get('name', 'check')}",
-        message=result_summary[:500],
-        source="cron" if is_cron else "heartbeat",
-        source_id=action["id"],
-    )
-
-    if not action.get("notify_on_action"):
-        return False
-
-    return _send_external(agent_slug, action, result_summary)
-
-
-def _send_external(agent_slug: str, action: dict, result_summary: str) -> bool:
-    """Try Telegram first, then WhatsApp. Returns True if any channel succeeded."""
-    try:
-        if _try_telegram(agent_slug, result_summary, action=action):
-            return True
-        if _try_whatsapp(agent_slug, result_summary, action=action):
-            return True
-        logger.debug("No external notification channel configured for %s", agent_slug)
-        return False
-    except Exception as e:
-        logger.warning("External notification failed for %s: %s", agent_slug, e)
-        return False
 
 
 def send_external_for_agent(agent_slug: str, message: str, title: str = "") -> bool:
@@ -167,8 +113,15 @@ def evaluate_failure_alert(
         )
         conn.commit()
 
-    if action.get("notify_on_action"):
-        _send_external(agent_slug, action, f"Action '{action_name}' has failed {consecutive_errors} times. Last: {last_error[:200]}")
+    try:
+        from core.agents.notifications.delivery import deliver_notification
+        deliver_notification(
+            agent_slug,
+            f"Repeated failures: {action_name}",
+            f"Failed {consecutive_errors} times. Last error: {last_error[:300]}",
+        )
+    except Exception as e:
+        logger.warning("Failure notification delivery failed for %s: %s", agent_slug, e)
 
     logger.info("Failure alert sent for %s/%s (%d errors)", agent_slug, action["id"][:8], consecutive_errors)
     return True

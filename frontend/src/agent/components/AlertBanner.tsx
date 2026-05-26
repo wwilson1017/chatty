@@ -16,10 +16,23 @@ function timeAgo(iso: string): string {
   return `${Math.floor(diff / 86400000)}d ago`;
 }
 
+function sourceLabel(source: string): string {
+  switch (source) {
+    case 'heartbeat_failure': return 'Heartbeat failing';
+    case 'heartbeat': return 'Heartbeat';
+    case 'cron': return 'Scheduled action';
+    case 'post_message': return 'Agent message';
+    case 'reminder': return 'Reminder';
+    default: return 'Alert';
+  }
+}
+
 export default function AlertBanner({ alerts, onDismiss, onDiscuss }: Props) {
-  const [expanded, setExpanded] = useState(true);
+  const [expanded, setExpanded] = useState(false);
 
   if (alerts.length === 0) return null;
+
+  const latest = alerts[0];
 
   return (
     <div style={{
@@ -29,32 +42,47 @@ export default function AlertBanner({ alerts, onDismiss, onDiscuss }: Props) {
       background: 'rgba(212,168,90,0.06)',
       overflow: 'hidden',
     }}>
-      <button
+      <div
         onClick={() => setExpanded(!expanded)}
         style={{
-          width: '100%',
-          padding: '8px 12px',
+          padding: '7px 12px',
           display: 'flex',
           alignItems: 'center',
-          justifyContent: 'space-between',
-          background: 'none',
-          border: 'none',
-          color: '#D4A85A',
+          gap: 8,
           cursor: 'pointer',
-          fontFamily: "'JetBrains Mono', monospace",
-          fontSize: 12,
-          fontWeight: 600,
         }}
       >
-        <span>{alerts.length} unresolved alert{alerts.length !== 1 ? 's' : ''}</span>
         <svg
-          width={14} height={14}
-          viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}
-          style={{ transition: 'transform 0.2s', transform: expanded ? 'rotate(180deg)' : '' }}
+          width="10" height="10" viewBox="0 0 10 10" fill="none"
+          stroke="#D4A85A" strokeWidth="1.5" strokeLinecap="round"
+          style={{ flexShrink: 0, transition: 'transform 0.2s', transform: expanded ? 'rotate(90deg)' : 'none' }}
         >
-          <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+          <path d="M3 1l4 4-4 4" />
         </svg>
-      </button>
+        <span style={{
+          fontFamily: "'JetBrains Mono', monospace",
+          fontSize: 11,
+          color: '#D4A85A',
+          fontWeight: 600,
+          flexShrink: 0,
+        }}>
+          {alerts.length} alert{alerts.length !== 1 ? 's' : ''}
+        </span>
+        {!expanded && (
+          <span style={{
+            fontFamily: "'Inter', sans-serif",
+            fontSize: 12,
+            color: 'rgba(212,168,90,0.5)',
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap',
+            flex: 1,
+            minWidth: 0,
+          }}>
+            {sourceLabel(latest.source)}: {latest.title} — {timeAgo(latest.created_at)}
+          </span>
+        )}
+      </div>
 
       {expanded && (
         <div style={{ padding: '0 12px 8px' }}>
@@ -67,6 +95,16 @@ export default function AlertBanner({ alerts, onDismiss, onDiscuss }: Props) {
               gap: 8,
             }}>
               <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{
+                  fontSize: 10, color: 'rgba(212,168,90,0.6)',
+                  fontFamily: "'JetBrains Mono', monospace",
+                  fontWeight: 600,
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.05em',
+                  marginBottom: 2,
+                }}>
+                  {sourceLabel(alert.source)}
+                </div>
                 <div style={{
                   fontSize: 12, color: '#EDF0F4',
                   fontWeight: 500, lineHeight: 1.3,
