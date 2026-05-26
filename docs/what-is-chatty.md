@@ -30,6 +30,7 @@ Think of Chatty like hiring a team of virtual assistants:
 - **Chat with customers** on Telegram or WhatsApp on your behalf
 - **Remember things** — they build memory over time and get better at helping you
 - **Think overnight** — they review their conversations while you sleep and prepare for tomorrow
+- **Notify you when it matters** — background tasks decide when something is worth alerting you about, then send a browser push notification, Telegram message, or WhatsApp message
 
 ## What Does It Cost?
 
@@ -47,6 +48,7 @@ ChatGPT is a general-purpose AI that doesn't know your business. Chatty agents:
 - **Connect to your tools** — they can actually do things, not just talk
 - **Remember everything** — conversations carry over, they learn your preferences
 - **Are always available** — they run 24/7, answer customers on Telegram/WhatsApp even when you're asleep
+- **Push notifications** — get browser push alerts, Telegram messages, or WhatsApp messages when your agent finds something important during background tasks
 - **Are brandable** — your logo, your company name, your colors
 
 ## How Is This Different from Other AI Agent Platforms?

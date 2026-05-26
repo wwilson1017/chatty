@@ -50,19 +50,11 @@ Your agent can also participate in Telegram group conversations. See [Telegram G
 
 Once connected, your agent has access to all its normal capabilities through Telegram — memory, integrations, tools, and personality all carry over. You're chatting with the same agent, just from a different interface.
 
-### Proactive Alerts via Heartbeat
+### Proactive Notifications via Heartbeat
 
-Telegram really shines when paired with the **Heartbeat** feature. Your agent can run scheduled background tasks — scanning emails, checking calendars, monitoring CRM tasks — and push alerts directly to you on Telegram. No need to open a browser; important things come to you.
+Telegram is one of several notification channels for the **Heartbeat** feature. Your agent runs scheduled background tasks — scanning emails, checking calendars, monitoring CRM tasks — and decides when to notify you. If the agent finds something worth alerting you about, it sends notifications to all your enabled channels: browser push, Telegram, and WhatsApp.
 
-Here's an example of an agent configured to send all alerts via Telegram:
-
-![Heartbeat checklist with Telegram alerts](telegram-heartbeat-example.png)
-
-The same agent running on Railway, showing the heartbeat configuration in a deployed environment:
-
-![Heartbeat on Railway with Telegram notifications](telegram-heartbeat-railway.png)
-
-To set this up, configure your agent's **Heartbeat** tab with checklist items that mention Telegram, and your agent will use its Telegram connection to send you messages proactively.
+To enable Telegram notifications, go to **Settings** > **Notifications** and make sure Telegram is toggled on. The agent decides when to notify — no per-task configuration needed.
 
 ## Multiple Agents, Multiple Bots
 
