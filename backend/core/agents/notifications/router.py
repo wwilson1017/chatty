@@ -59,5 +59,5 @@ async def push_unsubscribe(body: dict, user=Depends(get_current_user)):
 
 
 @router.get("/push/vapid-public-key")
-async def vapid_public_key():
+async def vapid_public_key(user=Depends(get_current_user)):
     return {"public_key": get_vapid_public_key()}

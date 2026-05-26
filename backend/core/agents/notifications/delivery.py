@@ -94,6 +94,7 @@ def _send_web_push(
             "notification_id": notification_id,
         })
 
+    sent = 0
     for sub in subs:
         subscription_info = {
             "endpoint": sub["endpoint"],
@@ -106,6 +107,7 @@ def _send_web_push(
                 vapid_private_key=private_key,
                 vapid_claims=vapid_claims,
             )
+            sent += 1
         except WebPushException as e:
             if "410" in str(e) or "Gone" in str(e):
                 logger.info("Removing expired push subscription: %s", sub["endpoint"][:60])
@@ -115,7 +117,7 @@ def _send_web_push(
         except Exception as e:
             logger.warning("Web push error: %s", e)
 
-    return True
+    return sent > 0
 
 
 def _send_telegram(agent_slug: str, title: str, message: str) -> bool:
