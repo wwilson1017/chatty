@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import type { AgentNotification } from '../../core/types';
 import { api } from '../../core/api/client';
 
@@ -20,20 +20,21 @@ export default function NotificationLog({ agentSlug }: Props) {
   const [expanded, setExpanded] = useState(false);
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
 
-  const fetchNotifications = useCallback(async () => {
+  const fetchRef = useRef<() => Promise<void>>();
+  fetchRef.current = async () => {
     try {
       const data = await api<AgentNotification[]>(
         `/api/notifications?agent=${agentSlug}&status=active&limit=10`
       );
       setNotifications(data);
     } catch { /* ignore */ }
-  }, [agentSlug]);
+  };
 
   useEffect(() => {
-    fetchNotifications();
-    const interval = setInterval(fetchNotifications, 30000);
+    fetchRef.current?.();
+    const interval = setInterval(() => fetchRef.current?.(), 30000);
     return () => clearInterval(interval);
-  }, [fetchNotifications]);
+  }, [agentSlug]);
 
   const dismiss = async (id: string) => {
     try {

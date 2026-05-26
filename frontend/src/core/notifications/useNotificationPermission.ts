@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useCallback } from 'react';
 import { isPushSupported, subscribeToPush } from './pushSubscription';
 
 export function useNotificationPermission() {
@@ -6,11 +6,6 @@ export function useNotificationPermission() {
     if (!isPushSupported()) return 'unsupported';
     return Notification.permission;
   });
-
-  useEffect(() => {
-    if (!isPushSupported()) return;
-    setPermission(Notification.permission);
-  }, []);
 
   const requestPermission = useCallback(async () => {
     if (!isPushSupported()) return false;
