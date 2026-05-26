@@ -29,14 +29,10 @@ def _load_or_generate() -> dict:
 
     vapid = Vapid()
     vapid.generate_keys()
-    raw_priv = vapid.private_pem()
-    raw_pub = vapid.public_key
 
     import base64
     from cryptography.hazmat.primitives.serialization import (
         Encoding,
-        NoEncryption,
-        PrivateFormat,
         PublicFormat,
     )
 
@@ -55,9 +51,11 @@ def _load_or_generate() -> dict:
     try:
         os.write(fd, json.dumps(_keys, indent=2).encode())
         os.close(fd)
+        fd = -1
         os.replace(tmp_path, str(_VAPID_FILE))
     except Exception:
-        os.close(fd) if not os.get_inheritable(fd) else None
+        if fd >= 0:
+            os.close(fd)
         if os.path.exists(tmp_path):
             os.unlink(tmp_path)
         raise

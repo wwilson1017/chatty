@@ -26,13 +26,16 @@ async def dismiss_notification(notification_id: str, user=Depends(get_current_us
 
 
 @router.post("/dismiss-all")
-async def dismiss_all(agent: str | None = None, user=Depends(get_current_user)):
+async def dismiss_all(body: dict | None = None, user=Depends(get_current_user)):
+    agent = (body or {}).get("agent")
     count = service.dismiss_all(agent=agent)
     return {"ok": True, "dismissed": count}
 
 
 @router.post("/push/subscribe")
 async def push_subscribe(body: dict, user=Depends(get_current_user)):
+    from fastapi import HTTPException
+
     endpoint = body.get("endpoint", "")
     keys = body.get("keys", {})
     p256dh = keys.get("p256dh", "")
@@ -40,16 +43,18 @@ async def push_subscribe(body: dict, user=Depends(get_current_user)):
     user_agent = body.get("user_agent", "")
 
     if not endpoint or not p256dh or not auth:
-        return {"error": "endpoint, keys.p256dh, and keys.auth are required"}
+        raise HTTPException(status_code=400, detail="endpoint, keys.p256dh, and keys.auth are required")
 
     return subscriptions.save_subscription(endpoint, p256dh, auth, user_agent)
 
 
 @router.delete("/push/unsubscribe")
 async def push_unsubscribe(body: dict, user=Depends(get_current_user)):
+    from fastapi import HTTPException
+
     endpoint = body.get("endpoint", "")
     if not endpoint:
-        return {"error": "endpoint is required"}
+        raise HTTPException(status_code=400, detail="endpoint is required")
     return subscriptions.remove_subscription(endpoint)
 
 
