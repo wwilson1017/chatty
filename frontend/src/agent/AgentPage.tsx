@@ -103,7 +103,7 @@ export function AgentPage() {
       if (msgs) chat.loadMessages(msgs, newConversationId);
     };
     onboardingCompleteRef.current = () => {
-      if (agentId) api<AgentRow>(`/api/agents/${agentId}`).then(setAgent).catch(() => {});
+      if (agentId) api<AgentRow>(`/api/agents/${agentId}`).then(a => { setAgent(a); chat.setTrainingMode(false); }).catch(() => { chat.setTrainingMode(false); });
     };
   }); // intentionally no deps — always tracks latest convs/chat
 
@@ -557,6 +557,7 @@ export function AgentPage() {
                 await api(`/api/agents/${agentId}`, { method: 'PUT', body: JSON.stringify({ onboarding_complete: true }) });
                 const updated = await api<AgentRow>(`/api/agents/${agentId}`);
                 setAgent(updated);
+                chat.setTrainingMode(false);
               } catch {
                 chat.setTrainingMode(false);
               }

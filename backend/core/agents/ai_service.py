@@ -876,7 +876,7 @@ async def chat(
             "description": "Mark onboarding as complete. Call this when you and the user agree that training is done.",
             "input_schema": {"type": "object", "properties": {}},
             "kind": "setup",
-            "writes": True,
+            "writes": False,
         })
         kind_map["mark_onboarding_complete"] = "setup"
 
