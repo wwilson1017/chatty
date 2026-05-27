@@ -88,10 +88,12 @@ export function AgentPage() {
   }, [convs]);
 
   const importCompleteRef = useRef<((id: string) => void) | null>(null);
+  const onboardingCompleteRef = useRef<(() => void) | null>(null);
 
   const chat = useAgentChat(apiPrefix, {
     onTitleUpdate: handleTitleUpdate,
     onImportComplete: (id) => importCompleteRef.current?.(id),
+    onOnboardingComplete: () => onboardingCompleteRef.current?.(),
   });
 
   useEffect(() => {
@@ -99,6 +101,9 @@ export function AgentPage() {
       await convs.loadConversations();
       const msgs = await convs.selectConversation(newConversationId);
       if (msgs) chat.loadMessages(msgs, newConversationId);
+    };
+    onboardingCompleteRef.current = () => {
+      if (agentId) api<AgentRow>(`/api/agents/${agentId}`).then(a => { setAgent(a); chat.setTrainingMode(false); }).catch(() => { chat.setTrainingMode(false); });
     };
   }); // intentionally no deps — always tracks latest convs/chat
 
@@ -542,7 +547,21 @@ export function AgentPage() {
               : `Teaching ${agent.agent_name} about your business.`}
           </span>
           <button
-            onClick={() => chat.setTrainingMode(false)}
+            onClick={async () => {
+              if (chat.trainingType === 'improve') {
+                chat.setTrainingMode(false);
+                return;
+              }
+              if (!confirm(`Exit training? ${agent.agent_name} will use whatever knowledge has been saved so far.`)) return;
+              try {
+                await api(`/api/agents/${agentId}`, { method: 'PUT', body: JSON.stringify({ onboarding_complete: true }) });
+                const updated = await api<AgentRow>(`/api/agents/${agentId}`);
+                setAgent(updated);
+                chat.setTrainingMode(false);
+              } catch {
+                chat.setTrainingMode(false);
+              }
+            }}
             style={{
               marginLeft: 'auto', fontSize: 11,
               color: '#8EA589', background: 'none', border: 'none', cursor: 'pointer',

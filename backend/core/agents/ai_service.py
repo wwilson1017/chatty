@@ -209,13 +209,19 @@ Track your progress quietly in `_onboarding-progress.md`:
 
 The user never sees this — it's just for you to know where you are if the conversation spans multiple sessions.
 
+## ASSESS YOUR CURRENT STATE
+
+After reading your knowledge files, assess how much you already know. If your files are already comprehensive — you know who your human is, how they want you to communicate, what matters to them — tell them what you found and ask if they'd like to mark training as complete. For example: "I reviewed my knowledge files and I look fully trained — I know about [specifics]. Want me to mark training as done, or is there more you'd like to cover?"
+
+If they confirm, call `mark_onboarding_complete`. If they want to continue, proceed normally.
+
 ## WHEN YOU'VE COVERED EVERYTHING
 
 When you've naturally covered the key topics:
 
 1. Mention something like "I feel like I'm getting a good sense of how we'll work together" — keep it natural
 2. Delete `_bootstrap.md` if it still exists
-3. Call `mark_onboarding_complete` silently — don't announce it to the user
+3. Call `mark_onboarding_complete` — don't make a big deal out of it
 4. Just keep chatting normally. The transition should be invisible."""
 
 
@@ -862,6 +868,17 @@ async def chat(
         }
         tool_defs.append(exit_plan_tool)
         kind_map["exit_plan_mode"] = "plan"
+
+    # ── Training mode: add virtual mark_onboarding_complete tool ─────
+    if training_mode:
+        tool_defs.append({
+            "name": "mark_onboarding_complete",
+            "description": "Mark onboarding as complete. Call this when you and the user agree that training is done.",
+            "input_schema": {"type": "object", "properties": {}},
+            "kind": "setup",
+            "writes": False,
+        })
+        kind_map["mark_onboarding_complete"] = "setup"
 
     # ── Build provider_tools after all virtual tools are added ────────
     provider_tools = build_provider_tools(tool_defs)

@@ -559,6 +559,8 @@ class ToolRegistry:
             return self._enable_crm()
         elif tool_name == "check_integrations":
             return self._check_integrations()
+        elif tool_name == "mark_onboarding_complete":
+            return self._mark_onboarding_complete()
         return {"error": f"Unknown setup tool: {tool_name}"}
 
     def _execute_import(self, tool_name: str, args: dict) -> dict:
@@ -715,6 +717,23 @@ class ToolRegistry:
                 entry["enabled"] = bool(agent.get("whatsapp_session_id"))
             results.append(entry)
         return {"integrations": results}
+
+    def _mark_onboarding_complete(self) -> dict:
+        from agents.db import get_agent_by_slug, update_agent
+        from agents.engine import invalidate_cache
+        agent = get_agent_by_slug(self.agent_slug)
+        if not agent:
+            return {"error": "Agent not found"}
+        if agent.get("onboarding_complete"):
+            return {"ok": True}
+        update_agent(agent["id"], onboarding_complete=1)
+        invalidate_cache(self.agent_slug)
+        try:
+            from core.agents.scheduled_actions.service import ensure_default_actions
+            ensure_default_actions(agent["slug"])
+        except Exception as e:
+            logger.warning("Failed to create default actions for %s: %s", agent["slug"], e)
+        return {"ok": True}
 
     _CACHE_AWARE_TOOLS = {
         "download_odoo_pdf", "create_odoo_attachment",

@@ -238,7 +238,6 @@ jobs:
             '{
               model: "claude-opus-4-7",
               max_tokens: 16384,
-              temperature: 0.3,
               system: $system,
               messages: [
                 {role: "user", content: $user}
