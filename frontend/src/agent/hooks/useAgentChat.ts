@@ -83,6 +83,7 @@ export interface ContextUsage {
 interface Options {
   onTitleUpdate?: (convId: string, title: string) => void;
   onImportComplete?: (newConversationId: string) => void;
+  onOnboardingComplete?: () => void;
 }
 
 export function useAgentChat(apiPrefix: string, options?: Options) {
@@ -290,6 +291,9 @@ export function useAgentChat(apiPrefix: string, options?: Options) {
                     setTimeout(() => options.onImportComplete!(result.new_conversation_id), 2000);
                   }
                 } catch { /* ignore parse errors */ }
+              }
+              if (event.tool === 'mark_onboarding_complete') {
+                options?.onOnboardingComplete?.();
               }
             } else if (event.type === 'confirm' && event.tool) {
               flushPendingText();
