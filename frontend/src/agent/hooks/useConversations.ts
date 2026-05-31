@@ -49,12 +49,12 @@ export function useConversations(apiPrefix: string) {
       }>(`${apiPrefix}/conversations/${id}`);
       setActiveId(id);
       return data.messages.map(m => {
-        const parsed = parseServerTimestamp(m.created_at);
+        const parsedTimestamp = parseServerTimestamp(m.created_at);
         const msg: ChatMessage = {
           id: m.id,
           role: m.role as 'user' | 'assistant',
           content: m.content,
-          timestamp: parsed ? parsed.getTime() : Date.now(),
+          timestamp: parsedTimestamp ? parsedTimestamp.getTime() : 0,
           model: m.model,
         };
         if (m.tool_calls) {

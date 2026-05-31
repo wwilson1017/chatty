@@ -6,6 +6,7 @@ export function parseServerTimestamp(value: string | number | null | undefined):
     const d = new Date(value);
     return Number.isNaN(d.getTime()) ? null : d;
   }
+  // SQLite datetime('now') returns UTC without a timezone marker (e.g. "2026-05-30 14:23:11")
   const sqliteNaive =
     /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}/.test(value) &&
     !value.includes('Z') &&
@@ -19,6 +20,7 @@ function ctDayKey(d: Date): string {
 }
 
 export function ctDateKey(value: string | number | null | undefined): string {
+  if (value === 0) return '';
   const d = parseServerTimestamp(value);
   return d ? ctDayKey(d) : '';
 }
@@ -34,6 +36,7 @@ function ctTime(d: Date): string {
 }
 
 export function formatSidebarTime(value: string | number | null | undefined): string {
+  if (value === 0) return '';
   const d = parseServerTimestamp(value);
   if (!d) return '';
   const days = ctDaysAgo(d, new Date());
@@ -46,12 +49,14 @@ export function formatSidebarTime(value: string | number | null | undefined): st
 }
 
 export function formatBubbleTime(value: string | number | null | undefined): string {
+  if (value === 0) return '';
   const d = parseServerTimestamp(value);
   if (!d) return '';
   return ctTime(d);
 }
 
 export function formatDateDivider(value: string | number | null | undefined): string {
+  if (value === 0) return '';
   const d = parseServerTimestamp(value);
   if (!d) return '';
   const now = new Date();
