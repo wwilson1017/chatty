@@ -212,10 +212,8 @@ async def _run_turn(
                 elif _budget_action == BudgetAction.TERMINATE:
                     try:
                         from core.events.service import log_security_event
-                        from core.agents.alerts.service import create_alert
                         _agent_slug = getattr(registry, "agent_slug", "unknown")
                         log_security_event("write_budget_terminated", f"Background turn terminated: {tool_name}", severity="critical", agent_slug=_agent_slug, source="heartbeat")
-                        create_alert(_agent_slug, "Write Budget Exceeded", f"Background turn terminated: {tool_name} attempted after budget exhaustion", source="security")
                     except Exception:
                         pass
                     result_str = json.dumps({"error": "Turn terminated: write budget exceeded"})

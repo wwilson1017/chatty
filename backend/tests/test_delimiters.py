@@ -38,7 +38,11 @@ class TestWrapResult:
         result = wrap_result("gmail_read_email", '{"subject": "hello"}')
         assert result.startswith('<untrusted_tool_result id="')
         assert 'tool="gmail_read_email"' in result
-        assert result.endswith("</untrusted_tool_result>")
+        # Closing tag must include the same random id as the opening tag
+        match = re.search(r'id="([a-f0-9]+)"', result)
+        assert match is not None
+        tag_id = match.group(1)
+        assert result.endswith(f'</untrusted_tool_result id="{tag_id}">')
         assert '{"subject": "hello"}' in result
 
     def test_random_id_is_16_hex_chars(self):

@@ -222,7 +222,7 @@ export function LogsTab() {
           {categoryFilters.map(f => (
             <button
               key={f.id}
-              onClick={() => setCategoryFilter(f.id)}
+              onClick={() => { setCategoryFilter(f.id); setStatusFilter('all'); }}
               className={`px-3 py-1.5 text-xs rounded-md transition-colors ${
                 categoryFilter === f.id
                   ? 'bg-ch-accent/20 text-ch-accent font-medium'

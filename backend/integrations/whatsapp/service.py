@@ -34,6 +34,8 @@ from core.agents.scheduled_actions.tools import (
     delete_scheduled_action_handler,
 )
 
+from core.agents.security.delimiters import DELIMITER_SYSTEM_INSTRUCTION
+
 from . import state
 
 logger = logging.getLogger(__name__)
@@ -328,6 +330,7 @@ def _build_system_prompt(config, ctx_manager) -> str:
         "- When you learn something new, save it immediately.",
         "- Keep responses brief and mobile-friendly — this is a WhatsApp conversation.",
         "",
+        DELIMITER_SYSTEM_INSTRUCTION,
     ]
 
     return "\n".join(parts)
