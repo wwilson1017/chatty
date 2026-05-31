@@ -420,6 +420,24 @@ async def avatar_upload(
     return {"ok": True, "avatar_url": f"/api/agents/{agent_id}/avatar"}
 
 
+@router.delete("/{agent_id}/avatar")
+async def avatar_delete(agent_id: str, user=Depends(get_current_user)):
+    """Remove the agent's avatar, reverting to the default letter badge."""
+    from core.storage import delete_config
+
+    agent = _get_agent_or_404(agent_id)
+    slug = agent["slug"]
+
+    avatar_path = DATA_DIR / slug / "avatar.png"
+    if avatar_path.exists():
+        avatar_path.unlink()
+
+    delete_config("avatar.png", prefix=f"agents/{slug}/")
+    agent_db.update_agent(agent_id, avatar_url="")
+
+    return {"ok": True}
+
+
 @router.get("/{agent_id}/avatar")
 async def get_avatar(agent_id: str, request: Request, token: str | None = None):
     """Serve the agent's avatar image.
