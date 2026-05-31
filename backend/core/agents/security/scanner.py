@@ -20,15 +20,15 @@ class ScanResult:
 THREAT_PATTERNS: list[tuple[str, re.Pattern]] = [
     # Instruction override / role hijacking
     ("instruction_override", re.compile(
-        r"ignore\s+(?:\w+\s+)*(?:previous|all|above|prior)\s+(?:\w+\s+)*instructions?",
+        r"ignore\s+(?:\w+\s+){0,5}(?:previous|all|above|prior)\s+(?:\w+\s+){0,5}instructions?",
         re.IGNORECASE,
     )),
     ("role_hijack", re.compile(
-        r"you\s+are\s+(?:\w+\s+)*now\s+(?:a|an|the)\s+",
+        r"you\s+are\s+(?:\w+\s+){0,5}now\s+(?:a|an|the)\s+",
         re.IGNORECASE,
     )),
     ("disregard_rules", re.compile(
-        r"disregard\s+(?:\w+\s+)*(?:your|all|any)\s+(?:\w+\s+)*(?:instructions|rules|guidelines)",
+        r"disregard\s+(?:\w+\s+){0,5}(?:your|all|any)\s+(?:\w+\s+){0,5}(?:instructions|rules|guidelines)",
         re.IGNORECASE,
     )),
     ("pretend_role", re.compile(

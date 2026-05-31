@@ -283,7 +283,7 @@ def run_background_turn(
     after execution. Scheduled actions pass source=None since they
     already log via history.py.
     """
-    _slug = agent_slug or _slug
+    _slug = agent_slug or getattr(registry, "agent_slug", "unknown")
     t0 = time.time()
 
     try:
