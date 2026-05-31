@@ -124,7 +124,6 @@ export function LogsTab() {
 
   async function fetchSecurityLogs(): Promise<LogRecord[]> {
     const params = new URLSearchParams({ category: 'security' });
-    if (statusFilter !== 'all') params.set('severity', statusFilter);
     if (agentFilter !== 'all') params.set('agent', agentFilter);
     const qs = params.toString();
     const result = await api<{ events: SecurityEvent[] }>(`/api/events?${qs}`);

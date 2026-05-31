@@ -135,8 +135,10 @@ async def update_admin_settings(body: dict, user=Depends(get_current_user)):
     for key in ADMIN_DEFAULTS:
         if key in body:
             settings[key] = body[key]
-    if "always_power_mode" in settings:
-        settings["always_power_mode"] = bool(settings["always_power_mode"])
+    for _bool_key in ("always_power_mode", "write_budget_heartbeat_enabled",
+                      "write_budget_interactive_enabled", "hourly_write_rate_limit_enabled"):
+        if _bool_key in settings:
+            settings[_bool_key] = bool(settings[_bool_key])
     if not isinstance(settings.get("triage_mode"), str) or settings["triage_mode"] not in VALID_TRIAGE_MODES:
         settings["triage_mode"] = ADMIN_DEFAULTS["triage_mode"]
     if not isinstance(settings.get("default_model_tier"), str) or settings["default_model_tier"] not in VALID_MODEL_TIERS:

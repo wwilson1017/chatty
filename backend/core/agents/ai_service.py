@@ -416,7 +416,7 @@ def _build_system_prompt(
         if _integration_enabled("qb_csv"):
             parts.append(get_qb_csv_instructions())
 
-        parts.append(DELIMITER_SYSTEM_INSTRUCTION)
+    parts.append(DELIMITER_SYSTEM_INSTRUCTION)
 
     if plan_mode:
         parts.append(_plan_mode_instructions())
