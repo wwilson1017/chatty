@@ -119,6 +119,20 @@ def delete_webhook(bot_token: str) -> dict:
         return {"ok": False, "error": str(e)}
 
 
+def send_chat_action(chat_id: int | str, action: str, bot_token: str) -> None:
+    """Send a chat action indicator (e.g. 'typing'). Silent on failure."""
+    if not bot_token:
+        return
+    try:
+        httpx.post(
+            f"{_base_url(bot_token)}/sendChatAction",
+            json={"chat_id": chat_id, "action": action},
+            timeout=5,
+        )
+    except httpx.HTTPError:
+        pass
+
+
 def get_me(bot_token: str) -> dict:
     """Get bot info (username, name) for status display."""
     if not bot_token:

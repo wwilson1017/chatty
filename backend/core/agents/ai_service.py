@@ -26,6 +26,7 @@ import time
 import uuid
 from datetime import datetime
 from pathlib import Path
+from collections.abc import Callable
 from typing import AsyncGenerator
 from zoneinfo import ZoneInfo
 
@@ -1277,6 +1278,8 @@ async def run_sync(
     integration_tool_defs: list[dict] | None = None,
     integration_tool_modes: dict[str, str] | None = None,
     source: str = "chat",
+    on_iteration: Callable[[int], bool] | None = None,
+    skip_user_save: bool = False,
 ) -> str:
     """Run an agent synchronously, returning the final text response.
 
@@ -1383,7 +1386,7 @@ async def run_sync(
 
     # Chat history — save user message
     persist = chat_service is not None
-    if persist:
+    if persist and not skip_user_save:
         try:
             if not conversation_id:
                 conv = chat_service.create_conversation()
@@ -1408,6 +1411,10 @@ async def run_sync(
     max_iterations = 20
 
     for iteration in range(max_iterations):
+        if on_iteration is not None and iteration > 0:
+            if not on_iteration(iteration):
+                return ""
+
         tool_calls_this_turn: list[dict] = []
         turn_text = ""
         stop_reason = "stop"

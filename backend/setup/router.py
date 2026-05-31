@@ -29,6 +29,7 @@ ADMIN_DEFAULTS = {
     "notifications_web_push": True,
     "notifications_telegram": True,
     "notifications_whatsapp": True,
+    "message_hold_delay_ms": 2000,
 }
 
 VALID_TRIAGE_MODES = {"standard", "cheap", "always_cheap"}
@@ -125,5 +126,9 @@ async def update_admin_settings(body: dict, user=Depends(get_current_user)):
         settings["triage_mode"] = ADMIN_DEFAULTS["triage_mode"]
     if not isinstance(settings.get("default_model_tier"), str) or settings["default_model_tier"] not in VALID_MODEL_TIERS:
         settings["default_model_tier"] = ADMIN_DEFAULTS["default_model_tier"]
+    try:
+        settings["message_hold_delay_ms"] = max(0, min(10000, int(settings.get("message_hold_delay_ms", 2000))))
+    except (TypeError, ValueError):
+        settings["message_hold_delay_ms"] = ADMIN_DEFAULTS["message_hold_delay_ms"]
     atomic_write_json(ADMIN_SETTINGS_FILE, settings)
     return settings

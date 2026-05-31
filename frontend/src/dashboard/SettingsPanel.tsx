@@ -42,14 +42,16 @@ export function SettingsPanel({ branding, onBrandingUpdate, onClose }: Props) {
   const [triageMode, setTriageMode] = useState<string>('always_cheap');
   const [defaultModelTier, setDefaultModelTier] = useState<string>('auto');
   const [tierLabels, setTierLabels] = useState<Record<string, string>>({});
+  const [messageHoldDelay, setMessageHoldDelay] = useState<number>(2000);
 
   useEffect(() => {
     if (tab === 'chat') {
-      api<{ always_power_mode: boolean; triage_mode: string; default_model_tier: string }>('/api/setup/admin-settings')
+      api<{ always_power_mode: boolean; triage_mode: string; default_model_tier: string; message_hold_delay_ms: number }>('/api/setup/admin-settings')
         .then(s => {
           setAlwaysPowerMode(s.always_power_mode);
           setTriageMode(s.triage_mode);
           setDefaultModelTier(s.default_model_tier || 'auto');
+          setMessageHoldDelay(s.message_hold_delay_ms ?? 2000);
         })
         .catch(() => {});
       api<{ tier_labels: Record<string, Record<string, string>>; active_provider: string }>('/api/providers/tiers')
@@ -379,6 +381,43 @@ export function SettingsPanel({ branding, onBrandingUpdate, onClose }: Props) {
                   Tip: Add an OpenAI API key for the best triage model (GPT-4.1 Nano)
                 </p>
               )}
+
+              {/* Message batching delay slider */}
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 8 }}>
+                <div>
+                  <p style={{ fontSize: 14, color: '#EDF0F4', margin: 0 }}>Message batching delay</p>
+                  <p style={{ fontSize: 12, color: 'rgba(237,240,244,0.38)', marginTop: 2 }}>
+                    Hold Telegram responses to batch rapid messages
+                  </p>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <input
+                    type="range"
+                    min={0}
+                    max={10000}
+                    step={500}
+                    value={messageHoldDelay}
+                    onChange={async (e) => {
+                      const next = Number(e.target.value);
+                      const prev = messageHoldDelay;
+                      setMessageHoldDelay(next);
+                      try {
+                        await api('/api/setup/admin-settings', {
+                          method: 'PUT',
+                          body: JSON.stringify({ message_hold_delay_ms: next }),
+                        });
+                      } catch {
+                        setMessageHoldDelay(prev);
+                      }
+                    }}
+                    style={{ width: 120, accentColor: 'var(--color-ch-accent, #C8D1D9)' }}
+                  />
+                  <span style={{ fontSize: 13, color: '#EDF0F4', minWidth: 36, textAlign: 'right' }}>
+                    {messageHoldDelay === 0 ? 'Off' : `${(messageHoldDelay / 1000).toFixed(1)}s`}
+                  </span>
+                </div>
+              </div>
+
               <NotificationSettings />
             </div>
           )}

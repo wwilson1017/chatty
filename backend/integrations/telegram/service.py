@@ -8,6 +8,7 @@ The router handles sending the response back via the Telegram client.
 import importlib
 import logging
 import uuid
+from collections.abc import Callable
 
 from agents import db as agent_db
 from agents.engine import (
@@ -349,6 +350,213 @@ async def process_group_message(
     )
 
     return response or "I had trouble generating a response. Please try again."
+
+
+async def process_message_batched(
+    sender_id: str,
+    sender_name: str,
+    combined_message: str,
+    agent_id: str,
+    on_iteration: Callable[[int], bool] | None = None,
+) -> str:
+    """Process a batched (combined) private Telegram message.
+
+    Like process_message() but takes pre-combined text (already prefixed),
+    passes on_iteration for cancellation support, and skips user message save
+    (messages already saved individually by the debounce module).
+
+    Returns response text. Empty string means the run was aborted.
+    """
+    agent = agent_db.get_agent(agent_id)
+    if not agent:
+        return "This agent is no longer available."
+    if not agent.get("telegram_enabled"):
+        return "Telegram messaging is currently disabled for this agent."
+
+    slug = agent["slug"]
+    config = build_agent_config(agent)
+    ctx_manager = get_context_manager(slug)
+    chat_service = get_chat_service(slug)
+
+    provider = get_ai_provider(
+        agent_provider=config.provider_override or None,
+        agent_model=config.model_override or None,
+        agent_model_tier=config.model_tier,
+    )
+    if not provider:
+        return "No AI provider is configured. Please set up an AI provider in Settings."
+
+    ga = config.google_accounts
+    gmail_ids = ga.get("gmail", [])
+    calendar_ids = ga.get("calendar", [])
+    drive_ids = ga.get("drive", [])
+    google_connected = bool(gmail_ids or calendar_ids or drive_ids)
+
+    from integrations.registry import list_google_accounts as _list_ga
+    all_ga = _list_ga()
+    account_info_map = {
+        aid: {"email": a.get("email", ""), "scope_grants": a.get("scope_grants", {}), "connection_status": a.get("connection_status", "ok")}
+        for aid, a in all_ga.items()
+    }
+
+    integration_tool_defs, integration_executors = _load_integration_tools()
+
+    from integrations.registry import get_tool_mode, get_credentials
+    integration_tool_modes = {
+        name: get_tool_mode(name)
+        for name in _INTEGRATION_MODULES
+        if "tool_mode" in get_credentials(name)
+    }
+
+    reminder_handlers, sa_handlers = _build_agent_handlers(slug)
+    registry = ToolRegistry(
+        context_dir=config.context_dir,
+        google_connected=google_connected,
+        integration_executors=integration_executors,
+        agent_slug=slug,
+        reminder_handlers=reminder_handlers,
+        scheduled_action_handlers=sa_handlers,
+        gmail_account_ids=gmail_ids,
+        calendar_account_ids=calendar_ids,
+        drive_account_ids=drive_ids,
+        account_info_map=account_info_map,
+    )
+
+    conv = state.get_or_create_conversation(sender_id, agent_id)
+    chatty_conv_id = conv.get("chatty_conversation_id")
+    if not chatty_conv_id and chat_service:
+        try:
+            new_conv = chat_service.create_conversation(source="telegram")
+            chatty_conv_id = new_conv["id"]
+            state.set_chatty_conversation_id(conv["id"], chatty_conv_id)
+        except Exception as e:
+            logger.warning("Failed to create chat history conversation: %s", e)
+
+    messages = _load_recent_messages(chat_service, chatty_conv_id)
+    if not messages:
+        messages = [{"role": "user", "content": combined_message}]
+    else:
+        messages.append({"role": "user", "content": combined_message})
+
+    response = await ai_service.run_sync(
+        config=config,
+        provider=provider,
+        registry=registry,
+        ctx_manager=ctx_manager,
+        messages=messages,
+        chat_service=chat_service,
+        conversation_id=chatty_conv_id,
+        integration_tool_defs=integration_tool_defs or None,
+        integration_tool_modes=integration_tool_modes,
+        source="telegram",
+        on_iteration=on_iteration,
+        skip_user_save=True,
+    )
+
+    return response or ""
+
+
+async def process_group_message_batched(
+    chat_id: int,
+    agent_id: str,
+    combined_message: str,
+    on_iteration: Callable[[int], bool] | None = None,
+) -> str:
+    """Process a batched (combined) group Telegram message.
+
+    Like process_group_message() but takes pre-combined text (already prefixed),
+    passes on_iteration for cancellation support, and skips user message save.
+
+    Returns response text. Empty string means the run was aborted.
+    """
+    agent = agent_db.get_agent(agent_id)
+    if not agent:
+        return "This agent is no longer available."
+    if not agent.get("telegram_enabled"):
+        return "Telegram messaging is currently disabled for this agent."
+
+    slug = agent["slug"]
+    config = build_agent_config(agent)
+    ctx_manager = get_context_manager(slug)
+    chat_service = get_chat_service(slug)
+
+    provider = get_ai_provider(
+        agent_provider=config.provider_override or None,
+        agent_model=config.model_override or None,
+        agent_model_tier=config.model_tier,
+    )
+    if not provider:
+        return "No AI provider is configured. Please set up an AI provider in Settings."
+
+    ga = config.google_accounts
+    gmail_ids = ga.get("gmail", [])
+    calendar_ids = ga.get("calendar", [])
+    drive_ids = ga.get("drive", [])
+    google_connected = bool(gmail_ids or calendar_ids or drive_ids)
+
+    from integrations.registry import list_google_accounts as _list_ga
+    all_ga = _list_ga()
+    account_info_map = {
+        aid: {"email": a.get("email", ""), "scope_grants": a.get("scope_grants", {}), "connection_status": a.get("connection_status", "ok")}
+        for aid, a in all_ga.items()
+    }
+
+    integration_tool_defs, integration_executors = _load_integration_tools()
+
+    from integrations.registry import get_tool_mode, get_credentials
+    integration_tool_modes = {
+        name: get_tool_mode(name)
+        for name in _INTEGRATION_MODULES
+        if "tool_mode" in get_credentials(name)
+    }
+
+    reminder_handlers, sa_handlers = _build_agent_handlers(slug)
+    registry = ToolRegistry(
+        context_dir=config.context_dir,
+        google_connected=google_connected,
+        integration_executors=integration_executors,
+        agent_slug=slug,
+        reminder_handlers=reminder_handlers,
+        scheduled_action_handlers=sa_handlers,
+        gmail_account_ids=gmail_ids,
+        calendar_account_ids=calendar_ids,
+        drive_account_ids=drive_ids,
+        account_info_map=account_info_map,
+    )
+
+    group_sender_id = f"group:{chat_id}"
+    conv = state.get_or_create_conversation(group_sender_id, agent_id)
+    chatty_conv_id = conv.get("chatty_conversation_id")
+    if not chatty_conv_id and chat_service:
+        try:
+            new_conv = chat_service.create_conversation(source="telegram-group")
+            chatty_conv_id = new_conv["id"]
+            state.set_chatty_conversation_id(conv["id"], chatty_conv_id)
+        except Exception as e:
+            logger.warning("Failed to create group chat conversation: %s", e)
+
+    messages = _load_recent_messages(chat_service, chatty_conv_id)
+    if not messages:
+        messages = [{"role": "user", "content": combined_message}]
+    else:
+        messages.append({"role": "user", "content": combined_message})
+
+    response = await ai_service.run_sync(
+        config=config,
+        provider=provider,
+        registry=registry,
+        ctx_manager=ctx_manager,
+        messages=messages,
+        chat_service=chat_service,
+        conversation_id=chatty_conv_id,
+        integration_tool_defs=integration_tool_defs or None,
+        integration_tool_modes=integration_tool_modes,
+        source="telegram-group",
+        on_iteration=on_iteration,
+        skip_user_save=True,
+    )
+
+    return response or ""
 
 
 def _load_recent_messages(chat_service, conversation_id: str | None) -> list[dict]:
