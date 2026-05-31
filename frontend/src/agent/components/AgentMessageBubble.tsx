@@ -5,6 +5,7 @@ import { useCopyToClipboard } from '../hooks/useCopyToClipboard';
 import ReportRenderer from '../reports/ReportRenderer';
 import { AgentMark } from '../../shared/AgentMark';
 import { IconAttach } from '../../shared/icons';
+import { formatBubbleTime } from '../utils/dateFormat';
 
 interface Props {
   message: ChatMessage;
@@ -364,6 +365,11 @@ function AgentMessageBubbleInner({ message, onApprove, onDeny, onApprovePlan, on
               whiteSpace: 'pre-wrap', wordBreak: 'break-word',
             }}>
               {message.content}
+              {message.timestamp ? (
+                <div style={{ fontSize: 10, color: 'rgba(237,240,244,0.38)', textAlign: 'right', marginTop: 4 }}>
+                  {formatBubbleTime(message.timestamp)}
+                </div>
+              ) : null}
             </div>
           </div>
         </div>
@@ -449,10 +455,15 @@ function AgentMessageBubbleInner({ message, onApprove, onDeny, onApprovePlan, on
           />
         )}
 
-        {/* Copy */}
+        {/* Copy + timestamp */}
         {message.content && (
-          <div style={{ marginTop: 4 }}>
+          <div style={{ marginTop: 4, display: 'flex', alignItems: 'center', gap: 8 }}>
             <CopyButton copied={copied} onClick={() => copy(message.content)} />
+            {message.timestamp ? (
+              <span style={{ fontSize: 10, color: 'rgba(237,240,244,0.38)' }}>
+                {formatBubbleTime(message.timestamp)}
+              </span>
+            ) : null}
           </div>
         )}
       </div>

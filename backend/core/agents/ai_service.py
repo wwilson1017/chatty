@@ -511,13 +511,16 @@ def _build_system_prompt(
         logger.debug("alerts injection skipped: %s", e)
 
     now_ct = datetime.now(CT_TZ)
-    date_str = now_ct.strftime("%A, %B %d, %Y")
-    time_str = now_ct.strftime("%I:%M %p CT")
+    dst_state = "CDT" if now_ct.dst() else "CST"
     volatile_parts.extend([
-        "# Current Session",
+        "# Current Time",
         "",
-        f"- Date: {date_str}",
-        f"- Time: {time_str}",
+        f"- ISO: {now_ct.isoformat()}",
+        f"- Timezone: America/Chicago ({dst_state})",
+        f"- Day: {now_ct.strftime('%A, %B %d, %Y')}",
+        f"- Human: {now_ct.strftime('%I:%M %p')} {dst_state}",
+        "",
+        "All times you state to the user MUST be in Central Time unless they ask otherwise.",
         "",
     ])
 

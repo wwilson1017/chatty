@@ -186,6 +186,9 @@ class ToolRegistry:
             return write_context_file(self.context_dir, args["filename"], args["content"])
         elif tool_name == "append_to_context_file":
             return append_to_context_file(self.context_dir, args["filename"], args["content"])
+        elif tool_name == "get_current_datetime":
+            from core.agents.tools.datetime_tools import get_current_datetime
+            return get_current_datetime()
         elif tool_name == "delete_context_file":
             return delete_context_file(self.context_dir, args["filename"])
         return {"error": f"Unknown context tool: {tool_name}"}
