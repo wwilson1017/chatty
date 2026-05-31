@@ -83,6 +83,7 @@ def _setup_connection() -> None:
     _connection.execute("PRAGMA journal_mode=WAL")
     _connection.execute("PRAGMA foreign_keys=ON")
     _connection.execute("PRAGMA busy_timeout=5000")
+    _connection.execute("PRAGMA synchronous=FULL")
 
     _migrate_user_mappings_v2(_connection)
 

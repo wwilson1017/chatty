@@ -29,10 +29,20 @@ ADMIN_DEFAULTS = {
     "notifications_web_push": True,
     "notifications_telegram": True,
     "notifications_whatsapp": True,
+    # Security settings
+    "injection_scanning": "flag",
+    "write_budget_heartbeat_enabled": True,
+    "write_budget_heartbeat": 10,
+    "write_budget_interactive_enabled": True,
+    "write_budget_interactive": 50,
+    "hourly_write_rate_limit_enabled": False,
+    "hourly_write_rate_limit": 100,
+    "event_log_retention_days": 90,
 }
 
 VALID_TRIAGE_MODES = {"standard", "cheap", "always_cheap"}
 VALID_MODEL_TIERS = {"auto", "top", "mid", "light"}
+VALID_INJECTION_MODES = {"off", "flag", "block"}
 
 
 def load_admin_settings() -> dict:
@@ -43,6 +53,12 @@ def load_admin_settings() -> dict:
                 result["triage_mode"] = ADMIN_DEFAULTS["triage_mode"]
             if not isinstance(result.get("default_model_tier"), str) or result["default_model_tier"] not in VALID_MODEL_TIERS:
                 result["default_model_tier"] = ADMIN_DEFAULTS["default_model_tier"]
+            if result.get("injection_scanning") not in VALID_INJECTION_MODES:
+                result["injection_scanning"] = ADMIN_DEFAULTS["injection_scanning"]
+            for _int_key in ("write_budget_heartbeat", "write_budget_interactive",
+                             "hourly_write_rate_limit", "event_log_retention_days"):
+                if not isinstance(result.get(_int_key), int) or result[_int_key] < 1:
+                    result[_int_key] = ADMIN_DEFAULTS[_int_key]
             return result
         except Exception:
             pass

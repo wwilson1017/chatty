@@ -18,6 +18,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from core.config import settings
+from core.storage import atomic_write
 from core.auth import router as auth_router
 from core.auth_2fa import router as auth_2fa_router
 from core.providers.router import router as providers_router
@@ -132,6 +133,9 @@ async def lifespan(app: FastAPI):
     from core.agents.tool_config_db import init_db as init_tool_config_db
     _safe_init("tool_configs", init_tool_config_db)
 
+    from core.events.db import init_db as init_events_db
+    _safe_init("events", init_events_db)
+
     # Store statuses on app.state for health endpoint
     app.state.db_statuses = db_statuses
 
@@ -158,6 +162,17 @@ async def lifespan(app: FastAPI):
 
     from agents.import_service.sessions import sweep_expired as _sweep_import_sessions
     _scheduler.add_job(_sweep_import_sessions, "interval", seconds=600, id="import_session_sweep")
+
+    def _purge_old_events():
+        try:
+            from setup.router import load_admin_settings
+            days = load_admin_settings().get("event_log_retention_days", 90)
+            from core.events.db import purge_old_events
+            purge_old_events(days)
+        except Exception:
+            pass
+    _scheduler.add_job(_purge_old_events, "cron", hour=4, minute=0, id="event_log_purge",
+                       timezone="America/Chicago")
 
     from core.agents.scheduled_actions.sweeper import sweep as _scheduled_sweep
     _scheduler.add_job(_scheduled_sweep, "interval", seconds=300, id="scheduled_actions_sweeper")
@@ -197,7 +212,7 @@ async def lifespan(app: FastAPI):
     if volume_marker.exists():
         logger.info("Persistent volume verified (marker file present)")
     else:
-        volume_marker.write_text(f"chatty:{datetime.now(timezone.utc).isoformat()}", encoding="utf-8")
+        atomic_write(volume_marker, f"chatty:{datetime.now(timezone.utc).isoformat()}")
         if settings.is_railway:
             logger.info(
                 "First boot — wrote volume marker to %s. "
@@ -215,6 +230,11 @@ async def lifespan(app: FastAPI):
     try:
         from core.agents.scheduled_actions.processor import shutdown_executor
         shutdown_executor()
+    except Exception:
+        pass
+    try:
+        from core.events.db import close_db as close_events_db
+        close_events_db()
     except Exception:
         pass
     logger.info("Chatty backend shutting down.")
@@ -279,6 +299,9 @@ app.include_router(telegram_router, prefix="/api/telegram", tags=["telegram"])
 
 from core.agents.shared_context.router import router as shared_context_router
 app.include_router(shared_context_router, tags=["shared-context"])
+
+from core.events.router import router as events_router
+app.include_router(events_router)
 
 
 # ── Health endpoints ──────────────────────────────────────────────────────────

@@ -17,6 +17,7 @@ from zoneinfo import ZoneInfo
 from core.agents.background_runner import run_background_turn
 from core.agents.tool_registry import ToolRegistry
 from core.agents.tool_definitions import get_tool_definitions
+from core.agents.security.delimiters import DELIMITER_SYSTEM_INSTRUCTION
 
 from . import history, notifications, service
 
@@ -507,6 +508,7 @@ def _process_heartbeat(action: dict) -> None:
                 f"and check each item against current data using your tools.\n\n"
                 f"## Your Checklist\n\n{checklist}\n\n"
                 f"## Your Knowledge (abbreviated)\n\n{context_snippet}\n\n"
+                + DELIMITER_SYSTEM_INSTRUCTION + "\n\n"
             ),
             (
                 f"# Current Date & Time\n\n"

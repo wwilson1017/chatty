@@ -19,6 +19,7 @@ from .deferred_tools import (
     should_defer_tools, build_tool_catalog, handle_deferred_tool_call,
     build_provider_tools, FIND_TOOLS_DEF,
 )
+from .security.delimiters import should_wrap, wrap_result
 
 logger = logging.getLogger(__name__)
 
@@ -64,6 +65,21 @@ async def _run_turn(
     kind_map: dict[str, str] = {}
     for td in tool_defs:
         kind_map[td["name"]] = td.get("kind", "context")
+
+    # ── Write budget + rate limit (heartbeat) ────────────────────────
+    from setup.router import load_admin_settings as _load_admin
+    from core.agents.security.write_budget import BudgetState, BudgetAction
+    from core.agents.security.rate_limiter import get_limiter
+    _security_settings = _load_admin()
+    _write_budget = BudgetState(
+        limit=_security_settings.get("write_budget_heartbeat", 10),
+        enabled=_security_settings.get("write_budget_heartbeat_enabled", True),
+    )
+    _hourly_enabled = _security_settings.get("hourly_write_rate_limit_enabled", False)
+    _hourly_limit = _security_settings.get("hourly_write_rate_limit", 100)
+
+    writes_map = {td["name"]: td.get("writes", False) for td in tool_defs}
+    cm_map = {td["name"]: td.get("context_memory", False) for td in tool_defs}
 
     # ── Deferred tool loading ────────────────────────────────────────
     deferred_tools: list[dict] = []
@@ -177,11 +193,51 @@ async def _run_turn(
 
             kind = kind_map.get(tool_name, "context")
 
+            # ── Write budget + rate limit check ──
+            is_write = writes_map.get(tool_name, False)
+            is_cm = cm_map.get(tool_name, False)
+            if is_write and not is_cm:
+                _budget_action = _write_budget.check_write(tool_name)
+                if _budget_action == BudgetAction.REJECT:
+                    result_str = json.dumps({"error": f"Write budget exceeded ({_write_budget.limit} writes per turn). This write was rejected."})
+                    tool_log.append({"tool": tool_name, "args": json.dumps(tool_args)[:200], "result": result_str[:500], "duration_ms": 0})
+                    results.append({"tool_use_id": tc.get("id", ""), "tool_name": tool_name, "content": result_str})
+                    try:
+                        from core.events.service import log_security_event
+                        _agent_slug = getattr(registry, "agent_slug", "unknown")
+                        log_security_event("write_budget_exceeded", f"Write budget hit in background: {tool_name}", severity="warning", agent_slug=_agent_slug, source="heartbeat")
+                    except Exception:
+                        pass
+                    continue
+                elif _budget_action == BudgetAction.TERMINATE:
+                    try:
+                        from core.events.service import log_security_event
+                        from core.agents.alerts.service import create_alert
+                        _agent_slug = getattr(registry, "agent_slug", "unknown")
+                        log_security_event("write_budget_terminated", f"Background turn terminated: {tool_name}", severity="critical", agent_slug=_agent_slug, source="heartbeat")
+                        create_alert(_agent_slug, "Write Budget Exceeded", f"Background turn terminated: {tool_name} attempted after budget exhaustion", source="security")
+                    except Exception:
+                        pass
+                    return BackgroundResult(text="(terminated: write budget exceeded)", input_tokens=total_input_tokens, output_tokens=total_output_tokens, model_used=model_used, tool_log=tool_log, error=True)
+
+                if _hourly_enabled and not get_limiter().check_and_record(_hourly_limit):
+                    result_str = json.dumps({"error": "Hourly write rate limit exceeded."})
+                    tool_log.append({"tool": tool_name, "args": json.dumps(tool_args)[:200], "result": result_str[:500], "duration_ms": 0})
+                    results.append({"tool_use_id": tc.get("id", ""), "tool_name": tool_name, "content": result_str})
+                    try:
+                        from core.events.service import log_security_event
+                        log_security_event("hourly_rate_exceeded", f"Hourly rate limit hit in background: {tool_name}", severity="warning", agent_slug=getattr(registry, "agent_slug", "unknown"), source="heartbeat")
+                    except Exception:
+                        pass
+                    continue
+
             t0 = time.monotonic()
             result = await registry.execute_tool(tool_name, tool_args, kind)
             duration_ms = int((time.monotonic() - t0) * 1000)
 
             result_str = json.dumps(result)
+            if should_wrap(tool_name, kind):
+                result_str = wrap_result(tool_name, result_str)
             tool_log.append({
                 "tool": tool_name,
                 "args": json.dumps(tool_args)[:200],

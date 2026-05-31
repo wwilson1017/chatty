@@ -10,6 +10,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from core.auth import get_current_user
+from core.storage import atomic_write
 
 from . import db as agent_db
 from .import_service.adapters.openclaw import discover_openclaw_agents
@@ -185,7 +186,7 @@ def _seed_import_bootstrap(context_dir: Path, agent_name: str, openclaw_agents: 
         openclaw_line = ""
 
     content = _IMPORT_BOOTSTRAP.format(openclaw_line=openclaw_line)
-    (context_dir / "_import-bootstrap.md").write_text(content, encoding="utf-8")
+    atomic_write(context_dir / "_import-bootstrap.md", content)
 
 
 def _build_import_opener(agent_name: str, openclaw_agents: list[dict]) -> str:

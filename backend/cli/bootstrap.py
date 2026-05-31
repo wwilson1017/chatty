@@ -47,6 +47,9 @@ def bootstrap():
     from core.agents.tool_config_db import init_db as init_tool_config_db
     _safe_init("tool_configs", init_tool_config_db)
 
+    from core.events.db import init_db as init_events_db
+    _safe_init("events", init_events_db)
+
     from core.agents.shared_context.db import DATA_DIR as shared_dir
     seed_dir = _BACKEND_DIR / "seed" / "shared"
     if seed_dir.exists():

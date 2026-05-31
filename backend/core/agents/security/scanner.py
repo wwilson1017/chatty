@@ -1,0 +1,111 @@
+"""Prompt injection scanner for knowledge import.
+
+Three-position toggle (off / flag / block), configured via admin settings.
+Runs at import time only -- not on every tool result (delimiters handle that).
+
+Pattern list derived from Hermes (tools/threat_patterns.py) and OpenClaw
+(src/security/external-content.ts), scoped to Chatty's attack surface.
+"""
+
+import re
+from dataclasses import dataclass, field
+
+
+@dataclass
+class ScanResult:
+    clean: bool
+    findings: list[dict] = field(default_factory=list)
+
+
+THREAT_PATTERNS: list[tuple[str, re.Pattern]] = [
+    # Instruction override / role hijacking
+    ("instruction_override", re.compile(
+        r"ignore\s+(?:\w+\s+)*(?:previous|all|above|prior)\s+(?:\w+\s+)*instructions?",
+        re.IGNORECASE,
+    )),
+    ("role_hijack", re.compile(
+        r"you\s+are\s+(?:\w+\s+)*now\s+(?:a|an|the)\s+",
+        re.IGNORECASE,
+    )),
+    ("disregard_rules", re.compile(
+        r"disregard\s+(?:\w+\s+)*(?:your|all|any)\s+(?:\w+\s+)*(?:instructions|rules|guidelines)",
+        re.IGNORECASE,
+    )),
+    ("pretend_role", re.compile(
+        r"pretend\s+(?:that\s+)?(?:you\s+are|to\s+be)\s+",
+        re.IGNORECASE,
+    )),
+    ("new_instructions", re.compile(
+        r"(?:new|updated|revised)\s+instructions?\s*:",
+        re.IGNORECASE,
+    )),
+
+    # System prompt extraction
+    ("system_prompt_extract", re.compile(
+        r"(?:repeat|show|print|output|reveal|display)\s+(?:your\s+)?(?:system\s+)?(?:prompt|instructions|rules)",
+        re.IGNORECASE,
+    )),
+
+    # Tool / action invocation attempts
+    ("tool_invocation", re.compile(
+        r"(?:call|use|invoke|execute|run)\s+(?:the\s+)?(?:tool|function)\s+",
+        re.IGNORECASE,
+    )),
+    ("send_email_directive", re.compile(
+        r"(?:send|forward)\s+(?:an?\s+)?email\s+to\s+[a-zA-Z0-9@]",
+        re.IGNORECASE,
+    )),
+    ("destructive_action", re.compile(
+        r"delete\s+(?:all|every)\s+(?:emails?|files?|data|context|memories?)",
+        re.IGNORECASE,
+    )),
+
+    # Data exfiltration
+    ("data_exfiltration", re.compile(
+        r"(?:send|email|forward|share|post|upload|transmit)\s+(?:all\s+)?(?:data|information|files?|context|knowledge|memories?)\s+to",
+        re.IGNORECASE,
+    )),
+
+    # Delimiter / boundary escape
+    ("delimiter_escape", re.compile(
+        r"</?\s*untrusted_tool_result[\s>]",
+        re.IGNORECASE,
+    )),
+    ("fake_system_marker", re.compile(
+        r"<system>|<\|im_start\|>system|\[System\s*Message\]|END\s+OF\s+SYSTEM\s+PROMPT|BEGIN\s+USER\s+INPUT",
+        re.IGNORECASE,
+    )),
+
+    # Hidden unicode (zero-width chars used to hide instructions)
+    ("hidden_unicode", re.compile(
+        "[​‌‍‎‏⁠⁡⁢⁣⁤"
+        "‪‫‬‭‮"
+        "⁦⁧⁨⁩﻿]",
+    )),
+
+    # Encoded instruction obfuscation
+    ("encoded_instructions", re.compile(
+        r"(?:base64|decode|eval)\s*[:(]\s*['\"]?[A-Za-z0-9+/]{20,}={0,2}",
+        re.IGNORECASE,
+    )),
+
+    # Markdown role spoofing
+    ("formatting_injection", re.compile(
+        r"```(?:system|assistant|user)\b",
+        re.IGNORECASE,
+    )),
+]
+
+
+def scan_content(text: str) -> ScanResult:
+    findings: list[dict] = []
+    for line_num, line in enumerate(text.splitlines(), 1):
+        for name, pattern in THREAT_PATTERNS:
+            match = pattern.search(line)
+            if match:
+                findings.append({
+                    "pattern_name": name,
+                    "matched_text": match.group()[:100],
+                    "line_number": line_num,
+                })
+    return ScanResult(clean=len(findings) == 0, findings=findings)

@@ -13,6 +13,8 @@ Safety model:
 import ast
 import concurrent.futures
 import datetime
+
+from core.storage import atomic_write
 import decimal
 import json
 import logging
@@ -434,7 +436,7 @@ def create_real_tool(tools_dir: str, name: str, definition: str) -> dict:
     if filepath.exists():
         return {"error": f"Tool '{name}' already exists. Use update_real_tool to modify it."}
 
-    filepath.write_text(definition, encoding="utf-8")
+    atomic_write(filepath, definition)
     logger.info("Real tool created: %s", name)
     return {"name": name, "ok": True, "description": parsed["description"]}
 
@@ -454,7 +456,7 @@ def update_real_tool(tools_dir: str, name: str, definition: str) -> dict:
     if parsed["name"] != name:
         return {"error": f"Tool name in definition ('{parsed['name']}') must match the 'name' argument ('{name}')"}
 
-    filepath.write_text(definition, encoding="utf-8")
+    atomic_write(filepath, definition)
     logger.info("Real tool updated: %s", name)
     return {"name": name, "ok": True, "description": parsed["description"]}
 

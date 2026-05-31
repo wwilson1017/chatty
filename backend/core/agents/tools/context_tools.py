@@ -8,6 +8,8 @@ These let agents organize and maintain their own long-term memory.
 import logging
 from pathlib import Path
 
+from core.storage import atomic_write
+
 logger = logging.getLogger(__name__)
 
 
@@ -50,7 +52,7 @@ def write_context_file(data_dir: str, filename: str, content: str) -> dict:
     d = Path(data_dir)
     d.mkdir(parents=True, exist_ok=True)
     path = d / filename
-    path.write_text(content, encoding="utf-8")
+    atomic_write(path, content)
     logger.info("Agent wrote context file: %s", filename)
 
     _index_context_file(data_dir, filename, content)
@@ -71,7 +73,7 @@ def append_to_context_file(data_dir: str, filename: str, content: str) -> dict:
         existing = path.read_text(encoding="utf-8")
 
     new_content = existing + "\n" + content if existing else content
-    path.write_text(new_content, encoding="utf-8")
+    atomic_write(path, new_content)
     logger.info("Agent appended to context file: %s", filename)
 
     _index_context_file(data_dir, filename, new_content)

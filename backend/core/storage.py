@@ -8,8 +8,11 @@ Database helpers:
   safe_backup_sqlite()  — consistent online backup via Connection.backup()
   safe_init_sqlite()    — integrity-checked init with corruption recovery
   atomic_write_json()   — crash-safe JSON file writes
+  atomic_write()        — crash-safe text file writes
+  atomic_write_bytes()  — crash-safe binary file writes
 """
 
+import hashlib
 import json
 import logging
 import os
@@ -225,11 +228,13 @@ def safe_init_sqlite(
 
         if healthy:
             init_fn()
+            _verify_wal(db_path)
             return {"db": blob_name, "status": "ok"}
 
         # Quarantine the corrupt file — preserve it for manual inspection
-        ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S")
-        quarantine_path = db_path.with_suffix(f".corrupt.{ts}")
+        # Content-hash filename prevents overwriting previous backups
+        file_hash = hashlib.sha256(db_path.read_bytes()).hexdigest()[:12]
+        quarantine_path = db_path.with_suffix(f".corrupt.{file_hash}")
         db_path.rename(quarantine_path)
         logger.warning(
             "Database %s failed integrity check — quarantined to %s, creating fresh",
@@ -242,11 +247,26 @@ def safe_init_sqlite(
                 wal.rename(quarantine_path.with_name(quarantine_path.name + ext))
 
         init_fn()
+        _verify_wal(db_path)
         return {"db": blob_name, "status": "quarantined"}
 
     except Exception:
         logger.exception("safe_init_sqlite failed for %s", blob_name)
         return {"db": blob_name, "status": "error"}
+
+
+def _verify_wal(db_path: Path) -> None:
+    """Check that WAL mode actually applied after init."""
+    try:
+        check = sqlite3.connect(str(db_path))
+        try:
+            jm = check.execute("PRAGMA journal_mode").fetchone()
+            if jm and jm[0] != "wal":
+                logger.warning("Database %s: WAL mode did not stick (got %s)", db_path, jm[0])
+        finally:
+            check.close()
+    except Exception:
+        pass
 
 
 def atomic_write_json(path: Path, data: Any, *, indent: int = 2) -> None:
@@ -263,6 +283,36 @@ def atomic_write_json(path: Path, data: Any, *, indent: int = 2) -> None:
         with os.fdopen(fd, "w", encoding="utf-8") as f:
             json.dump(data, f, indent=indent, ensure_ascii=False)
             f.write("\n")
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp_name, str(path))
+    except BaseException:
+        Path(tmp_name).unlink(missing_ok=True)
+        raise
+
+
+def atomic_write(path: Path, content: str, *, encoding: str = "utf-8") -> None:
+    """Write text atomically via tempfile + fsync + os.replace."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp_name = tempfile.mkstemp(suffix=".tmp", dir=str(path.parent))
+    try:
+        with os.fdopen(fd, "w", encoding=encoding) as f:
+            f.write(content)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp_name, str(path))
+    except BaseException:
+        Path(tmp_name).unlink(missing_ok=True)
+        raise
+
+
+def atomic_write_bytes(path: Path, data: bytes) -> None:
+    """Write binary data atomically via tempfile + fsync + os.replace."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp_name = tempfile.mkstemp(suffix=".tmp", dir=str(path.parent))
+    try:
+        with os.fdopen(fd, "wb") as f:
+            f.write(data)
             f.flush()
             os.fsync(f.fileno())
         os.replace(tmp_name, str(path))

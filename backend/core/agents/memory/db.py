@@ -241,6 +241,7 @@ class MemoryDB:
         self._connection.execute("PRAGMA journal_mode=WAL")
         self._connection.execute("PRAGMA foreign_keys=ON")
         self._connection.execute("PRAGMA busy_timeout=5000")
+        self._connection.execute("PRAGMA synchronous=FULL")
 
         self._connection.executescript(_SCHEMA)
 

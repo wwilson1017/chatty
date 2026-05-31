@@ -18,6 +18,8 @@ from pathlib import Path
 
 from cryptography.fernet import Fernet
 
+from core.storage import atomic_write
+
 logger = logging.getLogger(__name__)
 
 DATA_DIR = Path(__file__).parent.parent / "data"
@@ -132,7 +134,7 @@ class EncryptionKeyManager:
 
         if not stored_in_keychain:
             DATA_DIR.mkdir(parents=True, exist_ok=True)
-            KEY_FILE_PATH.write_text(key.decode(), encoding="utf-8")
+            atomic_write(KEY_FILE_PATH, key.decode())
             if os.name != "nt":
                 KEY_FILE_PATH.chmod(0o600)
             else:

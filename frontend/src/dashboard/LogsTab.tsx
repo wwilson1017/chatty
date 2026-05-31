@@ -21,8 +21,29 @@ interface LogRecord {
   duration_ms: number;
 }
 
+type CategoryFilter = 'activity' | 'security' | 'all';
 type StatusFilter = 'all' | 'ok' | 'error' | 'action_taken';
 type EventTypeFilter = 'all' | 'scheduled_action' | 'chat';
+
+interface SecurityEvent {
+  id: string;
+  timestamp: string;
+  category: string;
+  event_type: string;
+  severity: string;
+  agent_slug: string | null;
+  source: string;
+  summary: string;
+  details: string | null;
+  acknowledged: boolean;
+}
+
+const SEVERITY_COLORS: Record<string, string> = {
+  info: '#8EA589',
+  warning: '#D4A85A',
+  critical: '#D97757',
+  error: '#D97757',
+};
 
 const STATUS_COLORS: Record<string, string> = {
   ok: '#8EA589',
@@ -55,6 +76,7 @@ function formatTokens(n: number): string {
 export function LogsTab() {
   const [logs, setLogs] = useState<LogRecord[]>([]);
   const [loading, setLoading] = useState(true);
+  const [categoryFilter, setCategoryFilter] = useState<CategoryFilter>('activity');
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
   const [eventTypeFilter, setEventTypeFilter] = useState<EventTypeFilter>('all');
   const [agentFilter, setAgentFilter] = useState<string>('all');
@@ -69,16 +91,61 @@ export function LogsTab() {
     api<{ agents: Agent[] }>('/api/agents').then(d => setAgents(d.agents)).catch(() => {});
   }, []);
 
+  function mapSecurityEvent(event: SecurityEvent): LogRecord {
+    return {
+      id: event.id,
+      agent: event.agent_slug || '',
+      action_type: event.event_type,
+      event_type: 'security',
+      source: event.source,
+      conversation_id: null,
+      started_at: event.timestamp,
+      completed_at: event.timestamp,
+      status: event.severity,
+      result_summary: event.summary,
+      result_full: event.details || event.summary,
+      tool_calls: null,
+      model_used: null,
+      input_tokens: 0,
+      output_tokens: 0,
+      duration_ms: 0,
+    };
+  }
+
+  async function fetchActivityLogs(): Promise<LogRecord[]> {
+    const params = new URLSearchParams();
+    if (statusFilter !== 'all') params.set('status', statusFilter);
+    if (eventTypeFilter !== 'all') params.set('event_type', eventTypeFilter);
+    if (agentFilter !== 'all') params.set('agent', agentFilter);
+    const qs = params.toString();
+    const result = await api<{ logs: LogRecord[] }>(`/api/scheduled-actions/logs${qs ? `?${qs}` : ''}`);
+    return result.logs;
+  }
+
+  async function fetchSecurityLogs(): Promise<LogRecord[]> {
+    const params = new URLSearchParams({ category: 'security' });
+    if (statusFilter !== 'all') params.set('severity', statusFilter);
+    if (agentFilter !== 'all') params.set('agent', agentFilter);
+    const qs = params.toString();
+    const result = await api<{ events: SecurityEvent[] }>(`/api/events?${qs}`);
+    return result.events.map(mapSecurityEvent);
+  }
+
   async function fetchLogs() {
     try {
       setError(null);
-      const params = new URLSearchParams();
-      if (statusFilter !== 'all') params.set('status', statusFilter);
-      if (eventTypeFilter !== 'all') params.set('event_type', eventTypeFilter);
-      if (agentFilter !== 'all') params.set('agent', agentFilter);
-      const qs = params.toString();
-      const result = await api<{ logs: LogRecord[] }>(`/api/scheduled-actions/logs${qs ? `?${qs}` : ''}`);
-      setLogs(result.logs);
+      let records: LogRecord[];
+      if (categoryFilter === 'activity') {
+        records = await fetchActivityLogs();
+      } else if (categoryFilter === 'security') {
+        records = await fetchSecurityLogs();
+      } else {
+        const [activity, security] = await Promise.all([fetchActivityLogs(), fetchSecurityLogs()]);
+        records = [...activity, ...security].sort(
+          (a, b) => new Date(b.started_at).getTime() - new Date(a.started_at).getTime()
+        );
+      }
+      setLogs(records);
     } catch {
       setError('Failed to load logs.');
     } finally {
@@ -87,9 +154,10 @@ export function LogsTab() {
   }
 
   useEffect(() => {
+    setLogs([]);
     setLoading(true);
     fetchLogs();
-  }, [statusFilter, eventTypeFilter, agentFilter]);
+  }, [categoryFilter, statusFilter, eventTypeFilter, agentFilter]);
 
   useEffect(() => {
     if (autoRefresh) {
@@ -98,7 +166,7 @@ export function LogsTab() {
     return () => {
       if (intervalRef.current) window.clearInterval(intervalRef.current);
     };
-  }, [autoRefresh, statusFilter, eventTypeFilter, agentFilter]);
+  }, [autoRefresh, categoryFilter, statusFilter, eventTypeFilter, agentFilter]);
 
   async function handleExport(format: string) {
     setExporting(true);
@@ -127,6 +195,12 @@ export function LogsTab() {
     }
   }
 
+  const categoryFilters: { id: CategoryFilter; label: string }[] = [
+    { id: 'activity', label: 'Activity' },
+    { id: 'security', label: 'Security' },
+    { id: 'all', label: 'All' },
+  ];
+
   const statusFilters: { id: StatusFilter; label: string }[] = [
     { id: 'all', label: 'All' },
     { id: 'ok', label: 'OK' },
@@ -142,15 +216,15 @@ export function LogsTab() {
 
   return (
     <div className="space-y-4">
-      {/* Filters row */}
+      {/* Category filter row */}
       <div className="flex items-center justify-between gap-3 flex-wrap">
         <div className="flex gap-1">
-          {statusFilters.map(f => (
+          {categoryFilters.map(f => (
             <button
               key={f.id}
-              onClick={() => setStatusFilter(f.id)}
+              onClick={() => setCategoryFilter(f.id)}
               className={`px-3 py-1.5 text-xs rounded-md transition-colors ${
-                statusFilter === f.id
+                categoryFilter === f.id
                   ? 'bg-ch-accent/20 text-ch-accent font-medium'
                   : 'text-ch-ink-dim hover:text-ch-ink hover:bg-ch-bg-raised/50'
               }`}
@@ -170,10 +244,29 @@ export function LogsTab() {
         </label>
       </div>
 
+      {/* Status filter row */}
+      <div className="flex items-center gap-3 flex-wrap">
+        <div className="flex gap-1">
+          {statusFilters.map(f => (
+            <button
+              key={f.id}
+              onClick={() => setStatusFilter(f.id)}
+              className={`px-3 py-1.5 text-xs rounded-md transition-colors ${
+                statusFilter === f.id
+                  ? 'bg-ch-accent/20 text-ch-accent font-medium'
+                  : 'text-ch-ink-dim hover:text-ch-ink hover:bg-ch-bg-raised/50'
+              }`}
+            >
+              {f.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
       {/* Event type + agent + export row */}
       <div className="flex items-center justify-between gap-3 flex-wrap">
         <div className="flex gap-1">
-          {eventTypeFilters.map(f => (
+          {categoryFilter !== 'security' && eventTypeFilters.map(f => (
             <button
               key={f.id}
               onClick={() => setEventTypeFilter(f.id)}
@@ -190,7 +283,7 @@ export function LogsTab() {
             <select
               value={agentFilter}
               onChange={e => setAgentFilter(e.target.value)}
-              className="ml-2 px-2 py-1 text-xs rounded-md bg-ch-bg-raised/50 text-ch-ink-dim border border-ch-line-strong/50 outline-none"
+              className={`${categoryFilter !== 'security' ? 'ml-2' : ''} px-2 py-1 text-xs rounded-md bg-ch-bg-raised/50 text-ch-ink-dim border border-ch-line-strong/50 outline-none`}
             >
               <option value="all">All agents</option>
               {agents.map(a => (
@@ -234,7 +327,10 @@ export function LogsTab() {
         <div className="space-y-1">
           {logs.map(rec => {
             const eventType = rec.event_type || 'scheduled_action';
-            const dotColor = EVENT_TYPE_COLORS[eventType] || STATUS_COLORS[rec.status] || '#6B7280';
+            const isSecurityEvent = eventType === 'security';
+            const dotColor = isSecurityEvent
+              ? (SEVERITY_COLORS[rec.status] || '#6B7280')
+              : (EVENT_TYPE_COLORS[eventType] || STATUS_COLORS[rec.status] || '#6B7280');
 
             return (
               <div key={rec.id} className="border border-ch-line-strong/50 rounded bg-ch-bg-elev">
@@ -257,7 +353,7 @@ export function LogsTab() {
                   </span>
                   <span
                     className="w-[80px] shrink-0 font-medium"
-                    style={{ color: STATUS_COLORS[rec.status] || '#6B7280' }}
+                    style={{ color: isSecurityEvent ? (SEVERITY_COLORS[rec.status] || '#6B7280') : (STATUS_COLORS[rec.status] || '#6B7280') }}
                   >
                     {rec.status}
                   </span>

@@ -8,6 +8,8 @@ it doesn't start from zero.
 
 from pathlib import Path
 
+from core.storage import atomic_write
+
 
 def _soul_template(agent_name: str) -> str:
     return f"""# Who I Am
@@ -256,4 +258,4 @@ def seed_context_files(context_dir: Path, agent_name: str) -> None:
     for filename, content in defaults.items():
         filepath = context_dir / filename
         if not filepath.exists():
-            filepath.write_text(content, encoding="utf-8")
+            atomic_write(filepath, content)

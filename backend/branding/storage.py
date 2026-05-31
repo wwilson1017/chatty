@@ -8,7 +8,7 @@ import json
 import logging
 from pathlib import Path
 
-from core.storage import atomic_write_json
+from core.storage import atomic_write_bytes, atomic_write_json
 
 logger = logging.getLogger(__name__)
 
@@ -57,7 +57,7 @@ def save_logo(data: bytes) -> bool:
     """Save logo PNG bytes. Returns True on success."""
     ensure_dir()
     try:
-        LOGO_FILE.write_bytes(data)
+        atomic_write_bytes(LOGO_FILE, data)
         return True
     except Exception as e:
         logger.error("Failed to save logo: %s", e)
