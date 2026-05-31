@@ -131,7 +131,11 @@ def query_events(
         f"SELECT * FROM event_log {where} ORDER BY timestamp DESC LIMIT ? OFFSET ?",
         params,
     ).fetchall()
-    return [dict(r) for r in rows]
+    def _row_to_dict(r):
+        d = dict(r)
+        d["acknowledged"] = bool(d.get("acknowledged", 0))
+        return d
+    return [_row_to_dict(r) for r in rows]
 
 
 def get_event_counts(category: str | None = None) -> dict:

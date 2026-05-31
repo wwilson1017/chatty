@@ -339,7 +339,8 @@ def _write_import_context(args: dict, ctx_manager: ContextManager) -> dict:
                     return {
                         "blocked": filename,
                         "reason": "injection_patterns_detected",
-                        "findings": scan_result.findings[:5],
+                        "finding_count": len(scan_result.findings),
+                        "pattern_names": [f["pattern_name"] for f in scan_result.findings[:5]],
                     }
 
     if _DAILY_RE.match(filename):

@@ -430,6 +430,7 @@ def _process_heartbeat(action: dict) -> None:
                     f"- NEEDS_ACTION: <brief reason>\n"
                     f"- ALL_CLEAR\n\n"
                     f"## Checklist\n\n{checklist}\n"
+                    + "\n\n" + DELIMITER_SYSTEM_INSTRUCTION
                 ),
                 user_message="Quick triage check — anything need attention?",
                 tool_defs=[],
@@ -638,6 +639,7 @@ def _process_cron(action: dict) -> None:
             + f"# Scheduled Action: {action.get('name', 'Unnamed')}\n\n"
             f"{prompt}\n\n"
             f"# Your Knowledge (abbreviated)\n\n{context_snippet}\n\n"
+            + DELIMITER_SYSTEM_INSTRUCTION + "\n\n"
         ),
         (
             f"# Current Date & Time\n\n"

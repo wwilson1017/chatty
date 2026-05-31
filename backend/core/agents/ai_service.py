@@ -1197,7 +1197,7 @@ async def chat(
             if is_write and not is_cm:
                 _budget_action = _write_budget.check_write(tool_name)
                 if _budget_action == BudgetAction.REJECT:
-                    result_str = json.dumps({"error": f"Write budget exceeded ({_write_budget.limit} writes per turn). This write was rejected. Do not attempt more writes this turn."})
+                    result_str = json.dumps({"error": f"Write budget exceeded ({_write_budget.limit} writes per turn). This write was rejected. Any further write attempts will terminate this turn immediately."})
                     results.append({"tool_use_id": tool_use_id, "tool_name": tool_name, "content": result_str})
                     try:
                         from core.events.service import log_security_event
@@ -1211,6 +1211,8 @@ async def chat(
                         log_security_event("write_budget_terminated", f"Turn terminated after second budget violation: {tool_name}", severity="error", agent_slug=config.slug, source="interactive")
                     except Exception:
                         pass
+                    result_str = json.dumps({"error": "Turn terminated: write budget exceeded"})
+                    results.append({"tool_use_id": tool_use_id, "tool_name": tool_name, "content": result_str})
                     yield _sse({"type": "error", "error": "Write budget exceeded. Turn terminated."})
                     return
 
@@ -1542,12 +1544,12 @@ async def run_sync(
             kind = kind_map.get(tool_name, "context")
 
             # ── Write budget + rate limit check ──
-            _is_write = writes_map.get(tool_name, False)
-            _is_cm = cm_map.get(tool_name, False)
-            if _is_write and not _is_cm:
+            is_write = writes_map.get(tool_name, False)
+            is_cm = cm_map.get(tool_name, False)
+            if is_write and not is_cm:
                 _ba = _sync_write_budget.check_write(tool_name)
                 if _ba == _BudgetAction.REJECT:
-                    result_str = json.dumps({"error": f"Write budget exceeded ({_sync_write_budget.limit} writes per turn). This write was rejected. Do not attempt more writes this turn."})
+                    result_str = json.dumps({"error": f"Write budget exceeded ({_sync_write_budget.limit} writes per turn). This write was rejected. Any further write attempts will terminate this turn immediately."})
                     results.append({"tool_use_id": tool_use_id, "tool_name": tool_name, "content": result_str})
                     all_tool_calls.append({"tool": tool_name, "tool_use_id": tool_use_id, "args": tool_args, "result": result_str[:2000], "elapsed_ms": 0})
                     try:

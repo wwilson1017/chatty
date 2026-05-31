@@ -233,7 +233,10 @@ def safe_init_sqlite(
 
         # Quarantine the corrupt file — preserve it for manual inspection
         # Content-hash filename prevents overwriting previous backups
-        file_hash = hashlib.sha256(db_path.read_bytes()).hexdigest()[:12]
+        try:
+            file_hash = hashlib.sha256(db_path.read_bytes()).hexdigest()[:12]
+        except Exception:
+            file_hash = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S")
         quarantine_path = db_path.with_suffix(f".corrupt.{file_hash}")
         db_path.rename(quarantine_path)
         logger.warning(

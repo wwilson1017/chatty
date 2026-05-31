@@ -141,5 +141,11 @@ async def update_admin_settings(body: dict, user=Depends(get_current_user)):
         settings["triage_mode"] = ADMIN_DEFAULTS["triage_mode"]
     if not isinstance(settings.get("default_model_tier"), str) or settings["default_model_tier"] not in VALID_MODEL_TIERS:
         settings["default_model_tier"] = ADMIN_DEFAULTS["default_model_tier"]
+    if settings.get("injection_scanning") not in VALID_INJECTION_MODES:
+        settings["injection_scanning"] = ADMIN_DEFAULTS["injection_scanning"]
+    for _int_key in ("write_budget_heartbeat", "write_budget_interactive",
+                     "hourly_write_rate_limit", "event_log_retention_days"):
+        if not isinstance(settings.get(_int_key), int) or settings[_int_key] < 1:
+            settings[_int_key] = ADMIN_DEFAULTS[_int_key]
     atomic_write_json(ADMIN_SETTINGS_FILE, settings)
     return settings

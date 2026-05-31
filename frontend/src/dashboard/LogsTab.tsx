@@ -245,23 +245,25 @@ export function LogsTab() {
       </div>
 
       {/* Status filter row */}
-      <div className="flex items-center gap-3 flex-wrap">
-        <div className="flex gap-1">
-          {statusFilters.map(f => (
-            <button
-              key={f.id}
-              onClick={() => setStatusFilter(f.id)}
-              className={`px-3 py-1.5 text-xs rounded-md transition-colors ${
-                statusFilter === f.id
-                  ? 'bg-ch-accent/20 text-ch-accent font-medium'
-                  : 'text-ch-ink-dim hover:text-ch-ink hover:bg-ch-bg-raised/50'
-              }`}
-            >
-              {f.label}
-            </button>
-          ))}
+      {categoryFilter !== 'security' && (
+        <div className="flex items-center gap-3 flex-wrap">
+          <div className="flex gap-1">
+            {statusFilters.map(f => (
+              <button
+                key={f.id}
+                onClick={() => setStatusFilter(f.id)}
+                className={`px-3 py-1.5 text-xs rounded-md transition-colors ${
+                  statusFilter === f.id
+                    ? 'bg-ch-accent/20 text-ch-accent font-medium'
+                    : 'text-ch-ink-dim hover:text-ch-ink hover:bg-ch-bg-raised/50'
+                }`}
+              >
+                {f.label}
+              </button>
+            ))}
+          </div>
         </div>
-      </div>
+      )}
 
       {/* Event type + agent + export row */}
       <div className="flex items-center justify-between gap-3 flex-wrap">

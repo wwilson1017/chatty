@@ -199,7 +199,7 @@ async def _run_turn(
             if is_write and not is_cm:
                 _budget_action = _write_budget.check_write(tool_name)
                 if _budget_action == BudgetAction.REJECT:
-                    result_str = json.dumps({"error": f"Write budget exceeded ({_write_budget.limit} writes per turn). This write was rejected."})
+                    result_str = json.dumps({"error": f"Write budget exceeded ({_write_budget.limit} writes per turn). This write was rejected. Any further write attempts will terminate this turn immediately."})
                     tool_log.append({"tool": tool_name, "args": json.dumps(tool_args)[:200], "result": result_str[:500], "duration_ms": 0})
                     results.append({"tool_use_id": tc.get("id", ""), "tool_name": tool_name, "content": result_str})
                     try:
@@ -218,6 +218,9 @@ async def _run_turn(
                         create_alert(_agent_slug, "Write Budget Exceeded", f"Background turn terminated: {tool_name} attempted after budget exhaustion", source="security")
                     except Exception:
                         pass
+                    result_str = json.dumps({"error": "Turn terminated: write budget exceeded"})
+                    tool_log.append({"tool": tool_name, "args": json.dumps(tool_args)[:200], "result": result_str[:500], "duration_ms": 0})
+                    results.append({"tool_use_id": tc.get("id", ""), "tool_name": tool_name, "content": result_str})
                     return BackgroundResult(text="(terminated: write budget exceeded)", input_tokens=total_input_tokens, output_tokens=total_output_tokens, model_used=model_used, tool_log=tool_log, error=True)
 
                 if _hourly_enabled and not get_limiter().check_and_record(_hourly_limit):
