@@ -399,7 +399,7 @@ def _process_heartbeat(action: dict) -> None:
     try:
         triage_data = None
 
-        from setup.router import load_admin_settings
+        from core.admin_settings import load_admin_settings
         admin = load_admin_settings()
         triage_mode = admin["triage_mode"]
 

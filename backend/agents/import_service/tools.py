@@ -316,32 +316,35 @@ def _write_import_context(args: dict, ctx_manager: ContextManager) -> dict:
 
     # Injection scanning — check imported content before writing to disk
     if content:
-        from setup.router import load_admin_settings
-        from core.agents.security.scanner import scan_content
+        try:
+            from core.admin_settings import load_admin_settings
+            from core.agents.security.scanner import scan_content
 
-        settings = load_admin_settings()
-        scan_mode = settings.get("injection_scanning", "flag")
+            settings = load_admin_settings()
+            scan_mode = settings.get("injection_scanning", "flag")
 
-        if scan_mode != "off":
-            scan_result = scan_content(content)
-            if not scan_result.clean:
-                agent_slug = Path(ctx_manager.data_dir).parent.name
+            if scan_mode != "off":
+                scan_result = scan_content(content)
+                if not scan_result.clean:
+                    agent_slug = Path(ctx_manager.data_dir).parent.name
 
-                from core.events.service import log_security_event
-                log_security_event(
-                    "injection_detected",
-                    f"Injection patterns found in import '{filename}': {len(scan_result.findings)} match(es)",
-                    agent_slug=agent_slug,
-                    source="import",
-                    details={"filename": filename, "findings": scan_result.findings[:10]},
-                )
-                if scan_mode == "block":
-                    return {
-                        "blocked": filename,
-                        "reason": "injection_patterns_detected",
-                        "finding_count": len(scan_result.findings),
-                        "pattern_names": [f["pattern_name"] for f in scan_result.findings[:5]],
-                    }
+                    from core.events.service import log_security_event
+                    log_security_event(
+                        "injection_detected",
+                        f"Injection patterns found in import '{filename}': {len(scan_result.findings)} match(es)",
+                        agent_slug=agent_slug,
+                        source="import",
+                        details={"filename": filename, "findings": scan_result.findings[:10]},
+                    )
+                    if scan_mode == "block":
+                        return {
+                            "blocked": filename,
+                            "reason": "injection_patterns_detected",
+                            "finding_count": len(scan_result.findings),
+                            "pattern_names": [f["pattern_name"] for f in scan_result.findings[:5]],
+                        }
+        except Exception:
+            logger.warning("Injection scan failed for '%s', proceeding with import", filename, exc_info=True)
 
     if _DAILY_RE.match(filename):
         daily_dir = Path(ctx_manager.data_dir) / "daily"

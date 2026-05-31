@@ -165,12 +165,12 @@ async def lifespan(app: FastAPI):
 
     def _purge_old_events():
         try:
-            from setup.router import load_admin_settings
+            from core.admin_settings import load_admin_settings
             days = load_admin_settings().get("event_log_retention_days", 90)
             from core.events.db import purge_old_events
             purge_old_events(days)
         except Exception:
-            pass
+            logger.warning("Event log purge failed", exc_info=True)
     _scheduler.add_job(_purge_old_events, "cron", hour=4, minute=0, id="event_log_purge",
                        timezone="America/Chicago")
 

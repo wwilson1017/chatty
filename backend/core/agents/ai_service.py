@@ -781,7 +781,7 @@ async def chat(
     cm_map = build_context_memory_map(tool_defs)
 
     # ── Write budget + rate limit (interactive) ──────────────────────
-    from setup.router import load_admin_settings as _load_admin
+    from core.admin_settings import load_admin_settings as _load_admin
     from core.agents.security.write_budget import BudgetState, BudgetAction
     from core.agents.security.rate_limiter import get_limiter
     _security_settings = _load_admin()
@@ -1383,7 +1383,7 @@ async def run_sync(
     integration_map = {t["name"]: t.get("integration", "") for t in tool_defs}
 
     # ── Write budget + rate limit (interactive — user-initiated via messaging) ──
-    from setup.router import load_admin_settings as _load_admin_sync
+    from core.admin_settings import load_admin_settings as _load_admin_sync
     from core.agents.security.write_budget import BudgetState as _BudgetState, BudgetAction as _BudgetAction
     from core.agents.security.rate_limiter import get_limiter as _get_limiter
     _sync_security = _load_admin_sync()

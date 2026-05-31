@@ -615,7 +615,7 @@ async def agent_chat(agent_id: str, req: ChatRequest, user=Depends(get_current_u
             import_mode = True
 
     tool_mode = req.tool_mode
-    from setup.router import load_admin_settings
+    from core.admin_settings import load_admin_settings
     if load_admin_settings().get("always_power_mode"):
         tool_mode = "power"
 

@@ -9,7 +9,7 @@ logger = logging.getLogger(__name__)
 
 def deliver_notification(agent_slug: str, title: str, message: str) -> dict:
     """Deliver notification to all enabled channels. Returns delivery report."""
-    from setup.router import load_admin_settings
+    from core.admin_settings import load_admin_settings
 
     from . import service, subscriptions
     from .vapid import get_vapid_claims, get_vapid_private_key, get_vapid_public_key

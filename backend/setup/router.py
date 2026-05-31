@@ -11,6 +11,15 @@ from pathlib import Path
 from fastapi import APIRouter, Depends
 
 from core.auth import get_current_user
+from core.admin_settings import (
+    load_admin_settings,
+    invalidate_cache,
+    ADMIN_DEFAULTS,
+    ADMIN_SETTINGS_FILE,
+    VALID_TRIAGE_MODES,
+    VALID_MODEL_TIERS,
+    VALID_INJECTION_MODES,
+)
 from core.providers.credentials import CredentialStore
 from core.storage import atomic_write_json
 from branding.storage import load_config as load_branding, DEFAULT_CONFIG as BRANDING_DEFAULTS
@@ -20,49 +29,6 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 STATUS_FILE = Path(__file__).resolve().parent.parent / "data" / "setup-status.json"
-ADMIN_SETTINGS_FILE = Path(__file__).resolve().parent.parent / "data" / "admin-settings.json"
-
-ADMIN_DEFAULTS = {
-    "always_power_mode": False,
-    "triage_mode": "always_cheap",
-    "default_model_tier": "auto",
-    "notifications_web_push": True,
-    "notifications_telegram": True,
-    "notifications_whatsapp": True,
-    # Security settings
-    "injection_scanning": "flag",
-    "write_budget_heartbeat_enabled": True,
-    "write_budget_heartbeat": 10,
-    "write_budget_interactive_enabled": True,
-    "write_budget_interactive": 50,
-    "hourly_write_rate_limit_enabled": False,
-    "hourly_write_rate_limit": 100,
-    "event_log_retention_days": 90,
-}
-
-VALID_TRIAGE_MODES = {"standard", "cheap", "always_cheap"}
-VALID_MODEL_TIERS = {"auto", "top", "mid", "light"}
-VALID_INJECTION_MODES = {"off", "flag", "block"}
-
-
-def load_admin_settings() -> dict:
-    if ADMIN_SETTINGS_FILE.exists():
-        try:
-            result = {**ADMIN_DEFAULTS, **json.loads(ADMIN_SETTINGS_FILE.read_text(encoding="utf-8"))}
-            if not isinstance(result.get("triage_mode"), str) or result["triage_mode"] not in VALID_TRIAGE_MODES:
-                result["triage_mode"] = ADMIN_DEFAULTS["triage_mode"]
-            if not isinstance(result.get("default_model_tier"), str) or result["default_model_tier"] not in VALID_MODEL_TIERS:
-                result["default_model_tier"] = ADMIN_DEFAULTS["default_model_tier"]
-            if result.get("injection_scanning") not in VALID_INJECTION_MODES:
-                result["injection_scanning"] = ADMIN_DEFAULTS["injection_scanning"]
-            for _int_key in ("write_budget_heartbeat", "write_budget_interactive",
-                             "hourly_write_rate_limit", "event_log_retention_days"):
-                if not isinstance(result.get(_int_key), int) or result[_int_key] < 1:
-                    result[_int_key] = ADMIN_DEFAULTS[_int_key]
-            return result
-        except Exception:
-            pass
-    return dict(ADMIN_DEFAULTS)
 
 
 def _load_status() -> dict:
@@ -150,4 +116,5 @@ async def update_admin_settings(body: dict, user=Depends(get_current_user)):
         if not isinstance(settings.get(_int_key), int) or settings[_int_key] < 1:
             settings[_int_key] = ADMIN_DEFAULTS[_int_key]
     atomic_write_json(ADMIN_SETTINGS_FILE, settings)
+    invalidate_cache()
     return settings

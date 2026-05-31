@@ -44,6 +44,7 @@ async def _run_turn(
     provider_override: str | None = None,
     on_iteration: Callable[[int], bool] | None = None,
     model_tier: str | None = None,
+    agent_slug: str = "unknown",
 ) -> BackgroundResult:
     """Run a single AI turn asynchronously, executing tools as needed.
 
@@ -67,7 +68,7 @@ async def _run_turn(
         kind_map[td["name"]] = td.get("kind", "context")
 
     # ── Write budget + rate limit (heartbeat) ────────────────────────
-    from setup.router import load_admin_settings as _load_admin
+    from core.admin_settings import load_admin_settings as _load_admin
     from core.agents.security.write_budget import BudgetState, BudgetAction
     from core.agents.security.rate_limiter import get_limiter
     _security_settings = _load_admin()
@@ -204,16 +205,14 @@ async def _run_turn(
                     results.append({"tool_use_id": tc.get("id", ""), "tool_name": tool_name, "content": result_str})
                     try:
                         from core.events.service import log_security_event
-                        _agent_slug = getattr(registry, "agent_slug", "unknown")
-                        log_security_event("write_budget_exceeded", f"Write budget hit in background: {tool_name}", severity="warning", agent_slug=_agent_slug, source="heartbeat")
+                        log_security_event("write_budget_exceeded", f"Write budget hit in background: {tool_name}", severity="warning", agent_slug=agent_slug, source="heartbeat")
                     except Exception:
                         pass
                     continue
                 elif _budget_action == BudgetAction.TERMINATE:
                     try:
                         from core.events.service import log_security_event
-                        _agent_slug = getattr(registry, "agent_slug", "unknown")
-                        log_security_event("write_budget_terminated", f"Background turn terminated: {tool_name}", severity="critical", agent_slug=_agent_slug, source="heartbeat")
+                        log_security_event("write_budget_terminated", f"Background turn terminated: {tool_name}", severity="critical", agent_slug=agent_slug, source="heartbeat")
                     except Exception:
                         pass
                     result_str = json.dumps({"error": "Turn terminated: write budget exceeded"})
@@ -227,7 +226,7 @@ async def _run_turn(
                     results.append({"tool_use_id": tc.get("id", ""), "tool_name": tool_name, "content": result_str})
                     try:
                         from core.events.service import log_security_event
-                        log_security_event("hourly_rate_exceeded", f"Hourly rate limit hit in background: {tool_name}", severity="warning", agent_slug=getattr(registry, "agent_slug", "unknown"), source="heartbeat")
+                        log_security_event("hourly_rate_exceeded", f"Hourly rate limit hit in background: {tool_name}", severity="warning", agent_slug=agent_slug, source="heartbeat")
                     except Exception:
                         pass
                     continue
@@ -275,6 +274,7 @@ def run_background_turn(
     on_iteration: Callable[[int], bool] | None = None,
     source: str | None = None,
     model_tier: str | None = None,
+    agent_slug: str | None = None,
 ) -> BackgroundResult:
     """Synchronous wrapper for running a background AI turn.
 
@@ -283,6 +283,7 @@ def run_background_turn(
     after execution. Scheduled actions pass source=None since they
     already log via history.py.
     """
+    _slug = agent_slug or _slug
     t0 = time.time()
 
     try:
@@ -298,21 +299,23 @@ def run_background_turn(
                     asyncio.run,
                     _run_turn(system_prompt, user_message, tool_defs, registry,
                               max_iterations, model_override, provider_override,
-                              on_iteration, model_tier=model_tier)
+                              on_iteration, model_tier=model_tier,
+                              agent_slug=_slug)
                 )
                 result = future.result(timeout=300)
         else:
             result = asyncio.run(
                 _run_turn(system_prompt, user_message, tool_defs, registry,
                           max_iterations, model_override, provider_override,
-                          on_iteration, model_tier=model_tier)
+                          on_iteration, model_tier=model_tier,
+                          agent_slug=_slug)
             )
     except Exception as exc:
         if source:
             try:
                 from core.agents.activity_log import log_chat_event
                 log_chat_event(
-                    agent=getattr(registry, "agent_slug", "unknown"),
+                    agent=_slug,
                     source=source,
                     status="error",
                     result_summary=str(exc)[:500],
@@ -326,7 +329,7 @@ def run_background_turn(
         try:
             from core.agents.activity_log import log_chat_event
             log_chat_event(
-                agent=getattr(registry, "agent_slug", "unknown"),
+                agent=_slug,
                 source=source,
                 status="error" if result.error else "ok",
                 result_summary=result.text[:500],
