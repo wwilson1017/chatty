@@ -2,6 +2,7 @@ import { useState, useRef, useCallback } from 'react';
 import type { Conversation } from '../hooks/useConversations';
 import { AgentMark } from '../../shared/AgentMark';
 import { IconPlus } from '../../shared/icons';
+import { formatSidebarTime } from '../utils/dateFormat';
 
 interface Props {
   agentName: string;
@@ -16,12 +17,6 @@ interface Props {
   onSearch: (q: string) => void;
   onRename: (id: string, title: string) => void;
 }
-
-const mono = (size: number, color = 'rgba(237,240,244,0.38)') => ({
-  fontFamily: "'JetBrains Mono', ui-monospace, monospace",
-  fontSize: size, letterSpacing: '0.16em',
-  textTransform: 'uppercase' as const, color,
-});
 
 export function ConversationSidebar({
   agentName, conversations, activeId, searchQuery, searchResults, isSearching,
@@ -124,9 +119,6 @@ export function ConversationSidebar({
         + New chat
       </div>
 
-      {/* Section label */}
-      <div style={{ padding: '8px 14px 4px', ...mono(9, 'rgba(237,240,244,0.38)') }}>Today</div>
-
       {/* Conversation list */}
       <div style={{ flex: 1, overflowY: 'auto' }}>
         {isSearching ? (
@@ -193,9 +185,20 @@ export function ConversationSidebar({
                             {(item as Conversation).source?.startsWith('telegram') ? 'TG' : 'WA'}
                           </span>
                         )}
-                        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>
                           {title}
                         </span>
+                        {'updated_at' in item && (
+                          <span style={{
+                            fontSize: 10,
+                            fontFamily: "'JetBrains Mono', ui-monospace, monospace",
+                            color: 'rgba(237,240,244,0.3)',
+                            whiteSpace: 'nowrap',
+                            flexShrink: 0,
+                          }}>
+                            {formatSidebarTime((item as Conversation).updated_at)}
+                          </span>
+                        )}
                       </div>
                       {snippet && (
                         <div style={{

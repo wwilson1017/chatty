@@ -6,6 +6,7 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
 import { api } from '../../core/api/client';
 import type { ChatMessage } from './useAgentChat';
+import { parseServerTimestamp } from '../utils/dateFormat';
 
 export interface Conversation {
   id: string;
@@ -27,7 +28,7 @@ export function useConversations(apiPrefix: string) {
   const [loaded, setLoaded] = useState(false);
   useEffect(() => { setLoaded(false); setConversations([]); setActiveId(null); }, [apiPrefix]);
   const [searchQuery, setSearchQuery] = useState('');
-  const [searchResults, setSearchResults] = useState<{ id: string; title: string; snippet: string }[]>([]);
+  const [searchResults, setSearchResults] = useState<{ id: string; title: string; snippet: string; updated_at?: string }[]>([]);
   const [isSearching, setIsSearching] = useState(false);
   const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -44,15 +45,16 @@ export function useConversations(apiPrefix: string) {
     try {
       const data = await api<{
         id: string; title: string;
-        messages: { id: string; role: string; content: string; seq: number; tool_calls?: string; model?: string }[];
+        messages: { id: string; role: string; content: string; seq: number; tool_calls?: string; model?: string; created_at?: string }[];
       }>(`${apiPrefix}/conversations/${id}`);
       setActiveId(id);
       return data.messages.map(m => {
+        const parsed = parseServerTimestamp(m.created_at);
         const msg: ChatMessage = {
           id: m.id,
           role: m.role as 'user' | 'assistant',
           content: m.content,
-          timestamp: Date.now(),
+          timestamp: parsed ? parsed.getTime() : Date.now(),
           model: m.model,
         };
         if (m.tool_calls) {
@@ -125,7 +127,7 @@ export function useConversations(apiPrefix: string) {
     setIsSearching(true);
     searchTimer.current = setTimeout(async () => {
       try {
-        const data = await api<{ results: { id: string; title: string; snippet: string }[] }>(
+        const data = await api<{ results: { id: string; title: string; snippet: string; updated_at?: string }[] }>(
           `${apiPrefix}/conversations/search?q=${encodeURIComponent(query)}`
         );
         setSearchResults(data.results);

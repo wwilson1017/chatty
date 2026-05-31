@@ -1531,6 +1531,16 @@ POST_MESSAGE_TOOLS = [
     },
 ]
 
+DATETIME_TOOLS = [
+    {
+        "name": "get_current_datetime",
+        "description": "Get the current date and time. Returns ISO 8601, human-readable format, timezone, and DST state.",
+        "input_schema": {"type": "object", "properties": {}, "required": []},
+        "kind": "context",
+        "writes": False,
+    },
+]
+
 NOTIFY_USER_TOOLS = [
     {
         "name": "notify_user",
@@ -1600,6 +1610,7 @@ def get_tool_definitions(
         return read_only_context + list(IMPORT_TOOLS)
 
     tools = list(CONTEXT_TOOLS)
+    tools.extend(DATETIME_TOOLS)
     if memory_enabled:
         tools.extend(MEMORY_TOOLS)
         tools.extend(SKILL_TOOLS)
