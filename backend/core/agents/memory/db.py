@@ -955,6 +955,7 @@ class MemoryDB:
     def add_observation(
         self, agent_slug: str, observation: str, source_conversation_id: str | None = None,
     ) -> dict | None:
+        observation = observation[:200]
         normalized = " ".join(observation.lower().strip().split())
         conn = self.get_db()
 

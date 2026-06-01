@@ -360,10 +360,6 @@ def _build_system_prompt(
                     parts.append(f"- {_o['observation']}")
                 parts.append("</observations>")
                 parts.append("")
-                try:
-                    _obs_db.increment_observation_references([_o["id"] for _o in _observations])
-                except Exception:
-                    pass
     except Exception as e:
         logger.debug("observations skipped: %s", e)
 
