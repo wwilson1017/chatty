@@ -1008,10 +1008,8 @@ class MemoryDB:
         conn = self.get_db()
         with self._write_lock:
             cursor = conn.execute(
-                "DELETE FROM observations WHERE "
-                "(last_referenced_at IS NOT NULL AND last_referenced_at < datetime('now', ?)) OR "
-                "(last_referenced_at IS NULL AND created_at < datetime('now', ?))",
-                (f"-{max_age_days} days", f"-{max_age_days} days"),
+                "DELETE FROM observations WHERE created_at < datetime('now', ?)",
+                (f"-{max_age_days} days",),
             )
             conn.commit()
         return cursor.rowcount

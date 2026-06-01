@@ -88,7 +88,7 @@ def run_nightly_jobs() -> None:
             if loop and loop.is_running():
                 import concurrent.futures
                 with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
-                    result = pool.submit(asyncio.run, extract_observations(agent_name, slug, chat_service, memory_db)).result()
+                    result = pool.submit(lambda: asyncio.run(extract_observations(agent_name, slug, chat_service, memory_db))).result()
             else:
                 result = asyncio.run(extract_observations(agent_name, slug, chat_service, memory_db))
 

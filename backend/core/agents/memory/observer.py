@@ -57,12 +57,6 @@ async def extract_observations(
     existing_obs = memory_db.get_observations(agent_slug)
     existing_texts = [o["observation"] for o in existing_obs]
 
-    if existing_obs:
-        try:
-            memory_db.increment_observation_references([o["id"] for o in existing_obs])
-        except Exception:
-            pass
-
     extracted = 0
     for conv in conversations:
         transcript = "\n".join(
@@ -143,9 +137,12 @@ async def _call_observation_api(system_prompt: str, user_text: str) -> str | Non
         return await _extract_anthropic(system_prompt, user_text, profiles, timeout)
     elif active_provider == "openai":
         return await _extract_openai(system_prompt, user_text, profiles, timeout)
+    elif active_provider == "together":
+        return await _extract_together(system_prompt, user_text, profiles, timeout)
     elif active_provider == "google":
         return await _extract_google(system_prompt, user_text, profiles, timeout)
 
+    logger.debug("observer: unsupported provider %s, skipping extraction", active_provider)
     return None
 
 
@@ -208,13 +205,63 @@ async def _extract_openai(system_prompt: str, text: str, profiles: dict, timeout
     return None
 
 
+async def _extract_together(system_prompt: str, text: str, profiles: dict, timeout) -> str | None:
+    import httpx
+    profile = profiles.get("together:default", {})
+    api_key = profile.get("key")
+    if not api_key:
+        return None
+
+    async with httpx.AsyncClient(timeout=timeout) as client:
+        resp = await client.post(
+            "https://api.together.xyz/v1/chat/completions",
+            headers={"Authorization": f"Bearer {api_key}"},
+            json={
+                "model": "Qwen/Qwen2.5-7B-Instruct-Turbo",
+                "messages": [
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": text},
+                ],
+                "max_tokens": 500,
+                "response_format": {"type": "json_object"},
+            },
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        choices = data.get("choices", [])
+        if choices:
+            return choices[0]["message"]["content"]
+    return None
+
+
 async def _extract_google(system_prompt: str, text: str, profiles: dict, timeout) -> str | None:
     import httpx
-    from core.providers.oauth import refresh_google_token
 
     profile = profiles.get("google:default", {})
+    api_key = profile.get("key")
+
+    if api_key:
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            resp = await client.post(
+                f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={api_key}",
+                json={
+                    "system_instruction": {"parts": [{"text": system_prompt}]},
+                    "contents": [{"role": "user", "parts": [{"text": text}]}],
+                    "generationConfig": {"maxOutputTokens": 500},
+                },
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            candidates = data.get("candidates", [])
+            if candidates:
+                parts = candidates[0].get("content", {}).get("parts", [])
+                if parts:
+                    return parts[0].get("text", "")
+        return None
+
     if not profile.get("refresh"):
         return None
+    from core.providers.oauth import refresh_google_token
     token_data = await refresh_google_token(profile["refresh"])
     access_token = token_data.get("access_token") if token_data else None
     if not access_token:
@@ -222,7 +269,7 @@ async def _extract_google(system_prompt: str, text: str, profiles: dict, timeout
 
     async with httpx.AsyncClient(timeout=timeout) as client:
         resp = await client.post(
-            "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent",
+            "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent",
             headers={"Authorization": f"Bearer {access_token}"},
             json={
                 "system_instruction": {"parts": [{"text": system_prompt}]},
