@@ -42,14 +42,18 @@ export function SettingsPanel({ branding, onBrandingUpdate, onClose }: Props) {
   const [triageMode, setTriageMode] = useState<string>('always_cheap');
   const [defaultModelTier, setDefaultModelTier] = useState<string>('auto');
   const [tierLabels, setTierLabels] = useState<Record<string, string>>({});
+  const [botReplyLimitEnabled, setBotReplyLimitEnabled] = useState(true);
+  const [botReplyLimit, setBotReplyLimit] = useState(5);
 
   useEffect(() => {
     if (tab === 'chat') {
-      api<{ always_power_mode: boolean; triage_mode: string; default_model_tier: string }>('/api/setup/admin-settings')
+      api<{ always_power_mode: boolean; triage_mode: string; default_model_tier: string; bot_reply_limit_enabled: boolean; bot_reply_limit: number }>('/api/setup/admin-settings')
         .then(s => {
           setAlwaysPowerMode(s.always_power_mode);
           setTriageMode(s.triage_mode);
           setDefaultModelTier(s.default_model_tier || 'auto');
+          setBotReplyLimitEnabled(s.bot_reply_limit_enabled ?? true);
+          setBotReplyLimit(s.bot_reply_limit ?? 5);
         })
         .catch(() => {});
       api<{ tier_labels: Record<string, Record<string, string>>; active_provider: string }>('/api/providers/tiers')
@@ -295,6 +299,69 @@ export function SettingsPanel({ branding, onBrandingUpdate, onClose }: Props) {
                   }} />
                 </button>
               </div>
+
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <div>
+                  <p style={{ fontSize: 14, color: '#EDF0F4', margin: 0 }}>Limit bot replies</p>
+                  <p style={{ fontSize: 12, color: 'rgba(237,240,244,0.38)', marginTop: 2 }}>Cap consecutive bot-to-bot replies in Telegram groups</p>
+                </div>
+                <button
+                  onClick={async () => {
+                    const next = !botReplyLimitEnabled;
+                    setBotReplyLimitEnabled(next);
+                    await api('/api/setup/admin-settings', {
+                      method: 'PUT',
+                      body: JSON.stringify({ bot_reply_limit_enabled: next }),
+                    });
+                  }}
+                  style={{
+                    position: 'relative', width: 44, height: 24, borderRadius: 12,
+                    background: botReplyLimitEnabled ? 'var(--color-ch-accent, #C8D1D9)' : 'rgba(230,235,242,0.14)',
+                    border: 'none', cursor: 'pointer', transition: 'background 0.2s',
+                  }}
+                >
+                  <span style={{
+                    position: 'absolute', top: 2, width: 20, height: 20,
+                    borderRadius: '50%', background: '#fff',
+                    boxShadow: '0 1px 3px rgba(0,0,0,0.3)',
+                    transition: 'left 0.2s',
+                    left: botReplyLimitEnabled ? 22 : 2,
+                  }} />
+                </button>
+              </div>
+              {botReplyLimitEnabled && (
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <div>
+                    <p style={{ fontSize: 14, color: '#EDF0F4', margin: 0 }}>Max replies</p>
+                    <p style={{ fontSize: 12, color: 'rgba(237,240,244,0.38)', marginTop: 2 }}>Maximum consecutive bot replies before suppressing</p>
+                  </div>
+                  <input
+                    type="number"
+                    min={1}
+                    max={100}
+                    value={botReplyLimit}
+                    onChange={async (e) => {
+                      const val = Math.max(1, Math.min(100, parseInt(e.target.value, 10) || 5));
+                      setBotReplyLimit(val);
+                      await api('/api/setup/admin-settings', {
+                        method: 'PUT',
+                        body: JSON.stringify({ bot_reply_limit: val }),
+                      });
+                    }}
+                    style={{
+                      background: 'rgba(230,235,242,0.08)',
+                      border: '1px solid rgba(230,235,242,0.14)',
+                      color: '#EDF0F4',
+                      borderRadius: 4,
+                      padding: '6px 10px',
+                      fontSize: 13,
+                      width: 64,
+                      textAlign: 'center',
+                      outline: 'none',
+                    }}
+                  />
+                </div>
+              )}
 
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                 <div>

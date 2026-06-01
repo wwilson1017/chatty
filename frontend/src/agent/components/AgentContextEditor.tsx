@@ -8,6 +8,13 @@ interface ContextFile {
   modified: number;
 }
 
+interface Observation {
+  id: number;
+  observation: string;
+  created_at: string;
+  reference_count: number;
+}
+
 interface Props {
   agentId: string;
 }
@@ -25,6 +32,8 @@ export function AgentContextEditor({ agentId }: Props) {
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [dirty, setDirty] = useState(false);
+  const [observations, setObservations] = useState<Observation[]>([]);
+  const [obsExpanded, setObsExpanded] = useState(true);
   const isMobile = useIsMobile();
 
   const apiBase = `/api/agents/${agentId}`;
@@ -33,6 +42,9 @@ export function AgentContextEditor({ agentId }: Props) {
     api<{ files: ContextFile[] }>(`${apiBase}/context`)
       .then(data => setFiles(data.files))
       .catch(console.error);
+    api<{ observations: Observation[] }>(`${apiBase}/observations`)
+      .then(data => setObservations(data.observations))
+      .catch(() => {});
   }, [agentId, apiBase]);
 
   async function selectFile(name: string) {
@@ -78,10 +90,71 @@ export function AgentContextEditor({ agentId }: Props) {
     setDirty(false);
   }
 
+  async function deleteObservation(id: number) {
+    if (!confirm('Delete this observation?')) return;
+    try {
+      await api(`${apiBase}/observations/${id}`, { method: 'DELETE' });
+      setObservations(prev => prev.filter(o => o.id !== id));
+    } catch { /* ignore */ }
+  }
+
   function formatSize(bytes: number) {
     if (bytes < 1024) return `${bytes}B`;
     return `${(bytes / 1024).toFixed(1)}KB`;
   }
+
+  const observationsSection = (
+    <div style={{ borderBottom: '1px solid rgba(230,235,242,0.07)' }}>
+      <div
+        onClick={() => setObsExpanded(!obsExpanded)}
+        style={{
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+          padding: '12px 16px', cursor: 'pointer',
+        }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <p style={{ ...mono(10, 'rgba(237,240,244,0.62)'), margin: 0 }}>What I've Learned</p>
+          {observations.length > 0 && (
+            <span style={{
+              ...mono(9, 'rgba(237,240,244,0.38)'),
+              background: 'rgba(230,235,242,0.08)',
+              borderRadius: 8, padding: '1px 6px',
+            }}>{observations.length}</span>
+          )}
+        </div>
+        <span style={{ color: 'rgba(237,240,244,0.38)', fontSize: 12, transition: 'transform 0.2s', transform: obsExpanded ? 'rotate(90deg)' : 'rotate(0deg)' }}>&rsaquo;</span>
+      </div>
+      {obsExpanded && (
+        <div style={{ padding: '0 16px 12px' }}>
+          {observations.length === 0 ? (
+            <p style={{ color: 'rgba(237,240,244,0.28)', fontSize: 12, margin: 0 }}>
+              No observations yet — these appear automatically after conversations
+            </p>
+          ) : (
+            observations.map(o => (
+              <div key={o.id} className="group" style={{
+                display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between',
+                padding: '6px 0', gap: 8,
+              }}>
+                <p style={{ fontSize: 13, color: 'rgba(237,240,244,0.72)', margin: 0, lineHeight: 1.4 }}>
+                  {o.observation}
+                </p>
+                <button
+                  onClick={() => deleteObservation(o.id)}
+                  className={isMobile ? '' : 'opacity-0 group-hover:opacity-100 transition'}
+                  style={{
+                    background: 'none', border: 'none', flexShrink: 0,
+                    color: 'rgba(237,240,244,0.38)', fontSize: 14,
+                    cursor: 'pointer', padding: '0 4px',
+                  }}
+                >&times;</button>
+              </div>
+            ))
+          )}
+        </div>
+      )}
+    </div>
+  );
 
   // Mobile: show file list OR editor, not both
   if (isMobile) {
@@ -143,6 +216,7 @@ export function AgentContextEditor({ agentId }: Props) {
 
     return (
       <div style={{ display: 'flex', flexDirection: 'column', flex: 1, height: '100%', overflow: 'hidden' }}>
+        {observationsSection}
         <div style={{
           padding: '12px 16px',
           borderBottom: '1px solid rgba(230,235,242,0.07)',
@@ -203,6 +277,7 @@ export function AgentContextEditor({ agentId }: Props) {
         borderRight: '1px solid rgba(230,235,242,0.07)',
         display: 'flex', flexDirection: 'column',
       }}>
+        {observationsSection}
         <div style={{
           padding: '12px 16px',
           borderBottom: '1px solid rgba(230,235,242,0.07)',

@@ -300,6 +300,25 @@ class MemoryDB:
                 )
                 conn.commit()
 
+        # Create observations table if missing
+        try:
+            conn.execute("SELECT 1 FROM observations LIMIT 0")
+        except sqlite3.OperationalError:
+            conn.executescript("""
+                CREATE TABLE IF NOT EXISTS observations (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    agent_slug TEXT NOT NULL,
+                    observation TEXT NOT NULL,
+                    source_conversation_id TEXT,
+                    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                    last_referenced_at TEXT,
+                    reference_count INTEGER DEFAULT 0
+                );
+                CREATE INDEX IF NOT EXISTS idx_obs_agent ON observations(agent_slug);
+                CREATE INDEX IF NOT EXISTS idx_obs_created ON observations(created_at DESC);
+            """)
+            conn.commit()
+
     def init_db(self) -> dict:
         """Initialize with integrity check and GCS restore."""
         self.data_dir.mkdir(parents=True, exist_ok=True)
@@ -920,3 +939,74 @@ class MemoryDB:
 
         self.remove_document("fact", str(fact_id))
         return {"id": fact_id, "valid_to": valid_to, "ok": True}
+
+    # ------------------------------------------------------------------
+    # Observations
+    # ------------------------------------------------------------------
+
+    def get_observations(self, agent_slug: str, limit: int = 50) -> list[dict]:
+        conn = self.get_db()
+        rows = conn.execute(
+            "SELECT * FROM observations WHERE agent_slug = ? ORDER BY created_at DESC LIMIT ?",
+            (agent_slug, limit),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+    def add_observation(
+        self, agent_slug: str, observation: str, source_conversation_id: str | None = None,
+    ) -> dict | None:
+        normalized = " ".join(observation.lower().strip().split())
+        conn = self.get_db()
+        existing = conn.execute(
+            "SELECT id FROM observations WHERE agent_slug = ?", (agent_slug,),
+        ).fetchall()
+        for row in existing:
+            stored = conn.execute(
+                "SELECT observation FROM observations WHERE id = ?", (row["id"],),
+            ).fetchone()
+            if stored and " ".join(stored["observation"].lower().strip().split()) == normalized:
+                return None
+
+        with self._write_lock:
+            cursor = conn.execute(
+                "INSERT INTO observations (agent_slug, observation, source_conversation_id) VALUES (?, ?, ?)",
+                (agent_slug, observation, source_conversation_id),
+            )
+            conn.commit()
+            row = conn.execute("SELECT * FROM observations WHERE id = ?", (cursor.lastrowid,)).fetchone()
+            return dict(row) if row else None
+
+    def delete_observation(self, obs_id: int) -> bool:
+        conn = self.get_db()
+        with self._write_lock:
+            cursor = conn.execute("DELETE FROM observations WHERE id = ?", (obs_id,))
+            conn.commit()
+        if cursor.rowcount > 0:
+            self.backup_to_gcs()
+            return True
+        return False
+
+    def increment_observation_references(self, obs_ids: list[int]) -> None:
+        if not obs_ids:
+            return
+        conn = self.get_db()
+        placeholders = ",".join("?" for _ in obs_ids)
+        with self._write_lock:
+            conn.execute(
+                f"UPDATE observations SET reference_count = reference_count + 1, "
+                f"last_referenced_at = datetime('now') WHERE id IN ({placeholders})",
+                obs_ids,
+            )
+            conn.commit()
+
+    def prune_stale_observations(self, max_age_days: int = 90) -> int:
+        conn = self.get_db()
+        with self._write_lock:
+            cursor = conn.execute(
+                "DELETE FROM observations WHERE "
+                "(last_referenced_at IS NOT NULL AND last_referenced_at < datetime('now', ?)) OR "
+                "(last_referenced_at IS NULL AND created_at < datetime('now', ?))",
+                (f"-{max_age_days} days", f"-{max_age_days} days"),
+            )
+            conn.commit()
+        return cursor.rowcount

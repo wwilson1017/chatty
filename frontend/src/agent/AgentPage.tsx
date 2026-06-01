@@ -32,8 +32,6 @@ interface AgentRow {
   telegram_bot_token: string;
   telegram_bot_username: string;
   telegram_group_enabled: boolean;
-  telegram_respond_to_bots: boolean;
-  telegram_max_bot_turns: number;
   model_tier?: string;
   provider_override?: string;
 }

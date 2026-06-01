@@ -1,9 +1,11 @@
 """Nightly memory and dreaming jobs — runs per-agent at 11 PM CT.
 
-Three jobs per agent (in order):
+Five jobs per agent (in order):
 1. Daily note summarization — Claude Haiku summarizes yesterday's chat
 2. Memory consolidation — Claude Sonnet rewrites MEMORY.md from daily notes
 3. Dreaming — score files, archive dormant ones, rebuild load order
+4. Archive old daily notes (>90 days)
+5. Observation extraction — extract user/business observations from yesterday's chats
 """
 
 import logging
@@ -71,5 +73,18 @@ def run_nightly_jobs() -> None:
                 logger.info("nightly archive %s: archived %d old daily notes", agent_name, result["archived"])
         except Exception as e:
             logger.warning("nightly archive failed for %s: %s", agent_name, e)
+
+        # 5. Observation extraction from yesterday's conversations
+        try:
+            from core.agents.memory.observer import extract_observations
+            from agents.engine import ensure_memory_db
+            import asyncio
+            memory_db = ensure_memory_db(slug)
+            result = asyncio.run(extract_observations(agent_name, slug, chat_service, memory_db))
+            if result.get("extracted", 0) > 0 or result.get("pruned", 0) > 0:
+                logger.info("nightly observations %s: extracted=%d pruned=%d",
+                            agent_name, result.get("extracted", 0), result.get("pruned", 0))
+        except Exception as e:
+            logger.warning("nightly observations failed for %s: %s", agent_name, e)
 
     logger.info("nightly jobs complete for %d agents", len(agents))

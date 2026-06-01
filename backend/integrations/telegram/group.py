@@ -77,11 +77,12 @@ def should_respond(
         state = _get_state(chat_id)
 
         if sender_is_bot:
-            if not agent.get("telegram_respond_to_bots"):
-                return False, "bot_messages_disabled"
-            max_turns = max(1, agent.get("telegram_max_bot_turns", 3))
-            if state.consecutive_bot_turns >= max_turns:
-                return False, "max_bot_turns"
+            from setup.router import load_admin_settings
+            settings = load_admin_settings()
+            if settings.get("bot_reply_limit_enabled", True):
+                max_turns = max(1, settings.get("bot_reply_limit", 5))
+                if state.consecutive_bot_turns >= max_turns:
+                    return False, "max_bot_turns"
 
         agent_id = agent["id"]
         last = state.last_response_times.get(agent_id, 0)

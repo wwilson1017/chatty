@@ -29,6 +29,8 @@ ADMIN_DEFAULTS = {
     "notifications_web_push": True,
     "notifications_telegram": True,
     "notifications_whatsapp": True,
+    "bot_reply_limit_enabled": True,
+    "bot_reply_limit": 5,
 }
 
 VALID_TRIAGE_MODES = {"standard", "cheap", "always_cheap"}
@@ -43,6 +45,12 @@ def load_admin_settings() -> dict:
                 result["triage_mode"] = ADMIN_DEFAULTS["triage_mode"]
             if not isinstance(result.get("default_model_tier"), str) or result["default_model_tier"] not in VALID_MODEL_TIERS:
                 result["default_model_tier"] = ADMIN_DEFAULTS["default_model_tier"]
+            if not isinstance(result.get("bot_reply_limit_enabled"), bool):
+                result["bot_reply_limit_enabled"] = ADMIN_DEFAULTS["bot_reply_limit_enabled"]
+            try:
+                result["bot_reply_limit"] = max(1, min(100, int(result["bot_reply_limit"])))
+            except (TypeError, ValueError, KeyError):
+                result["bot_reply_limit"] = ADMIN_DEFAULTS["bot_reply_limit"]
             return result
         except Exception:
             pass
@@ -125,5 +133,11 @@ async def update_admin_settings(body: dict, user=Depends(get_current_user)):
         settings["triage_mode"] = ADMIN_DEFAULTS["triage_mode"]
     if not isinstance(settings.get("default_model_tier"), str) or settings["default_model_tier"] not in VALID_MODEL_TIERS:
         settings["default_model_tier"] = ADMIN_DEFAULTS["default_model_tier"]
+    if not isinstance(settings.get("bot_reply_limit_enabled"), bool):
+        settings["bot_reply_limit_enabled"] = ADMIN_DEFAULTS["bot_reply_limit_enabled"]
+    try:
+        settings["bot_reply_limit"] = max(1, min(100, int(settings["bot_reply_limit"])))
+    except (TypeError, ValueError, KeyError):
+        settings["bot_reply_limit"] = ADMIN_DEFAULTS["bot_reply_limit"]
     atomic_write_json(ADMIN_SETTINGS_FILE, settings)
     return settings

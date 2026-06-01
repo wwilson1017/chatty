@@ -194,7 +194,7 @@ UPDATABLE_FIELDS = {
     "google_accounts",
     "whatsapp_session_id",
     "telegram_enabled", "telegram_bot_token", "telegram_bot_username",
-    "telegram_group_enabled", "telegram_respond_to_bots", "telegram_max_bot_turns",
+    "telegram_group_enabled",
     "model_tier",
 }
 
