@@ -304,7 +304,7 @@ class MemoryDB:
         try:
             conn.execute("SELECT 1 FROM observations LIMIT 0")
         except sqlite3.OperationalError:
-            conn.executescript("""
+            conn.execute("""
                 CREATE TABLE IF NOT EXISTS observations (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     agent_slug TEXT NOT NULL,
@@ -313,10 +313,10 @@ class MemoryDB:
                     created_at TEXT NOT NULL DEFAULT (datetime('now')),
                     last_referenced_at TEXT,
                     reference_count INTEGER DEFAULT 0
-                );
-                CREATE INDEX IF NOT EXISTS idx_obs_agent ON observations(agent_slug);
-                CREATE INDEX IF NOT EXISTS idx_obs_created ON observations(created_at DESC);
+                )
             """)
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_obs_agent ON observations(agent_slug)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_obs_created ON observations(created_at DESC)")
             conn.commit()
 
     def init_db(self) -> dict:
@@ -957,17 +957,15 @@ class MemoryDB:
     ) -> dict | None:
         normalized = " ".join(observation.lower().strip().split())
         conn = self.get_db()
-        existing = conn.execute(
-            "SELECT id FROM observations WHERE agent_slug = ?", (agent_slug,),
-        ).fetchall()
-        for row in existing:
-            stored = conn.execute(
-                "SELECT observation FROM observations WHERE id = ?", (row["id"],),
-            ).fetchone()
-            if stored and " ".join(stored["observation"].lower().strip().split()) == normalized:
-                return None
 
         with self._write_lock:
+            existing = conn.execute(
+                "SELECT observation FROM observations WHERE agent_slug = ?", (agent_slug,),
+            ).fetchall()
+            for row in existing:
+                if " ".join(row["observation"].lower().strip().split()) == normalized:
+                    return None
+
             cursor = conn.execute(
                 "INSERT INTO observations (agent_slug, observation, source_conversation_id) VALUES (?, ?, ?)",
                 (agent_slug, observation, source_conversation_id),
@@ -976,10 +974,16 @@ class MemoryDB:
             row = conn.execute("SELECT * FROM observations WHERE id = ?", (cursor.lastrowid,)).fetchone()
             return dict(row) if row else None
 
-    def delete_observation(self, obs_id: int) -> bool:
+    def delete_observation(self, obs_id: int, agent_slug: str | None = None) -> bool:
         conn = self.get_db()
         with self._write_lock:
-            cursor = conn.execute("DELETE FROM observations WHERE id = ?", (obs_id,))
+            if agent_slug:
+                cursor = conn.execute(
+                    "DELETE FROM observations WHERE id = ? AND agent_slug = ?",
+                    (obs_id, agent_slug),
+                )
+            else:
+                cursor = conn.execute("DELETE FROM observations WHERE id = ?", (obs_id,))
             conn.commit()
         if cursor.rowcount > 0:
             self.backup_to_gcs()

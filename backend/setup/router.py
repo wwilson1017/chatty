@@ -37,21 +37,27 @@ VALID_TRIAGE_MODES = {"standard", "cheap", "always_cheap"}
 VALID_MODEL_TIERS = {"auto", "top", "mid", "light"}
 
 
+def _sanitize_admin_settings(settings: dict) -> dict:
+    """Apply field coercions and validations to admin settings."""
+    settings["always_power_mode"] = bool(settings.get("always_power_mode", ADMIN_DEFAULTS["always_power_mode"]))
+    if not isinstance(settings.get("triage_mode"), str) or settings["triage_mode"] not in VALID_TRIAGE_MODES:
+        settings["triage_mode"] = ADMIN_DEFAULTS["triage_mode"]
+    if not isinstance(settings.get("default_model_tier"), str) or settings["default_model_tier"] not in VALID_MODEL_TIERS:
+        settings["default_model_tier"] = ADMIN_DEFAULTS["default_model_tier"]
+    if not isinstance(settings.get("bot_reply_limit_enabled"), bool):
+        settings["bot_reply_limit_enabled"] = ADMIN_DEFAULTS["bot_reply_limit_enabled"]
+    try:
+        settings["bot_reply_limit"] = max(1, min(100, int(settings["bot_reply_limit"])))
+    except (TypeError, ValueError, KeyError):
+        settings["bot_reply_limit"] = ADMIN_DEFAULTS["bot_reply_limit"]
+    return settings
+
+
 def load_admin_settings() -> dict:
     if ADMIN_SETTINGS_FILE.exists():
         try:
             result = {**ADMIN_DEFAULTS, **json.loads(ADMIN_SETTINGS_FILE.read_text(encoding="utf-8"))}
-            if not isinstance(result.get("triage_mode"), str) or result["triage_mode"] not in VALID_TRIAGE_MODES:
-                result["triage_mode"] = ADMIN_DEFAULTS["triage_mode"]
-            if not isinstance(result.get("default_model_tier"), str) or result["default_model_tier"] not in VALID_MODEL_TIERS:
-                result["default_model_tier"] = ADMIN_DEFAULTS["default_model_tier"]
-            if not isinstance(result.get("bot_reply_limit_enabled"), bool):
-                result["bot_reply_limit_enabled"] = ADMIN_DEFAULTS["bot_reply_limit_enabled"]
-            try:
-                result["bot_reply_limit"] = max(1, min(100, int(result["bot_reply_limit"])))
-            except (TypeError, ValueError, KeyError):
-                result["bot_reply_limit"] = ADMIN_DEFAULTS["bot_reply_limit"]
-            return result
+            return _sanitize_admin_settings(result)
         except Exception:
             pass
     return dict(ADMIN_DEFAULTS)
@@ -127,17 +133,6 @@ async def update_admin_settings(body: dict, user=Depends(get_current_user)):
     for key in ADMIN_DEFAULTS:
         if key in body:
             settings[key] = body[key]
-    if "always_power_mode" in settings:
-        settings["always_power_mode"] = bool(settings["always_power_mode"])
-    if not isinstance(settings.get("triage_mode"), str) or settings["triage_mode"] not in VALID_TRIAGE_MODES:
-        settings["triage_mode"] = ADMIN_DEFAULTS["triage_mode"]
-    if not isinstance(settings.get("default_model_tier"), str) or settings["default_model_tier"] not in VALID_MODEL_TIERS:
-        settings["default_model_tier"] = ADMIN_DEFAULTS["default_model_tier"]
-    if not isinstance(settings.get("bot_reply_limit_enabled"), bool):
-        settings["bot_reply_limit_enabled"] = ADMIN_DEFAULTS["bot_reply_limit_enabled"]
-    try:
-        settings["bot_reply_limit"] = max(1, min(100, int(settings["bot_reply_limit"])))
-    except (TypeError, ValueError, KeyError):
-        settings["bot_reply_limit"] = ADMIN_DEFAULTS["bot_reply_limit"]
+    settings = _sanitize_admin_settings(settings)
     atomic_write_json(ADMIN_SETTINGS_FILE, settings)
     return settings

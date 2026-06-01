@@ -33,7 +33,7 @@ export function AgentContextEditor({ agentId }: Props) {
   const [saving, setSaving] = useState(false);
   const [dirty, setDirty] = useState(false);
   const [observations, setObservations] = useState<Observation[]>([]);
-  const [obsExpanded, setObsExpanded] = useState(true);
+  const [obsExpanded, setObsExpanded] = useState(false);
   const isMobile = useIsMobile();
 
   const apiBase = `/api/agents/${agentId}`;
@@ -43,7 +43,10 @@ export function AgentContextEditor({ agentId }: Props) {
       .then(data => setFiles(data.files))
       .catch(console.error);
     api<{ observations: Observation[] }>(`${apiBase}/observations`)
-      .then(data => setObservations(data.observations))
+      .then(data => {
+        setObservations(data.observations);
+        if (data.observations.length > 0) setObsExpanded(true);
+      })
       .catch(() => {});
   }, [agentId, apiBase]);
 

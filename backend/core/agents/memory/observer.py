@@ -63,6 +63,7 @@ async def extract_observations(
             f"{m['role'].upper()}: {m.get('content', '')}"
             for m in conv["messages"] if m.get("content", "").strip()
         )
+        transcript = transcript[:8000]
         if len(transcript) < 50:
             continue
 

@@ -340,12 +340,14 @@ export function SettingsPanel({ branding, onBrandingUpdate, onClose }: Props) {
                     min={1}
                     max={100}
                     value={botReplyLimit}
-                    onChange={async (e) => {
+                    onChange={(e) => {
                       const val = Math.max(1, Math.min(100, parseInt(e.target.value, 10) || 5));
                       setBotReplyLimit(val);
+                    }}
+                    onBlur={async () => {
                       await api('/api/setup/admin-settings', {
                         method: 'PUT',
-                        body: JSON.stringify({ bot_reply_limit: val }),
+                        body: JSON.stringify({ bot_reply_limit: botReplyLimit }),
                       });
                     }}
                     style={{

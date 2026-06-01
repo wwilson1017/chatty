@@ -364,8 +364,8 @@ def _build_system_prompt(
                     _obs_db.increment_observation_references([_o["id"] for _o in _observations])
                 except Exception:
                     pass
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug("observations skipped: %s", e)
 
     # Manifests of everything else (always injected)
     topic_manifest = ctx_manager.topic_files_manifest()

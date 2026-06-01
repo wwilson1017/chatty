@@ -80,7 +80,18 @@ def run_nightly_jobs() -> None:
             from agents.engine import ensure_memory_db
             import asyncio
             memory_db = ensure_memory_db(slug)
-            result = asyncio.run(extract_observations(agent_name, slug, chat_service, memory_db))
+
+            try:
+                loop = asyncio.get_running_loop()
+            except RuntimeError:
+                loop = None
+            if loop and loop.is_running():
+                import concurrent.futures
+                with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+                    result = pool.submit(asyncio.run, extract_observations(agent_name, slug, chat_service, memory_db)).result()
+            else:
+                result = asyncio.run(extract_observations(agent_name, slug, chat_service, memory_db))
+
             if result.get("extracted", 0) > 0 or result.get("pruned", 0) > 0:
                 logger.info("nightly observations %s: extracted=%d pruned=%d",
                             agent_name, result.get("extracted", 0), result.get("pruned", 0))

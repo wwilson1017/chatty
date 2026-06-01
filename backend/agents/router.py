@@ -1084,7 +1084,8 @@ async def list_observations(
         memory_db = ensure_memory_db(agent["slug"])
         observations = memory_db.get_observations(agent["slug"], limit=limit)
         return {"observations": observations}
-    except Exception:
+    except Exception as e:
+        logger.warning("list_observations failed for agent %s: %s", agent_id, e)
         return {"observations": []}
 
 
@@ -1094,10 +1095,11 @@ async def delete_observation(agent_id: str, obs_id: int, user=Depends(get_curren
     from agents.engine import ensure_memory_db
     try:
         memory_db = ensure_memory_db(agent["slug"])
-        if not memory_db.delete_observation(obs_id):
+        if not memory_db.delete_observation(obs_id, agent_slug=agent["slug"]):
             raise HTTPException(status_code=404, detail="Observation not found")
         return {"deleted": True, "id": obs_id}
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.warning("delete_observation failed for obs %s: %s", obs_id, e)
+        raise HTTPException(status_code=500, detail="Internal error")
