@@ -365,13 +365,13 @@ async def process_message_batched(
     passes on_iteration for cancellation support, and skips user message save
     (messages already saved individually by the debounce module).
 
-    Returns response text. Empty string means the run was aborted.
+    Returns response text. Empty string means aborted or error.
     """
     agent = agent_db.get_agent(agent_id)
     if not agent:
-        return "This agent is no longer available."
+        return ""
     if not agent.get("telegram_enabled"):
-        return "Telegram messaging is currently disabled for this agent."
+        return ""
 
     slug = agent["slug"]
     config = build_agent_config(agent)
@@ -384,7 +384,7 @@ async def process_message_batched(
         agent_model_tier=config.model_tier,
     )
     if not provider:
-        return "No AI provider is configured. Please set up an AI provider in Settings."
+        return ""
 
     ga = config.google_accounts
     gmail_ids = ga.get("gmail", [])
@@ -467,13 +467,13 @@ async def process_group_message_batched(
     Like process_group_message() but takes pre-combined text (already prefixed),
     passes on_iteration for cancellation support, and skips user message save.
 
-    Returns response text. Empty string means the run was aborted.
+    Returns response text. Empty string means aborted or error.
     """
     agent = agent_db.get_agent(agent_id)
     if not agent:
-        return "This agent is no longer available."
+        return ""
     if not agent.get("telegram_enabled"):
-        return "Telegram messaging is currently disabled for this agent."
+        return ""
 
     slug = agent["slug"]
     config = build_agent_config(agent)
@@ -486,7 +486,7 @@ async def process_group_message_batched(
         agent_model_tier=config.model_tier,
     )
     if not provider:
-        return "No AI provider is configured. Please set up an AI provider in Settings."
+        return ""
 
     ga = config.google_accounts
     gmail_ids = ga.get("gmail", [])

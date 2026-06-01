@@ -52,22 +52,21 @@ class _ChatState:
 _states: dict[tuple[str, int], _ChatState] = {}
 _lock = threading.Lock()
 
-# Use the router's executor for AI processing
-_executor = None
+_MAX_MESSAGES = 50
 
 
 def _get_executor():
-    global _executor
-    if _executor is None:
-        from .router import _executor as router_executor
-        _executor = router_executor
+    from .router import _executor
     return _executor
 
 
 def _get_hold_delay_seconds() -> float:
-    from setup.router import load_admin_settings
-    settings = load_admin_settings()
-    return settings.get("message_hold_delay_ms", 2000) / 1000.0
+    try:
+        from setup.router import load_admin_settings
+        settings = load_admin_settings()
+        return max(0.0, float(settings.get("message_hold_delay_ms", 2000)) / 1000.0)
+    except Exception:
+        return 2.0
 
 
 def make_on_iteration(key: tuple[str, int]) -> Callable[[int], bool]:
@@ -166,7 +165,8 @@ def enqueue_message(
                 st.timer.cancel()
                 st.timer = None
             st.held_response = None
-            st.messages.append(prefixed_text)
+            if len(st.messages) < _MAX_MESSAGES:
+                st.messages.append(prefixed_text)
             st.processing = True
             st.cancelled.clear()
             st.generation += 1
@@ -177,13 +177,15 @@ def enqueue_message(
 
         if st.processing:
             # AI is still running — accumulate and signal cancellation if allowed
-            st.messages.append(prefixed_text)
+            if len(st.messages) < _MAX_MESSAGES:
+                st.messages.append(prefixed_text)
             if st.restart_count < _MAX_RESTARTS:
                 st.cancelled.set()
             return
 
         # Shouldn't reach here, but handle gracefully
-        st.messages.append(prefixed_text)
+        if len(st.messages) < _MAX_MESSAGES:
+            st.messages.append(prefixed_text)
         st.processing = True
         st.cancelled.clear()
         st.generation += 1
@@ -234,55 +236,51 @@ def _run_ai(key: tuple[str, int], generation: int) -> None:
     finally:
         loop.close()
 
-    # Handle completion
+    # Handle completion — determine action under lock, execute I/O outside
+    action = None
     with _lock:
         st = _states.get(key)
         if st is None or st.generation != generation:
-            return  # Stale — a newer run superseded us
+            return
 
         if st.cancelled.is_set():
-            # Cancelled — restart with accumulated messages
             st.cancelled.clear()
             st.restart_count += 1
             st.generation += 1
             st.started_at = time.monotonic()
-            new_generation = st.generation
-            _get_executor().submit(_run_ai, key, new_generation)
+            _get_executor().submit(_run_ai, key, st.generation)
             return
 
         st.processing = False
 
         if not response:
-            # AI returned empty (error) — send error message and cleanup
+            action = ("error", st.chat_id, st.bot_token, st.is_group, st.agent_id, st.agent_slug, st.sender_id)
             _stop_typing_refresh(st)
             del _states[key]
-            send_message(st.chat_id, "I had trouble processing that. Please try again.", st.bot_token)
-            return
+        else:
+            hold_delay = _get_hold_delay_seconds()
+            if hold_delay <= 0:
+                action = ("send", st.chat_id, st.bot_token, st.is_group, st.agent_id, st.agent_slug, st.sender_id)
+                _stop_typing_refresh(st)
+                del _states[key]
+            else:
+                st.held_response = response
+                st.timer = threading.Timer(hold_delay, _on_hold_expired, args=[key, generation])
+                st.timer.daemon = True
+                st.timer.start()
 
-        # Normal completion — check hold delay
-        hold_delay = _get_hold_delay_seconds()
-        if hold_delay <= 0:
-            # Disabled — send immediately
-            chat_id = st.chat_id
-            bot_token = st.bot_token
-            is_group = st.is_group
-            agent_id = st.agent_id
-            agent_slug = st.agent_slug
-            sender_id = st.sender_id
-            _stop_typing_refresh(st)
-            del _states[key]
-            send_message(chat_id, response, bot_token)
-            if is_group:
-                group.record_response(chat_id, agent_id)
-            _save_response_async(agent_slug, sender_id, agent_id, response,
-                                 source="telegram-group" if is_group else "telegram")
-            return
-
-        # Start hold timer
-        st.held_response = response
-        st.timer = threading.Timer(hold_delay, _on_hold_expired, args=[key, generation])
-        st.timer.daemon = True
-        st.timer.start()
+    # I/O outside the lock
+    if action is None:
+        return
+    kind, chat_id, bot_token, is_group, agent_id, agent_slug, sender_id = action
+    if kind == "error":
+        send_message(chat_id, "I had trouble processing that. Please try again.", bot_token)
+    elif kind == "send":
+        send_message(chat_id, response, bot_token)
+        if is_group:
+            group.record_response(chat_id, agent_id)
+        _save_response_async(agent_slug, sender_id, agent_id, response,
+                             source="telegram-group" if is_group else "telegram")
 
 
 def _on_hold_expired(key: tuple[str, int], generation: int) -> None:
@@ -339,6 +337,8 @@ def _typing_tick(key: tuple[str, int]) -> None:
     with _lock:
         st = _states.get(key)
         if st is None:
+            return
+        if not st.processing and st.held_response is None:
             return
         t = threading.Timer(_TYPING_INTERVAL, _typing_tick, args=[key])
         t.daemon = True

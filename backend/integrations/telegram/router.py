@@ -191,6 +191,11 @@ def _safe_process_telegram(
         )
     except Exception:
         logger.exception("Telegram processing failed (slug=%s, user_id=%s)", agent_slug, user_id)
+        try:
+            if bot_token:
+                send_message(chat_id, "I had trouble processing that. Please try again.", bot_token)
+        except Exception:
+            pass
 
 
 # ---------------------------------------------------------------------------
