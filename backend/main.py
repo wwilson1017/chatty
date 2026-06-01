@@ -223,7 +223,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="Chatty",
     description="Personal AI agent platform",
-    version="1.0.0",
+    version="1.1.0",
     lifespan=lifespan,
 )
 
@@ -287,7 +287,7 @@ app.include_router(shared_context_router, tags=["shared-context"])
 async def health(request: Request):
     statuses = getattr(request.app.state, "db_statuses", {})
     degraded = any(v not in ("ok", "fresh") for v in statuses.values())
-    return {"status": "degraded" if degraded else "ok", "version": "0.1.0", "databases": statuses}
+    return {"status": "degraded" if degraded else "ok", "version": "1.1.0", "databases": statuses}
 
 
 @app.get("/api/health/live")
