@@ -6,6 +6,8 @@ import { formatSidebarTime } from '../utils/dateFormat';
 
 interface Props {
   agentName: string;
+  avatarUrl?: string;
+  onAvatarClick?: (e: React.MouseEvent) => void;
   conversations: Conversation[];
   activeId: string | null;
   searchQuery: string;
@@ -19,7 +21,8 @@ interface Props {
 }
 
 export function ConversationSidebar({
-  agentName, conversations, activeId, searchQuery, searchResults, isSearching,
+  agentName, avatarUrl, onAvatarClick,
+  conversations, activeId, searchQuery, searchResults, isSearching,
   onNew, onSelect, onDelete, onSearch, onRename,
 }: Props) {
   const [collapsed, setCollapsed] = useState(false);
@@ -73,7 +76,12 @@ export function ConversationSidebar({
         padding: '14px 16px', display: 'flex', alignItems: 'center', gap: 12,
         borderBottom: '1px solid rgba(230,235,242,0.07)',
       }}>
-        <AgentMark letter={letter} size={36} />
+        <div
+          onClick={onAvatarClick}
+          style={{ cursor: onAvatarClick ? 'pointer' : 'default', borderRadius: 6, lineHeight: 0 }}
+        >
+          <AgentMark letter={letter} size={36} avatarUrl={avatarUrl} />
+        </div>
         <div style={{ flex: 1 }}>
           <div style={{
             fontFamily: "'Fraunces', Georgia, serif",
