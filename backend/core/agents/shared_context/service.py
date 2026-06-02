@@ -8,7 +8,7 @@ import logging
 from datetime import datetime
 from pathlib import Path
 
-from core.storage import upload_config, delete_config
+from core.storage import atomic_write, upload_config, delete_config
 
 from . import db
 
@@ -64,7 +64,7 @@ def write_file(filename: str, content: str) -> None:
         raise ValueError("filename must end with .md and contain no path separators")
     SHARED_DATA_DIR.mkdir(parents=True, exist_ok=True)
     path = SHARED_DATA_DIR / filename
-    path.write_text(content, encoding="utf-8")
+    atomic_write(path, content)
     try:
         upload_config(path, filename, prefix=GCS_PREFIX)
     except Exception:

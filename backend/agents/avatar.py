@@ -20,7 +20,7 @@ from openai import (
     RateLimitError,
 )
 
-from core.storage import upload_file
+from core.storage import atomic_write_bytes, upload_file
 
 logger = logging.getLogger(__name__)
 
@@ -177,7 +177,7 @@ async def download_and_save_avatar(
     async with httpx.AsyncClient(timeout=30.0) as http:
         resp = await http.get(url)
         resp.raise_for_status()
-        avatar_path.write_bytes(resp.content)
+        atomic_write_bytes(avatar_path, resp.content)
 
     upload_file(avatar_path, gcs_prefix + "avatar.png")
 

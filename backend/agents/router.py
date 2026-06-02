@@ -34,6 +34,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from core.auth import get_current_user, decode_access_token
+from core.storage import atomic_write, atomic_write_bytes
 from core.providers import get_ai_provider
 from core.providers.credentials import CredentialStore
 from core.agents.tool_registry import ToolRegistry
@@ -84,7 +85,7 @@ def _inject_pending_setup_context(context_dir: Path, pending: dict) -> None:
             parts.append(f"- [ ] {_PENDING_SETUP_NAMES.get(i, i)}")
         parts.append("")
     parts.append("Once set up, check off items and delete this file when all are done.")
-    (context_dir / "_pending-setup.md").write_text("\n".join(parts), encoding="utf-8")
+    atomic_write(context_dir / "_pending-setup.md", "\n".join(parts))
 
 
 
@@ -412,7 +413,7 @@ async def avatar_upload(
     agent_dir = DATA_DIR / slug
     agent_dir.mkdir(parents=True, exist_ok=True)
     avatar_path = agent_dir / "avatar.png"
-    avatar_path.write_bytes(contents)
+    atomic_write_bytes(avatar_path, contents)
 
     upload_file(avatar_path, f"agents/{slug}/avatar.png")
     agent_db.update_agent(agent_id, avatar_url=f"/api/agents/{agent_id}/avatar")
@@ -632,7 +633,7 @@ async def agent_chat(agent_id: str, req: ChatRequest, user=Depends(get_current_u
             import_mode = True
 
     tool_mode = req.tool_mode
-    from setup.router import load_admin_settings
+    from core.admin_settings import load_admin_settings
     if load_admin_settings().get("always_power_mode"):
         tool_mode = "power"
 
@@ -871,7 +872,7 @@ async def agent_chat_upload(
             zip_path = (file_cache_dir / safe_name).resolve()
             if not zip_path.is_relative_to(file_cache_dir.resolve()):
                 raise HTTPException(status_code=400, detail="Invalid zip filename")
-            zip_path.write_bytes(content_bytes)
+            atomic_write_bytes(zip_path, content_bytes)
             file_texts.append(
                 f"[Attached zip file: {safe_name}] "
                 f"Call extract_zip with filename=\"{safe_name}\" to process it."

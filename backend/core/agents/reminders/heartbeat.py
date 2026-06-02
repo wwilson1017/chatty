@@ -9,6 +9,7 @@ import logging
 from . import service
 from .notifications import notify_reminder_fired
 from core.agents.background_runner import run_background_turn
+from core.agents.security.delimiters import DELIMITER_SYSTEM_INSTRUCTION
 
 logger = logging.getLogger(__name__)
 
@@ -155,6 +156,7 @@ def _process_self_reminder(reminder: dict) -> None:
             f"- **Originally set at:** {reminder['created_at']}\n"
             f"{recurrence_line}\n"
             f"# Your Knowledge (abbreviated)\n\n{context_snippet}\n\n"
+            + DELIMITER_SYSTEM_INSTRUCTION + "\n\n"
         ),
         (
             f"# Current Date & Time\n\n"

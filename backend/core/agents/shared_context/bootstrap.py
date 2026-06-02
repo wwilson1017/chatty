@@ -12,6 +12,8 @@ from datetime import datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
+from core.storage import atomic_write
+
 from . import db
 
 logger = logging.getLogger(__name__)
@@ -64,10 +66,7 @@ def should_bootstrap() -> bool:
 
 def _mark_bootstrap_complete() -> None:
     SHARED_DIR.mkdir(parents=True, exist_ok=True)
-    BOOTSTRAP_MARKER.write_text(
-        datetime.now(CT_TZ).isoformat(),
-        encoding="utf-8",
-    )
+    atomic_write(BOOTSTRAP_MARKER, datetime.now(CT_TZ).isoformat())
 
 
 def _gather_all_agent_knowledge() -> dict[str, str]:

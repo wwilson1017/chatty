@@ -9,7 +9,7 @@ import json
 from datetime import datetime, timezone
 from pathlib import Path
 
-from core.storage import atomic_write_json
+from core.storage import atomic_write, atomic_write_json
 
 DATA_DIR = Path(__file__).resolve().parent.parent / "data"
 
@@ -53,7 +53,7 @@ def mark_integration_complete(context_dir: str | Path, integration_name: str) ->
         content = pending_path.read_text(encoding="utf-8")
         updated = content.replace(f"- [ ] {integration_name}", f"- [x] {integration_name}")
         if updated != content:
-            pending_path.write_text(updated, encoding="utf-8")
+            atomic_write(pending_path, updated)
             if "- [ ]" not in updated:
                 pending_path.unlink()
     except Exception:

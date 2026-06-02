@@ -9,6 +9,7 @@ import time
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
+from core.storage import atomic_write
 from core.agents.context_manager import ContextManager
 from core.agents.tools.memory_tools import consolidate_memory
 
@@ -159,7 +160,7 @@ def process_daily_note_summary(
     new_content_parts.append("")
 
     new_content = "\n".join(new_content_parts)
-    path.write_text(new_content, encoding="utf-8")
+    atomic_write(path, new_content)
 
     try:
         from core.storage import upload_config
