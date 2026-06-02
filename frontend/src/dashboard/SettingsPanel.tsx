@@ -45,15 +45,34 @@ export function SettingsPanel({ branding, onBrandingUpdate, onClose }: Props) {
   const [botReplyLimitEnabled, setBotReplyLimitEnabled] = useState(true);
   const [botReplyLimit, setBotReplyLimit] = useState(5);
 
+  // Security settings
+  const [securityExpanded, setSecurityExpanded] = useState(false);
+  const [injectionScanning, setInjectionScanning] = useState<string>('flag');
+  const [hbBudgetEnabled, setHbBudgetEnabled] = useState(true);
+  const [hbBudget, setHbBudget] = useState(10);
+  const [intBudgetEnabled, setIntBudgetEnabled] = useState(true);
+  const [intBudget, setIntBudget] = useState(50);
+  const [hourlyEnabled, setHourlyEnabled] = useState(false);
+  const [hourlyLimit, setHourlyLimit] = useState(100);
+  const [eventRetention, setEventRetention] = useState(90);
+
   useEffect(() => {
     if (tab === 'chat') {
-      api<{ always_power_mode: boolean; triage_mode: string; default_model_tier: string; bot_reply_limit_enabled: boolean; bot_reply_limit: number }>('/api/setup/admin-settings')
+      api<Record<string, unknown>>('/api/setup/admin-settings')
         .then(s => {
-          setAlwaysPowerMode(s.always_power_mode);
-          setTriageMode(s.triage_mode);
-          setDefaultModelTier(s.default_model_tier || 'auto');
-          setBotReplyLimitEnabled(s.bot_reply_limit_enabled ?? true);
-          setBotReplyLimit(s.bot_reply_limit ?? 5);
+          setAlwaysPowerMode(s.always_power_mode as boolean);
+          setTriageMode(s.triage_mode as string);
+          setDefaultModelTier((s.default_model_tier as string) || 'auto');
+          setInjectionScanning((s.injection_scanning as string) || 'flag');
+          setHbBudgetEnabled(s.write_budget_heartbeat_enabled as boolean ?? true);
+          setHbBudget(s.write_budget_heartbeat as number ?? 10);
+          setIntBudgetEnabled(s.write_budget_interactive_enabled as boolean ?? true);
+          setIntBudget(s.write_budget_interactive as number ?? 50);
+          setHourlyEnabled(s.hourly_write_rate_limit_enabled as boolean ?? false);
+          setHourlyLimit(s.hourly_write_rate_limit as number ?? 100);
+          setEventRetention(s.event_log_retention_days as number ?? 90);
+          setBotReplyLimitEnabled(s.bot_reply_limit_enabled as boolean ?? true);
+          setBotReplyLimit(s.bot_reply_limit as number ?? 5);
         })
         .catch(() => {});
       api<{ tier_labels: Record<string, Record<string, string>>; active_provider: string }>('/api/providers/tiers')
@@ -449,6 +468,203 @@ export function SettingsPanel({ branding, onBrandingUpdate, onClose }: Props) {
                 </p>
               )}
               <NotificationSettings />
+
+              {/* ── Security section (collapsible) ── */}
+              <div style={{ borderTop: '1px solid rgba(230,235,242,0.08)', paddingTop: 16 }}>
+                <button
+                  onClick={() => setSecurityExpanded(!securityExpanded)}
+                  style={{
+                    background: 'none', border: 'none', cursor: 'pointer', padding: 0,
+                    display: 'flex', alignItems: 'center', gap: 8, width: '100%',
+                  }}
+                >
+                  <span style={{
+                    fontFamily: "'JetBrains Mono', ui-monospace, monospace",
+                    fontSize: 9, letterSpacing: '0.16em', textTransform: 'uppercase' as const,
+                    color: 'rgba(237,240,244,0.38)',
+                  }}>Security</span>
+                  <span style={{
+                    fontSize: 10, color: 'rgba(237,240,244,0.25)',
+                    transform: securityExpanded ? 'rotate(90deg)' : 'none',
+                    transition: 'transform 0.15s',
+                  }}>▸</span>
+                </button>
+
+                {securityExpanded && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 20, marginTop: 16 }}>
+
+                    {/* Injection scanning */}
+                    <div>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                        <div>
+                          <p style={{ fontSize: 14, color: '#EDF0F4', margin: 0 }}>Import scanning</p>
+                          <p style={{ fontSize: 12, color: 'rgba(237,240,244,0.38)', marginTop: 2 }}>Scan imported content for prompt injection patterns</p>
+                        </div>
+                        <div style={{ display: 'flex', gap: 2 }}>
+                          {(['off', 'flag', 'block'] as const).map(mode => (
+                            <button
+                              key={mode}
+                              onClick={async () => {
+                                setInjectionScanning(mode);
+                                await api('/api/setup/admin-settings', { method: 'PUT', body: JSON.stringify({ injection_scanning: mode }) });
+                              }}
+                              style={{
+                                padding: '4px 10px', fontSize: 11, border: 'none', cursor: 'pointer',
+                                borderRadius: mode === 'off' ? '4px 0 0 4px' : mode === 'block' ? '0 4px 4px 0' : 0,
+                                background: injectionScanning === mode ? 'var(--color-ch-accent, #C8D1D9)' : 'rgba(230,235,242,0.08)',
+                                color: injectionScanning === mode ? '#0E1013' : 'rgba(237,240,244,0.5)',
+                                fontWeight: injectionScanning === mode ? 600 : 400,
+                                textTransform: 'capitalize' as const,
+                              }}
+                            >{mode}</button>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Write budgets heading */}
+                    <p style={{
+                      fontFamily: "'JetBrains Mono', ui-monospace, monospace",
+                      fontSize: 9, letterSpacing: '0.16em', textTransform: 'uppercase' as const,
+                      color: 'rgba(237,240,244,0.25)', margin: 0,
+                    }}>Write Budgets</p>
+
+                    {/* Heartbeat write budget */}
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                      <div style={{ flex: 1 }}>
+                        <p style={{ fontSize: 14, color: '#EDF0F4', margin: 0 }}>Heartbeat write budget</p>
+                        <p style={{ fontSize: 12, color: 'rgba(237,240,244,0.38)', marginTop: 2 }}>Max write operations per background turn</p>
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <button
+                          onClick={async () => {
+                            const next = !hbBudgetEnabled;
+                            setHbBudgetEnabled(next);
+                            await api('/api/setup/admin-settings', { method: 'PUT', body: JSON.stringify({ write_budget_heartbeat_enabled: next }) });
+                          }}
+                          style={{
+                            position: 'relative', width: 44, height: 24, borderRadius: 12,
+                            background: hbBudgetEnabled ? 'var(--color-ch-accent, #C8D1D9)' : 'rgba(230,235,242,0.14)',
+                            border: 'none', cursor: 'pointer', transition: 'background 0.2s',
+                          }}
+                        >
+                          <span style={{ position: 'absolute', top: 2, width: 20, height: 20, borderRadius: '50%', background: '#fff', boxShadow: '0 1px 3px rgba(0,0,0,0.3)', transition: 'left 0.2s', left: hbBudgetEnabled ? 22 : 2 }} />
+                        </button>
+                        <input
+                          type="number" min={1} value={hbBudget} disabled={!hbBudgetEnabled}
+                          onChange={e => setHbBudget(Number(e.target.value))}
+                          onBlur={async () => {
+                            if (hbBudget >= 1) await api('/api/setup/admin-settings', { method: 'PUT', body: JSON.stringify({ write_budget_heartbeat: hbBudget }) });
+                          }}
+                          style={{
+                            width: 60, padding: '4px 8px', fontSize: 13, textAlign: 'right' as const,
+                            background: 'rgba(230,235,242,0.08)', border: '1px solid rgba(230,235,242,0.14)',
+                            color: hbBudgetEnabled ? '#EDF0F4' : 'rgba(237,240,244,0.25)',
+                            borderRadius: 4, outline: 'none', opacity: hbBudgetEnabled ? 1 : 0.4,
+                          }}
+                        />
+                      </div>
+                    </div>
+
+                    {/* Interactive write budget */}
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                      <div style={{ flex: 1 }}>
+                        <p style={{ fontSize: 14, color: '#EDF0F4', margin: 0 }}>Chat write budget</p>
+                        <p style={{ fontSize: 12, color: 'rgba(237,240,244,0.38)', marginTop: 2 }}>Max write operations per chat turn</p>
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <button
+                          onClick={async () => {
+                            const next = !intBudgetEnabled;
+                            setIntBudgetEnabled(next);
+                            await api('/api/setup/admin-settings', { method: 'PUT', body: JSON.stringify({ write_budget_interactive_enabled: next }) });
+                          }}
+                          style={{
+                            position: 'relative', width: 44, height: 24, borderRadius: 12,
+                            background: intBudgetEnabled ? 'var(--color-ch-accent, #C8D1D9)' : 'rgba(230,235,242,0.14)',
+                            border: 'none', cursor: 'pointer', transition: 'background 0.2s',
+                          }}
+                        >
+                          <span style={{ position: 'absolute', top: 2, width: 20, height: 20, borderRadius: '50%', background: '#fff', boxShadow: '0 1px 3px rgba(0,0,0,0.3)', transition: 'left 0.2s', left: intBudgetEnabled ? 22 : 2 }} />
+                        </button>
+                        <input
+                          type="number" min={1} value={intBudget} disabled={!intBudgetEnabled}
+                          onChange={e => setIntBudget(Number(e.target.value))}
+                          onBlur={async () => {
+                            if (intBudget >= 1) await api('/api/setup/admin-settings', { method: 'PUT', body: JSON.stringify({ write_budget_interactive: intBudget }) });
+                          }}
+                          style={{
+                            width: 60, padding: '4px 8px', fontSize: 13, textAlign: 'right' as const,
+                            background: 'rgba(230,235,242,0.08)', border: '1px solid rgba(230,235,242,0.14)',
+                            color: intBudgetEnabled ? '#EDF0F4' : 'rgba(237,240,244,0.25)',
+                            borderRadius: 4, outline: 'none', opacity: intBudgetEnabled ? 1 : 0.4,
+                          }}
+                        />
+                      </div>
+                    </div>
+
+                    {/* Hourly write rate limit */}
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                      <div style={{ flex: 1 }}>
+                        <p style={{ fontSize: 14, color: '#EDF0F4', margin: 0 }}>Hourly write limit</p>
+                        <p style={{ fontSize: 12, color: 'rgba(237,240,244,0.38)', marginTop: 2 }}>Global cap on write operations per hour (all agents)</p>
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <button
+                          onClick={async () => {
+                            const next = !hourlyEnabled;
+                            setHourlyEnabled(next);
+                            await api('/api/setup/admin-settings', { method: 'PUT', body: JSON.stringify({ hourly_write_rate_limit_enabled: next }) });
+                          }}
+                          style={{
+                            position: 'relative', width: 44, height: 24, borderRadius: 12,
+                            background: hourlyEnabled ? 'var(--color-ch-accent, #C8D1D9)' : 'rgba(230,235,242,0.14)',
+                            border: 'none', cursor: 'pointer', transition: 'background 0.2s',
+                          }}
+                        >
+                          <span style={{ position: 'absolute', top: 2, width: 20, height: 20, borderRadius: '50%', background: '#fff', boxShadow: '0 1px 3px rgba(0,0,0,0.3)', transition: 'left 0.2s', left: hourlyEnabled ? 22 : 2 }} />
+                        </button>
+                        <input
+                          type="number" min={1} value={hourlyLimit} disabled={!hourlyEnabled}
+                          onChange={e => setHourlyLimit(Number(e.target.value))}
+                          onBlur={async () => {
+                            if (hourlyLimit >= 1) await api('/api/setup/admin-settings', { method: 'PUT', body: JSON.stringify({ hourly_write_rate_limit: hourlyLimit }) });
+                          }}
+                          style={{
+                            width: 60, padding: '4px 8px', fontSize: 13, textAlign: 'right' as const,
+                            background: 'rgba(230,235,242,0.08)', border: '1px solid rgba(230,235,242,0.14)',
+                            color: hourlyEnabled ? '#EDF0F4' : 'rgba(237,240,244,0.25)',
+                            borderRadius: 4, outline: 'none', opacity: hourlyEnabled ? 1 : 0.4,
+                          }}
+                        />
+                      </div>
+                    </div>
+
+                    {/* Event log retention */}
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                      <div style={{ flex: 1 }}>
+                        <p style={{ fontSize: 14, color: '#EDF0F4', margin: 0 }}>Event log retention</p>
+                        <p style={{ fontSize: 12, color: 'rgba(237,240,244,0.38)', marginTop: 2 }}>How long to keep event log entries</p>
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <input
+                          type="number" min={1} value={eventRetention}
+                          onChange={e => setEventRetention(Number(e.target.value))}
+                          onBlur={async () => {
+                            if (eventRetention >= 1) await api('/api/setup/admin-settings', { method: 'PUT', body: JSON.stringify({ event_log_retention_days: eventRetention }) });
+                          }}
+                          style={{
+                            width: 60, padding: '4px 8px', fontSize: 13, textAlign: 'right' as const,
+                            background: 'rgba(230,235,242,0.08)', border: '1px solid rgba(230,235,242,0.14)',
+                            color: '#EDF0F4', borderRadius: 4, outline: 'none',
+                          }}
+                        />
+                        <span style={{ fontSize: 12, color: 'rgba(237,240,244,0.38)' }}>days</span>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
             </div>
           )}
 

@@ -86,7 +86,7 @@ def build_agent_config(agent_row: dict) -> AgentConfig:
     )
 
     if not config.model_override:
-        from setup.router import load_admin_settings
+        from core.admin_settings import load_admin_settings
         global_tier = load_admin_settings().get("default_model_tier", "auto")
         if global_tier != "auto":
             config.model_tier = global_tier

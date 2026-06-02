@@ -51,6 +51,7 @@ def _setup_connection() -> None:
     _connection.execute("PRAGMA journal_mode=WAL")
     _connection.execute("PRAGMA foreign_keys=ON")
     _connection.execute("PRAGMA busy_timeout=5000")
+    _connection.execute("PRAGMA synchronous=FULL")
 
     columns_sql = ", ".join(f"{col} INTEGER NOT NULL DEFAULT 1" for col in TOGGLE_COLUMNS)
     _connection.executescript(f"""

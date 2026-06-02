@@ -11,7 +11,7 @@ from datetime import datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-from core.storage import upload_config, delete_config
+from core.storage import atomic_write, upload_config, delete_config
 
 logger = logging.getLogger(__name__)
 
@@ -232,7 +232,7 @@ class ContextManager:
         """Write a context file and sync to GCS."""
         self.ensure_dir()
         path = self.data_dir / filename
-        path.write_text(content, encoding="utf-8")
+        atomic_write(path, content)
         upload_config(path, filename, prefix=self.gcs_prefix)
         logger.info("Context file written and synced: %s", filename)
 
@@ -298,7 +298,7 @@ class ContextManager:
         else:
             new_content = f"# {date}\n{entry}"
 
-        path.write_text(new_content, encoding="utf-8")
+        atomic_write(path, new_content)
         try:
             upload_config(path, f"daily/{date}.md", prefix=self.gcs_prefix)
         except Exception:

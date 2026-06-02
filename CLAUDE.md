@@ -149,6 +149,7 @@ integrations/{name}/
 4. **Add dispatch** in `core/agents/tool_registry.py` — add a `_execute_{name}` method and wire it in `execute_tool`
 5. **For OAuth integrations**: use the shared two-step flow in `core/providers/oauth.py` — `start_oauth_flow()` returns `{flow_id, auth_url}`, frontend opens popup + polls, `/setup/complete` calls `consume_flow()`
 6. **Frontend**: add a card component in `dashboard/` and wire it into `IntegrationsTab.tsx`
+7. **Delimiter wrapping**: if the integration fetches data from external APIs, its tools are automatically wrapped in `<untrusted_tool_result>` delimiters (tools with `kind: "integration"` are wrapped by default). If the integration reads from local user data (like CRM Lite), add its tool name prefix to `_UNWRAPPED_INTEGRATION_PREFIXES` in `core/agents/security/delimiters.py`
 
 ### Tool auto-discovery
 
@@ -160,7 +161,7 @@ Tools appear for agents automatically when their integration is enabled globally
 
 ### Write tools
 
-Tools that modify external data (send email, create event, upload file) must set `writes: True` in their tool definition. Chatty's `tool_mode` system will require user confirmation before executing write tools in "normal" mode.
+Tools that modify external data (send email, create event, upload file) must set `writes: True` in their tool definition. Chatty's `tool_mode` system will require user confirmation before executing write tools in "normal" mode. Write tools (excluding `context_memory` tools) are also subject to per-turn write budgets and optional hourly rate limits configured in admin settings.
 
 ## Worktrees
 

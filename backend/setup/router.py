@@ -11,6 +11,15 @@ from pathlib import Path
 from fastapi import APIRouter, Depends
 
 from core.auth import get_current_user
+from core.admin_settings import (
+    load_admin_settings,
+    invalidate_cache,
+    ADMIN_DEFAULTS,
+    ADMIN_SETTINGS_FILE,
+    VALID_TRIAGE_MODES,
+    VALID_MODEL_TIERS,
+    VALID_INJECTION_MODES,
+)
 from core.providers.credentials import CredentialStore
 from core.storage import atomic_write_json
 from branding.storage import load_config as load_branding, DEFAULT_CONFIG as BRANDING_DEFAULTS
@@ -20,47 +29,6 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 STATUS_FILE = Path(__file__).resolve().parent.parent / "data" / "setup-status.json"
-ADMIN_SETTINGS_FILE = Path(__file__).resolve().parent.parent / "data" / "admin-settings.json"
-
-ADMIN_DEFAULTS = {
-    "always_power_mode": False,
-    "triage_mode": "always_cheap",
-    "default_model_tier": "auto",
-    "notifications_web_push": True,
-    "notifications_telegram": True,
-    "notifications_whatsapp": True,
-    "bot_reply_limit_enabled": True,
-    "bot_reply_limit": 5,
-}
-
-VALID_TRIAGE_MODES = {"standard", "cheap", "always_cheap"}
-VALID_MODEL_TIERS = {"auto", "top", "mid", "light"}
-
-
-def _sanitize_admin_settings(settings: dict) -> dict:
-    """Apply field coercions and validations to admin settings."""
-    settings["always_power_mode"] = bool(settings.get("always_power_mode", ADMIN_DEFAULTS["always_power_mode"]))
-    if not isinstance(settings.get("triage_mode"), str) or settings["triage_mode"] not in VALID_TRIAGE_MODES:
-        settings["triage_mode"] = ADMIN_DEFAULTS["triage_mode"]
-    if not isinstance(settings.get("default_model_tier"), str) or settings["default_model_tier"] not in VALID_MODEL_TIERS:
-        settings["default_model_tier"] = ADMIN_DEFAULTS["default_model_tier"]
-    if not isinstance(settings.get("bot_reply_limit_enabled"), bool):
-        settings["bot_reply_limit_enabled"] = ADMIN_DEFAULTS["bot_reply_limit_enabled"]
-    try:
-        settings["bot_reply_limit"] = max(1, min(100, int(settings["bot_reply_limit"])))
-    except (TypeError, ValueError, KeyError):
-        settings["bot_reply_limit"] = ADMIN_DEFAULTS["bot_reply_limit"]
-    return settings
-
-
-def load_admin_settings() -> dict:
-    if ADMIN_SETTINGS_FILE.exists():
-        try:
-            result = {**ADMIN_DEFAULTS, **json.loads(ADMIN_SETTINGS_FILE.read_text(encoding="utf-8"))}
-            return _sanitize_admin_settings(result)
-        except Exception:
-            pass
-    return dict(ADMIN_DEFAULTS)
 
 
 def _load_status() -> dict:
@@ -133,6 +101,22 @@ async def update_admin_settings(body: dict, user=Depends(get_current_user)):
     for key in ADMIN_DEFAULTS:
         if key in body:
             settings[key] = body[key]
-    settings = _sanitize_admin_settings(settings)
+    for _bool_key in ("always_power_mode", "write_budget_heartbeat_enabled",
+                      "write_budget_interactive_enabled", "hourly_write_rate_limit_enabled",
+                      "bot_reply_limit_enabled"):
+        if _bool_key in settings:
+            settings[_bool_key] = bool(settings[_bool_key])
+    if not isinstance(settings.get("triage_mode"), str) or settings["triage_mode"] not in VALID_TRIAGE_MODES:
+        settings["triage_mode"] = ADMIN_DEFAULTS["triage_mode"]
+    if not isinstance(settings.get("default_model_tier"), str) or settings["default_model_tier"] not in VALID_MODEL_TIERS:
+        settings["default_model_tier"] = ADMIN_DEFAULTS["default_model_tier"]
+    if settings.get("injection_scanning") not in VALID_INJECTION_MODES:
+        settings["injection_scanning"] = ADMIN_DEFAULTS["injection_scanning"]
+    for _int_key in ("write_budget_heartbeat", "write_budget_interactive",
+                     "hourly_write_rate_limit", "event_log_retention_days",
+                     "bot_reply_limit"):
+        if not isinstance(settings.get(_int_key), int) or settings[_int_key] < 1:
+            settings[_int_key] = ADMIN_DEFAULTS[_int_key]
     atomic_write_json(ADMIN_SETTINGS_FILE, settings)
+    invalidate_cache()
     return settings

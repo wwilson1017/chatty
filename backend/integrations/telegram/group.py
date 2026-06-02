@@ -77,7 +77,7 @@ def should_respond(
     bot_limit_enabled = True
     bot_limit_max = 5
     if sender_is_bot:
-        from setup.router import load_admin_settings
+        from core.admin_settings import load_admin_settings
         settings = load_admin_settings()
         bot_limit_enabled = settings.get("bot_reply_limit_enabled", True)
         bot_limit_max = max(1, settings.get("bot_reply_limit", 5))

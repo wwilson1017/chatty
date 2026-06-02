@@ -13,6 +13,8 @@ from datetime import datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
+from core.storage import atomic_write
+
 logger = logging.getLogger(__name__)
 
 CT_TZ = ZoneInfo("America/Chicago")
@@ -122,7 +124,7 @@ def generate_report(
 
     dir_path = _ensure_reports_dir(reports_dir)
     filepath = dir_path / f"{report_id}.json"
-    filepath.write_text(json.dumps(report, indent=2, default=str), encoding="utf-8")
+    atomic_write(filepath, json.dumps(report, indent=2, default=str))
 
     logger.info("Generated report '%s' (%s) with %d sections", title, report_id, len(validated_sections))
     return {"ok": True, **report}

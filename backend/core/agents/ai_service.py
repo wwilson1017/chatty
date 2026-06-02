@@ -35,6 +35,7 @@ from .config import AgentConfig
 from .context_manager import ContextManager
 from .tool_registry import ToolRegistry
 from .tool_definitions import get_tool_definitions, get_report_instructions, get_scheduling_instructions, get_qb_csv_instructions, build_writes_map, build_context_memory_map
+from .security.delimiters import should_wrap, wrap_result, DELIMITER_SYSTEM_INSTRUCTION
 from .tools.real_tools import load_all_real_tools
 from .deferred_tools import (
     should_defer_tools, build_tool_catalog, handle_deferred_tool_call,
@@ -433,6 +434,8 @@ def _build_system_prompt(
         if _integration_enabled("qb_csv"):
             parts.append(get_qb_csv_instructions())
 
+    parts.append(DELIMITER_SYSTEM_INSTRUCTION)
+
     if plan_mode:
         parts.append(_plan_mode_instructions())
 
@@ -794,6 +797,18 @@ async def chat(
     kind_map = _build_kind_map(tool_defs)
     writes_map = build_writes_map(tool_defs)
     cm_map = build_context_memory_map(tool_defs)
+
+    # ── Write budget + rate limit (interactive) ──────────────────────
+    from core.admin_settings import load_admin_settings as _load_admin
+    from core.agents.security.write_budget import BudgetState, BudgetAction
+    from core.agents.security.rate_limiter import get_limiter
+    _security_settings = _load_admin()
+    _write_budget = BudgetState(
+        limit=_security_settings.get("write_budget_interactive", 50),
+        enabled=_security_settings.get("write_budget_interactive_enabled", True),
+    )
+    _hourly_enabled = _security_settings.get("hourly_write_rate_limit_enabled", False)
+    _hourly_limit = _security_settings.get("hourly_write_rate_limit", 100)
 
     # ── Per-tool effective mode (min of chat mode and integration ceiling) ──
     _MODE_RANK = {"read-only": 0, "normal": 1, "power": 2}
@@ -1196,6 +1211,39 @@ async def chat(
             is_cm = cm_map.get(tool_name, False)
             eff_mode = _effective_mode(tool_name)
 
+            # ── Write budget + rate limit check ──
+            if is_write and not is_cm:
+                _budget_action = _write_budget.check_write(tool_name)
+                if _budget_action == BudgetAction.REJECT:
+                    result_str = json.dumps({"error": f"Write budget exceeded ({_write_budget.limit} writes per turn). This write was rejected. Any further write attempts will terminate this turn immediately."})
+                    results.append({"tool_use_id": tool_use_id, "tool_name": tool_name, "content": result_str})
+                    try:
+                        from core.events.service import log_security_event
+                        log_security_event("write_budget_exceeded", f"Write budget hit in chat: {tool_name}", agent_slug=config.slug, source="interactive")
+                    except Exception:
+                        pass
+                    continue
+                elif _budget_action == BudgetAction.TERMINATE:
+                    try:
+                        from core.events.service import log_security_event
+                        log_security_event("write_budget_terminated", f"Turn terminated after second budget violation: {tool_name}", severity="error", agent_slug=config.slug, source="interactive")
+                    except Exception:
+                        pass
+                    result_str = json.dumps({"error": "Turn terminated: write budget exceeded"})
+                    results.append({"tool_use_id": tool_use_id, "tool_name": tool_name, "content": result_str})
+                    yield _sse({"type": "error", "error": "Write budget exceeded. Turn terminated."})
+                    return
+
+                if _hourly_enabled and not get_limiter().check_and_record(_hourly_limit):
+                    result_str = json.dumps({"error": "Hourly write rate limit exceeded. Try again later."})
+                    results.append({"tool_use_id": tool_use_id, "tool_name": tool_name, "content": result_str})
+                    try:
+                        from core.events.service import log_security_event
+                        log_security_event("hourly_rate_exceeded", f"Hourly rate limit hit: {tool_name}", agent_slug=config.slug, source="interactive")
+                    except Exception:
+                        pass
+                    continue
+
             if eff_mode == "normal" and is_write and not is_cm:
                 # Get human-readable description
                 tool_desc = next(
@@ -1229,6 +1277,8 @@ async def chat(
             _sync_context_after_tool(tool_name, result, ctx_manager)
 
             result_str = json.dumps(result)
+            if should_wrap(tool_name, kind):
+                result_str = wrap_result(tool_name, result_str)
             results.append({
                 "tool_use_id": tool_use_id,
                 "tool_name": tool_name,
@@ -1349,6 +1399,18 @@ async def run_sync(
     writes_map = build_writes_map(tool_defs)
     cm_map = build_context_memory_map(tool_defs)
     integration_map = {t["name"]: t.get("integration", "") for t in tool_defs}
+
+    # ── Write budget + rate limit (interactive — user-initiated via messaging) ──
+    from core.admin_settings import load_admin_settings as _load_admin_sync
+    from core.agents.security.write_budget import BudgetState as _BudgetState, BudgetAction as _BudgetAction
+    from core.agents.security.rate_limiter import get_limiter as _get_limiter
+    _sync_security = _load_admin_sync()
+    _sync_write_budget = _BudgetState(
+        limit=_sync_security.get("write_budget_interactive", 50),
+        enabled=_sync_security.get("write_budget_interactive_enabled", True),
+    )
+    _sync_hourly_enabled = _sync_security.get("hourly_write_rate_limit_enabled", False)
+    _sync_hourly_limit = _sync_security.get("hourly_write_rate_limit", 100)
 
     # ── Deferred tool loading ────────────────────────────────────────
     deferred_tools: list[dict] = []
@@ -1499,6 +1561,43 @@ async def run_sync(
 
             kind = kind_map.get(tool_name, "context")
 
+            # ── Write budget + rate limit check ──
+            is_write = writes_map.get(tool_name, False)
+            is_cm = cm_map.get(tool_name, False)
+            if is_write and not is_cm:
+                _ba = _sync_write_budget.check_write(tool_name)
+                if _ba == _BudgetAction.REJECT:
+                    result_str = json.dumps({"error": f"Write budget exceeded ({_sync_write_budget.limit} writes per turn). This write was rejected. Any further write attempts will terminate this turn immediately."})
+                    results.append({"tool_use_id": tool_use_id, "tool_name": tool_name, "content": result_str})
+                    all_tool_calls.append({"tool": tool_name, "tool_use_id": tool_use_id, "args": tool_args, "result": result_str[:2000], "elapsed_ms": 0})
+                    try:
+                        from core.events.service import log_security_event
+                        log_security_event("write_budget_exceeded", f"Write budget hit in run_sync: {tool_name}", agent_slug=config.slug, source="interactive")
+                    except Exception:
+                        pass
+                    continue
+                elif _ba == _BudgetAction.TERMINATE:
+                    try:
+                        from core.events.service import log_security_event
+                        log_security_event("write_budget_terminated", f"run_sync terminated after second budget violation: {tool_name}", severity="error", agent_slug=config.slug, source="interactive")
+                    except Exception:
+                        pass
+                    _log_chat_completion(config.slug, conversation_id, source, "error",
+                                        "Write budget exceeded — turn terminated", all_tool_calls, model_used,
+                                        total_input_tokens, total_output_tokens, chat_start_time)
+                    return accumulated_text or "Write budget exceeded. Turn terminated."
+
+                if _sync_hourly_enabled and not _get_limiter().check_and_record(_sync_hourly_limit):
+                    result_str = json.dumps({"error": "Hourly write rate limit exceeded. Try again later."})
+                    results.append({"tool_use_id": tool_use_id, "tool_name": tool_name, "content": result_str})
+                    all_tool_calls.append({"tool": tool_name, "tool_use_id": tool_use_id, "args": tool_args, "result": result_str[:2000], "elapsed_ms": 0})
+                    try:
+                        from core.events.service import log_security_event
+                        log_security_event("hourly_rate_exceeded", f"Hourly rate limit hit in run_sync: {tool_name}", agent_slug=config.slug, source="interactive")
+                    except Exception:
+                        pass
+                    continue
+
             t_start = time.time()
             try:
                 result = await registry.execute_tool(tool_name, tool_args, kind)
@@ -1509,6 +1608,8 @@ async def run_sync(
             elapsed_ms = int((time.time() - t_start) * 1000)
 
             result_str = json.dumps(result)
+            if should_wrap(tool_name, kind):
+                result_str = wrap_result(tool_name, result_str)
             results.append({
                 "tool_use_id": tool_use_id,
                 "tool_name": tool_name,

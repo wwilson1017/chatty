@@ -48,6 +48,7 @@ class ChatHistoryDB:
         self._connection.execute("PRAGMA journal_mode=WAL")
         self._connection.execute("PRAGMA foreign_keys=ON")
         self._connection.execute("PRAGMA busy_timeout=5000")
+        self._connection.execute("PRAGMA synchronous=FULL")
 
         self._create_schema(self._connection)
         logger.info("Chat history DB initialized at %s", self.db_path)

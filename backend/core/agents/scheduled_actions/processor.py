@@ -17,6 +17,7 @@ from zoneinfo import ZoneInfo
 from core.agents.background_runner import run_background_turn
 from core.agents.tool_registry import ToolRegistry
 from core.agents.tool_definitions import get_tool_definitions
+from core.agents.security.delimiters import DELIMITER_SYSTEM_INSTRUCTION
 
 from . import history, notifications, service
 
@@ -398,7 +399,7 @@ def _process_heartbeat(action: dict) -> None:
     try:
         triage_data = None
 
-        from setup.router import load_admin_settings
+        from core.admin_settings import load_admin_settings
         admin = load_admin_settings()
         triage_mode = admin["triage_mode"]
 
@@ -429,6 +430,7 @@ def _process_heartbeat(action: dict) -> None:
                     f"- NEEDS_ACTION: <brief reason>\n"
                     f"- ALL_CLEAR\n\n"
                     f"## Checklist\n\n{checklist}\n"
+                    + "\n\n" + DELIMITER_SYSTEM_INSTRUCTION
                 ),
                 user_message="Quick triage check — anything need attention?",
                 tool_defs=[],
@@ -507,6 +509,7 @@ def _process_heartbeat(action: dict) -> None:
                 f"and check each item against current data using your tools.\n\n"
                 f"## Your Checklist\n\n{checklist}\n\n"
                 f"## Your Knowledge (abbreviated)\n\n{context_snippet}\n\n"
+                + DELIMITER_SYSTEM_INSTRUCTION + "\n\n"
             ),
             (
                 f"# Current Date & Time\n\n"
@@ -636,6 +639,7 @@ def _process_cron(action: dict) -> None:
             + f"# Scheduled Action: {action.get('name', 'Unnamed')}\n\n"
             f"{prompt}\n\n"
             f"# Your Knowledge (abbreviated)\n\n{context_snippet}\n\n"
+            + DELIMITER_SYSTEM_INSTRUCTION + "\n\n"
         ),
         (
             f"# Current Date & Time\n\n"

@@ -12,6 +12,7 @@ import HeartbeatPanel from './components/HeartbeatPanel';
 import AgentRemindersPanel from './components/AgentRemindersPanel';
 import { ConversationSidebar } from './components/ConversationSidebar';
 import { AvatarPicker } from './components/AvatarPicker';
+import { AvatarMenu } from './components/AvatarMenu';
 import { AgentMark } from '../shared/AgentMark';
 import { useIsMobile } from '../shared/useIsMobile';
 import { MobileMenuDrawer } from '../shared/MobileMenuDrawer';
@@ -67,9 +68,11 @@ export function AgentPage() {
   const [agent, setAgent] = useState<AgentRow | null>(null);
   const [activeTab, setActiveTab] = useState<Tab>(() => parseTab(searchParams.get('tab')) || 'chat');
   const [showAvatarPicker, setShowAvatarPicker] = useState(false);
+  const [avatarMenuRect, setAvatarMenuRect] = useState<DOMRect | null>(null);
   const [showSidebar, setShowSidebar] = useState(false);
   const [openaiAvailable, setOpenaiAvailable] = useState(false);
   const [alwaysPowerMode, setAlwaysPowerMode] = useState(false);
+  const [avatarCacheBust, setAvatarCacheBust] = useState(0);
   const [activeProvider, setActiveProvider] = useState('');
   const [modelTier, setModelTier] = useState<ModelTier>('auto');
   const [tierLabels, setTierLabels] = useState<Record<string, string>>({});
@@ -313,7 +316,22 @@ export function AgentPage() {
 
   function handleAvatarComplete() {
     setShowAvatarPicker(false);
+    setAvatarMenuRect(null);
+    setAvatarCacheBust(Date.now());
     if (agentId) api<AgentRow>(`/api/agents/${agentId}`).then(setAgent).catch(() => {});
+  }
+
+  function buildAvatarUrl() {
+    if (!agent?.avatar_url) return undefined;
+    const token = sessionStorage.getItem('chatty_token') || '';
+    return `${agent.avatar_url}?token=${token}&t=${avatarCacheBust}`;
+  }
+
+  function handleAvatarClick(e: React.MouseEvent) {
+    e.stopPropagation();
+    if (!agent?.onboarding_complete) return;
+    const el = (e.currentTarget as HTMLElement);
+    setAvatarMenuRect(prev => prev ? null : el.getBoundingClientRect());
   }
 
   if (!agent) {
@@ -357,30 +375,24 @@ export function AgentPage() {
             </div>
           )}
 
-          <AgentMark
-            letter={letter}
-            size={28}
-            avatarUrl={agent.avatar_url ? `${agent.avatar_url}${agent.avatar_url.includes('?') ? '&' : '?'}token=${sessionStorage.getItem('chatty_token') || ''}` : undefined}
-          />
+          <div
+            onClick={handleAvatarClick}
+            style={{
+              cursor: agent.onboarding_complete ? 'pointer' : 'default',
+              borderRadius: 6, lineHeight: 0,
+            }}
+          >
+            <AgentMark
+              letter={letter}
+              size={28}
+              avatarUrl={buildAvatarUrl()}
+            />
+          </div>
 
           <span style={{
             fontFamily: "'Fraunces', Georgia, serif",
             fontSize: 16, letterSpacing: '-0.01em', color: '#EDF0F4',
           }}>{agent.agent_name}</span>
-
-          {!isMobile && agent.onboarding_complete && !agent.avatar_url && (
-            <button
-              onClick={() => setShowAvatarPicker(true)}
-              style={{
-                fontSize: 11, background: 'rgba(34,40,48,0.55)',
-                color: 'rgba(237,240,244,0.62)',
-                border: '1px solid rgba(230,235,242,0.07)',
-                borderRadius: 4, padding: '2px 8px', cursor: 'pointer',
-              }}
-            >
-              Set Avatar
-            </button>
-          )}
 
           {/* Tool mode selector — hidden on mobile */}
           {!isMobile && activeTab === 'chat' && (
@@ -580,10 +592,10 @@ export function AgentPage() {
                   display: 'flex', flexDirection: 'column', gap: 2,
                   padding: '8px 12px', borderBottom: '1px solid rgba(230,235,242,0.07)',
                 }}>
-                  {agent.onboarding_complete && !agent.avatar_url && (
+                  {agent.onboarding_complete && (
                     <div onClick={() => { setShowSidebar(false); setShowAvatarPicker(true); }}
                       style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 8px', borderRadius: 4, cursor: 'pointer', color: 'rgba(237,240,244,0.7)' }}>
-                      <span style={{ fontSize: 14 }}>Set Avatar</span>
+                      <span style={{ fontSize: 14 }}>{agent.avatar_url ? 'Change Avatar' : 'Set Avatar'}</span>
                     </div>
                   )}
                   <div onClick={() => { setShowSidebar(false); handleTogglePlanMode(); }}
@@ -603,6 +615,7 @@ export function AgentPage() {
                 <div style={{ flex: 1, overflow: 'auto' }}>
                   <ConversationSidebar
                     agentName={agent.agent_name}
+                    avatarUrl={buildAvatarUrl()}
                     conversations={convs.conversations}
                     activeId={convs.activeId}
                     searchQuery={convs.searchQuery}
@@ -620,6 +633,8 @@ export function AgentPage() {
             {!isMobile && (
               <ConversationSidebar
                 agentName={agent.agent_name}
+                avatarUrl={buildAvatarUrl()}
+                onAvatarClick={handleAvatarClick}
                 conversations={convs.conversations}
                 activeId={convs.activeId}
                 searchQuery={convs.searchQuery}
@@ -677,6 +692,19 @@ export function AgentPage() {
           </div>
         ) : null}
       </div>
+
+      {/* Avatar menu popover */}
+      {avatarMenuRect && (
+        <AvatarMenu
+          agentId={agentId!}
+          hasAvatar={!!agent.avatar_url}
+          openaiAvailable={openaiAvailable}
+          onGenerate={() => { setAvatarMenuRect(null); setShowAvatarPicker(true); }}
+          onAvatarChanged={handleAvatarComplete}
+          onClose={() => setAvatarMenuRect(null)}
+          anchorRect={avatarMenuRect}
+        />
+      )}
 
       {/* Avatar picker overlay */}
       {showAvatarPicker && (
