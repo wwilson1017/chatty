@@ -7,6 +7,11 @@
 
 - `[0.70]` **When** extracting a shared function from a module that others import → **do** keep a re-export in the original module and update all internal callers to the new location → **because** external callers (tests, plugins) may import from the old path; re-export prevents silent breakage while the new canonical path is established
 - `[0.70]` **When** replacing `getattr(obj, "attr", fallback)` with an explicit parameter → **do** verify every call site passes the parameter, or keep the `getattr` fallback at the entry point → **because** the `_slug` UnboundLocalError was introduced by removing `getattr` in the outer function without ensuring callers pass the new arg
+- `[0.70]` **When** adding new admin settings to Chatty → **do** add them to `core/admin_settings.py` (not `setup/router.py`) → **because** admin settings were extracted to a dedicated cached module; adding to the old location creates conflicts and bypasses the mtime cache
+
+## Git & Workflow
+
+- `[0.70]` **When** resolving merge conflicts → **do** use `git add <specific files>`, never `git add -A` → **because** `-A` pulled `.claude/fresh-eyes/context.md` (216 lines of session research notes) into the merge commit, which then shipped in the PR
 
 ## Deploy & Infrastructure
 
