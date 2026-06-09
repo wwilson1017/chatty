@@ -969,8 +969,9 @@ class MemoryDB:
                        updated_at = datetime('now')
                    WHERE valid_to IS NULL
                      AND confidence > ?
+                     AND created_at < ?
                      AND (last_retrieved_at IS NULL OR last_retrieved_at < ?)""",
-                (floor, decay_amount, floor, cutoff),
+                (floor, decay_amount, floor, cutoff, cutoff),
             )
             conn.commit()
         decayed = cursor.rowcount

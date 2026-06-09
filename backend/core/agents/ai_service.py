@@ -469,7 +469,6 @@ def _build_system_prompt(
         _memory_db = _get_memory_db(str(ctx_manager.data_dir))
         relevant = ctx_manager.relevance_prefetch(first_user_message, memory_db=_memory_db)
         if relevant:
-            injected_ids = prefetch_state.get("injected_ids", set()) if prefetch_state else set()
             prefetch_parts: list[str] = []
             prefetch_chars = 0
             max_prefetch = 30_000
@@ -477,7 +476,7 @@ def _build_system_prompt(
             new_items: list[dict] = []
             for item in relevant:
                 item_id = item.get("id", f"{item['kind']}:{item['name']}")
-                if item_id in injected_ids:
+                if item_id in new_ids:
                     continue
                 section = f"## [{item['kind']}] {item['name']}\n\n{item['content']}"
                 if prefetch_chars + len(section) > max_prefetch:

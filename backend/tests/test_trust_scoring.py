@@ -92,6 +92,18 @@ def test_decay_skips_recently_retrieved(tmp_path):
     assert result["decayed"] == 0
 
 
+def test_decay_skips_new_facts(tmp_path):
+    db = _make_db(tmp_path)
+    db.add_fact("Fresh", "is", "new", confidence=0.8)
+    # Don't backdate — fact was just created
+    result = db.decay_stale_confidence(stale_days=60)
+    assert result["decayed"] == 0
+
+    conn = db.get_db()
+    row = conn.execute("SELECT confidence FROM facts WHERE subject='Fresh'").fetchone()
+    assert row["confidence"] == 0.8
+
+
 def test_new_columns_exist_after_migration(tmp_path):
     db = _make_db(tmp_path)
     conn = db.get_db()
