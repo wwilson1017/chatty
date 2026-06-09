@@ -25,14 +25,25 @@ def test_retrieval_count_increments(tmp_path):
     result = db.add_fact("Alice", "works at", "Acme")
     fact_id = result["id"]
 
-    # Query twice
-    db.query_facts(subject="Alice")
+    # First query — should increment
     db.query_facts(subject="Alice")
 
     conn = db.get_db()
     row = conn.execute("SELECT retrieval_count, last_retrieved_at FROM facts WHERE id=?", (fact_id,)).fetchone()
-    assert row["retrieval_count"] == 2
+    assert row["retrieval_count"] == 1
     assert row["last_retrieved_at"] is not None
+
+    # Second query within 1 hour — throttled, count stays at 1
+    db.query_facts(subject="Alice")
+    row = conn.execute("SELECT retrieval_count FROM facts WHERE id=?", (fact_id,)).fetchone()
+    assert row["retrieval_count"] == 1
+
+    # Backdate last_retrieved_at to simulate passage of time, then query again
+    conn.execute("UPDATE facts SET last_retrieved_at = datetime('now', '-2 hours') WHERE id=?", (fact_id,))
+    conn.commit()
+    db.query_facts(subject="Alice")
+    row = conn.execute("SELECT retrieval_count FROM facts WHERE id=?", (fact_id,)).fetchone()
+    assert row["retrieval_count"] == 2
 
 
 def test_query_sorts_by_confidence(tmp_path):

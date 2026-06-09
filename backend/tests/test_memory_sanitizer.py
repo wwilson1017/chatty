@@ -10,7 +10,7 @@ def test_normal_text_passes_through():
 
 def test_empty_and_none():
     assert sanitize_memory_content("") == ""
-    assert sanitize_memory_content(None) is None
+    assert sanitize_memory_content(None) == ""
 
 
 def test_control_chars_stripped():

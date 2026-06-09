@@ -917,18 +917,19 @@ class MemoryDB:
         rows = conn.execute(sql, params).fetchall()
         results = [dict(r) for r in rows]
 
-        # Track retrieval (fire-and-forget)
+        # Track retrieval — throttled to at most once per hour per fact
         if results:
             try:
                 fact_ids = [r["id"] for r in results]
-                now = datetime.now(CT_TZ).isoformat()
+                placeholders = ",".join("?" * len(fact_ids))
                 with self._write_lock:
-                    placeholders = ",".join("?" * len(fact_ids))
                     conn.execute(
                         f"UPDATE facts SET retrieval_count = retrieval_count + 1, "
-                        f"last_retrieved_at = ?, updated_at = datetime('now') "
-                        f"WHERE id IN ({placeholders})",
-                        [now, *fact_ids],
+                        f"last_retrieved_at = datetime('now'), updated_at = datetime('now') "
+                        f"WHERE id IN ({placeholders}) "
+                        f"AND (last_retrieved_at IS NULL "
+                        f"     OR last_retrieved_at < datetime('now', '-1 hour'))",
+                        fact_ids,
                     )
                     conn.commit()
             except Exception:

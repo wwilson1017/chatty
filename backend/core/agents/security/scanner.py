@@ -102,9 +102,11 @@ THREAT_PATTERNS: list[tuple[str, re.Pattern]] = [
 
 _CONTROL_CHARS_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
 _ZERO_WIDTH_RE = re.compile(
-    "[​‌‍‎‏⁠⁡⁢⁣⁤"  # ZWS, ZWNJ, ZWJ, LRM, RLM, WJ, invisible operators
-    "‪‫‬‭‮"                    # bidi controls
-    "⁦⁧⁨⁩﻿]"                  # bidi isolates + BOM
+    "[​‌‍‎‏"   # ZWS, ZWNJ, ZWJ, LRM, RLM
+    "⁠⁡⁢⁣⁤"     # WJ, invisible operators
+    "‪‫‬‭‮"     # bidi controls
+    "⁦⁧⁨⁩"           # bidi isolates
+    "﻿]"                            # BOM / ZWNBSP
 )
 _TEMPLATE_SYNTAX_RE = re.compile(r"\{\{.*?\}\}|\$\{.*?\}")
 _SCRIPT_TAG_RE = re.compile(r"<script\b[^>]*>.*?</script>", re.IGNORECASE | re.DOTALL)
@@ -132,10 +134,10 @@ _EXCESSIVE_NEWLINES_RE = re.compile(r"\n{4,}")
 _EXCESSIVE_SPACES_RE = re.compile(r" {8,}")
 
 
-def sanitize_memory_content(text: str) -> str:
+def sanitize_memory_content(text: str | None) -> str:
     """Strip injection patterns from memory content before system prompt injection."""
     if not text:
-        return text
+        return text or ""
     text = _CONTROL_CHARS_RE.sub("", text)
     text = _ZERO_WIDTH_RE.sub("", text)
     text = _TEMPLATE_SYNTAX_RE.sub("[REDACTED]", text)

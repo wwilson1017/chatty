@@ -36,6 +36,7 @@ from .context_manager import ContextManager
 from .tool_registry import ToolRegistry
 from .tool_definitions import get_tool_definitions, get_report_instructions, get_scheduling_instructions, get_qb_csv_instructions, build_writes_map, build_context_memory_map
 from .security.delimiters import should_wrap, wrap_result, DELIMITER_SYSTEM_INSTRUCTION
+from .security.scanner import sanitize_memory_content
 from .tools.real_tools import load_all_real_tools
 from .deferred_tools import (
     should_defer_tools, build_tool_catalog, handle_deferred_tool_call,
@@ -50,7 +51,7 @@ CT_TZ = ZoneInfo("America/Chicago")
 KNOWLEDGE_CHECKPOINT_EVERY = 4
 
 # Per-conversation pre-fetch state for relevance gating (lost on restart)
-_prefetch_state: dict[str, dict] = {}
+_prefetch_state: dict[tuple[str, str], dict] = {}
 
 
 # ── System prompt ─────────────────────────────────────────────────────────────
@@ -58,14 +59,14 @@ _prefetch_state: dict[str, dict] = {}
 def _information_priority_instructions() -> str:
     return """## Information Priority
 
-When answering questions, use information sources in this order:
+When answering questions, prefer information sources in this order:
 
-1. **Already-loaded knowledge** — Your context files (soul.md, MEMORY.md, topic files) and the "Likely Relevant Context" section are loaded into this prompt. Use them FIRST. Do not search for information you already have.
-2. **Memory search** — If the answer isn't in your loaded knowledge, use `search_memory` or `query_facts` to check your broader memory.
-3. **Integration tools** — Only reach for Gmail, Calendar, Drive, QuickBooks, or other external tools when your memory doesn't have the answer.
+1. **Already-loaded knowledge** — Your context files (soul.md, MEMORY.md, topic files) and the "Likely Relevant Context" section are loaded into this prompt. Prefer these first when they cover the topic.
+2. **Memory search** — If your loaded knowledge is insufficient or you're uncertain, use `search_memory` or `query_facts` to check your broader memory.
+3. **Integration tools** — Reach for Gmail, Calendar, Drive, QuickBooks, or other external tools when your memory doesn't have the answer.
 4. **Ask the user** — If none of the above sources have the answer, ask.
 
-When your knowledge files contain the answer, use them directly. Do not search for information you already have. When injected context contradicts your assumptions, the context wins.
+When your loaded knowledge clearly covers the topic, prefer it over re-searching. When injected context contradicts your assumptions, the context wins.
 
 **Override:** If the user explicitly asks you to search, look up, check, or use a specific tool, follow their instruction regardless of this hierarchy."""
 
@@ -454,7 +455,6 @@ def _build_system_prompt(
     # Today's daily note (changes throughout the day)
     today_note = ctx_manager.today_daily_note_text()
     if today_note:
-        from core.agents.security.scanner import sanitize_memory_content
         today_note = sanitize_memory_content(today_note)
         volatile_parts.extend([
             "# Today's Daily Note",
@@ -490,9 +490,9 @@ def _build_system_prompt(
                 volatile_parts.append("")
                 volatile_parts.extend(prefetch_parts)
                 volatile_parts.append("")
-            # Update state for dedup and recall tracking
+            # Update state for recall tracking
             if prefetch_state is not None:
-                prefetch_state["injected_ids"] = injected_ids | new_ids
+                prefetch_state.setdefault("injected_ids", set()).update(new_ids)
                 prefetch_state["injected_items"] = new_items
                 from core.agents.context_manager import _tokenize
                 prefetch_state["last_query_tokens"] = set(_tokenize(first_user_message))
@@ -720,10 +720,11 @@ def _log_chat_completion(
         logger.warning("Activity log write failed", exc_info=True)
 
 
-def _track_recall_usage(conversation_id: str | None, response_text: str) -> None:
+def _track_recall_usage(agent_slug: str, conversation_id: str | None, response_text: str) -> None:
     """Check if pre-fetched items' key entities appear in the agent response."""
-    conv_key = conversation_id or ""
-    state = _prefetch_state.get(conv_key)
+    if not conversation_id:
+        return
+    state = _prefetch_state.get((agent_slug, conversation_id))
     if not state or not response_text:
         return
     items = state.get("injected_items", [])
@@ -959,10 +960,11 @@ async def chat(
     # Per-turn relevance pre-fetch with gating
     from core.agents.context_manager import is_social_closer, _tokenize
     prefetch_message = ""
+    pf_state: dict | None = None
     user_msgs = [m for m in messages if m.get("role") == "user"]
-    if user_msgs:
+    if user_msgs and conversation_id:
         latest_msg = user_msgs[-1].get("content", "")
-        conv_key = conversation_id or ""
+        conv_key = (config.slug, conversation_id)
         if conv_key not in _prefetch_state:
             _prefetch_state[conv_key] = {
                 "last_query_tokens": set(), "injected_ids": set(),
@@ -972,18 +974,20 @@ async def chat(
         if len(_prefetch_state) > 100:
             for k in list(_prefetch_state)[:len(_prefetch_state) - 50]:
                 del _prefetch_state[k]
-        state = _prefetch_state[conv_key]
+        pf_state = _prefetch_state[conv_key]
         skip = False
         if is_social_closer(latest_msg):
             skip = True
-        elif state["last_query_tokens"]:
+        elif pf_state["last_query_tokens"]:
             current_tokens = set(_tokenize(latest_msg))
             if current_tokens:
-                overlap = len(current_tokens & state["last_query_tokens"]) / max(len(current_tokens), 1)
+                overlap = len(current_tokens & pf_state["last_query_tokens"]) / max(len(current_tokens), 1)
                 if overlap > 0.85:
                     skip = True
         if not skip:
             prefetch_message = latest_msg
+    elif user_msgs:
+        prefetch_message = user_msgs[-1].get("content", "")
 
     static_prompt, volatile_prompt = _build_system_prompt(
         config, ctx_manager,
@@ -992,7 +996,7 @@ async def chat(
         plan_mode=plan_mode,
         first_user_message=prefetch_message,
         account_info_map=getattr(registry, "account_info_map", None),
-        prefetch_state=_prefetch_state.get(conversation_id or ""),
+        prefetch_state=pf_state,
     )
 
     # Append integration-specific instructions to the static portion
@@ -1164,7 +1168,7 @@ async def chat(
                 # If no tool calls, we're done
                 if stop_reason != "tool_use" or not tool_calls_this_turn:
                     # Track recall usage for session quality scoring
-                    _track_recall_usage(conversation_id, accumulated_text)
+                    _track_recall_usage(config.slug, conversation_id, accumulated_text)
                     _log_chat_completion(config.slug, conversation_id, "chat", "ok",
                                         accumulated_text, all_tool_calls, model_used,
                                         total_input_tokens, total_output_tokens, chat_start_time)
@@ -1183,7 +1187,7 @@ async def chat(
 
         # ── Execute tool calls ────────────────────────────────────────
         if not tool_calls_this_turn:
-            _track_recall_usage(conversation_id, accumulated_text)
+            _track_recall_usage(config.slug, conversation_id, accumulated_text)
             _log_chat_completion(config.slug, conversation_id, "chat", "ok",
                                 accumulated_text, all_tool_calls, model_used,
                                 total_input_tokens, total_output_tokens, chat_start_time)
