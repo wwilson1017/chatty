@@ -40,7 +40,11 @@ def score_session_quality(
     - depth (0.3): ratio of substantive messages (>50 chars)
     - decisions (0.3): presence of decision-indicating language
     - engagement (0.2): ratio of substantial user messages (>80 chars)
-    - recall (0.2): fraction of pre-fetched items used in responses
+    - recall (0.2): fraction of pre-fetched items used in responses.
+      Currently defaults to 0.5 (neutral) in nightly processing because
+      recall_tracking lives in-memory in ai_service and isn't persisted.
+      The parameter is kept for future use when recall data is threaded
+      through chat history.
     """
     if not messages:
         return 0.0

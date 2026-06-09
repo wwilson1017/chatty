@@ -32,7 +32,7 @@ from zoneinfo import ZoneInfo
 from core.storage import upload_config, delete_config
 from core.providers.base import AIProvider, _sse
 from .config import AgentConfig
-from .context_manager import ContextManager
+from .context_manager import ContextManager, is_social_closer, _tokenize
 from .tool_registry import ToolRegistry
 from .tool_definitions import get_tool_definitions, get_report_instructions, get_scheduling_instructions, get_qb_csv_instructions, build_writes_map, build_context_memory_map
 from .security.delimiters import should_wrap, wrap_result, DELIMITER_SYSTEM_INSTRUCTION
@@ -494,7 +494,6 @@ def _build_system_prompt(
             if prefetch_state is not None:
                 prefetch_state.setdefault("injected_ids", set()).update(new_ids)
                 prefetch_state["injected_items"] = new_items
-                from core.agents.context_manager import _tokenize
                 prefetch_state["last_query_tokens"] = set(_tokenize(first_user_message))
                 prefetch_state["turn_count"] = prefetch_state.get("turn_count", 0) + 1
 
@@ -958,7 +957,6 @@ async def chat(
 
     # ── Build system prompt ───────────────────────────────────────────
     # Per-turn relevance pre-fetch with gating
-    from core.agents.context_manager import is_social_closer, _tokenize
     prefetch_message = ""
     pf_state: dict | None = None
     user_msgs = [m for m in messages if m.get("role") == "user"]
@@ -973,7 +971,7 @@ async def chat(
         # Prune stale state entries
         if len(_prefetch_state) > 100:
             for k in list(_prefetch_state)[:len(_prefetch_state) - 50]:
-                del _prefetch_state[k]
+                _prefetch_state.pop(k, None)
         pf_state = _prefetch_state[conv_key]
         skip = False
         if is_social_closer(latest_msg):
@@ -1494,6 +1492,8 @@ async def run_sync(
     # Enable pre-fetch for run_sync (Telegram/WhatsApp) — no gating state since standalone
     last_user = next((m for m in reversed(messages) if m.get("role") == "user"), None)
     sync_user_msg = last_user.get("content", "") if last_user else ""
+    if is_social_closer(sync_user_msg):
+        sync_user_msg = ""
     static_prompt, volatile_prompt = _build_system_prompt(
         config, ctx_manager,
         first_user_message=sync_user_msg,

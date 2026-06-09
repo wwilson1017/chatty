@@ -121,14 +121,22 @@ _SYSTEM_PREFIX_PATTERNS = [
         r"ignore\s+(?:\w+\s+){0,5}(?:previous|all|above|prior)\s+(?:\w+\s+){0,5}instructions?",
         re.IGNORECASE,
     ),
-    re.compile(r"you\s+are\s+(?:\w+\s+){0,5}now\s+(?:a|an|the)\s+", re.IGNORECASE),
+    re.compile(
+        r"you\s+are\s+(?:\w+\s+){0,3}now\s+(?:a|an|the)\s+"
+        r"(?:helpful|evil|new|different|unrestricted|unfiltered|jailbroken|DAN)\b",
+        re.IGNORECASE,
+    ),
     re.compile(r"(?:new|updated|revised)\s+instructions?\s*:", re.IGNORECASE),
     re.compile(
         r"disregard\s+(?:\w+\s+){0,5}(?:your|all|any)\s+(?:\w+\s+){0,5}"
         r"(?:instructions|rules|guidelines)",
         re.IGNORECASE,
     ),
-    re.compile(r"pretend\s+(?:that\s+)?(?:you\s+are|to\s+be)\s+", re.IGNORECASE),
+    re.compile(
+        r"pretend\s+(?:that\s+)?(?:you\s+are|to\s+be)\s+(?:a\s+)?(?:\w+\s+){0,2}"
+        r"(?:AI|assistant|chatbot|system|admin|hacker|agent)\b",
+        re.IGNORECASE,
+    ),
 ]
 _EXCESSIVE_NEWLINES_RE = re.compile(r"\n{4,}")
 _EXCESSIVE_SPACES_RE = re.compile(r" {8,}")

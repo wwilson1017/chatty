@@ -962,7 +962,7 @@ class MemoryDB:
         initial value.  Called weekly (Sundays) from the nightly job.
         """
         conn = self.get_db()
-        cutoff = (datetime.now(CT_TZ) - timedelta(days=stale_days)).isoformat()
+        age_modifier = f"-{stale_days} days"
         with self._write_lock:
             cursor = conn.execute(
                 """UPDATE facts
@@ -970,9 +970,10 @@ class MemoryDB:
                        updated_at = datetime('now')
                    WHERE valid_to IS NULL
                      AND confidence > ?
-                     AND created_at < ?
-                     AND (last_retrieved_at IS NULL OR last_retrieved_at < ?)""",
-                (floor, decay_amount, floor, cutoff, cutoff),
+                     AND created_at < datetime('now', ?)
+                     AND (last_retrieved_at IS NULL
+                          OR last_retrieved_at < datetime('now', ?))""",
+                (floor, decay_amount, floor, age_modifier, age_modifier),
             )
             conn.commit()
         decayed = cursor.rowcount
