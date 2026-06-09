@@ -888,6 +888,7 @@ class MemoryDB:
         memory_type: str | None = None,
         include_expired: bool = False,
         limit: int = 50,
+        track_retrieval: bool = True,
     ) -> list[dict]:
         """Query facts with optional filters.  *as_of* gives a point-in-time view."""
         conn = self.get_db()
@@ -917,8 +918,7 @@ class MemoryDB:
         rows = conn.execute(sql, params).fetchall()
         results = [dict(r) for r in rows]
 
-        # Track retrieval — throttled to at most once per hour per fact
-        if results:
+        if track_retrieval and results:
             try:
                 fact_ids = [r["id"] for r in results]
                 placeholders = ",".join("?" * len(fact_ids))
