@@ -97,6 +97,58 @@ THREAT_PATTERNS: list[tuple[str, re.Pattern]] = [
 ]
 
 
+# ── Memory content sanitization ──────────────────────────────────────────────
+# Applied at injection time (not storage time) so stored data is unmodified.
+
+_CONTROL_CHARS_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
+_ZERO_WIDTH_RE = re.compile(
+    "[​‌‍‎‏⁠⁡⁢⁣⁤"  # ZWS, ZWNJ, ZWJ, LRM, RLM, WJ, invisible operators
+    "‪‫‬‭‮"                    # bidi controls
+    "⁦⁧⁨⁩﻿]"                  # bidi isolates + BOM
+)
+_TEMPLATE_SYNTAX_RE = re.compile(r"\{\{.*?\}\}|\$\{.*?\}")
+_SCRIPT_TAG_RE = re.compile(r"<script\b[^>]*>.*?</script>", re.IGNORECASE | re.DOTALL)
+_JS_URI_RE = re.compile(r"javascript\s*:", re.IGNORECASE)
+_EVENT_HANDLER_RE = re.compile(
+    r"\bon(?:error|load|click|mouseover|focus|blur|submit|change|input"
+    r"|keydown|keyup|keypress)\s*=",
+    re.IGNORECASE,
+)
+_SYSTEM_PREFIX_PATTERNS = [
+    re.compile(
+        r"ignore\s+(?:\w+\s+){0,5}(?:previous|all|above|prior)\s+(?:\w+\s+){0,5}instructions?",
+        re.IGNORECASE,
+    ),
+    re.compile(r"you\s+are\s+(?:\w+\s+){0,5}now\s+(?:a|an|the)\s+", re.IGNORECASE),
+    re.compile(r"(?:new|updated|revised)\s+instructions?\s*:", re.IGNORECASE),
+    re.compile(
+        r"disregard\s+(?:\w+\s+){0,5}(?:your|all|any)\s+(?:\w+\s+){0,5}"
+        r"(?:instructions|rules|guidelines)",
+        re.IGNORECASE,
+    ),
+    re.compile(r"pretend\s+(?:that\s+)?(?:you\s+are|to\s+be)\s+", re.IGNORECASE),
+]
+_EXCESSIVE_NEWLINES_RE = re.compile(r"\n{4,}")
+_EXCESSIVE_SPACES_RE = re.compile(r" {8,}")
+
+
+def sanitize_memory_content(text: str) -> str:
+    """Strip injection patterns from memory content before system prompt injection."""
+    if not text:
+        return text
+    text = _CONTROL_CHARS_RE.sub("", text)
+    text = _ZERO_WIDTH_RE.sub("", text)
+    text = _TEMPLATE_SYNTAX_RE.sub("[REDACTED]", text)
+    text = _SCRIPT_TAG_RE.sub("[REDACTED]", text)
+    text = _JS_URI_RE.sub("[REDACTED]", text)
+    text = _EVENT_HANDLER_RE.sub("[REDACTED]=", text)
+    for pattern in _SYSTEM_PREFIX_PATTERNS:
+        text = pattern.sub("[REDACTED]", text)
+    text = _EXCESSIVE_NEWLINES_RE.sub("\n\n", text)
+    text = _EXCESSIVE_SPACES_RE.sub(" ", text)
+    return text
+
+
 def scan_content(text: str) -> ScanResult:
     findings: list[dict] = []
     for line_num, line in enumerate(text.splitlines(), 1):

@@ -179,6 +179,12 @@ def query_facts(
         include_expired=bool(include_expired),
         limit=limit,
     )
+    # Sanitize fact content before returning to agent
+    from core.agents.security.scanner import sanitize_memory_content
+    for fact in facts:
+        for key in ("subject", "predicate", "object"):
+            if key in fact and fact[key]:
+                fact[key] = sanitize_memory_content(fact[key])
     return {"facts": facts, "total": len(facts)}
 
 

@@ -5,6 +5,7 @@ one Claude API call and updates the agent's data dir (with GCS sync).
 """
 
 import logging
+import re
 import time
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
@@ -21,6 +22,52 @@ CT_TZ = ZoneInfo("America/Chicago")
 # than a day's worth of actual chat. In practice a single day of traffic
 # is well under this limit.
 _MAX_CHAT_INPUT_CHARS = 80_000
+
+_DECISION_RE = re.compile(
+    r"\b(?:decided|resolved|completed|fixed|deployed|shipped|reviewed|approved|rejected"
+    r"|let'?s go with|the plan is|going forward|from now on)\b",
+    re.IGNORECASE,
+)
+
+
+def score_session_quality(
+    messages: list[dict],
+    recall_tracking: dict[str, bool] | None = None,
+) -> float:
+    """Score conversation quality on 4 dimensions (0.0-1.0).
+
+    Dimensions (weighted):
+    - depth (0.3): ratio of substantive messages (>50 chars)
+    - decisions (0.3): presence of decision-indicating language
+    - engagement (0.2): ratio of substantial user messages (>80 chars)
+    - recall (0.2): fraction of pre-fetched items used in responses
+    """
+    if not messages:
+        return 0.0
+
+    user_msgs = [m for m in messages if m.get("role") == "user"]
+
+    # Depth
+    substantive = sum(1 for m in messages if len(m.get("content", "")) > 50)
+    depth = min(substantive / 5, 1.0)
+
+    # Decisions
+    all_text = " ".join(m.get("content", "") for m in messages)
+    decision_hits = len(_DECISION_RE.findall(all_text))
+    decisions = min(decision_hits / 3, 1.0)
+
+    # Engagement
+    substantial_user = sum(1 for m in user_msgs if len(m.get("content", "")) > 80)
+    engagement = min(substantial_user / 3, 1.0)
+
+    # Recall (default 0.5 = neutral when no data)
+    if recall_tracking:
+        used = sum(1 for v in recall_tracking.values() if v)
+        recall = used / len(recall_tracking)
+    else:
+        recall = 0.5
+
+    return round(0.3 * depth + 0.3 * decisions + 0.2 * engagement + 0.2 * recall, 2)
 
 
 def process_daily_note_summary(
@@ -84,6 +131,8 @@ def process_daily_note_summary(
     if not transcript:
         return {"agent": agent_name, "date": yesterday, "status": "skipped",
                 "reason": "empty transcript"}
+
+    quality = score_session_quality(messages)
 
     system_prompt = (
         f"You are summarizing yesterday's chat traffic for an AI agent named {agent_name}. "
@@ -154,7 +203,7 @@ def process_daily_note_summary(
         new_content_parts.append(existing.rstrip())
 
     new_content_parts.append("")
-    new_content_parts.append("## End-of-day summary")
+    new_content_parts.append(f"## End-of-day summary [quality: {quality:.2f}]")
     new_content_parts.append("")
     new_content_parts.append(summary_body if headline_line else summary)
     new_content_parts.append("")

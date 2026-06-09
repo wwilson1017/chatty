@@ -12,7 +12,7 @@ import logging
 import re
 import sqlite3
 import threading
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -287,6 +287,17 @@ class MemoryDB:
         except sqlite3.OperationalError:
             conn.execute("ALTER TABLE memory_documents ADD COLUMN content_hash TEXT")
             conn.commit()
+
+        # Add fact retrieval tracking columns if missing
+        for col, defn in [
+            ("retrieval_count", "INTEGER NOT NULL DEFAULT 0"),
+            ("last_retrieved_at", "TEXT"),
+        ]:
+            try:
+                conn.execute(f"SELECT {col} FROM facts LIMIT 0")
+            except sqlite3.OperationalError:
+                conn.execute(f"ALTER TABLE facts ADD COLUMN {col} {defn}")
+                conn.commit()
 
         # Create vector table if sqlite-vec available
         if self._vec_available:
@@ -900,11 +911,30 @@ class MemoryDB:
         elif not include_expired:
             sql += " AND valid_to IS NULL"
 
-        sql += " ORDER BY created_at DESC LIMIT ?"
+        sql += " ORDER BY confidence DESC, created_at DESC LIMIT ?"
         params.append(limit)
 
         rows = conn.execute(sql, params).fetchall()
-        return [dict(r) for r in rows]
+        results = [dict(r) for r in rows]
+
+        # Track retrieval (fire-and-forget)
+        if results:
+            try:
+                fact_ids = [r["id"] for r in results]
+                now = datetime.now(CT_TZ).isoformat()
+                with self._write_lock:
+                    placeholders = ",".join("?" * len(fact_ids))
+                    conn.execute(
+                        f"UPDATE facts SET retrieval_count = retrieval_count + 1, "
+                        f"last_retrieved_at = ?, updated_at = datetime('now') "
+                        f"WHERE id IN ({placeholders})",
+                        [now, *fact_ids],
+                    )
+                    conn.commit()
+            except Exception:
+                logger.debug("Fact retrieval tracking failed", exc_info=True)
+
+        return results
 
     def invalidate_fact(self, fact_id: int, valid_to: str | None = None) -> dict:
         """Set valid_to on a fact.  Removes it from the FTS5 search index."""
@@ -921,3 +951,29 @@ class MemoryDB:
 
         self.remove_document("fact", str(fact_id))
         return {"id": fact_id, "valid_to": valid_to, "ok": True}
+
+    def decay_stale_confidence(
+        self, stale_days: int = 60, decay_amount: float = 0.1, floor: float = 0.3,
+    ) -> dict:
+        """Reduce confidence for facts not retrieved in *stale_days*.
+
+        Retrieval prevents decay but does NOT boost confidence above its
+        initial value.  Called weekly (Sundays) from the nightly job.
+        """
+        conn = self.get_db()
+        cutoff = (datetime.now(CT_TZ) - timedelta(days=stale_days)).isoformat()
+        with self._write_lock:
+            cursor = conn.execute(
+                """UPDATE facts
+                   SET confidence = MAX(?, confidence - ?),
+                       updated_at = datetime('now')
+                   WHERE valid_to IS NULL
+                     AND confidence > ?
+                     AND (last_retrieved_at IS NULL OR last_retrieved_at < ?)""",
+                (floor, decay_amount, floor, cutoff),
+            )
+            conn.commit()
+        decayed = cursor.rowcount
+        if decayed:
+            logger.info("Confidence decay: %d facts decayed (stale_days=%d)", decayed, stale_days)
+        return {"decayed": decayed, "stale_days": stale_days}

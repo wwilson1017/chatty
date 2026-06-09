@@ -49,8 +49,26 @@ CT_TZ = ZoneInfo("America/Chicago")
 # How many user messages between knowledge checkpoints
 KNOWLEDGE_CHECKPOINT_EVERY = 4
 
+# Per-conversation pre-fetch state for relevance gating (lost on restart)
+_prefetch_state: dict[str, dict] = {}
+
 
 # ── System prompt ─────────────────────────────────────────────────────────────
+
+def _information_priority_instructions() -> str:
+    return """## Information Priority
+
+When answering questions, use information sources in this order:
+
+1. **Already-loaded knowledge** — Your context files (soul.md, MEMORY.md, topic files) and the "Likely Relevant Context" section are loaded into this prompt. Use them FIRST. Do not search for information you already have.
+2. **Memory search** — If the answer isn't in your loaded knowledge, use `search_memory` or `query_facts` to check your broader memory.
+3. **Integration tools** — Only reach for Gmail, Calendar, Drive, QuickBooks, or other external tools when your memory doesn't have the answer.
+4. **Ask the user** — If none of the above sources have the answer, ask.
+
+When your knowledge files contain the answer, use them directly. Do not search for information you already have. When injected context contradicts your assumptions, the context wins.
+
+**Override:** If the user explicitly asks you to search, look up, check, or use a specific tool, follow their instruction regardless of this hierarchy."""
+
 
 def _knowledge_management_instructions() -> str:
     return """# Knowledge Management Protocol
@@ -318,6 +336,7 @@ def _build_system_prompt(
     plan_mode: bool = False,
     first_user_message: str = "",
     account_info_map: dict[str, dict] | None = None,
+    prefetch_state: dict | None = None,
 ) -> tuple[str, str]:
     """Assemble the full system prompt.
 
@@ -404,6 +423,7 @@ def _build_system_prompt(
             "- Be genuinely helpful, not performatively helpful. Skip filler phrases.",
             "",
         ])
+        parts.append(_information_priority_instructions())
         parts.append(_knowledge_management_instructions())
         parts.append(_memory_instructions())
         parts.append(get_report_instructions())
@@ -434,6 +454,8 @@ def _build_system_prompt(
     # Today's daily note (changes throughout the day)
     today_note = ctx_manager.today_daily_note_text()
     if today_note:
+        from core.agents.security.scanner import sanitize_memory_content
+        today_note = sanitize_memory_content(today_note)
         volatile_parts.extend([
             "# Today's Daily Note",
             "",
@@ -441,26 +463,41 @@ def _build_system_prompt(
             "",
         ])
 
-    # Relevance pre-fetch — on first message, inject relevant context (semantic + keyword)
+    # Relevance pre-fetch — inject relevant context (semantic + keyword)
     if first_user_message:
         from core.agents.memory.db import get_instance as _get_memory_db
         _memory_db = _get_memory_db(str(ctx_manager.data_dir))
         relevant = ctx_manager.relevance_prefetch(first_user_message, memory_db=_memory_db)
         if relevant:
+            injected_ids = prefetch_state.get("injected_ids", set()) if prefetch_state else set()
             prefetch_parts: list[str] = []
             prefetch_chars = 0
             max_prefetch = 30_000
+            new_ids: set[str] = set()
+            new_items: list[dict] = []
             for item in relevant:
+                item_id = item.get("id", f"{item['kind']}:{item['name']}")
+                if item_id in injected_ids:
+                    continue
                 section = f"## [{item['kind']}] {item['name']}\n\n{item['content']}"
                 if prefetch_chars + len(section) > max_prefetch:
                     break
                 prefetch_parts.append(section)
                 prefetch_chars += len(section)
+                new_ids.add(item_id)
+                new_items.append({"id": item_id, "name": item.get("name", "")})
             if prefetch_parts:
                 volatile_parts.append("# Likely Relevant Context")
                 volatile_parts.append("")
                 volatile_parts.extend(prefetch_parts)
                 volatile_parts.append("")
+            # Update state for dedup and recall tracking
+            if prefetch_state is not None:
+                prefetch_state["injected_ids"] = injected_ids | new_ids
+                prefetch_state["injected_items"] = new_items
+                from core.agents.context_manager import _tokenize
+                prefetch_state["last_query_tokens"] = set(_tokenize(first_user_message))
+                prefetch_state["turn_count"] = prefetch_state.get("turn_count", 0) + 1
 
     # Active alerts — split by source for different agent behavior
     try:
@@ -562,7 +599,7 @@ You have a structured memory system beyond basic context files:
 - **Daily Notes** — Use `append_daily_note` to log significant events, decisions, and information as they happen. Each entry is timestamped automatically. Optionally tag entries with a type (decision, person, task, etc.).
 - **MEMORY.md** — Your living snapshot of key facts. Read with `read_memory`, update with `update_memory`. Regenerated weekly from daily notes; call `consolidate_memory` to refresh on demand.
 - **Search** — Use `search_memory` to find information across all your files, daily notes, and facts.
-- **Facts** — Use `add_fact` to record structured entity-relationship facts (e.g. "John Smith works at Acme Corp"). Query with `query_facts`.
+- **Facts** — Use `add_fact` to record structured entity-relationship facts (e.g. "John Smith works at Acme Corp"). Query with `query_facts`. Facts are sorted by confidence — higher-confidence facts have been verified through repeated use.
 - **Shared Context** — Use `list_shared_context` / `read_shared_context` / `write_shared_context` to access knowledge shared across all agents. Share team-relevant knowledge proactively — don't keep it to yourself.
 
 **Memory guideline:** When asked about past events, decisions, or conversations, check your daily notes and MEMORY.md using `search_memory` rather than guessing. If you're not sure about a fact, say so — don't fabricate memories."""
@@ -682,6 +719,24 @@ def _log_chat_completion(
         )
     except (ImportError, OSError):
         logger.warning("Activity log write failed", exc_info=True)
+
+
+def _track_recall_usage(conversation_id: str | None, response_text: str) -> None:
+    """Check if pre-fetched items' key entities appear in the agent response."""
+    conv_key = conversation_id or ""
+    state = _prefetch_state.get(conv_key)
+    if not state or not response_text:
+        return
+    items = state.get("injected_items", [])
+    if not items:
+        return
+    tracking = state.setdefault("recall_tracking", {})
+    response_lower = response_text.lower()
+    for item in items:
+        item_id = item.get("id", "")
+        if item_id and item_id not in tracking:
+            name = item.get("name", "")
+            tracking[item_id] = bool(name and name.lower() in response_lower)
 
 
 # ── Main chat coroutine ────────────────────────────────────────────────────────
@@ -902,19 +957,43 @@ async def chat(
     provider_tools = build_provider_tools(tool_defs)
 
     # ── Build system prompt ───────────────────────────────────────────
-    # Determine first user message for relevance pre-fetch
-    first_user_msg = ""
+    # Per-turn relevance pre-fetch with gating
+    from core.agents.context_manager import is_social_closer, _tokenize
+    prefetch_message = ""
     user_msgs = [m for m in messages if m.get("role") == "user"]
-    if len(user_msgs) == 1:
-        first_user_msg = user_msgs[0].get("content", "")
+    if user_msgs:
+        latest_msg = user_msgs[-1].get("content", "")
+        conv_key = conversation_id or ""
+        if conv_key not in _prefetch_state:
+            _prefetch_state[conv_key] = {
+                "last_query_tokens": set(), "injected_ids": set(),
+                "turn_count": 0, "injected_items": [], "recall_tracking": {},
+            }
+        # Prune stale state entries
+        if len(_prefetch_state) > 100:
+            for k in list(_prefetch_state)[:len(_prefetch_state) - 50]:
+                del _prefetch_state[k]
+        state = _prefetch_state[conv_key]
+        skip = False
+        if is_social_closer(latest_msg):
+            skip = True
+        elif state["last_query_tokens"]:
+            current_tokens = set(_tokenize(latest_msg))
+            if current_tokens:
+                overlap = len(current_tokens & state["last_query_tokens"]) / max(len(current_tokens), 1)
+                if overlap > 0.85:
+                    skip = True
+        if not skip:
+            prefetch_message = latest_msg
 
     static_prompt, volatile_prompt = _build_system_prompt(
         config, ctx_manager,
         training_mode=training_mode,
         training_type=training_type,
         plan_mode=plan_mode,
-        first_user_message=first_user_msg,
+        first_user_message=prefetch_message,
         account_info_map=getattr(registry, "account_info_map", None),
+        prefetch_state=_prefetch_state.get(conversation_id or ""),
     )
 
     # Append integration-specific instructions to the static portion
@@ -1085,6 +1164,8 @@ async def chat(
 
                 # If no tool calls, we're done
                 if stop_reason != "tool_use" or not tool_calls_this_turn:
+                    # Track recall usage for session quality scoring
+                    _track_recall_usage(conversation_id, accumulated_text)
                     _log_chat_completion(config.slug, conversation_id, "chat", "ok",
                                         accumulated_text, all_tool_calls, model_used,
                                         total_input_tokens, total_output_tokens, chat_start_time)
@@ -1103,6 +1184,7 @@ async def chat(
 
         # ── Execute tool calls ────────────────────────────────────────
         if not tool_calls_this_turn:
+            _track_recall_usage(conversation_id, accumulated_text)
             _log_chat_completion(config.slug, conversation_id, "chat", "ok",
                                 accumulated_text, all_tool_calls, model_used,
                                 total_input_tokens, total_output_tokens, chat_start_time)
@@ -1406,8 +1488,12 @@ async def run_sync(
     provider_tools = build_provider_tools(tool_defs)
 
     # Build system prompt (returns tuple for caching)
+    # Enable pre-fetch for run_sync (Telegram/WhatsApp) — no gating state since standalone
+    last_user = next((m for m in reversed(messages) if m.get("role") == "user"), None)
+    sync_user_msg = last_user.get("content", "") if last_user else ""
     static_prompt, volatile_prompt = _build_system_prompt(
         config, ctx_manager,
+        first_user_message=sync_user_msg,
         account_info_map=getattr(registry, "account_info_map", None),
     )
 

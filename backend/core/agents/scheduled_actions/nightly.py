@@ -64,6 +64,21 @@ def run_nightly_jobs() -> None:
         except Exception as e:
             logger.warning("nightly dreaming failed for %s: %s", agent_name, e)
 
+        # 3.5. Fact confidence decay (Sundays only)
+        from datetime import datetime
+        from zoneinfo import ZoneInfo
+        if datetime.now(ZoneInfo("America/Chicago")).weekday() == 6:
+            try:
+                from core.agents.memory.db import get_instance as _get_memory_db
+                config = build_agent_config(agent)
+                memory_db = _get_memory_db(str(config.context_dir))
+                if memory_db:
+                    decay_result = memory_db.decay_stale_confidence()
+                    if decay_result.get("decayed", 0) > 0:
+                        logger.info("nightly confidence_decay %s: %d facts", agent_name, decay_result["decayed"])
+            except Exception as e:
+                logger.warning("nightly confidence_decay failed for %s: %s", agent_name, e)
+
         # 4. Archive old daily notes (>90 days)
         try:
             result = ctx_manager.archive_old_daily_notes(max_age_days=90)
