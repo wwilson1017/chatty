@@ -12,6 +12,7 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from core.storage import atomic_write, upload_config, delete_config
+from core.agents.security.scanner import sanitize_memory_content
 
 logger = logging.getLogger(__name__)
 
@@ -60,11 +61,14 @@ _SOCIAL_CLOSERS = {
 }
 
 
+_SHORT_CLOSERS = {"k", "ok", "ty", "np", "gm", "gn", "no"}
+
+
 def is_social_closer(message: str) -> bool:
     """Detect short social messages that don't warrant a memory search."""
     stripped = message.strip()
     if len(stripped) <= 2:
-        return True
+        return stripped.lower() in _SHORT_CLOSERS or not stripped.isalnum()
     clean = stripped.rstrip("!?.,;:").strip().lower()
     return len(clean) < 20 and clean in _SOCIAL_CLOSERS
 
@@ -196,7 +200,7 @@ class ContextManager:
                 total += len(section)
                 loaded_files.append("MEMORY.md")
 
-        from core.agents.security.scanner import sanitize_memory_content
+
 
         truncated = False
         for f in files:
@@ -518,7 +522,7 @@ class ContextManager:
 
         # Sort by score descending, sanitize content
         results.sort(key=lambda pair: pair[0], reverse=True)
-        from core.agents.security.scanner import sanitize_memory_content
+
         return [{**item, "content": sanitize_memory_content(item["content"])}
                 for _, item in results]
 
@@ -563,7 +567,7 @@ class ContextManager:
                 return []
 
             # Hydrate full content for injection into prompt
-            from core.agents.security.scanner import sanitize_memory_content
+    
             conn = memory_db.get_db()
             results = []
             for hit in search_results:

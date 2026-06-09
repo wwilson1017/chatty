@@ -7,10 +7,13 @@ Three jobs per agent (in order):
 """
 
 import logging
+import os
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
 logger = logging.getLogger(__name__)
+
+_LOCAL_TZ = ZoneInfo(os.getenv("TIMEZONE", "America/Chicago"))
 
 
 def run_nightly_jobs() -> None:
@@ -67,7 +70,7 @@ def run_nightly_jobs() -> None:
             logger.warning("nightly dreaming failed for %s: %s", agent_name, e)
 
         # 3.5. Fact confidence decay (Sundays only)
-        if datetime.now(ZoneInfo("America/Chicago")).weekday() == 6:
+        if datetime.now(_LOCAL_TZ).weekday() == 6:
             try:
                 from core.agents.memory.db import get_instance as _get_memory_db
                 config = build_agent_config(agent)

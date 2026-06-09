@@ -108,6 +108,7 @@ _ZERO_WIDTH_RE = re.compile(
     "⁦⁧⁨⁩"           # bidi isolates
     "﻿]"                            # BOM / ZWNBSP
 )
+# May redact legitimate technical content (e.g. Jinja2 docs, shell variables)
 _TEMPLATE_SYNTAX_RE = re.compile(r"\{\{.*?\}\}|\$\{.*?\}")
 _SCRIPT_TAG_RE = re.compile(r"<script\b[^>]*>.*?</script>", re.IGNORECASE | re.DOTALL)
 _JS_URI_RE = re.compile(r"javascript\s*:", re.IGNORECASE)

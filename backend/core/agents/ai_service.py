@@ -50,8 +50,10 @@ CT_TZ = ZoneInfo("America/Chicago")
 # How many user messages between knowledge checkpoints
 KNOWLEDGE_CHECKPOINT_EVERY = 4
 
-# Per-conversation pre-fetch state for relevance gating (lost on restart)
-_prefetch_state: dict[tuple[str, str], dict] = {}
+# Per-conversation pre-fetch state for relevance gating (lost on restart).
+# OrderedDict for LRU eviction — move_to_end on access, pop oldest on overflow.
+from collections import OrderedDict
+_prefetch_state: OrderedDict[tuple[str, str], dict] = OrderedDict()
 
 
 # ── System prompt ─────────────────────────────────────────────────────────────
@@ -472,11 +474,12 @@ def _build_system_prompt(
             prefetch_parts: list[str] = []
             prefetch_chars = 0
             max_prefetch = 30_000
+            already_injected = prefetch_state.get("injected_ids", set()) if prefetch_state else set()
             new_ids: set[str] = set()
             new_items: list[dict] = []
             for item in relevant:
                 item_id = item.get("id", f"{item['kind']}:{item['name']}")
-                if item_id in new_ids:
+                if item_id in new_ids or item_id in already_injected:
                     continue
                 section = f"## [{item['kind']}] {item['name']}\n\n{item['content']}"
                 if prefetch_chars + len(section) > max_prefetch:
@@ -719,24 +722,6 @@ def _log_chat_completion(
         logger.warning("Activity log write failed", exc_info=True)
 
 
-def _track_recall_usage(agent_slug: str, conversation_id: str | None, response_text: str) -> None:
-    """Check if pre-fetched items' key entities appear in the agent response."""
-    if not conversation_id:
-        return
-    state = _prefetch_state.get((agent_slug, conversation_id))
-    if not state or not response_text:
-        return
-    items = state.get("injected_items", [])
-    if not items:
-        return
-    tracking = state.setdefault("recall_tracking", {})
-    response_lower = response_text.lower()
-    for item in items:
-        item_id = item.get("id", "")
-        if item_id and item_id not in tracking:
-            name = item.get("name", "")
-            tracking[item_id] = bool(name and name.lower() in response_lower)
-
 
 # ── Main chat coroutine ────────────────────────────────────────────────────────
 
@@ -966,12 +951,11 @@ async def chat(
         if conv_key not in _prefetch_state:
             _prefetch_state[conv_key] = {
                 "last_query_tokens": set(), "injected_ids": set(),
-                "turn_count": 0, "injected_items": [], "recall_tracking": {},
+                "turn_count": 0, "injected_items": [],
             }
-        # Prune stale state entries
-        if len(_prefetch_state) > 100:
-            for k in list(_prefetch_state)[:len(_prefetch_state) - 50]:
-                _prefetch_state.pop(k, None)
+        _prefetch_state.move_to_end(conv_key)
+        while len(_prefetch_state) > 100:
+            _prefetch_state.popitem(last=False)
         pf_state = _prefetch_state[conv_key]
         skip = False
         if is_social_closer(latest_msg):
@@ -1166,7 +1150,7 @@ async def chat(
                 # If no tool calls, we're done
                 if stop_reason != "tool_use" or not tool_calls_this_turn:
                     # Track recall usage for session quality scoring
-                    _track_recall_usage(config.slug, conversation_id, accumulated_text)
+
                     _log_chat_completion(config.slug, conversation_id, "chat", "ok",
                                         accumulated_text, all_tool_calls, model_used,
                                         total_input_tokens, total_output_tokens, chat_start_time)

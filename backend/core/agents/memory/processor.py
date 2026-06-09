@@ -29,6 +29,17 @@ _DECISION_RE = re.compile(
     re.IGNORECASE,
 )
 
+# Session quality scoring weights and thresholds
+_WEIGHT_DEPTH = 0.3
+_WEIGHT_DECISIONS = 0.3
+_WEIGHT_ENGAGEMENT = 0.2
+_WEIGHT_RECALL = 0.2
+_DEPTH_THRESHOLD = 5
+_DECISIONS_THRESHOLD = 3
+_ENGAGEMENT_THRESHOLD = 3
+_SUBSTANTIVE_MIN_CHARS = 50
+_ENGAGEMENT_MIN_CHARS = 80
+
 
 def score_session_quality(
     messages: list[dict],
@@ -52,17 +63,17 @@ def score_session_quality(
     user_msgs = [m for m in messages if m.get("role") == "user"]
 
     # Depth
-    substantive = sum(1 for m in messages if len(m.get("content", "")) > 50)
-    depth = min(substantive / 5, 1.0)
+    substantive = sum(1 for m in messages if len(m.get("content", "")) > _SUBSTANTIVE_MIN_CHARS)
+    depth = min(substantive / _DEPTH_THRESHOLD, 1.0)
 
     # Decisions
     all_text = " ".join(m.get("content", "") for m in messages)
     decision_hits = len(_DECISION_RE.findall(all_text))
-    decisions = min(decision_hits / 3, 1.0)
+    decisions = min(decision_hits / _DECISIONS_THRESHOLD, 1.0)
 
     # Engagement
-    substantial_user = sum(1 for m in user_msgs if len(m.get("content", "")) > 80)
-    engagement = min(substantial_user / 3, 1.0)
+    substantial_user = sum(1 for m in user_msgs if len(m.get("content", "")) > _ENGAGEMENT_MIN_CHARS)
+    engagement = min(substantial_user / _ENGAGEMENT_THRESHOLD, 1.0)
 
     # Recall (default 0.5 = neutral when no data)
     if recall_tracking:
@@ -71,7 +82,10 @@ def score_session_quality(
     else:
         recall = 0.5
 
-    return round(0.3 * depth + 0.3 * decisions + 0.2 * engagement + 0.2 * recall, 2)
+    return round(
+        _WEIGHT_DEPTH * depth + _WEIGHT_DECISIONS * decisions
+        + _WEIGHT_ENGAGEMENT * engagement + _WEIGHT_RECALL * recall, 2,
+    )
 
 
 def process_daily_note_summary(
