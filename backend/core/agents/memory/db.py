@@ -458,8 +458,8 @@ class MemoryDB:
         match_parts: list[str] = []
         if source_type and source_type in _VALID_SOURCE_TYPES:
             match_parts.append(f'source_type:"{source_type}"')
-        if memory_type:
-            match_parts.append(f'memory_type:"{memory_type}"')
+        if memory_type and validate_memory_type(memory_type):
+            match_parts.append(f'memory_type:"{validate_memory_type(memory_type)}"')
         match_parts.append(f"({safe_query})")
         match_expr = " ".join(match_parts)
 

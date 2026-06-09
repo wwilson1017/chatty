@@ -77,11 +77,12 @@ def run_nightly_jobs() -> None:
         # 4. Fact confidence decay (Sundays only)
         if datetime.now(_LOCAL_TZ).weekday() == 6:
             try:
-                from core.agents.memory.db import get_instance as _get_memory_db, MemoryDB
+                from core.agents.memory.db import get_instance as _get_memory_db
                 config = build_agent_config(agent)
                 memory_db = _get_memory_db(str(config.context_dir))
                 if not memory_db:
-                    memory_db = MemoryDB(config.context_dir, slug)
+                    from agents.engine import ensure_memory_db
+                    memory_db = ensure_memory_db(slug)
                 if memory_db:
                     decay_result = memory_db.decay_stale_confidence()
                     if decay_result.get("decayed", 0) > 0:
