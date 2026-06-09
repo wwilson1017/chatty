@@ -217,6 +217,10 @@ def consolidate_memory(
         "- Drop stale items that haven't been mentioned recently and no longer matter.\n"
         "- Preserve anything still relevant from the existing MEMORY.md even if it "
         "wasn't mentioned in the recent daily notes.\n"
+        "- Daily note summaries may include a [quality: X.XX] tag. Use it to prioritize:\n"
+        "  - quality >= 0.7: Keep decisions, insights, and key details.\n"
+        "  - quality 0.4-0.7: Keep only decisions and commitments.\n"
+        "  - quality < 0.4: Skip unless items are tagged [decision].\n"
         "- Do NOT wrap the output in triple backticks. Do NOT add preamble or "
         "explanation — emit ONLY the markdown.\n"
     )

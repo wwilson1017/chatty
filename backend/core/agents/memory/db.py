@@ -12,7 +12,7 @@ import logging
 import re
 import sqlite3
 import threading
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -288,6 +288,17 @@ class MemoryDB:
             conn.execute("ALTER TABLE memory_documents ADD COLUMN content_hash TEXT")
             conn.commit()
 
+        # Add fact retrieval tracking columns if missing
+        for col, defn in [
+            ("retrieval_count", "INTEGER NOT NULL DEFAULT 0"),
+            ("last_retrieved_at", "TEXT"),
+        ]:
+            try:
+                conn.execute(f"SELECT {col} FROM facts LIMIT 0")
+            except sqlite3.OperationalError:
+                conn.execute(f"ALTER TABLE facts ADD COLUMN {col} {defn}")
+                conn.commit()
+
         # Create vector table if sqlite-vec available
         if self._vec_available:
             try:
@@ -443,12 +454,12 @@ class MemoryDB:
         if not safe_query or safe_query == '""':
             return []
 
-        # Build the MATCH expression with optional column filters
+        _VALID_SOURCE_TYPES = {"daily", "memory", "topic", "fact"}
         match_parts: list[str] = []
-        if source_type:
+        if source_type and source_type in _VALID_SOURCE_TYPES:
             match_parts.append(f'source_type:"{source_type}"')
-        if memory_type:
-            match_parts.append(f'memory_type:"{memory_type}"')
+        if memory_type and validate_memory_type(memory_type):
+            match_parts.append(f'memory_type:"{validate_memory_type(memory_type)}"')
         match_parts.append(f"({safe_query})")
         match_expr = " ".join(match_parts)
 
@@ -877,6 +888,7 @@ class MemoryDB:
         memory_type: str | None = None,
         include_expired: bool = False,
         limit: int = 50,
+        track_retrieval: bool = True,
     ) -> list[dict]:
         """Query facts with optional filters.  *as_of* gives a point-in-time view."""
         conn = self.get_db()
@@ -900,11 +912,30 @@ class MemoryDB:
         elif not include_expired:
             sql += " AND valid_to IS NULL"
 
-        sql += " ORDER BY created_at DESC LIMIT ?"
+        sql += " ORDER BY confidence DESC, created_at DESC LIMIT ?"
         params.append(limit)
 
         rows = conn.execute(sql, params).fetchall()
-        return [dict(r) for r in rows]
+        results = [dict(r) for r in rows]
+
+        if track_retrieval and results:
+            try:
+                fact_ids = [r["id"] for r in results]
+                placeholders = ",".join("?" * len(fact_ids))
+                with self._write_lock:
+                    conn.execute(
+                        f"UPDATE facts SET retrieval_count = retrieval_count + 1, "
+                        f"last_retrieved_at = datetime('now'), updated_at = datetime('now') "
+                        f"WHERE id IN ({placeholders}) "
+                        f"AND (last_retrieved_at IS NULL "
+                        f"     OR last_retrieved_at < datetime('now', '-1 hour'))",
+                        fact_ids,
+                    )
+                    conn.commit()
+            except Exception:
+                logger.debug("Fact retrieval tracking failed", exc_info=True)
+
+        return results
 
     def invalidate_fact(self, fact_id: int, valid_to: str | None = None) -> dict:
         """Set valid_to on a fact.  Removes it from the FTS5 search index."""
@@ -921,3 +952,31 @@ class MemoryDB:
 
         self.remove_document("fact", str(fact_id))
         return {"id": fact_id, "valid_to": valid_to, "ok": True}
+
+    def decay_stale_confidence(
+        self, stale_days: int = 60, decay_amount: float = 0.1, floor: float = 0.3,
+    ) -> dict:
+        """Reduce confidence for facts not retrieved in *stale_days*.
+
+        Retrieval prevents decay but does NOT boost confidence above its
+        initial value.  Called weekly (Sundays) from the nightly job.
+        """
+        conn = self.get_db()
+        age_modifier = f"-{stale_days} days"
+        with self._write_lock:
+            cursor = conn.execute(
+                """UPDATE facts
+                   SET confidence = MAX(?, confidence - ?),
+                       updated_at = datetime('now')
+                   WHERE valid_to IS NULL
+                     AND confidence > ?
+                     AND created_at < datetime('now', ?)
+                     AND (last_retrieved_at IS NULL
+                          OR last_retrieved_at < datetime('now', ?))""",
+                (floor, decay_amount, floor, age_modifier, age_modifier),
+            )
+            conn.commit()
+        decayed = cursor.rowcount
+        if decayed:
+            logger.info("Confidence decay: %d facts decayed (stale_days=%d)", decayed, stale_days)
+        return {"decayed": decayed, "stale_days": stale_days}

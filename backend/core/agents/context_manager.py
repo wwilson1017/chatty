@@ -12,6 +12,7 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from core.storage import atomic_write, upload_config, delete_config
+from core.agents.security.scanner import sanitize_memory_content
 
 logger = logging.getLogger(__name__)
 
@@ -48,6 +49,28 @@ def _tokenize(text: str) -> list[str]:
         t for t in _TOKEN_RE.findall(text.lower())
         if len(t) > 1 and t not in _STOPWORDS
     ]
+
+
+_SOCIAL_CLOSERS = {
+    "thanks", "thank you", "thx", "ty", "bye", "goodbye", "see you",
+    "got it", "ok", "okay", "k", "cool", "great", "nice", "perfect",
+    "awesome", "sounds good", "will do", "noted", "yep", "yup", "yes",
+    "no", "nah", "nope", "sure", "right", "exactly", "agreed",
+    "good night", "good morning", "gm", "gn", "ttyl", "later",
+    "cheers", "take care", "np", "no problem", "you too",
+}
+
+
+_SHORT_CLOSERS = {"k", "ok", "ty", "np", "gm", "gn", "no"}
+
+
+def is_social_closer(message: str) -> bool:
+    """Detect short social messages that don't warrant a memory search."""
+    stripped = message.strip()
+    if len(stripped) <= 2:
+        return stripped.lower() in _SHORT_CLOSERS or not stripped.isalnum()
+    clean = stripped.rstrip("!?.,;:").strip().lower()
+    return len(clean) < 20 and clean in _SOCIAL_CLOSERS
 
 
 _DATE_HEADING_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
@@ -177,6 +200,8 @@ class ContextManager:
                 total += len(section)
                 loaded_files.append("MEMORY.md")
 
+
+
         truncated = False
         for f in files:
             if f.name == "soul.md" or f.name == "MEMORY.md":
@@ -187,6 +212,7 @@ class ContextManager:
             content = f.read_text(encoding="utf-8").strip()
             if not content:
                 continue
+            content = sanitize_memory_content(content)
             section = f"## {f.stem}\n\n{content}"
             if total + len(section) > MAX_CONTEXT_CHARS:
                 parts.append(f"## {f.stem}\n\n(Truncated — context size limit reached)")
@@ -352,7 +378,7 @@ class ContextManager:
             # already injected elsewhere in the prompt.
             if e["date"] == today:
                 continue
-            headline = e["headline"] or "(no summary yet)"
+            headline = sanitize_memory_content(e["headline"]) if e["headline"] else "(no summary yet)"
             lines.append(f"- {e['date']} · {headline}")
         return "\n".join(lines)
 
@@ -469,6 +495,7 @@ class ContextManager:
                     "kind": "topic",
                     "name": f.name,
                     "content": content,
+                    "id": f"topic:{f.name}",
                 }))
 
         # Recent daily notes (last ~30), skipping today (already loaded)
@@ -490,11 +517,14 @@ class ContextManager:
                     "kind": "daily",
                     "name": entry["date"],
                     "content": content,
+                    "id": f"daily:{entry['date']}",
                 }))
 
-        # Sort by score descending, no truncation
+        # Sort by score descending, sanitize content
         results.sort(key=lambda pair: pair[0], reverse=True)
-        return [item for _, item in results]
+
+        return [{**item, "content": sanitize_memory_content(item["content"])}
+                for _, item in results]
 
     def _semantic_prefetch(self, message: str, memory_db) -> list[dict]:
         """Use hybrid search for proactive memory surfacing.
@@ -518,7 +548,7 @@ class ContextManager:
             executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
             future = executor.submit(asyncio.run, _get_embedding())
             try:
-                embedding = future.result(timeout=5)
+                embedding = future.result(timeout=3)
             except (concurrent.futures.TimeoutError, TimeoutError):
                 executor.shutdown(wait=False, cancel_futures=True)
                 return []
@@ -537,6 +567,7 @@ class ContextManager:
                 return []
 
             # Hydrate full content for injection into prompt
+    
             conn = memory_db.get_db()
             results = []
             for hit in search_results:
@@ -547,7 +578,8 @@ class ContextManager:
                     results.append({
                         "kind": hit["source_type"],
                         "name": hit.get("title") or hit.get("source_id", ""),
-                        "content": row["content"],
+                        "content": sanitize_memory_content(row["content"]),
+                        "id": f"doc:{hit['id']}",
                     })
 
             return results
