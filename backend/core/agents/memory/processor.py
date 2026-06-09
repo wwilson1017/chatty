@@ -135,7 +135,8 @@ def process_daily_note_summary(
             transcript_parts.append(f"\n### {title}\n")
             current_conv = conv_id
         role = m.get("role", "user")
-        content = (m.get("content") or "").strip()
+        from core.agents.security.scanner import sanitize_memory_content
+        content = sanitize_memory_content((m.get("content") or "").strip())
         if not content:
             continue
         line = f"{role}: {content}"

@@ -474,7 +474,7 @@ def _build_system_prompt(
             prefetch_parts: list[str] = []
             prefetch_chars = 0
             max_prefetch = 30_000
-            already_injected = prefetch_state.get("injected_ids", set()) if prefetch_state else set()
+            already_injected = set(prefetch_state.get("injected_ids", ())) if prefetch_state else set()
             new_ids: set[str] = set()
             new_items: list[dict] = []
             for item in relevant:
@@ -963,7 +963,7 @@ async def chat(
         elif pf_state["last_query_tokens"]:
             current_tokens = set(_tokenize(latest_msg))
             if current_tokens:
-                overlap = len(current_tokens & pf_state["last_query_tokens"]) / max(len(current_tokens), 1)
+                overlap = len(current_tokens & pf_state["last_query_tokens"]) / max(len(current_tokens | pf_state["last_query_tokens"]), 1)
                 if overlap > 0.85:
                     skip = True
         if not skip:
@@ -1149,8 +1149,6 @@ async def chat(
 
                 # If no tool calls, we're done
                 if stop_reason != "tool_use" or not tool_calls_this_turn:
-                    # Track recall usage for session quality scoring
-
                     _log_chat_completion(config.slug, conversation_id, "chat", "ok",
                                         accumulated_text, all_tool_calls, model_used,
                                         total_input_tokens, total_output_tokens, chat_start_time)
@@ -1169,7 +1167,6 @@ async def chat(
 
         # ── Execute tool calls ────────────────────────────────────────
         if not tool_calls_this_turn:
-            _track_recall_usage(config.slug, conversation_id, accumulated_text)
             _log_chat_completion(config.slug, conversation_id, "chat", "ok",
                                 accumulated_text, all_tool_calls, model_used,
                                 total_input_tokens, total_output_tokens, chat_start_time)

@@ -378,7 +378,7 @@ class ContextManager:
             # already injected elsewhere in the prompt.
             if e["date"] == today:
                 continue
-            headline = e["headline"] or "(no summary yet)"
+            headline = sanitize_memory_content(e["headline"]) if e["headline"] else "(no summary yet)"
             lines.append(f"- {e['date']} · {headline}")
         return "\n".join(lines)
 

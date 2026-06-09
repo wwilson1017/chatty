@@ -63,7 +63,17 @@ async def search_memory_async(
         date_to=date_to,
         limit=limit,
     )
+    _sanitize_search_results(results)
     return {"query": query, "results": results, "total": len(results)}
+
+
+def _sanitize_search_results(results: list[dict]) -> None:
+    """Strip injection patterns from search result fields before returning to agent."""
+    from core.agents.security.scanner import sanitize_memory_content
+    for r in results:
+        for key in ("snippet", "title", "source_id"):
+            if r.get(key):
+                r[key] = sanitize_memory_content(r[key])
 
 
 def search_memory(
@@ -94,6 +104,7 @@ def search_memory(
         date_to=date_to,
         limit=limit,
     )
+    _sanitize_search_results(results)
     return {"query": query, "results": results, "total": len(results)}
 
 

@@ -454,9 +454,9 @@ class MemoryDB:
         if not safe_query or safe_query == '""':
             return []
 
-        # Build the MATCH expression with optional column filters
+        _VALID_SOURCE_TYPES = {"daily", "memory", "topic", "fact"}
         match_parts: list[str] = []
-        if source_type:
+        if source_type and source_type in _VALID_SOURCE_TYPES:
             match_parts.append(f'source_type:"{source_type}"')
         if memory_type:
             match_parts.append(f'memory_type:"{memory_type}"')

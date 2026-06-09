@@ -1,9 +1,11 @@
 """Nightly memory and dreaming jobs — runs per-agent at 11 PM CT.
 
-Three jobs per agent (in order):
+Five steps per agent (in order):
 1. Daily note summarization — Claude Haiku summarizes yesterday's chat
 2. Memory consolidation — Claude Sonnet rewrites MEMORY.md from daily notes
 3. Dreaming — score files, archive dormant ones, rebuild load order
+4. Fact confidence decay (Sundays only)
+5. Archive old daily notes (>90 days)
 """
 
 import logging
@@ -13,7 +15,10 @@ from zoneinfo import ZoneInfo
 
 logger = logging.getLogger(__name__)
 
-_LOCAL_TZ = ZoneInfo(os.getenv("TIMEZONE", "America/Chicago"))
+try:
+    _LOCAL_TZ = ZoneInfo(os.getenv("TIMEZONE", "America/Chicago") or "America/Chicago")
+except Exception:
+    _LOCAL_TZ = ZoneInfo("America/Chicago")
 
 
 def run_nightly_jobs() -> None:
@@ -69,7 +74,7 @@ def run_nightly_jobs() -> None:
         except Exception as e:
             logger.warning("nightly dreaming failed for %s: %s", agent_name, e)
 
-        # 3.5. Fact confidence decay (Sundays only)
+        # 4. Fact confidence decay (Sundays only)
         if datetime.now(_LOCAL_TZ).weekday() == 6:
             try:
                 from core.agents.memory.db import get_instance as _get_memory_db
@@ -82,7 +87,7 @@ def run_nightly_jobs() -> None:
             except Exception as e:
                 logger.warning("nightly confidence_decay failed for %s: %s", agent_name, e)
 
-        # 4. Archive old daily notes (>90 days)
+        # 5. Archive old daily notes (>90 days)
         try:
             result = ctx_manager.archive_old_daily_notes(max_age_days=90)
             if result.get("archived", 0) > 0:
