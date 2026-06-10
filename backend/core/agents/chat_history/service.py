@@ -10,10 +10,14 @@ separate ChatHistoryDB instance, so conversations are fully isolated.
 
 import logging
 import uuid
+from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 
 from .db import ChatHistoryDB
 
 logger = logging.getLogger(__name__)
+
+CT_TZ = ZoneInfo("America/Chicago")
 
 
 class ChatHistoryService:
@@ -149,6 +153,48 @@ class ChatHistoryService:
             (date,),
         ).fetchall()
         return [dict(r) for r in rows]
+
+    def get_qualifying_conversations(
+        self, date: str, min_user_messages: int = 4,
+    ) -> list[dict]:
+        """Return conversations from a CT date with enough user messages for observation extraction.
+
+        Each result has conversation_id, conversation_title, and the last 10 user messages
+        (the extractor only consumes user text, so assistant turns are excluded at the source).
+        """
+        y, m, d = (int(p) for p in date.split("-"))
+        local_start = datetime(y, m, d, tzinfo=CT_TZ)
+        local_end = local_start + timedelta(days=1)
+        utc_start = local_start.astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+        utc_end = local_end.astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+
+        db = self._db.get_db()
+        qualifying = db.execute(
+            """SELECT m.conversation_id, c.title AS conversation_title,
+                      COUNT(CASE WHEN m.role = 'user' THEN 1 END) AS user_msg_count
+               FROM messages m
+               JOIN conversations c ON c.id = m.conversation_id
+               WHERE m.created_at >= ? AND m.created_at < ?
+               GROUP BY m.conversation_id, c.title
+               HAVING user_msg_count >= ?""",
+            (utc_start, utc_end, min_user_messages),
+        ).fetchall()
+
+        results = []
+        for conv in qualifying:
+            msgs = db.execute(
+                """SELECT role, content FROM messages
+                   WHERE conversation_id = ? AND role = 'user'
+                     AND created_at >= ? AND created_at < ?
+                   ORDER BY seq DESC LIMIT 10""",
+                (conv["conversation_id"], utc_start, utc_end),
+            ).fetchall()
+            results.append({
+                "conversation_id": conv["conversation_id"],
+                "conversation_title": conv["conversation_title"],
+                "messages": [dict(m) for m in reversed(msgs)],
+            })
+        return results
 
     def search_conversations(self, query: str, limit: int = 20) -> list[dict]:
         """Search message content (case-insensitive), return matching conversations with snippets."""
