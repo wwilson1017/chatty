@@ -128,13 +128,13 @@ export function AgentPage() {
     if (!agentId) return;
     api<{ generate_available: boolean }>(`/api/agents/${agentId}/avatar/availability`)
       .then(d => setOpenaiAvailable(d.generate_available))
-      .catch(() => {});
+      .catch(() => {}); // best-effort: hides "Generate with AI" when unknown
   }, [agentId]);
 
   useEffect(() => {
     api<ProviderStatus>('/api/providers')
       .then(p => { setActiveProvider(p.active_provider); })
-      .catch(() => {});
+      .catch(() => {}); // best-effort: tier labels degrade gracefully
   }, []);
 
   // Fetch tier labels and resolve for the agent's provider
@@ -144,7 +144,7 @@ export function AgentPage() {
     if (!providerKey) return;
     api<{ tier_labels: Record<string, Record<string, string>> }>('/api/providers/tiers')
       .then(d => setTierLabels(d.tier_labels[providerKey] || {}))
-      .catch(() => {});
+      .catch(() => {}); // best-effort: tier labels degrade gracefully
   }, [agent, activeProvider]);
 
 
@@ -158,6 +158,7 @@ export function AgentPage() {
         body: JSON.stringify({ model_tier: tier }),
       });
     } catch {
+      // best-effort: revert the optimistic tier change on failure
       setModelTier(prev);
     }
   }, [agentId, modelTier]);
@@ -169,7 +170,7 @@ export function AgentPage() {
         if (s.always_power_mode) chat.setToolMode('power');
         setGlobalModelTier((s.default_model_tier || 'auto') as ModelTier);
       })
-      .catch(() => {});
+      .catch(() => {}); // best-effort: defaults apply when settings unavailable
   }, []);
 
   function handleStartOnboarding() {
@@ -336,6 +337,7 @@ export function AgentPage() {
     setShowAvatarPicker(false);
     setAvatarMenuRect(null);
     setAvatarCacheBust(Date.now());
+    // best-effort: a stale avatar is acceptable until the next full load
     if (agentId) api<AgentRow>(`/api/agents/${agentId}`).then(setAgent).catch(() => {});
   }
 

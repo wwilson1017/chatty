@@ -26,7 +26,7 @@ export function OnboardingWizard({ onComplete }: Props) {
       setProviderStatus(data);
       const anyConfigured = Object.values(data.profiles).some(p => p.configured);
       if (anyConfigured) setPhase('pick-messaging');
-    }).catch(console.error);
+    }).catch(console.error); // best-effort: wizard stays on the provider step
   }, []);
 
   const steps = useMemo(() => {

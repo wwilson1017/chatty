@@ -26,7 +26,7 @@ export default function NotificationLog({ agentSlug }: Props) {
     const fetch = () =>
       api<AgentNotification[]>(`/api/notifications?agent=${agentSlug}&status=active&limit=10`)
         .then(data => { if (!cancelled) setNotifications(data); })
-        .catch(() => {});
+        .catch(() => {}); // best-effort: poll retries in 30s
     fetch();
     const interval = setInterval(fetch, 30000);
     return () => { cancelled = true; clearInterval(interval); };

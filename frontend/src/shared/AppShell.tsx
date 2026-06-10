@@ -29,7 +29,7 @@ export function AppShell() {
       if (data.accent_color && data.accent_color.toLowerCase() !== OLD_DEFAULT) {
         document.documentElement.style.setProperty('--brand-color', data.accent_color);
       }
-    }).catch(() => {});
+    }).catch(() => {}); // best-effort: default branding applies
   }, []);
 
   const userInitial = branding?.company_name?.charAt(0) || 'C';

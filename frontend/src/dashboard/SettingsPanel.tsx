@@ -30,6 +30,7 @@ export function SettingsPanel({ branding, onBrandingUpdate, onClose }: Props) {
 
   useEffect(() => {
     if (tab === 'danger') {
+      // best-effort: danger-zone list stays empty on failure
       api<{ agents: Agent[] }>('/api/agents').then(d => setDangerAgents(d.agents)).catch(() => {});
     }
   }, [tab]);

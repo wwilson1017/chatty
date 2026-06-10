@@ -72,6 +72,7 @@ export function GoogleIntegrationCard({ integration, onChanged }: Props) {
 
   useEffect(() => {
     if (assignmentsOpen && agents.length === 0) {
+      // best-effort: assignment list stays empty on failure
       api<{ agents: Agent[] }>('/api/agents').then(data => setAgents(data.agents)).catch(() => {});
     }
   }, [assignmentsOpen]); // eslint-disable-line react-hooks/exhaustive-deps
