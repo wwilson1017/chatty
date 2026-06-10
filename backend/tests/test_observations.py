@@ -90,6 +90,30 @@ class TestPruneStaleObservations:
         assert mem_db.prune_stale_observations(max_age_days=90) == 0
         assert len(mem_db.get_observations("agent-a")) == 1
 
+    def test_old_but_recently_referenced_survives(self, mem_db):
+        # Created 100 days ago but referenced yesterday → preserved.
+        conn = mem_db.get_db()
+        conn.execute(
+            "INSERT INTO observations (agent_slug, observation, created_at, last_referenced_at) "
+            "VALUES (?, ?, datetime('now', '-100 days'), datetime('now', '-1 days'))",
+            ("agent-a", "Durable, actively-used fact"),
+        )
+        conn.commit()
+        assert mem_db.prune_stale_observations(max_age_days=90, min_idle_days=30) == 0
+        assert len(mem_db.get_observations("agent-a")) == 1
+
+    def test_old_and_idle_observation_pruned(self, mem_db):
+        # Created 100 days ago and not referenced in 40 days → pruned.
+        conn = mem_db.get_db()
+        conn.execute(
+            "INSERT INTO observations (agent_slug, observation, created_at, last_referenced_at) "
+            "VALUES (?, ?, datetime('now', '-100 days'), datetime('now', '-40 days'))",
+            ("agent-a", "Old, unused fact"),
+        )
+        conn.commit()
+        assert mem_db.prune_stale_observations(max_age_days=90, min_idle_days=30) == 1
+        assert mem_db.get_observations("agent-a") == []
+
 
 class TestDeleteObservationIsolation:
     def test_cross_agent_delete_blocked(self, mem_db):

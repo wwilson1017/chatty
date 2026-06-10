@@ -45,7 +45,8 @@ export function AgentContextEditor({ agentId }: Props) {
     api<{ observations: Observation[] }>(`${apiBase}/observations`)
       .then(data => {
         setObservations(data.observations);
-        if (data.observations.length > 0) setObsExpanded(true);
+        // Auto-expand only for a small set, so a long list doesn't bury the file editor.
+        if (data.observations.length > 0 && data.observations.length <= 5) setObsExpanded(true);
       })
       .catch(() => {});
   }, [agentId, apiBase]);

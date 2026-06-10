@@ -364,6 +364,13 @@ def _build_system_prompt(
                     parts.append(f"- {html.escape(_o['observation'], quote=False)}")
                 parts.append("</observations>")
                 parts.append("")
+                # Record that these observations were surfaced so the usage
+                # metadata (reference_count / last_referenced_at) reflects what
+                # is actually used. Best-effort — never block prompt assembly.
+                try:
+                    _obs_db.increment_observation_references([_o["id"] for _o in _observations])
+                except Exception:
+                    pass
     except Exception as e:
         logger.warning("observations skipped for %s: %s", config.slug, e)
 

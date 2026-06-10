@@ -1018,12 +1018,17 @@ class MemoryDB:
             )
             conn.commit()
 
-    def prune_stale_observations(self, max_age_days: int = 90) -> int:
+    def prune_stale_observations(self, max_age_days: int = 90, min_idle_days: int = 30) -> int:
+        """Delete observations older than max_age_days, unless they have been
+        referenced (surfaced in a prompt) within the last min_idle_days — so
+        durable, actively-used knowledge is preserved past the age cutoff."""
         conn = self.get_db()
         with self._write_lock:
             cursor = conn.execute(
-                "DELETE FROM observations WHERE created_at < datetime('now', ?)",
-                (f"-{max_age_days} days",),
+                "DELETE FROM observations "
+                "WHERE created_at < datetime('now', ?) "
+                "AND (last_referenced_at IS NULL OR last_referenced_at < datetime('now', ?))",
+                (f"-{max_age_days} days", f"-{min_idle_days} days"),
             )
             conn.commit()
         return cursor.rowcount
