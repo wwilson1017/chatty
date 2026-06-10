@@ -110,6 +110,7 @@ async def extract_facts_from_messages(
                 predicate=fact["predicate"],
                 include_expired=False,
                 limit=5,
+                track_retrieval=False,
             )
 
             # Check for exact duplicates
