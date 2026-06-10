@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { api } from '../core/api/client';
 import { NavRail } from './NavRail';
+import { ErrorBoundary, RouteErrorFallback } from './ErrorBoundary';
 import { SettingsPanel } from '../dashboard/SettingsPanel';
 import { useIsMobile } from './useIsMobile';
 import { IconBot, IconFunnel, IconBook, IconSettings } from './icons';
@@ -65,7 +66,14 @@ export function AppShell() {
         <NavRail onSettingsClick={() => setShowSettings(true)} userInitial={userInitial} />
       )}
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', position: 'relative', overflow: 'hidden' }}>
-        <Outlet context={{ branding, setBranding }} />
+        {/* Keyed by pathname so navigating away resets a crashed route; the
+            nav rail lives outside and survives. */}
+        <ErrorBoundary
+          key={location.pathname}
+          fallback={(error, reset) => <RouteErrorFallback error={error} reset={reset} />}
+        >
+          <Outlet context={{ branding, setBranding }} />
+        </ErrorBoundary>
       </div>
 
       {isMobile && (
