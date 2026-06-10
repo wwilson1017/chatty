@@ -202,3 +202,65 @@ class TestExtractObservations:
         )
         assert result["conversations_processed"] == _MAX_CONVERSATIONS_PER_NIGHT
         assert len(calls) == _MAX_CONVERSATIONS_PER_NIGHT
+
+
+class TestParseObservations:
+    def _parse(self, raw):
+        from core.agents.memory.observer import _parse_observations
+        return _parse_observations(raw)
+
+    def test_canonical_object(self):
+        assert self._parse('{"observations": ["a", "b"]}') == ["a", "b"]
+
+    def test_bare_list(self):
+        assert self._parse('["a", "b"]') == ["a", "b"]
+
+    def test_markdown_fenced(self):
+        assert self._parse('```json\n{"observations": ["a"]}\n```') == ["a"]
+
+    def test_prose_preamble(self):
+        assert self._parse('Sure, here you go:\n{"observations": ["a", "b"]}') == ["a", "b"]
+
+    def test_dict_with_non_list_first_value(self):
+        # The model may emit a count before the list; we still find the list.
+        assert self._parse('{"count": 0, "observations": ["a"]}') == ["a"]
+
+    def test_invalid_json_returns_none(self):
+        assert self._parse("not json at all") is None
+
+    def test_empty_and_none_return_none(self):
+        assert self._parse("") is None
+        assert self._parse(None) is None
+
+    def test_empty_list_preserved(self):
+        assert self._parse('{"observations": []}') == []
+
+
+class TestObservationReferenceThrottle:
+    def test_increment_then_throttled(self, mem_db):
+        row = mem_db.add_observation("agent-a", "Reference me")
+        oid = row["id"]
+
+        mem_db.increment_observation_references([oid])
+        first = mem_db.get_observations("agent-a")[0]
+        assert first["reference_count"] == 1
+        assert first["last_referenced_at"] is not None
+
+        # A second immediate bump is throttled (not due within the interval).
+        mem_db.increment_observation_references([oid])
+        assert mem_db.get_observations("agent-a")[0]["reference_count"] == 1
+
+    def test_increment_after_interval(self, mem_db):
+        row = mem_db.add_observation("agent-a", "Reference me later")
+        oid = row["id"]
+        # Backdate last_referenced_at past the throttle window.
+        conn = mem_db.get_db()
+        conn.execute(
+            "UPDATE observations SET reference_count = 1, "
+            "last_referenced_at = datetime('now', '-2 hours') WHERE id = ?",
+            (oid,),
+        )
+        conn.commit()
+
+        mem_db.increment_observation_references([oid], min_interval_minutes=60)
+        assert mem_db.get_observations("agent-a")[0]["reference_count"] == 2

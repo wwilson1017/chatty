@@ -1005,16 +1005,30 @@ class MemoryDB:
             return True
         return False
 
-    def increment_observation_references(self, obs_ids: list[int]) -> None:
+    def increment_observation_references(self, obs_ids: list[int], min_interval_minutes: int = 60) -> None:
+        """Bump usage metadata for the given observations, throttled to at most
+        once per min_interval_minutes each. Runs on every interactive prompt
+        build, so the cheap read avoids a synchronous(FULL) fsync commit on
+        turns where nothing is due for an update."""
         if not obs_ids:
             return
         conn = self.get_db()
         placeholders = ",".join("?" for _ in obs_ids)
+        # Cheap read (no fsync) to find which observations are actually due.
+        due = conn.execute(
+            f"SELECT id FROM observations WHERE id IN ({placeholders}) "
+            f"AND (last_referenced_at IS NULL OR last_referenced_at < datetime('now', ?))",
+            (*obs_ids, f"-{min_interval_minutes} minutes"),
+        ).fetchall()
+        if not due:
+            return
+        due_ids = [r["id"] for r in due]
+        due_placeholders = ",".join("?" for _ in due_ids)
         with self._write_lock:
             conn.execute(
                 f"UPDATE observations SET reference_count = reference_count + 1, "
-                f"last_referenced_at = datetime('now') WHERE id IN ({placeholders})",
-                obs_ids,
+                f"last_referenced_at = datetime('now') WHERE id IN ({due_placeholders})",
+                due_ids,
             )
             conn.commit()
 

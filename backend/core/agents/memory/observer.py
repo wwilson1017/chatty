@@ -7,6 +7,7 @@ same multi-provider pattern as extractor.py.
 
 import json
 import logging
+import re
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
@@ -35,6 +36,39 @@ Existing observations (do not repeat these):
 Return a JSON object: {{"observations": ["observation 1", "observation 2", ...]}}
 If nothing new qualifies, return {{"observations": []}}.
 """
+
+
+def _parse_observations(raw: str | None) -> list | None:
+    """Parse the model's JSON response into a list of observations.
+
+    Tolerates markdown-fenced output (```json ... ```) and surrounding prose
+    that cheaper models (Haiku, Gemini) emit when not pinned to a JSON mode.
+    Returns the list, or None if no usable list could be recovered.
+    """
+    if not raw:
+        return None
+    text = raw.strip()
+    if text.startswith("```"):
+        text = re.sub(r"^```[a-zA-Z0-9]*\s*", "", text)
+        text = re.sub(r"\s*```$", "", text).strip()
+    try:
+        parsed = json.loads(text)
+    except json.JSONDecodeError:
+        match = re.search(r"(\{.*\}|\[.*\])", text, re.S)
+        if not match:
+            return None
+        try:
+            parsed = json.loads(match.group(1))
+        except json.JSONDecodeError:
+            return None
+    if isinstance(parsed, dict):
+        for value in parsed.values():
+            if isinstance(value, list):
+                return value
+        return None
+    if isinstance(parsed, list):
+        return parsed
+    return None
 
 
 async def extract_observations(
@@ -92,21 +126,8 @@ async def extract_observations(
 
         try:
             raw = await _call_observation_api(prompt, transcript)
-            if not raw:
-                continue
-
-            parsed = json.loads(raw)
-            if isinstance(parsed, dict):
-                observations = None
-                for v in parsed.values():
-                    if isinstance(v, list):
-                        observations = v
-                        break
-                if observations is None:
-                    continue
-            elif isinstance(parsed, list):
-                observations = parsed
-            else:
+            observations = _parse_observations(raw)
+            if observations is None:
                 continue
 
             for obs_text in observations:
@@ -268,7 +289,7 @@ async def _extract_google(system_prompt: str, text: str, profiles: dict, timeout
                 json={
                     "system_instruction": {"parts": [{"text": system_prompt}]},
                     "contents": [{"role": "user", "parts": [{"text": text}]}],
-                    "generationConfig": {"maxOutputTokens": 500},
+                    "generationConfig": {"maxOutputTokens": 500, "responseMimeType": "application/json"},
                 },
             )
             resp.raise_for_status()
@@ -295,7 +316,7 @@ async def _extract_google(system_prompt: str, text: str, profiles: dict, timeout
             json={
                 "system_instruction": {"parts": [{"text": system_prompt}]},
                 "contents": [{"role": "user", "parts": [{"text": text}]}],
-                "generationConfig": {"maxOutputTokens": 500},
+                "generationConfig": {"maxOutputTokens": 500, "responseMimeType": "application/json"},
             },
         )
         resp.raise_for_status()

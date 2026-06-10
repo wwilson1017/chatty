@@ -1103,7 +1103,9 @@ async def list_observations(
         observations = memory_db.get_observations(agent["slug"], limit=limit)
         return {"observations": observations}
     except Exception as e:
-        logger.warning("list_observations failed for agent %s: %s", agent_id, e)
+        # Degrade gracefully (the panel is non-critical) but log at error level
+        # so a real fault isn't indistinguishable from a genuinely-empty store.
+        logger.error("list_observations failed for agent %s: %s", agent_id, e)
         return {"observations": []}
 
 
