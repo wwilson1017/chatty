@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { api } from '../core/api/client';
+import { toast } from '../shared/toast';
 import type { Agent, BrandingConfig } from '../core/types';
 import { ProviderSetup } from '../setup/ProviderSetup';
 import { IntegrationsTab } from './IntegrationsTab';
@@ -90,6 +91,8 @@ export function SettingsPanel({ branding, onBrandingUpdate, onClose }: Props) {
       });
       onBrandingUpdate(updated);
       document.documentElement.style.setProperty('--brand-color', updated.accent_color);
+    } catch {
+      toast.error('Failed to save branding.');
     } finally {
       setSaving(false);
     }

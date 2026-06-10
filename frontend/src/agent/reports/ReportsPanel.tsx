@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { api } from '../../core/api/client';
 import { confirmDialog } from '../../shared/confirm';
 import { toast } from '../../shared/toast';
+import { LoadError } from '../../shared/LoadError';
 import type { Report, ReportSummary } from './types';
 import ReportRenderer from './ReportRenderer';
 
@@ -12,17 +13,19 @@ interface ReportsPanelProps {
 export default function ReportsPanel({ apiPrefix }: ReportsPanelProps) {
   const [reports, setReports] = useState<ReportSummary[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadFailed, setLoadFailed] = useState(false);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [expandedReport, setExpandedReport] = useState<Report | null>(null);
   const [loadingReport, setLoadingReport] = useState(false);
   const [search, setSearch] = useState('');
 
   const loadReports = useCallback(async () => {
+    setLoadFailed(false);
     try {
       const data = await api<{ reports: ReportSummary[] }>(`${apiPrefix}/reports`);
       setReports(data.reports);
     } catch {
-      // silently fail
+      setLoadFailed(true);
     } finally {
       setLoading(false);
     }
@@ -53,6 +56,7 @@ export default function ReportsPanel({ apiPrefix }: ReportsPanelProps) {
     } catch {
       if (expandIdRef.current === id) {
         setExpandedReport(null);
+        toast.error('Failed to load report.');
       }
     } finally {
       if (expandIdRef.current === id) {
@@ -108,6 +112,17 @@ export default function ReportsPanel({ apiPrefix }: ReportsPanelProps) {
     return (
       <div className="flex items-center justify-center h-full text-ch-ink-mute text-sm">
         Loading reports...
+      </div>
+    );
+  }
+
+  if (loadFailed && reports.length === 0) {
+    return (
+      <div className="h-full p-4">
+        <LoadError
+          label="Couldn't load reports"
+          onRetry={() => { setLoading(true); loadReports(); }}
+        />
       </div>
     );
   }

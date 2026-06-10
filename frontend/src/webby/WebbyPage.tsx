@@ -11,6 +11,7 @@ import { useNavigate } from 'react-router-dom';
 import { api } from '../core/api/client';
 import { confirmDialog } from '../shared/confirm';
 import { toast } from '../shared/toast';
+import { LoadError } from '../shared/LoadError';
 import { useAgentChat } from '../agent/hooks/useAgentChat';
 import { useConversations } from '../agent/hooks/useConversations';
 import { AgentChatPanel } from '../agent/components/AgentChatPanel';
@@ -29,6 +30,7 @@ type Tab = 'chat' | 'knowledge' | 'preview';
 export function WebbyPage() {
   const navigate = useNavigate();
   const [status, setStatus] = useState<WebbyStatus | null>(null);
+  const [statusError, setStatusError] = useState(false);
   const [agentId, setAgentId] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<Tab>('chat');
   const [creating, setCreating] = useState(false);
@@ -43,12 +45,15 @@ export function WebbyPage() {
 
   const chat = useAgentChat(apiPrefix, { onTitleUpdate: handleTitleUpdate });
 
-  useEffect(() => {
+  function loadStatus() {
+    setStatusError(false);
     api<WebbyStatus>('/api/webby/status').then(s => {
       setStatus(s);
       if (s.agent_id) setAgentId(s.agent_id);
-    });
-  }, []);
+    }).catch(() => setStatusError(true));
+  }
+
+  useEffect(() => { loadStatus(); }, []);
 
   useEffect(() => {
     if (agentId) convs.loadConversations();
@@ -62,6 +67,8 @@ export function WebbyPage() {
       setAgentId(data.agent_id);
       setStatus(prev => prev ? { ...prev, exists: true, agent_id: data.agent_id } : null);
       chat.setTrainingMode(true);
+    } catch {
+      toast.error('Failed to create agent.');
     } finally {
       setCreating(false);
     }
@@ -69,6 +76,7 @@ export function WebbyPage() {
 
   async function handleSelectConversation(id: string) {
     const msgs = await convs.selectConversation(id);
+    if (!msgs) return;
     chat.loadMessages(msgs, id);
   }
 
@@ -97,7 +105,9 @@ export function WebbyPage() {
   if (!status) {
     return (
       <div className="flex items-center justify-center h-screen bg-ch-bg">
-        <div className="w-6 h-6 border-2 border-ch-accent border-t-transparent rounded-full animate-spin" />
+        {statusError
+          ? <LoadError label="Couldn't load Webby status" onRetry={loadStatus} />
+          : <div className="w-6 h-6 border-2 border-ch-accent border-t-transparent rounded-full animate-spin" />}
       </div>
     );
   }
@@ -192,6 +202,8 @@ export function WebbyPage() {
               searchQuery={convs.searchQuery}
               searchResults={convs.searchResults}
               isSearching={convs.isSearching}
+              loadError={convs.loadError}
+              onRetryLoad={convs.loadConversations}
               onNew={handleNewChat}
               onSelect={handleSelectConversation}
               onDelete={handleDeleteConversation}

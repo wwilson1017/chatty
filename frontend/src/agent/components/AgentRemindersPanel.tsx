@@ -5,6 +5,7 @@
 
 import { useState, useEffect } from 'react';
 import { api } from '../../core/api/client';
+import { LoadError } from '../../shared/LoadError';
 import type { Reminder } from '../../core/types';
 
 function toUTC(iso: string): Date {
@@ -70,6 +71,8 @@ interface SeriesCache {
 export default function AgentRemindersPanel({ agentSlug }: { agentSlug: string }) {
   const [reminders, setReminders] = useState<Reminder[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadFailed, setLoadFailed] = useState(false);
+  const [retryKey, setRetryKey] = useState(0);
   const [expanded, setExpanded] = useState<string | null>(null);
   const [seriesCache, setSeriesCache] = useState<SeriesCache>({});
   const [loadingSeries, setLoadingSeries] = useState<string | null>(null);
@@ -80,15 +83,15 @@ export default function AgentRemindersPanel({ agentSlug }: { agentSlug: string }
     (async () => {
       try {
         const result = await api<{ reminders: Reminder[] }>(`/api/reminders?agent=${agentSlug}&limit=100`);
-        if (!cancelled) setReminders(result.reminders);
+        if (!cancelled) { setReminders(result.reminders); setLoadFailed(false); }
       } catch {
-        // Supplementary — fail silently
+        if (!cancelled) setLoadFailed(true);
       } finally {
         if (!cancelled) setLoading(false);
       }
     })();
     return () => { cancelled = true; };
-  }, [agentSlug]);
+  }, [agentSlug, retryKey]);
 
   const toggleSection = (section: string) => {
     setCollapsedSections(prev => {
@@ -114,6 +117,15 @@ export default function AgentRemindersPanel({ agentSlug }: { agentSlug: string }
         <div className="animate-spin w-4 h-4 border-2 border-ch-accent border-t-transparent rounded-full" />
         Loading reminders...
       </div>
+    );
+  }
+
+  if (loadFailed && reminders.length === 0) {
+    return (
+      <LoadError
+        label="Couldn't load reminders"
+        onRetry={() => { setLoading(true); setRetryKey(k => k + 1); }}
+      />
     );
   }
 

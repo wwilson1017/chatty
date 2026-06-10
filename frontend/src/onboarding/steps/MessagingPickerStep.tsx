@@ -22,6 +22,8 @@ export function MessagingPickerStep({ onComplete, onSkip }: Props) {
         );
         setIntegrations(messaging);
       })
+      // best-effort: an empty list still lets the user skip this step
+      .catch(() => {})
       .finally(() => setLoading(false));
   }, []);
 

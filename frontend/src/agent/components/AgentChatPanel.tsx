@@ -8,6 +8,7 @@ import NotificationLog from './NotificationLog';
 import { IconAttach, IconArrowUp } from '../../shared/icons';
 import { useIsMobile } from '../../shared/useIsMobile';
 import { api } from '../../core/api/client';
+import { toast } from '../../shared/toast';
 import { localDateKey } from '../utils/dateFormat';
 
 const ALLOWED_EXTENSIONS = new Set(['csv', 'xlsx', 'md', 'txt', 'pdf', 'docx']);
@@ -475,13 +476,14 @@ export function AgentChatPanel({
                 try {
                   await api(`/api/alerts/${alertId}/acknowledge`, { method: 'POST' });
                   setAlerts(prev => prev.filter(a => a.id !== alertId));
-                } catch { /* ignore */ }
+                } catch { toast.error('Failed to dismiss alert.'); }
               }}
               onDiscuss={(alertId) => {
                 const alert = alerts.find(a => a.id === alertId);
                 if (alert) {
                   onSend(`Tell me about this alert: "${alert.title}" — ${alert.message}`);
-                  api(`/api/alerts/${alertId}/acknowledge`, { method: 'POST' }).catch(() => {});
+                  api(`/api/alerts/${alertId}/acknowledge`, { method: 'POST' })
+                    .catch(() => toast.error('Failed to acknowledge alert.'));
                   setAlerts(prev => prev.filter(a => a.id !== alertId));
                 }
               }}

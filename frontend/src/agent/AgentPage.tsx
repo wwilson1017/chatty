@@ -287,6 +287,7 @@ export function AgentPage() {
     if (chat.trainingMode) chat.setTrainingMode(false);
     if (chat.planMode) chat.setPlanMode(false);
     const msgs = await convs.selectConversation(id);
+    if (!msgs) return;
     chat.loadMessages(msgs, id);
   }
 
@@ -643,6 +644,8 @@ export function AgentPage() {
                     searchQuery={convs.searchQuery}
                     searchResults={convs.searchResults}
                     isSearching={convs.isSearching}
+                    loadError={convs.loadError}
+                    onRetryLoad={convs.loadConversations}
                     onNew={() => { handleNewChat(); setShowSidebar(false); }}
                     onSelect={(id) => { handleSelectConversation(id); setShowSidebar(false); }}
                     onDelete={handleDeleteConversation}
@@ -662,6 +665,8 @@ export function AgentPage() {
                 searchQuery={convs.searchQuery}
                 searchResults={convs.searchResults}
                 isSearching={convs.isSearching}
+                loadError={convs.loadError}
+                onRetryLoad={convs.loadConversations}
                 onNew={handleNewChat}
                 onSelect={handleSelectConversation}
                 onDelete={handleDeleteConversation}

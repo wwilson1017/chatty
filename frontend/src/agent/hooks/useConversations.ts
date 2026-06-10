@@ -5,6 +5,7 @@
 
 import { useState, useCallback, useRef, useEffect } from 'react';
 import { api } from '../../core/api/client';
+import { toast } from '../../shared/toast';
 import type { ChatMessage } from './useAgentChat';
 import { parseServerTimestamp } from '../utils/dateFormat';
 
@@ -26,21 +27,23 @@ export function useConversations(apiPrefix: string) {
   const [activeId, setActiveId] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [loaded, setLoaded] = useState(false);
-  useEffect(() => { setLoaded(false); setConversations([]); setActiveId(null); }, [apiPrefix]);
+  const [loadError, setLoadError] = useState(false);
+  useEffect(() => { setLoaded(false); setConversations([]); setActiveId(null); setLoadError(false); }, [apiPrefix]);
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<{ id: string; title: string; snippet: string; updated_at?: string }[]>([]);
   const [isSearching, setIsSearching] = useState(false);
   const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const loadConversations = useCallback(async () => {
+    setLoadError(false);
     try {
       const data = await api<{ conversations: Conversation[] }>(`${apiPrefix}/conversations`);
       setConversations(data.conversations);
-    } catch { /* silent */ }
+    } catch { setLoadError(true); }
     finally { setLoaded(true); }
   }, [apiPrefix]);
 
-  const selectConversation = useCallback(async (id: string): Promise<ChatMessage[]> => {
+  const selectConversation = useCallback(async (id: string): Promise<ChatMessage[] | null> => {
     setLoading(true);
     try {
       const data = await api<{
@@ -78,7 +81,10 @@ export function useConversations(apiPrefix: string) {
         return msg;
       });
     } catch {
-      return [];
+      // null (not []) so callers can distinguish failure from an empty
+      // conversation and skip switching the chat view.
+      toast.error('Failed to load conversation.');
+      return null;
     } finally {
       setLoading(false);
     }
@@ -142,6 +148,7 @@ export function useConversations(apiPrefix: string) {
     setActiveId,
     loading,
     loaded,
+    loadError,
     searchQuery,
     searchResults,
     isSearching,

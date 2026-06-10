@@ -2,6 +2,8 @@ import { useState, useRef, useCallback } from 'react';
 import type { Conversation } from '../hooks/useConversations';
 import { AgentMark } from '../../shared/AgentMark';
 import { IconPlus } from '../../shared/icons';
+import { LoadError } from '../../shared/LoadError';
+import { toast } from '../../shared/toast';
 import { formatSidebarTime } from '../utils/dateFormat';
 
 interface Props {
@@ -13,16 +15,19 @@ interface Props {
   searchQuery: string;
   searchResults: { id: string; title: string; snippet: string }[];
   isSearching: boolean;
+  loadError?: boolean;
+  onRetryLoad?: () => void;
   onNew: () => void;
   onSelect: (id: string) => void;
   onDelete: (id: string) => void;
   onSearch: (q: string) => void;
-  onRename: (id: string, title: string) => void;
+  onRename: (id: string, title: string) => Promise<boolean>;
 }
 
 export function ConversationSidebar({
   agentName, avatarUrl, onAvatarClick,
   conversations, activeId, searchQuery, searchResults, isSearching,
+  loadError, onRetryLoad,
   onNew, onSelect, onDelete, onSearch, onRename,
 }: Props) {
   const [collapsed, setCollapsed] = useState(false);
@@ -43,9 +48,11 @@ export function ConversationSidebar({
     setEditTitle(conv.title);
   }
 
-  function commitEdit(id: string) {
-    if (editTitle.trim()) onRename(id, editTitle.trim());
+  async function commitEdit(id: string) {
     setEditingId(null);
+    if (!editTitle.trim()) return;
+    const ok = await onRename(id, editTitle.trim());
+    if (!ok) toast.error('Failed to rename conversation.');
   }
 
   const displayList = searchQuery.trim() ? searchResults : conversations;
@@ -133,6 +140,8 @@ export function ConversationSidebar({
           <div style={{ display: 'flex', justifyContent: 'center', padding: 16 }}>
             <div className="w-4 h-4 border-2 border-ch-accent border-t-transparent rounded-full animate-spin" />
           </div>
+        ) : loadError && conversations.length === 0 && !searchQuery.trim() ? (
+          <LoadError compact label="Couldn't load conversations" onRetry={() => onRetryLoad?.()} />
         ) : displayList.length === 0 ? (
           <p style={{ color: 'rgba(237,240,244,0.38)', fontSize: 12, textAlign: 'center', padding: '24px 16px' }}>
             {searchQuery ? 'No results found' : 'No conversations yet'}

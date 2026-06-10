@@ -5,6 +5,7 @@ import { AgentCard } from './AgentCard';
 import { CreateAgentModal } from './CreateAgentModal';
 import { ImportAgentModal } from './ImportAgentModal';
 import { WarmHalo } from '../shared/WarmHalo';
+import { LoadError } from '../shared/LoadError';
 import { IconSearch, IconPlus, IconDownload } from '../shared/icons';
 import { MobileMenuDrawer } from '../shared/MobileMenuDrawer';
 import { useIsMobile } from '../shared/useIsMobile';
@@ -37,11 +38,14 @@ export function DashboardPage() {
   const [showImport, setShowImport] = useState(false);
   const [suggestedTitle, setSuggestedTitle] = useState('');
   const [loading, setLoading] = useState(true);
+  const [loadFailed, setLoadFailed] = useState(false);
   const navigate = useNavigate();
   const context = useOutletContext<{ branding: BrandingConfig | null; setBranding: (b: BrandingConfig) => void }>();
   const branding = context?.branding;
 
-  useEffect(() => {
+  function loadDashboard() {
+    setLoading(true);
+    setLoadFailed(false);
     Promise.all([
       api<{ agents: Agent[] }>('/api/agents'),
       api<ProviderStatus>('/api/providers'),
@@ -54,8 +58,12 @@ export function DashboardPage() {
       setAgents(agentsData.agents);
     }).catch(err => {
       console.error('Dashboard load error:', err);
+      setLoadFailed(true);
     }).finally(() => setLoading(false));
-  }, [navigate]);
+  }
+
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { loadDashboard(); }, [navigate]);
 
 
   const isMobile = useIsMobile();
@@ -189,6 +197,8 @@ export function DashboardPage() {
           <div style={{ display: 'flex', justifyContent: 'center', padding: '80px 0' }}>
             <div className="w-8 h-8 border-2 border-ch-accent border-t-transparent rounded-full animate-spin" />
           </div>
+        ) : loadFailed ? (
+          <LoadError label="Couldn't load your agents" onRetry={loadDashboard} />
         ) : agents.length === 0 ? (
           <div>
             <div style={{

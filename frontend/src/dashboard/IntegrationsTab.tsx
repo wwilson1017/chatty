@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { api } from '../core/api/client';
 import { getToken } from '../core/auth/tokenUtils';
+import { LoadError } from '../shared/LoadError';
 import { useOAuthFlow } from '../core/hooks/useOAuthFlow';
 import { GoogleIntegrationCard } from './GoogleIntegrationCard';
 import { AppCredentialsForm } from './AppCredentialsForm';
@@ -32,6 +33,7 @@ const mono = (size: number, color = 'rgba(237,240,244,0.38)') => ({
 export function IntegrationsTab() {
   const [integrations, setIntegrations] = useState<Integration[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadFailed, setLoadFailed] = useState(false);
   const [setupFor, setSetupFor] = useState<string | null>(null);
 
   const [odooUrl, setOdooUrl] = useState('');
@@ -67,14 +69,20 @@ export function IntegrationsTab() {
   const [tgSelectedAgent, setTgSelectedAgent] = useState<string>('');
   const pollTimers = useRef<Record<string, ReturnType<typeof setInterval>>>({});
 
-  useEffect(() => {
+  function loadIntegrations() {
+    setLoading(true);
+    setLoadFailed(false);
     api<{ integrations: Integration[] }>('/api/integrations')
       .then(data => setIntegrations(data.integrations))
+      .catch(() => setLoadFailed(true))
       .finally(() => setLoading(false));
-  }, []);
+  }
+
+  useEffect(() => { loadIntegrations(); }, []);
 
   useEffect(() => {
     if (waExpanded || telegramExpanded) {
+      // best-effort: failure leaves the expanded section's agent list empty
       api<{ agents: Agent[] }>('/api/agents').then(data => {
         setAgents(data.agents);
         if (waExpanded) {
@@ -89,7 +97,7 @@ export function IntegrationsTab() {
           }
           setWaStatuses(statuses);
         }
-      });
+      }).catch(() => {});
     }
   }, [waExpanded, telegramExpanded]);
 
@@ -274,7 +282,8 @@ export function IntegrationsTab() {
 
   useEffect(() => {
     if (qbOAuth.state.status === 'success') {
-      api<{ integrations: Integration[] }>('/api/integrations').then(d => setIntegrations(d.integrations));
+      // best-effort: refresh after OAuth; stale card beats an error here
+      api<{ integrations: Integration[] }>('/api/integrations').then(d => setIntegrations(d.integrations)).catch(() => {});
       qbOAuth.reset();
     } else if (qbOAuth.state.status === 'error' && qbOAuth.state.error) {
       setError(qbOAuth.state.error);
@@ -323,6 +332,10 @@ export function IntegrationsTab() {
       <div className="w-6 h-6 border-2 border-ch-accent border-t-transparent rounded-full animate-spin" />
     </div>
   );
+
+  if (loadFailed && integrations.length === 0) {
+    return <LoadError label="Couldn't load integrations" onRetry={loadIntegrations} />;
+  }
 
   async function refreshIntegrations() {
     const data = await api<{ integrations: Integration[] }>('/api/integrations');
@@ -544,7 +557,8 @@ export function IntegrationsTab() {
                     setPcMappingExpanded(next);
                     if (next) {
                       loadPaperclipAgents();
-                      api<{ agents: Agent[] }>('/api/agents').then(d => setAgents(d.agents));
+                      // best-effort: failure leaves the agent list empty
+    api<{ agents: Agent[] }>('/api/agents').then(d => setAgents(d.agents)).catch(() => {});
                     }
                   }}
                   style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}
@@ -755,7 +769,7 @@ export function IntegrationsTab() {
                           botUsername={agent.telegram_bot_username || ''}
                           telegramEnabled={agent.telegram_enabled}
                           groupEnabled={agent.telegram_group_enabled}
-                          onUpdate={() => api<{ agents: Agent[] }>('/api/agents').then(data => setAgents(data.agents))}
+                          onUpdate={() => api<{ agents: Agent[] }>('/api/agents').then(data => setAgents(data.agents)).catch(() => {})}
                         />
                       );
                     })()}

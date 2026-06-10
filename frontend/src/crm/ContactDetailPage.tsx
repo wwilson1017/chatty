@@ -45,20 +45,24 @@ export function ContactDetailPage() {
     setLoading(false);
   }, [id]);
 
-  // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { load(); }, [load]);
 
   async function handleLogActivity() {
     if (!logActivity) return;
     setLogging(true);
-    await api('/api/crm/activity', {
-      method: 'POST',
-      body: JSON.stringify({ activity: logActivity, note: logNote, contact_id: Number(id) }),
-    });
-    setLogActivity('');
-    setLogNote('');
-    setLogging(false);
-    load();
+    try {
+      await api('/api/crm/activity', {
+        method: 'POST',
+        body: JSON.stringify({ activity: logActivity, note: logNote, contact_id: Number(id) }),
+      });
+      setLogActivity('');
+      setLogNote('');
+      load();
+    } catch {
+      toast.error('Failed to log activity.');
+    } finally {
+      setLogging(false);
+    }
   }
 
   async function handleDelete() {

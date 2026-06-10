@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
+import { toast } from '../../../shared/toast';
 import type { ParsedLine } from '../../hooks/useHeartbeat';
 import { FONT_SANS, FONT_MONO, INK, INK_DIM, INK_MUTE, BG_ELEV, BG_RAISED, LINE_STRONG, ACCENT, ACCENT_INK, SAGE } from '../../../shared/styles';
 
@@ -67,7 +68,8 @@ export function HeartbeatChecklist({ parsedLines, canEditCards, rawMarkdown, onS
     try {
       await onSave(localLines);
       setDirty(false);
-    } finally { setSaving(false); }
+    } catch { toast.error('Failed to save checklist.'); }
+    finally { setSaving(false); }
   }
 
   async function handleSaveRaw() {
@@ -75,7 +77,8 @@ export function HeartbeatChecklist({ parsedLines, canEditCards, rawMarkdown, onS
     try {
       await onSaveRaw(rawText);
       setRawDirty(false);
-    } finally { setSaving(false); }
+    } catch { toast.error('Failed to save checklist.'); }
+    finally { setSaving(false); }
   }
 
   // Raw markdown editor fallback

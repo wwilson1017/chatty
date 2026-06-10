@@ -3,6 +3,7 @@ import { api } from '../../core/api/client';
 import { useIsMobile } from '../../shared/useIsMobile';
 import { confirmDialog } from '../../shared/confirm';
 import { toast } from '../../shared/toast';
+import { LoadError } from '../../shared/LoadError';
 
 interface ContextFile {
   name: string;
@@ -29,6 +30,7 @@ const mono = (size: number, color = 'rgba(237,240,244,0.38)') => ({
 
 export function AgentContextEditor({ agentId }: Props) {
   const [files, setFiles] = useState<ContextFile[]>([]);
+  const [filesError, setFilesError] = useState(false);
   const [selectedFile, setSelectedFile] = useState<string | null>(null);
   const [content, setContent] = useState('');
   const [loading, setLoading] = useState(false);
@@ -40,10 +42,15 @@ export function AgentContextEditor({ agentId }: Props) {
 
   const apiBase = `/api/agents/${agentId}`;
 
-  useEffect(() => {
+  function loadFiles() {
+    setFilesError(false);
     api<{ files: ContextFile[] }>(`${apiBase}/context`)
       .then(data => setFiles(data.files))
-      .catch(console.error);
+      .catch(() => setFilesError(true));
+  }
+
+  useEffect(() => {
+    loadFiles();
     api<{ observations: Observation[] }>(`${apiBase}/observations`)
       .then(data => {
         setObservations(data.observations);
@@ -51,6 +58,7 @@ export function AgentContextEditor({ agentId }: Props) {
         if (data.observations.length > 0 && data.observations.length <= 5) setObsExpanded(true);
       })
       .catch(() => {});
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [agentId, apiBase]);
 
   function confirmDiscard() {
@@ -71,6 +79,8 @@ export function AgentContextEditor({ agentId }: Props) {
       setSelectedFile(name);
       setContent(data.content);
       setDirty(false);
+    } catch {
+      toast.error('Failed to load file.');
     } finally {
       setLoading(false);
     }
@@ -87,6 +97,8 @@ export function AgentContextEditor({ agentId }: Props) {
       setDirty(false);
       const data = await api<{ files: ContextFile[] }>(`${apiBase}/context`);
       setFiles(data.files);
+    } catch {
+      toast.error('Failed to save file.');
     } finally {
       setSaving(false);
     }
@@ -257,7 +269,9 @@ export function AgentContextEditor({ agentId }: Props) {
           <p style={{ ...mono(10, 'rgba(237,240,244,0.62)'), margin: 0 }}>Knowledge Files</p>
         </div>
         <div style={{ flex: 1, overflowY: 'auto', padding: '8px 0' }}>
-          {files.length === 0 ? (
+          {filesError && files.length === 0 ? (
+            <LoadError compact label="Couldn't load files" onRetry={loadFiles} />
+          ) : files.length === 0 ? (
             <p style={{ color: 'rgba(237,240,244,0.38)', fontSize: 12, textAlign: 'center', padding: '16px 12px' }}>
               No knowledge files yet
             </p>
@@ -318,7 +332,9 @@ export function AgentContextEditor({ agentId }: Props) {
           <p style={{ ...mono(10, 'rgba(237,240,244,0.62)'), margin: 0 }}>Knowledge Files</p>
         </div>
         <div style={{ flex: 1, overflowY: 'auto', padding: '8px 0' }}>
-          {files.length === 0 ? (
+          {filesError && files.length === 0 ? (
+            <LoadError compact label="Couldn't load files" onRetry={loadFiles} />
+          ) : files.length === 0 ? (
             <p style={{ color: 'rgba(237,240,244,0.38)', fontSize: 12, textAlign: 'center', padding: '16px 12px' }}>
               No knowledge files yet
             </p>
