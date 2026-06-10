@@ -159,7 +159,8 @@ class ChatHistoryService:
     ) -> list[dict]:
         """Return conversations from a CT date with enough user messages for observation extraction.
 
-        Each result has conversation_id, conversation_title, and the last 10 user+assistant messages.
+        Each result has conversation_id, conversation_title, and the last 10 user messages
+        (the extractor only consumes user text, so assistant turns are excluded at the source).
         """
         y, m, d = (int(p) for p in date.split("-"))
         local_start = datetime(y, m, d, tzinfo=CT_TZ)
@@ -183,7 +184,7 @@ class ChatHistoryService:
         for conv in qualifying:
             msgs = db.execute(
                 """SELECT role, content FROM messages
-                   WHERE conversation_id = ? AND role IN ('user', 'assistant')
+                   WHERE conversation_id = ? AND role = 'user'
                      AND created_at >= ? AND created_at < ?
                    ORDER BY seq DESC LIMIT 10""",
                 (conv["conversation_id"], utc_start, utc_end),

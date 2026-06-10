@@ -961,11 +961,15 @@ class MemoryDB:
         # be persisted and later injected into the system prompt.
         try:
             from core.agents.security.scanner import scan_content
-            if not scan_content(observation).clean:
-                logger.warning("add_observation: rejected injection pattern for %s", agent_slug)
-                return None
-        except Exception:
-            pass
+            clean = scan_content(observation).clean
+        except Exception as e:
+            # Fail closed: if the scanner is unavailable we cannot vouch for the
+            # observation, and it would otherwise land in the system prompt.
+            logger.warning("add_observation: scanner unavailable, rejecting for %s: %s", agent_slug, e)
+            return None
+        if not clean:
+            logger.warning("add_observation: rejected injection pattern for %s", agent_slug)
+            return None
         normalized = " ".join(observation.lower().strip().split())
         conn = self.get_db()
 

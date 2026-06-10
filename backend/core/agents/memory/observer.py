@@ -1,8 +1,8 @@
 """Nightly observation extraction from conversation messages.
 
 Extracts plain-text observations about the user/business from yesterday's
-conversations using the cheapest available AI provider.  Follows the same
-multi-provider pattern as extractor.py.
+conversations using the active AI provider's cheapest model tier.  Follows the
+same multi-provider pattern as extractor.py.
 """
 
 import json
@@ -13,6 +13,10 @@ from zoneinfo import ZoneInfo
 logger = logging.getLogger(__name__)
 
 CT_TZ = ZoneInfo("America/Chicago")
+
+# Upper bound on conversations processed per agent per night, so a heavy-usage
+# day cannot turn the 11 PM job into hundreds of serial paid API calls.
+_MAX_CONVERSATIONS_PER_NIGHT = 25
 
 _OBSERVATION_PROMPT = """\
 Extract 2-5 factual observations about the user or their business from this conversation.
@@ -52,7 +56,19 @@ async def extract_observations(
         return {"extracted": 0, "pruned": 0, "conversations_processed": 0}
 
     if not conversations:
-        return {"extracted": 0, "pruned": 0, "conversations_processed": 0}
+        # Still prune so a dormant agent's observations don't survive forever.
+        pruned = memory_db.prune_stale_observations(max_age_days=90)
+        if pruned > 0:
+            try:
+                memory_db.backup_to_gcs()
+            except Exception:
+                pass
+        return {"extracted": 0, "pruned": pruned, "conversations_processed": 0}
+
+    if len(conversations) > _MAX_CONVERSATIONS_PER_NIGHT:
+        logger.info("observer: capping %d conversations to %d for %s",
+                    len(conversations), _MAX_CONVERSATIONS_PER_NIGHT, agent_name)
+        conversations = conversations[:_MAX_CONVERSATIONS_PER_NIGHT]
 
     existing_obs = memory_db.get_observations(agent_slug)
     existing_texts = [o["observation"] for o in existing_obs]
