@@ -73,14 +73,20 @@ def should_respond(
     if not sender_is_bot and not is_addressed:
         return False, "not_addressed"
 
+    # Load settings outside the lock to avoid holding it during I/O
+    bot_limit_enabled = True
+    bot_limit_max = 5
+    if sender_is_bot:
+        from core.admin_settings import load_admin_settings
+        settings = load_admin_settings()
+        bot_limit_enabled = settings.get("bot_reply_limit_enabled", True)
+        bot_limit_max = max(1, settings.get("bot_reply_limit", 5))
+
     with _lock:
         state = _get_state(chat_id)
 
-        if sender_is_bot:
-            if not agent.get("telegram_respond_to_bots"):
-                return False, "bot_messages_disabled"
-            max_turns = max(1, agent.get("telegram_max_bot_turns", 3))
-            if state.consecutive_bot_turns >= max_turns:
+        if sender_is_bot and bot_limit_enabled:
+            if state.consecutive_bot_turns >= bot_limit_max:
                 return False, "max_bot_turns"
 
         agent_id = agent["id"]

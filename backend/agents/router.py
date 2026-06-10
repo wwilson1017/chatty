@@ -131,8 +131,6 @@ class UpdateAgentRequest(BaseModel):
     model_tier: str | None = None
     telegram_enabled: bool | None = None
     telegram_group_enabled: bool | None = None
-    telegram_respond_to_bots: bool | None = None
-    telegram_max_bot_turns: int | None = None
 
 
 class ChatRequest(BaseModel):
@@ -270,7 +268,7 @@ async def update_agent(agent_id: str, body: UpdateAgentRequest, user=Depends(get
         "gmail_enabled", "gmail_send_enabled",
         "calendar_enabled", "calendar_write_enabled",
         "drive_enabled", "drive_write_enabled",
-        "telegram_enabled", "telegram_group_enabled", "telegram_respond_to_bots",
+        "telegram_enabled", "telegram_group_enabled",
     ):
         if field in updates:
             updates[field] = int(updates[field])
@@ -1089,3 +1087,38 @@ async def get_agent_activity(
     from core.agents.scheduled_actions.history import get_history
     records = get_history(agent=agent["slug"], limit=limit, event_type="scheduled_action")
     return {"activities": records}
+
+
+# ── Per-agent: Observations ───────────────────────────────────────────────────
+
+@router.get("/{agent_id}/observations")
+async def list_observations(
+    agent_id: str,
+    limit: int = Query(50, ge=1, le=200),
+    user=Depends(get_current_user),
+):
+    agent = _get_agent_or_404(agent_id)
+    try:
+        memory_db = ensure_memory_db(agent["slug"])
+        observations = memory_db.get_observations(agent["slug"], limit=limit)
+        return {"observations": observations}
+    except Exception as e:
+        # Degrade gracefully (the panel is non-critical) but log at error level
+        # so a real fault isn't indistinguishable from a genuinely-empty store.
+        logger.error("list_observations failed for agent %s: %s", agent_id, e)
+        return {"observations": []}
+
+
+@router.delete("/{agent_id}/observations/{obs_id}")
+async def delete_observation(agent_id: str, obs_id: int, user=Depends(get_current_user)):
+    agent = _get_agent_or_404(agent_id)
+    try:
+        memory_db = ensure_memory_db(agent["slug"])
+        if not memory_db.delete_observation(obs_id, agent_slug=agent["slug"]):
+            raise HTTPException(status_code=404, detail="Observation not found")
+        return {"deleted": True, "id": obs_id}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.warning("delete_observation failed for obs %s: %s", obs_id, e)
+        raise HTTPException(status_code=500, detail="Internal error")

@@ -312,6 +312,25 @@ class MemoryDB:
                 )
                 conn.commit()
 
+        # Create observations table if missing
+        try:
+            conn.execute("SELECT 1 FROM observations LIMIT 0")
+        except sqlite3.OperationalError:
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS observations (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    agent_slug TEXT NOT NULL,
+                    observation TEXT NOT NULL,
+                    source_conversation_id TEXT,
+                    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                    last_referenced_at TEXT,
+                    reference_count INTEGER DEFAULT 0
+                )
+            """)
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_obs_agent ON observations(agent_slug)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_obs_created ON observations(created_at DESC)")
+            conn.commit()
+
     def init_db(self) -> dict:
         """Initialize with integrity check and GCS restore."""
         self.data_dir.mkdir(parents=True, exist_ok=True)
@@ -952,6 +971,112 @@ class MemoryDB:
 
         self.remove_document("fact", str(fact_id))
         return {"id": fact_id, "valid_to": valid_to, "ok": True}
+
+    # ------------------------------------------------------------------
+    # Observations
+    # ------------------------------------------------------------------
+
+    def get_observations(self, agent_slug: str, limit: int = 50) -> list[dict]:
+        conn = self.get_db()
+        rows = conn.execute(
+            "SELECT * FROM observations WHERE agent_slug = ? ORDER BY created_at DESC LIMIT ?",
+            (agent_slug, limit),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+    def add_observation(
+        self, agent_slug: str, observation: str, source_conversation_id: str | None = None,
+    ) -> dict | None:
+        observation = observation[:200]
+        # Reject observations carrying prompt-injection patterns before they can
+        # be persisted and later injected into the system prompt.
+        try:
+            from core.agents.security.scanner import scan_content
+            clean = scan_content(observation).clean
+        except Exception as e:
+            # Fail closed: if the scanner is unavailable we cannot vouch for the
+            # observation, and it would otherwise land in the system prompt.
+            logger.warning("add_observation: scanner unavailable, rejecting for %s: %s", agent_slug, e)
+            return None
+        if not clean:
+            logger.warning("add_observation: rejected injection pattern for %s", agent_slug)
+            return None
+        normalized = " ".join(observation.lower().strip().split())
+        conn = self.get_db()
+
+        with self._write_lock:
+            existing = conn.execute(
+                "SELECT observation FROM observations WHERE agent_slug = ?", (agent_slug,),
+            ).fetchall()
+            for row in existing:
+                if " ".join(row["observation"].lower().strip().split()) == normalized:
+                    return None
+
+            cursor = conn.execute(
+                "INSERT INTO observations (agent_slug, observation, source_conversation_id) VALUES (?, ?, ?)",
+                (agent_slug, observation, source_conversation_id),
+            )
+            conn.commit()
+            row = conn.execute("SELECT * FROM observations WHERE id = ?", (cursor.lastrowid,)).fetchone()
+            return dict(row) if row else None
+
+    def delete_observation(self, obs_id: int, agent_slug: str | None = None) -> bool:
+        conn = self.get_db()
+        with self._write_lock:
+            if agent_slug:
+                cursor = conn.execute(
+                    "DELETE FROM observations WHERE id = ? AND agent_slug = ?",
+                    (obs_id, agent_slug),
+                )
+            else:
+                cursor = conn.execute("DELETE FROM observations WHERE id = ?", (obs_id,))
+            conn.commit()
+        if cursor.rowcount > 0:
+            self.backup_to_gcs()
+            return True
+        return False
+
+    def increment_observation_references(self, obs_ids: list[int], min_interval_minutes: int = 60) -> None:
+        """Bump usage metadata for the given observations, throttled to at most
+        once per min_interval_minutes each. Runs on every interactive prompt
+        build, so the cheap read avoids a synchronous(FULL) fsync commit on
+        turns where nothing is due for an update."""
+        if not obs_ids:
+            return
+        conn = self.get_db()
+        placeholders = ",".join("?" for _ in obs_ids)
+        # Cheap read (no fsync) to find which observations are actually due.
+        due = conn.execute(
+            f"SELECT id FROM observations WHERE id IN ({placeholders}) "
+            f"AND (last_referenced_at IS NULL OR last_referenced_at < datetime('now', ?))",
+            (*obs_ids, f"-{min_interval_minutes} minutes"),
+        ).fetchall()
+        if not due:
+            return
+        due_ids = [r["id"] for r in due]
+        due_placeholders = ",".join("?" for _ in due_ids)
+        with self._write_lock:
+            conn.execute(
+                f"UPDATE observations SET reference_count = reference_count + 1, "
+                f"last_referenced_at = datetime('now') WHERE id IN ({due_placeholders})",
+                due_ids,
+            )
+            conn.commit()
+
+    def prune_stale_observations(self, max_age_days: int = 90, min_idle_days: int = 30) -> int:
+        """Delete observations older than max_age_days, unless they have been
+        referenced (surfaced in a prompt) within the last min_idle_days — so
+        durable, actively-used knowledge is preserved past the age cutoff."""
+        conn = self.get_db()
+        with self._write_lock:
+            cursor = conn.execute(
+                "DELETE FROM observations "
+                "WHERE created_at < datetime('now', ?) "
+                "AND (last_referenced_at IS NULL OR last_referenced_at < datetime('now', ?))",
+                (f"-{max_age_days} days", f"-{min_idle_days} days"),
+            )
+            conn.commit()
+        return cursor.rowcount
 
     def decay_stale_confidence(
         self, stale_days: int = 60, decay_amount: float = 0.1, floor: float = 0.3,

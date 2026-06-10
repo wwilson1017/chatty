@@ -74,8 +74,6 @@ def _setup_connection() -> None:
         ("telegram_bot_token", "TEXT NOT NULL DEFAULT ''"),
         ("telegram_bot_username", "TEXT NOT NULL DEFAULT ''"),
         ("telegram_group_enabled", "INTEGER NOT NULL DEFAULT 0"),
-        ("telegram_respond_to_bots", "INTEGER NOT NULL DEFAULT 0"),
-        ("telegram_max_bot_turns", "INTEGER NOT NULL DEFAULT 3"),
         ("whatsapp_session_id", "TEXT NOT NULL DEFAULT ''"),
         ("gmail_send_enabled", "INTEGER NOT NULL DEFAULT 0"),
         ("calendar_write_enabled", "INTEGER NOT NULL DEFAULT 0"),
@@ -195,7 +193,7 @@ UPDATABLE_FIELDS = {
     "google_accounts",
     "whatsapp_session_id",
     "telegram_enabled", "telegram_bot_token", "telegram_bot_username",
-    "telegram_group_enabled", "telegram_respond_to_bots", "telegram_max_bot_turns",
+    "telegram_group_enabled",
     "model_tier",
 }
 
