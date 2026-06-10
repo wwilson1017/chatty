@@ -10,13 +10,11 @@ Verifies:
 
 import json
 import sqlite3
-import tempfile
 import threading
 import time
 from pathlib import Path
 from unittest.mock import patch
 
-import pytest
 
 
 # ---------------------------------------------------------------------------

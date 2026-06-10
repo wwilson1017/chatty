@@ -4,7 +4,6 @@ Webby — GitHub tool definitions and handlers.
 Phase 1: Stubs with correct signatures. Full implementation in Phase 2.
 """
 
-from datetime import datetime
 
 # ---------------------------------------------------------------------------
 # Tool definitions (passed to the AI as available tools)

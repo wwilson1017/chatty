@@ -266,7 +266,7 @@ class HttpProxy:
         if hostname in self._BLOCKED_HOSTS:
             raise PermissionError(f"Requests to '{hostname}' are blocked")
         if hostname.startswith("169.254."):
-            raise PermissionError(f"Requests to link-local addresses are blocked")
+            raise PermissionError("Requests to link-local addresses are blocked")
 
     def get(self, url: str, headers: dict | None = None, timeout: float = 10.0) -> dict:
         self._validate_url(url)

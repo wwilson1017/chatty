@@ -15,7 +15,6 @@ from core.agents.context_manager import ContextManager
 from . import sessions
 from .adapters.folder import FolderSourceAdapter
 from .adapters.paste import PasteSourceAdapter
-from .scrubber import scrub
 
 logger = logging.getLogger(__name__)
 
@@ -109,7 +108,7 @@ def execute_import_tool(
     except ValueError as e:
         logger.warning("Import tool %s: validation error: %s", tool_name, e)
         return {"error": str(e)}
-    except Exception as e:
+    except Exception:
         logger.exception("Import tool %s failed", tool_name)
         return {"error": "An unexpected error occurred. Check the server logs."}
 

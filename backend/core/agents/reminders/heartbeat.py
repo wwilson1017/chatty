@@ -46,7 +46,7 @@ def _process_self_reminder(reminder: dict) -> None:
     agent_slug = reminder["agent"]
 
     # Resolve agent config
-    from agents.engine import get_context_manager, DATA_DIR
+    from agents.engine import get_context_manager
     from agents import db as agent_db
 
     # Find agent by slug (reminder stores agent slug)
@@ -76,7 +76,7 @@ def _process_self_reminder(reminder: dict) -> None:
 
     from agents.tool_loader import load_integration_tools, build_agent_handlers, INTEGRATION_MODULES
     from agents.engine import build_agent_config
-    from integrations.registry import is_enabled as _is_enabled, get_tool_mode, list_google_accounts as _list_ga
+    from integrations.registry import get_tool_mode, list_google_accounts as _list_ga
     from integrations.google.policy import google_capabilities_union
     from core.agents.tool_registry import ToolRegistry
     from core.agents.tool_definitions import get_tool_definitions

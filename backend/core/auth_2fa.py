@@ -24,12 +24,11 @@ from pathlib import Path
 import pyotp
 import qrcode
 import bcrypt as _bcrypt
-from fastapi import APIRouter, Depends, Request, HTTPException, Response, status
+from fastapi import APIRouter, Depends, Request, HTTPException, Response
 from jose import JWTError
 from pydantic import BaseModel
 
 from core.auth import create_access_token, decode_access_token, get_current_user, verify_password
-from core.config import settings
 from core.encryption import encrypt_value, decrypt_value
 from core.storage import safe_backup_sqlite, safe_init_sqlite
 

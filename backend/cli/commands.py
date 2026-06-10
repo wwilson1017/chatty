@@ -1,15 +1,17 @@
 """Chatty CLI — Slash command dispatcher and implementations."""
 
-import json
 import re
 from datetime import date, datetime
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from rich.table import Table
 from rich.markdown import Markdown
-from rich.syntax import Syntax
 
 from cli.output import console
+
+if TYPE_CHECKING:
+    from cli.session import Session
 
 COMMANDS = {
     "/search": "Search agent memory (FTS5)",
@@ -48,7 +50,7 @@ def _valid_date(s: str) -> bool:
 
 
 async def handle_command(input_str: str, session, renderer) -> "str | Session | None":
-    from cli.session import Session, reset_conversation, switch_agent, create_session, create_agent_interactive
+    from cli.session import reset_conversation, switch_agent, create_session, create_agent_interactive
 
     parts = input_str.split(maxsplit=1)
     cmd = parts[0].lower()

@@ -6,7 +6,7 @@ plus fetching child contacts and recent transactions.
 
 import logging
 
-from ..helpers import safe_get_client, flatten_m2o
+from ..helpers import safe_get_client
 
 logger = logging.getLogger(__name__)
 

@@ -198,7 +198,7 @@ def _clear_agent_references(account_id: str = "") -> None:
 
 async def disconnect(account_id: str = "") -> dict:
     """Revoke tokens and remove account(s). Does NOT touch auth-profiles.json."""
-    from integrations.registry import get_credentials, _GOOGLE_FILE_LOCK, _read_google_creds, _write_google_creds
+    from integrations.registry import _GOOGLE_FILE_LOCK, _read_google_creds, _write_google_creds
 
     if account_id:
         acct = get_google_account(account_id)

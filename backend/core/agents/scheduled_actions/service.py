@@ -605,7 +605,7 @@ def ensure_default_actions(agent_slug: str) -> None:
                 update_action(action["id"], always_on=True)
         return
 
-    result = create_action(
+    create_action(
         agent=agent_slug,
         schedule_type="interval",
         name="Heartbeat",

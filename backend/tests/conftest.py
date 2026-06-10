@@ -1,8 +1,6 @@
 """Shared test fixtures for the Chatty backend test suite."""
 
 import json
-import os
-from pathlib import Path
 
 import pytest
 

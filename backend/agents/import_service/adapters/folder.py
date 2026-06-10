@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import os
-import re
 from pathlib import Path
 
 from ..scrubber import scrub, should_skip_file, FRONT_MATTER_RE

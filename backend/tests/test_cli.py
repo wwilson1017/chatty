@@ -2,9 +2,8 @@
 
 import asyncio
 from dataclasses import dataclass, field
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock
 
-import pytest
 
 from cli.output import parse_sse, StreamRenderer
 from cli.session import Session, reset_conversation

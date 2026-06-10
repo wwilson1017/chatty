@@ -12,7 +12,7 @@ def deliver_notification(agent_slug: str, title: str, message: str) -> dict:
     from core.admin_settings import load_admin_settings
 
     from . import service, subscriptions
-    from .vapid import get_vapid_claims, get_vapid_private_key, get_vapid_public_key
+    from .vapid import get_vapid_claims, get_vapid_private_key
 
     notification_id = str(uuid.uuid4())
     settings = load_admin_settings()

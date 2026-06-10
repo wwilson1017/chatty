@@ -9,7 +9,9 @@ GET  /api/integrations/{name}/tool-defs         — get tool definitions for an 
 """
 
 import logging
+import re
 from pathlib import Path
+from typing import Literal
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -232,9 +234,6 @@ async def disconnect_quickbooks(user=Depends(get_current_user)):
     return {"ok": True}
 
 
-from typing import Literal
-
-
 class GoogleSetupRequest(BaseModel):
     gmail_level: Literal["none", "read", "send"] = "none"
     calendar_level: Literal["none", "read", "full"] = "none"
@@ -359,8 +358,7 @@ async def list_google_accounts_endpoint(user=Depends(get_current_user)):
     }
 
 
-import re as _re
-_ACCOUNT_ID_RE = _re.compile(r"^[0-9a-f]{8}$")
+_ACCOUNT_ID_RE = re.compile(r"^[0-9a-f]{8}$")
 
 
 def _validate_account_id(account_id: str) -> None:

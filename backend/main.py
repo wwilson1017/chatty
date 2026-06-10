@@ -35,6 +35,11 @@ from core.agents.scheduled_actions.router import router as scheduled_actions_rou
 from setup.router import router as setup_router
 from backup.router import router as backup_router
 from integrations.telegram.router import router as telegram_router
+from core.agents.alerts.router import router as alerts_router
+from core.agents.notifications.router import router as notifications_router
+from core.agents.reminders.router import router as reminders_router
+from core.agents.shared_context.router import router as shared_context_router
+from core.events.router import router as events_router
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
@@ -285,22 +290,13 @@ app.include_router(qb_csv_router, prefix="/api/qb-csv", tags=["qb-csv"])
 app.include_router(webby_router, tags=["webby"])
 app.include_router(scheduled_actions_router, prefix="/api/scheduled-actions", tags=["scheduled-actions"])
 
-from core.agents.alerts.router import router as alerts_router
 app.include_router(alerts_router, prefix="/api/alerts", tags=["alerts"])
-
-from core.agents.notifications.router import router as notifications_router
 app.include_router(notifications_router)
-
-from core.agents.reminders.router import router as reminders_router
 app.include_router(reminders_router, prefix="/api/reminders", tags=["reminders"])
 app.include_router(setup_router, prefix="/api/setup", tags=["setup"])
 app.include_router(backup_router, prefix="/api/backup", tags=["backup"])
 app.include_router(telegram_router, prefix="/api/telegram", tags=["telegram"])
-
-from core.agents.shared_context.router import router as shared_context_router
 app.include_router(shared_context_router, tags=["shared-context"])
-
-from core.events.router import router as events_router
 app.include_router(events_router)
 
 

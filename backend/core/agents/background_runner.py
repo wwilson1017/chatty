@@ -13,7 +13,6 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 
 from core.providers import get_ai_provider
-from core.providers.credentials import CredentialStore
 from .tool_registry import ToolRegistry
 from .deferred_tools import (
     should_defer_tools, build_tool_catalog, handle_deferred_tool_call,
@@ -51,7 +50,6 @@ async def _run_turn(
     When deferred tool loading is active (tool count > threshold and
     max_iterations >= 4), find_tools consumes one iteration.
     """
-    store = CredentialStore()
     provider = get_ai_provider(
         agent_provider=provider_override,
         agent_model=model_override,

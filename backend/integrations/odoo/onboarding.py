@@ -2,7 +2,7 @@
 
 import logging
 from .client import OdooClient
-from integrations.registry import save_credentials, enable
+from integrations.registry import save_credentials
 
 logger = logging.getLogger(__name__)
 

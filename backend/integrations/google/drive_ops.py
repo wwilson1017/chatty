@@ -6,7 +6,6 @@ create_folder, create_file, move_file, rename_file, copy_file (write).
 
 from __future__ import annotations
 
-import io
 import logging
 
 logger = logging.getLogger(__name__)

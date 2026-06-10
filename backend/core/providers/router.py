@@ -10,7 +10,6 @@ PUT  /api/providers/active    — switch active provider + model
 GET  /api/providers/{provider}/models   — list models for a provider
 """
 
-import asyncio
 import logging
 
 import httpx

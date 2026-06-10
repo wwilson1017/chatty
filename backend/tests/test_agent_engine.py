@@ -2,7 +2,6 @@
 
 import uuid
 
-import pytest
 
 import agents.engine as engine_mod
 from agents.engine import (

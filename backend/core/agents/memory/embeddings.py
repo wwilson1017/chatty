@@ -10,7 +10,6 @@ All providers are normalized to 768 dimensions.
 """
 
 import logging
-from pathlib import Path
 
 import httpx
 

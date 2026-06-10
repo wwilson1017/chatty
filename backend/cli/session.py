@@ -43,7 +43,7 @@ def create_session(slug: str, tool_mode: str = "normal",
     from core.providers import get_ai_provider
     from core.providers.credentials import CredentialStore
     from agents.tool_loader import load_integration_tools, build_agent_handlers, INTEGRATION_MODULES
-    from integrations.registry import is_enabled as _is_enabled, get_tool_mode
+    from integrations.registry import get_tool_mode
     from integrations.google.policy import google_capabilities
     from core.agents.tool_definitions import get_tool_definitions, build_writes_map
     from core.agents.ai_service import _build_kind_map
@@ -203,7 +203,7 @@ async def execute_approved_tool(session: Session, tool_name: str,
 def create_agent_interactive() -> dict:
     from agents.db import create_agent
     from agents.templates import seed_context_files
-    from agents.engine import _agent_dir, _context_dir
+    from agents.engine import _context_dir
 
     name = input("Agent name: ").strip()
     if not name:
