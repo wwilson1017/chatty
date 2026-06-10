@@ -220,6 +220,9 @@ export function AgentPage() {
     if (showAvatarPicker) return;
     if (chat.messages.length > 0 || chat.isStreaming || chat.trainingMode) return;
     if (!convs.loaded) return;
+    // A failed load also sets loaded=true with an empty list — don't greet
+    // (and create a phantom conversation) off a transient fetch failure.
+    if (convs.loadError) return;
     if (convs.conversations.length > 0) {
       chat.setGreetingPending(false);
       return;
@@ -231,7 +234,7 @@ export function AgentPage() {
       '[Start the conversation. Greet the user warmly based on your personality and role. Keep it brief — 1-2 sentences.]',
       undefined, undefined, { hidden: true },
     );
-  }, [agentId, agent, showAvatarPicker, chat.messages.length, chat.isStreaming, chat.trainingMode, convs.loaded, convs.conversations.length]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [agentId, agent, showAvatarPicker, chat.messages.length, chat.isStreaming, chat.trainingMode, convs.loaded, convs.loadError, convs.conversations.length]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     convs.loadConversations();
@@ -300,12 +303,14 @@ export function AgentPage() {
       danger: true,
     });
     if (!ok) return;
-    const deleted = await convs.deleteConversation(id);
-    if (!deleted) {
+    const res = await convs.deleteConversation(id);
+    if (!res.ok) {
       toast.error('Failed to delete conversation.');
       return;
     }
-    if (convs.activeId === id) chat.clear();
+    // wasActive comes from the hook's ref (not this render's closure), so a
+    // conversation opened mid-DELETE won't get its view wrongly cleared.
+    if (res.wasActive) chat.clear();
   }
 
   function handleNewChat() {
@@ -315,15 +320,28 @@ export function AgentPage() {
     else chat.clear();
   }
 
+  // Invalidates pending Power-mode confirm dialogs when a newer mode choice lands.
+  // The bump is deliberately asymmetric: only NON-power choices increment the
+  // seq, because a Read/Normal click is what should invalidate a pending Power
+  // confirm. The Power path merely reads the seq — if it also bumped, a fast
+  // double-click on Power would increment twice, the duplicate dialog would be
+  // deduped to false, and the user's genuine confirmation of the first dialog
+  // would then be wrongly discarded as stale.
+  const modeChangeSeqRef = useRef(0);
   async function handleToolModeChange(mode: ToolMode) {
     if (alwaysPowerMode) return;
     if (mode === 'power') {
+      const seq = modeChangeSeqRef.current;
       const ok = await confirmDialog({
         title: 'Enable Power mode',
         message: `${agent?.agent_name || 'This agent'} will be able to read and write data without asking for confirmation each time.`,
         confirmLabel: 'Enable Power mode',
       });
       if (!ok) return;
+      // A non-power choice landed while the dialog was open — discard.
+      if (seq !== modeChangeSeqRef.current) return;
+    } else {
+      modeChangeSeqRef.current++;
     }
     chat.setToolMode(mode);
   }

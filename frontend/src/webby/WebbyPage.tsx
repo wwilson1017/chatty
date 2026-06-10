@@ -88,12 +88,14 @@ export function WebbyPage() {
       danger: true,
     });
     if (!ok) return;
-    const deleted = await convs.deleteConversation(id);
-    if (!deleted) {
+    const res = await convs.deleteConversation(id);
+    if (!res.ok) {
       toast.error('Failed to delete conversation.');
       return;
     }
-    if (convs.activeId === id) chat.clear();
+    // wasActive comes from the hook's ref (not this render's closure), so a
+    // conversation opened mid-DELETE won't get its view wrongly cleared.
+    if (res.wasActive) chat.clear();
   }
 
   function handleNewChat() {
