@@ -81,11 +81,31 @@ class TestUpdateAgent:
         updated = update_agent(agent["id"], agent_name="New Name")
         assert updated["agent_name"] == "New Name"
 
-    def test_name_change_updates_slug(self, agent_db):
+    def test_name_change_keeps_slug_stable(self, agent_db):
+        # The slug is a permanent storage key — a rename must not change it,
+        # or data/agents/{slug}/ (context, chat.db, memory) is orphaned.
         agent = create_agent("Before Rename")
         assert agent["slug"] == "before-rename"
         updated = update_agent(agent["id"], agent_name="After Rename")
-        assert updated["slug"] == "after-rename"
+        assert updated["agent_name"] == "After Rename"
+        assert updated["slug"] == "before-rename"
+
+    def test_rename_preserves_agent_data_dir(self, agent_db):
+        from agents import db as db_mod
+
+        agent = create_agent("Data Keeper")
+        context_dir = db_mod.DATA_DIR / agent["slug"] / "context"
+        context_dir.mkdir(parents=True)
+        knowledge_file = context_dir / "notes.md"
+        knowledge_file.write_text("important business knowledge")
+
+        updated = update_agent(agent["id"], agent_name="Data Keeper Renamed")
+
+        assert updated["slug"] == agent["slug"]
+        assert knowledge_file.exists()
+        assert (db_mod.DATA_DIR / updated["slug"] / "context" / "notes.md").read_text() == (
+            "important business knowledge"
+        )
 
     def test_ignores_unknown_fields(self, agent_db):
         agent = create_agent("Stable Agent")
