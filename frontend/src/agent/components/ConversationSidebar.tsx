@@ -38,6 +38,7 @@ export function ConversationSidebar({
   // Both Enter and blur can fire commitEdit for the same edit; this guards
   // against a double rename while the first commit's await is in flight.
   const editCommittingRef = useRef(false);
+  const [editCommitting, setEditCommitting] = useState(false);
 
   const handleSearchChange = useCallback((value: string) => {
     setLocalQuery(value);
@@ -55,6 +56,7 @@ export function ConversationSidebar({
     if (editCommittingRef.current) return;
     if (!editTitle.trim()) { setEditingId(null); return; }
     editCommittingRef.current = true;
+    setEditCommitting(true);
     try {
       // Keep the inline edit visible until the rename resolves.
       const ok = await onRename(id, editTitle.trim());
@@ -62,6 +64,7 @@ export function ConversationSidebar({
       if (!ok) toast.error('Failed to rename conversation.');
     } finally {
       editCommittingRef.current = false;
+      setEditCommitting(false);
     }
   }
 
@@ -183,11 +186,13 @@ export function ConversationSidebar({
                       onBlur={() => commitEdit(id)}
                       onKeyDown={e => { if (e.key === 'Enter') commitEdit(id); if (e.key === 'Escape') setEditingId(null); }}
                       onClick={e => e.stopPropagation()}
+                      disabled={editCommitting}
                       style={{
                         width: '100%', background: 'rgba(34,40,48,0.55)',
                         color: '#EDF0F4', fontSize: 12, borderRadius: 3,
                         padding: '2px 6px', border: '1px solid rgba(230,235,242,0.14)',
                         outline: 'none',
+                        opacity: editCommitting ? 0.5 : 1,
                       }}
                       autoFocus
                     />
