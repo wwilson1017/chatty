@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { api } from '../../core/api/client';
 import { useIsMobile } from '../../shared/useIsMobile';
 import { confirmDialog } from '../../shared/confirm';
@@ -39,15 +39,25 @@ export function AgentContextEditor({ agentId }: Props) {
   const [observations, setObservations] = useState<Observation[]>([]);
   const [obsExpanded, setObsExpanded] = useState(false);
   const isMobile = useIsMobile();
+  // Track current file-list request so a stale response (agent switch
+  // mid-flight) can't overwrite the new agent's list.
+  const loadSeqRef = useRef(0);
 
   const apiBase = `/api/agents/${agentId}`;
 
-  function loadFiles() {
-    setFilesError(false);
+  const loadFiles = useCallback(() => {
+    const seq = ++loadSeqRef.current;
     api<{ files: ContextFile[] }>(`${apiBase}/context`)
-      .then(data => setFiles(data.files))
-      .catch(() => setFilesError(true));
-  }
+      .then(data => {
+        if (seq !== loadSeqRef.current) return;
+        setFiles(data.files);
+        setFilesError(false);
+      })
+      .catch(() => {
+        if (seq !== loadSeqRef.current) return;
+        setFilesError(true);
+      });
+  }, [apiBase]);
 
   useEffect(() => {
     loadFiles();
@@ -58,8 +68,7 @@ export function AgentContextEditor({ agentId }: Props) {
         if (data.observations.length > 0 && data.observations.length <= 5) setObsExpanded(true);
       })
       .catch(() => {});
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [agentId, apiBase]);
+  }, [apiBase, loadFiles]);
 
   function confirmDiscard() {
     return confirmDialog({
@@ -90,15 +99,21 @@ export function AgentContextEditor({ agentId }: Props) {
     if (!selectedFile) return;
     setSaving(true);
     try {
-      await api(`${apiBase}/context/${encodeURIComponent(selectedFile)}`, {
-        method: 'PUT',
-        body: JSON.stringify({ content }),
-      });
-      setDirty(false);
-      const data = await api<{ files: ContextFile[] }>(`${apiBase}/context`);
-      setFiles(data.files);
-    } catch {
-      toast.error('Failed to save file.');
+      try {
+        await api(`${apiBase}/context/${encodeURIComponent(selectedFile)}`, {
+          method: 'PUT',
+          body: JSON.stringify({ content }),
+        });
+        setDirty(false);
+      } catch {
+        toast.error('Failed to save file.');
+        return;
+      }
+      // best-effort: list refresh; the save itself succeeded
+      try {
+        const data = await api<{ files: ContextFile[] }>(`${apiBase}/context`);
+        setFiles(data.files);
+      } catch { /* ignore */ }
     } finally {
       setSaving(false);
     }

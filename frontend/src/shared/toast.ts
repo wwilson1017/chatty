@@ -54,3 +54,10 @@ export const toast = {
   success: (message: string) => push('success', message, 4000),
   info: (message: string) => push('info', message, 4000),
 };
+
+// test-only: singletons persist across module imports
+export function _resetForTesting() {
+  toasts = [];
+  listeners = [];
+  nextId = 1;
+}

@@ -69,16 +69,23 @@ export function IntegrationsTab() {
   const [tgSelectedAgent, setTgSelectedAgent] = useState<string>('');
   const pollTimers = useRef<Record<string, ReturnType<typeof setInterval>>>({});
 
-  function loadIntegrations() {
-    setLoading(true);
-    setLoadFailed(false);
+  // No synchronous setState here — the initial state is already
+  // loading=true/loadFailed=false, and the retry handler resets both before
+  // calling. Keeping it out lets the effect call this without tripping the
+  // react-hooks/set-state-in-effect rule.
+  const loadIntegrations = useCallback(() => {
     api<{ integrations: Integration[] }>('/api/integrations')
       .then(data => setIntegrations(data.integrations))
       .catch(() => setLoadFailed(true))
       .finally(() => setLoading(false));
-  }
+  }, []);
 
-  useEffect(() => { loadIntegrations(); }, []);
+  useEffect(() => { loadIntegrations(); }, [loadIntegrations]);
+
+  async function refreshIntegrations() {
+    const data = await api<{ integrations: Integration[] }>('/api/integrations');
+    setIntegrations(data.integrations);
+  }
 
   useEffect(() => {
     if (waExpanded || telegramExpanded) {
@@ -334,12 +341,7 @@ export function IntegrationsTab() {
   );
 
   if (loadFailed && integrations.length === 0) {
-    return <LoadError label="Couldn't load integrations" onRetry={loadIntegrations} />;
-  }
-
-  async function refreshIntegrations() {
-    const data = await api<{ integrations: Integration[] }>('/api/integrations');
-    setIntegrations(data.integrations);
+    return <LoadError label="Couldn't load integrations" onRetry={() => { setLoading(true); setLoadFailed(false); loadIntegrations(); }} />;
   }
 
   async function openQbCredForm() {
@@ -558,7 +560,7 @@ export function IntegrationsTab() {
                     if (next) {
                       loadPaperclipAgents();
                       // best-effort: failure leaves the agent list empty
-    api<{ agents: Agent[] }>('/api/agents').then(d => setAgents(d.agents)).catch(() => {});
+                      api<{ agents: Agent[] }>('/api/agents').then(d => setAgents(d.agents)).catch(() => {});
                     }
                   }}
                   style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}

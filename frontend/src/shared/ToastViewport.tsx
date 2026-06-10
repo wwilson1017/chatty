@@ -21,8 +21,12 @@ const SEVERITY_TAG: Record<ToastSeverity, string> = {
   info: 'Notice',
 };
 
+// getServerSnapshot must return a stable reference, or React warns about
+// an infinite loop of new snapshots.
+const EMPTY: ToastItem[] = [];
+
 export function ToastViewport() {
-  const items = useSyncExternalStore(subscribeToasts, getToasts);
+  const items = useSyncExternalStore(subscribeToasts, getToasts, () => EMPTY);
   const isMobile = useIsMobile();
 
   if (items.length === 0) return null;

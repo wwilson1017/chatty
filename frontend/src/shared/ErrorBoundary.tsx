@@ -44,9 +44,23 @@ export class ErrorBoundary extends Component<Props, State> {
   }
 }
 
-/** Stack traces are an info-disclosure risk on the unauthenticated login
- *  page (the root boundary wraps it) — only show them in dev builds. */
-function ErrorDetail({ error }: { error: Error }) {
+interface ErrorDetailProps {
+  error: Error;
+  /** Redact error.message in prod builds (set on the unauthenticated root fallback). */
+  redactMessage?: boolean;
+}
+
+/** Stack traces — and, for the root fallback, error messages — are an
+ *  info-disclosure risk on the unauthenticated login page (the root boundary
+ *  wraps it). Dev builds show message + stack; prod shows error.message for
+ *  the authenticated route fallback only, and a generic pointer to the
+ *  console for the root fallback. */
+function ErrorDetail({ error, redactMessage }: ErrorDetailProps) {
+  const detail = import.meta.env.DEV
+    ? `${error.message}\n${error.stack ?? ''}`
+    : redactMessage
+      ? 'Details were logged to the browser console.'
+      : error.message;
   return (
     <details style={{ marginTop: 24, maxWidth: 560, width: '100%' }}>
       <summary style={{ ...mono(10, INK_DIM), cursor: 'pointer' }}>Error detail</summary>
@@ -60,7 +74,7 @@ function ErrorDetail({ error }: { error: Error }) {
           textAlign: 'left',
         }}
       >
-        {import.meta.env.DEV ? `${error.message}\n${error.stack ?? ''}` : error.message}
+        {detail}
       </pre>
     </details>
   );
@@ -79,7 +93,11 @@ const secondaryButtonStyle = {
   border: `1px solid ${LINE_STRONG}`,
 } as const;
 
-export function RootErrorFallback({ error }: { error: Error }) {
+interface RootErrorFallbackProps {
+  error: Error;
+}
+
+export function RootErrorFallback({ error }: RootErrorFallbackProps) {
   // No router hooks here — this mounts outside BrowserRouter.
   return (
     <div
@@ -99,12 +117,17 @@ export function RootErrorFallback({ error }: { error: Error }) {
       <button onClick={() => window.location.reload()} style={buttonStyle}>
         Reload
       </button>
-      <ErrorDetail error={error} />
+      <ErrorDetail error={error} redactMessage />
     </div>
   );
 }
 
-export function RouteErrorFallback({ error, reset }: { error: Error; reset: () => void }) {
+interface RouteErrorFallbackProps {
+  error: Error;
+  reset: () => void;
+}
+
+export function RouteErrorFallback({ error, reset }: RouteErrorFallbackProps) {
   const navigate = useNavigate();
 
   // The explicit reset() matters when the crashed route IS '/': the

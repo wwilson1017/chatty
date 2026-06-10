@@ -54,10 +54,9 @@ export function PipelinePage() {
       const d = await api<PipelineData>('/api/crm/deals');
       setData(d);
     } catch { /* data stays null → LoadError below */ }
-    setLoading(false);
+    finally { setLoading(false); }
   }, []);
 
-  // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { load(); }, [load]);
 
   async function updateDealStage(deal: CrmDeal, stage: string) {

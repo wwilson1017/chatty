@@ -100,10 +100,10 @@ export function useConversations(apiPrefix: string) {
     try {
       await api(`${apiPrefix}/conversations/${id}`, { method: 'DELETE' });
       setConversations(prev => prev.filter(c => c.id !== id));
-      if (activeId === id) setActiveId(null);
+      setActiveId(prev => (prev === id ? null : prev));
       return true;
     } catch { return false; }
-  }, [activeId, apiPrefix]);
+  }, [apiPrefix]);
 
   const renameConversation = useCallback(async (id: string, title: string): Promise<boolean> => {
     try {

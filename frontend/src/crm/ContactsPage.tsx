@@ -77,8 +77,10 @@ export function ContactsPage() {
     } catch {
       if (id !== loadIdRef.current) return;
       setLoadFailed(true);
+    } finally {
+      // Guarded: a stale request must not clear the loading flag set by a newer one.
+      if (id === loadIdRef.current) setLoading(false);
     }
-    setLoading(false);
   }, [fetchPage]);
 
   const loadMore = useCallback(async () => {
@@ -93,8 +95,9 @@ export function ContactsPage() {
     } catch {
       if (id !== loadIdRef.current) return;
       toast.error('Failed to load more contacts.');
+    } finally {
+      if (id === loadIdRef.current) setLoadingMore(false);
     }
-    setLoadingMore(false);
   }, [fetchPage, contacts.length, loading, loadingMore]);
 
   useEffect(() => {

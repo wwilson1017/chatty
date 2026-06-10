@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useNavigate, useOutletContext } from 'react-router-dom';
 import { api } from '../core/api/client';
 import { AgentCard } from './AgentCard';
@@ -43,9 +43,11 @@ export function DashboardPage() {
   const context = useOutletContext<{ branding: BrandingConfig | null; setBranding: (b: BrandingConfig) => void }>();
   const branding = context?.branding;
 
-  function loadDashboard() {
-    setLoading(true);
-    setLoadFailed(false);
+  // No synchronous setState here — the initial state is already
+  // loading=true/loadFailed=false, and the retry handler resets both before
+  // calling. Keeping it out lets the effect call this without tripping the
+  // react-hooks/set-state-in-effect rule.
+  const loadDashboard = useCallback(() => {
     Promise.all([
       api<{ agents: Agent[] }>('/api/agents'),
       api<ProviderStatus>('/api/providers'),
@@ -60,10 +62,9 @@ export function DashboardPage() {
       console.error('Dashboard load error:', err);
       setLoadFailed(true);
     }).finally(() => setLoading(false));
-  }
+  }, [navigate]);
 
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(() => { loadDashboard(); }, [navigate]);
+  useEffect(() => { loadDashboard(); }, [loadDashboard]);
 
 
   const isMobile = useIsMobile();
@@ -198,7 +199,7 @@ export function DashboardPage() {
             <div className="w-8 h-8 border-2 border-ch-accent border-t-transparent rounded-full animate-spin" />
           </div>
         ) : loadFailed ? (
-          <LoadError label="Couldn't load your agents" onRetry={loadDashboard} />
+          <LoadError label="Couldn't load your agents" onRetry={() => { setLoading(true); setLoadFailed(false); loadDashboard(); }} />
         ) : agents.length === 0 ? (
           <div>
             <div style={{

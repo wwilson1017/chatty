@@ -53,12 +53,22 @@ export function confirmDialog(options: ConfirmOptions): Promise<boolean> {
   // A duplicate trigger (double-click before the overlay paints) is a no-op:
   // resolving false for the duplicate preserves native confirm()'s
   // one-dialog-one-action semantics. Sharing the pending promise instead
-  // would run the action twice on confirm.
-  if (queue.some(p => p.options.title === options.title && p.options.message === options.message)) {
+  // would run the action twice on confirm. Only the queue head (the visible
+  // dialog) is compared — a distinct queued action that happens to share the
+  // same copy must still be asked, not silently dropped.
+  const head = queue[0];
+  if (head && head.options.title === options.title && head.options.message === options.message) {
     return Promise.resolve(false);
   }
   return new Promise<boolean>(resolve => {
     queue = [...queue, { id: nextId++, options, resolve }];
     emit();
   });
+}
+
+// test-only: singletons persist across module imports
+export function _resetForTesting() {
+  queue = [];
+  listeners = [];
+  nextId = 1;
 }

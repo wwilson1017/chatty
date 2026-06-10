@@ -35,6 +35,9 @@ export function ConversationSidebar({
   const [editTitle, setEditTitle] = useState('');
   const [localQuery, setLocalQuery] = useState(searchQuery);
   const debounceRef = useRef<ReturnType<typeof setTimeout>>(undefined);
+  // Both Enter and blur can fire commitEdit for the same edit; this guards
+  // against a double rename while the first commit's await is in flight.
+  const editCommittingRef = useRef(false);
 
   const handleSearchChange = useCallback((value: string) => {
     setLocalQuery(value);
@@ -49,10 +52,17 @@ export function ConversationSidebar({
   }
 
   async function commitEdit(id: string) {
-    setEditingId(null);
-    if (!editTitle.trim()) return;
-    const ok = await onRename(id, editTitle.trim());
-    if (!ok) toast.error('Failed to rename conversation.');
+    if (editCommittingRef.current) return;
+    if (!editTitle.trim()) { setEditingId(null); return; }
+    editCommittingRef.current = true;
+    try {
+      // Keep the inline edit visible until the rename resolves.
+      const ok = await onRename(id, editTitle.trim());
+      setEditingId(null);
+      if (!ok) toast.error('Failed to rename conversation.');
+    } finally {
+      editCommittingRef.current = false;
+    }
   }
 
   const displayList = searchQuery.trim() ? searchResults : conversations;

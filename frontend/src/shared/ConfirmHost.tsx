@@ -13,7 +13,7 @@ import {
 } from './styles';
 
 export function ConfirmHost() {
-  const current = useSyncExternalStore(subscribeConfirms, getCurrentConfirm);
+  const current = useSyncExternalStore(subscribeConfirms, getCurrentConfirm, () => null);
   return current ? <ConfirmCard key={current.id} options={current.options} /> : null;
 }
 
