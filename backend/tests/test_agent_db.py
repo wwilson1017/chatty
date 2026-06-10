@@ -114,6 +114,13 @@ class TestUpdateAgent:
         assert updated["agent_name"] == "Stable Agent"
         assert "bogus_field" not in updated
 
+    def test_slug_cannot_be_updated_directly(self, agent_db):
+        # slug is not in UPDATABLE_FIELDS — a caller passing it must not
+        # be able to change the storage key.
+        agent = create_agent("Locked Slug")
+        updated = update_agent(agent["id"], slug="hijacked-slug")
+        assert updated["slug"] == "locked-slug"
+
     def test_google_accounts_stored_as_json_text(self, agent_db):
         agent = create_agent("Google Agent")
         updated = update_agent(

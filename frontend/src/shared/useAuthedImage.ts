@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useReducer } from 'react';
 import { getToken } from '../core/auth/tokenUtils';
 
 // <img> tags can't send Authorization headers, so authenticated images are
@@ -7,6 +7,15 @@ import { getToken } from '../core/auth/tokenUtils';
 // Object URLs are cached by full request URL so list rerenders don't refetch.
 const objectUrlCache = new Map<string, string>();
 const inflight = new Map<string, Promise<string | null>>();
+
+/** Revoke and forget all cached images. Called on logout. */
+export function clearAuthedImageCache() {
+  for (const objUrl of objectUrlCache.values()) {
+    URL.revokeObjectURL(objUrl);
+  }
+  objectUrlCache.clear();
+  inflight.clear();
+}
 
 // A new cache-bust variant of the same path (e.g. after an avatar upload)
 // supersedes older ones — revoke them so object URLs don't accumulate.
@@ -41,7 +50,7 @@ async function fetchObjectUrl(url: string): Promise<string | null> {
  * Returns undefined while loading or on failure (caller renders its fallback).
  */
 export function useAuthedImage(url: string | undefined): string | undefined {
-  const [, setLoaded] = useState('');
+  const [, rerender] = useReducer((n: number) => n + 1, 0);
 
   useEffect(() => {
     if (!url || objectUrlCache.has(url)) return;
@@ -52,7 +61,7 @@ export function useAuthedImage(url: string | undefined): string | undefined {
       inflight.set(url, promise);
     }
     promise.then(objUrl => {
-      if (!cancelled && objUrl) setLoaded(url);
+      if (!cancelled && objUrl) rerender();
     });
     return () => {
       cancelled = true;
