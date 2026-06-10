@@ -1098,7 +1098,6 @@ async def list_observations(
     user=Depends(get_current_user),
 ):
     agent = _get_agent_or_404(agent_id)
-    from agents.engine import ensure_memory_db
     try:
         memory_db = ensure_memory_db(agent["slug"])
         observations = memory_db.get_observations(agent["slug"], limit=limit)
@@ -1111,7 +1110,6 @@ async def list_observations(
 @router.delete("/{agent_id}/observations/{obs_id}")
 async def delete_observation(agent_id: str, obs_id: int, user=Depends(get_current_user)):
     agent = _get_agent_or_404(agent_id)
-    from agents.engine import ensure_memory_db
     try:
         memory_db = ensure_memory_db(agent["slug"])
         if not memory_db.delete_observation(obs_id, agent_slug=agent["slug"]):

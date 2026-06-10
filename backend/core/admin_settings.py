@@ -69,6 +69,8 @@ def load_admin_settings() -> dict:
                      "bot_reply_limit"):
         if not isinstance(result.get(_int_key), int) or result[_int_key] < 1:
             result[_int_key] = ADMIN_DEFAULTS[_int_key]
+    # Cap bot_reply_limit so the loop-prevention guard can't be effectively disabled.
+    result["bot_reply_limit"] = min(result["bot_reply_limit"], 100)
     if not isinstance(result.get("bot_reply_limit_enabled"), bool):
         result["bot_reply_limit_enabled"] = ADMIN_DEFAULTS["bot_reply_limit_enabled"]
 

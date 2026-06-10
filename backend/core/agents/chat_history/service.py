@@ -10,10 +10,14 @@ separate ChatHistoryDB instance, so conversations are fully isolated.
 
 import logging
 import uuid
+from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 
 from .db import ChatHistoryDB
 
 logger = logging.getLogger(__name__)
+
+CT_TZ = ZoneInfo("America/Chicago")
 
 
 class ChatHistoryService:
@@ -157,12 +161,8 @@ class ChatHistoryService:
 
         Each result has conversation_id, conversation_title, and the last 10 user+assistant messages.
         """
-        from datetime import datetime, timedelta, timezone
-        from zoneinfo import ZoneInfo
-
-        CT = ZoneInfo("America/Chicago")
         y, m, d = (int(p) for p in date.split("-"))
-        local_start = datetime(y, m, d, tzinfo=CT)
+        local_start = datetime(y, m, d, tzinfo=CT_TZ)
         local_end = local_start + timedelta(days=1)
         utc_start = local_start.astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
         utc_end = local_end.astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
@@ -174,7 +174,7 @@ class ChatHistoryService:
                FROM messages m
                JOIN conversations c ON c.id = m.conversation_id
                WHERE m.created_at >= ? AND m.created_at < ?
-               GROUP BY m.conversation_id
+               GROUP BY m.conversation_id, c.title
                HAVING user_msg_count >= ?""",
             (utc_start, utc_end, min_user_messages),
         ).fetchall()

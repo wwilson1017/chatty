@@ -59,9 +59,13 @@ async def extract_observations(
 
     extracted = 0
     for conv in conversations:
+        # Only feed USER messages to the extractor. Assistant messages routinely
+        # quote untrusted external data (emails, calendar, Drive) verbatim, which
+        # would otherwise let indirect prompt injection poison observations.
         transcript = "\n".join(
-            f"{m['role'].upper()}: {m.get('content', '')}"
-            for m in conv["messages"] if m.get("content", "").strip()
+            f"USER: {m.get('content', '')}"
+            for m in conv["messages"]
+            if m.get("role") == "user" and m.get("content", "").strip()
         )
         transcript = transcript[:8000]
         if len(transcript) < 50:
@@ -243,7 +247,8 @@ async def _extract_google(system_prompt: str, text: str, profiles: dict, timeout
     if api_key:
         async with httpx.AsyncClient(timeout=timeout) as client:
             resp = await client.post(
-                f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={api_key}",
+                "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent",
+                headers={"x-goog-api-key": api_key},
                 json={
                     "system_instruction": {"parts": [{"text": system_prompt}]},
                     "contents": [{"role": "user", "parts": [{"text": text}]}],

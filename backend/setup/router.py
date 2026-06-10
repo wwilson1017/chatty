@@ -117,6 +117,8 @@ async def update_admin_settings(body: dict, user=Depends(get_current_user)):
                      "bot_reply_limit"):
         if not isinstance(settings.get(_int_key), int) or settings[_int_key] < 1:
             settings[_int_key] = ADMIN_DEFAULTS[_int_key]
+    # Cap bot_reply_limit so the loop-prevention guard can't be effectively disabled.
+    settings["bot_reply_limit"] = min(settings["bot_reply_limit"], 100)
     atomic_write_json(ADMIN_SETTINGS_FILE, settings)
     invalidate_cache()
     return settings

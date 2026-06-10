@@ -957,6 +957,15 @@ class MemoryDB:
         self, agent_slug: str, observation: str, source_conversation_id: str | None = None,
     ) -> dict | None:
         observation = observation[:200]
+        # Reject observations carrying prompt-injection patterns before they can
+        # be persisted and later injected into the system prompt.
+        try:
+            from core.agents.security.scanner import scan_content
+            if not scan_content(observation).clean:
+                logger.warning("add_observation: rejected injection pattern for %s", agent_slug)
+                return None
+        except Exception:
+            pass
         normalized = " ".join(observation.lower().strip().split())
         conn = self.get_db()
 
