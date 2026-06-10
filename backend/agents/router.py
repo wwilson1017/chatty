@@ -29,11 +29,11 @@ import shutil
 import logging
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, UploadFile, File, Form
+from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File, Form
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
-from core.auth import get_current_user, decode_access_token
+from core.auth import get_current_user
 from core.storage import atomic_write, atomic_write_bytes
 from core.providers import get_ai_provider
 from core.providers.credentials import CredentialStore
@@ -440,26 +440,13 @@ async def avatar_delete(agent_id: str, user=Depends(get_current_user)):
 
 
 @router.get("/{agent_id}/avatar")
-async def get_avatar(agent_id: str, request: Request, token: str | None = None):
+async def get_avatar(agent_id: str, user=Depends(get_current_user)):
     """Serve the agent's avatar image.
 
-    Supports ?token= query param for <img> tags that can't send auth headers.
+    Requires Bearer auth — the frontend fetches avatars as blobs (useAuthedImage)
+    so the session token never appears in an image URL.
     """
     from fastapi.responses import FileResponse
-
-    auth_header = request.headers.get("Authorization")
-    jwt_token = None
-    if auth_header and auth_header.startswith("Bearer "):
-        jwt_token = auth_header.removeprefix("Bearer ").strip()
-    elif token:
-        jwt_token = token
-
-    if not jwt_token:
-        raise HTTPException(401, "Not authenticated")
-    try:
-        decode_access_token(jwt_token)
-    except Exception:
-        raise HTTPException(401, "Invalid or expired token")
 
     agent = _get_agent_or_404(agent_id)
     avatar_path = DATA_DIR / agent["slug"] / "avatar.png"
@@ -976,7 +963,6 @@ async def tool_execute(agent_id: str, req: ToolExecuteRequest, user=Depends(get_
     agent = _get_agent_or_404(agent_id)
     config = build_agent_config(agent)
 
-    store = CredentialStore()
     ga = config.google_accounts
     gmail_ids = ga.get("gmail", [])
     calendar_ids = ga.get("calendar", [])

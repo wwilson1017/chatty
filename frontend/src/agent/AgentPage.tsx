@@ -325,8 +325,7 @@ export function AgentPage() {
 
   function buildAvatarUrl() {
     if (!agent?.avatar_url) return undefined;
-    const token = sessionStorage.getItem('chatty_token') || '';
-    return `${agent.avatar_url}?token=${token}&t=${avatarCacheBust}`;
+    return `${agent.avatar_url}?t=${avatarCacheBust}`;
   }
 
   function handleAvatarClick(e: React.MouseEvent) {
