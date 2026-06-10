@@ -346,8 +346,6 @@ def get_telegram_status(
         "enabled": bool(agent.get("telegram_enabled")),
         "bot_username": agent.get("telegram_bot_username", ""),
         "group_enabled": bool(agent.get("telegram_group_enabled")),
-        "respond_to_bots": bool(agent.get("telegram_respond_to_bots")),
-        "max_bot_turns": agent.get("telegram_max_bot_turns", 3),
     }
 
 
