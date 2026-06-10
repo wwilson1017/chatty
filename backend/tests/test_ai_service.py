@@ -1,9 +1,8 @@
 """Tests for the AI service chat flow, tool execution, and tool mode enforcement."""
 
 import json
-import time
 from dataclasses import dataclass, field
-from unittest.mock import MagicMock, AsyncMock, patch
+from unittest.mock import MagicMock, AsyncMock
 
 import pytest
 

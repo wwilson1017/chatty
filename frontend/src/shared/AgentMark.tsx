@@ -1,3 +1,5 @@
+import { useAuthedImage } from './useAuthedImage';
+
 const agentHues: Record<string, number> = {
   A: 210, B: 190, C: 140, D: 25, E: 170, F: 30, G: 155, H: 200,
   I: 220, J: 45, K: 175, L: 245, M: 160, N: 185, O: 50, P: 160,
@@ -20,11 +22,12 @@ interface AgentMarkProps {
 export function AgentMark({ letter, size = 44, avatarUrl, shape = 'square', className }: AgentMarkProps) {
   const h = hueForLetter(letter);
   const radius = shape === 'round' ? '50%' : Math.max(6, size * 0.18);
+  const resolvedAvatar = useAuthedImage(avatarUrl);
 
-  if (avatarUrl) {
+  if (resolvedAvatar) {
     return (
       <img
-        src={avatarUrl}
+        src={resolvedAvatar}
         alt={letter}
         className={className}
         style={{

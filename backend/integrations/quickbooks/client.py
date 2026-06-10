@@ -8,7 +8,6 @@ Token refresh handled automatically. Logs intuit_tid on every response for debug
 import logging
 import os
 import time
-from typing import Any
 
 import httpx
 

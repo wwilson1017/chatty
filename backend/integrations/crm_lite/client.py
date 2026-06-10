@@ -56,11 +56,11 @@ def search_contacts(query: str, status: str | None = None, tags: str | None = No
         conditions.append("status = ?")
         params.append(status)
     if tags:
-        labels = [l.strip() for l in tags.split(",") if l.strip()]
+        labels = [tag.strip() for tag in tags.split(",") if tag.strip()]
         if labels:
             tag_clauses = " OR ".join(f"{_TAGS_NORMALIZED_SQL} LIKE ?" for _ in labels)
             conditions.append(f"({tag_clauses})")
-            params.extend(f"%,{l},%"  for l in labels)
+            params.extend(f"%,{label},%" for label in labels)
     params.append(limit)
     where = " AND ".join(conditions)
     rows = _get_db().execute(
@@ -83,11 +83,11 @@ def list_contacts(
         conditions.append("status = ?")
         params.append(status)
     if tags:
-        labels = [l.strip() for l in tags.split(",") if l.strip()]
+        labels = [tag.strip() for tag in tags.split(",") if tag.strip()]
         if labels:
             tag_clauses = " OR ".join(f"{_TAGS_NORMALIZED_SQL} LIKE ?" for _ in labels)
             conditions.append(f"({tag_clauses})")
-            params.extend(f"%,{l},%"  for l in labels)
+            params.extend(f"%,{label},%" for label in labels)
 
     where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
 

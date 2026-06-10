@@ -707,9 +707,7 @@ export function SettingsPanel({ branding, onBrandingUpdate, onClose }: Props) {
                         <AgentMark
                           letter={agent.agent_name.charAt(0)}
                           size={28}
-                          avatarUrl={agent.avatar_url
-                            ? `${agent.avatar_url}${agent.avatar_url.includes('?') ? '&' : '?'}token=${sessionStorage.getItem('chatty_token') || ''}`
-                            : undefined}
+                          avatarUrl={agent.avatar_url || undefined}
                         />
                         <span style={{
                           flex: 1, fontSize: 14, color: '#EDF0F4',

@@ -29,7 +29,7 @@ class TestUnassignedAccounts:
         ga = {"gmail": ["a1"], "calendar": [], "drive": []}
         result = _google_accounts_context(info_map, ga)
         assert "Calendar, Drive not assigned" in result
-        alice_line = [l for l in result.splitlines() if "alice@example.com" in l][0]
+        alice_line = [line for line in result.splitlines() if "alice@example.com" in line][0]
         assert "Gmail" not in alice_line
 
     def test_broken_account_excluded(self):

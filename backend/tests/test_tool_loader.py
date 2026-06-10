@@ -1,6 +1,6 @@
 """Tests for integration tool loading and agent handler construction."""
 
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 from types import ModuleType
 
 from agents.tool_loader import format_current_time, load_integration_tools, build_agent_handlers

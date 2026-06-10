@@ -53,7 +53,6 @@ class GoogleProvider(AIProvider):
     def _format_tools(self, tools: list[dict]) -> list:
         """Convert internal tool format to Gemini function declarations."""
         try:
-            import google.generativeai as genai
             from google.generativeai.types import FunctionDeclaration, Tool
         except ImportError:
             return []

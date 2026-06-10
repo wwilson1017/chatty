@@ -24,6 +24,7 @@ import logging
 import threading
 import time
 import uuid
+from collections import OrderedDict
 from datetime import datetime
 from pathlib import Path
 from typing import AsyncGenerator
@@ -52,7 +53,6 @@ KNOWLEDGE_CHECKPOINT_EVERY = 4
 
 # Per-conversation pre-fetch state for relevance gating (lost on restart).
 # OrderedDict for LRU eviction — move_to_end on access, pop oldest on overflow.
-from collections import OrderedDict
 _prefetch_state: OrderedDict[tuple[str, str], dict] = OrderedDict()
 
 

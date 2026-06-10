@@ -7,7 +7,6 @@ catalog in the system prompt, and the AI loads full schemas via find_tools().
 
 from __future__ import annotations
 
-import json
 import logging
 from collections import defaultdict
 

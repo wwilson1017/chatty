@@ -30,8 +30,6 @@ def get_ai_provider(
     if not profile:
         return None
 
-    provider_type = profile.get("type")
-
     # Resolve model: agent_model > tier > global active_model
     if agent_model:
         raw_model = agent_model

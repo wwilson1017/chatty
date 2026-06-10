@@ -4,8 +4,6 @@ Chatty — QuickBooks CSV Analysis REST API.
 Endpoints for direct CSV upload, import management, and financial dashboard.
 """
 
-import csv
-import io
 import logging
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
@@ -13,7 +11,6 @@ from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from core.auth import get_current_user
 from integrations.registry import is_enabled
 from . import client as qb
-from .parser import parse_csv_file
 
 logger = logging.getLogger(__name__)
 router = APIRouter()

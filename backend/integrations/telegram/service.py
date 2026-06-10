@@ -16,7 +16,6 @@ from agents.engine import (
     get_chat_service,
 )
 from core.providers import get_ai_provider
-from core.providers.credentials import CredentialStore
 from core.agents.tool_registry import ToolRegistry
 from core.agents.reminders.tools import (
     create_reminder_handler,
@@ -166,7 +165,6 @@ async def process_message(
     ctx_manager = get_context_manager(slug)
     chat_service = get_chat_service(slug)
 
-    store = CredentialStore()
     provider = get_ai_provider(
         agent_provider=config.provider_override or None,
         agent_model=config.model_override or None,
@@ -271,7 +269,6 @@ async def process_group_message(
     ctx_manager = get_context_manager(slug)
     chat_service = get_chat_service(slug)
 
-    store = CredentialStore()
     provider = get_ai_provider(
         agent_provider=config.provider_override or None,
         agent_model=config.model_override or None,

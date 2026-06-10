@@ -1,5 +1,3 @@
-const CT = 'America/Chicago';
-
 export function parseServerTimestamp(value: string | number | null | undefined): Date | null {
   if (value == null || value === '') return null;
   if (typeof value === 'number') {
@@ -15,36 +13,37 @@ export function parseServerTimestamp(value: string | number | null | undefined):
   return Number.isNaN(d.getTime()) ? null : d;
 }
 
-function ctDayKey(d: Date): string {
-  return d.toLocaleDateString('en-CA', { timeZone: CT });
+// 'en-CA' formats as YYYY-MM-DD — used as a day key in the browser's local timezone
+function localDayKey(d: Date): string {
+  return d.toLocaleDateString('en-CA');
 }
 
-export function ctDateKey(value: string | number | null | undefined): string {
+export function localDateKey(value: string | number | null | undefined): string {
   if (value === 0) return '';
   const d = parseServerTimestamp(value);
-  return d ? ctDayKey(d) : '';
+  return d ? localDayKey(d) : '';
 }
 
-function ctDaysAgo(then: Date, now: Date): number {
-  const a = new Date(ctDayKey(then) + 'T00:00:00Z').getTime();
-  const b = new Date(ctDayKey(now) + 'T00:00:00Z').getTime();
+function localDaysAgo(then: Date, now: Date): number {
+  const a = new Date(localDayKey(then) + 'T00:00:00Z').getTime();
+  const b = new Date(localDayKey(now) + 'T00:00:00Z').getTime();
   return Math.round((b - a) / 86_400_000);
 }
 
-function ctTime(d: Date): string {
-  return d.toLocaleTimeString('en-US', { timeZone: CT, hour: 'numeric', minute: '2-digit' });
+function localTime(d: Date): string {
+  return d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
 }
 
 export function formatSidebarTime(value: string | number | null | undefined): string {
   if (value === 0) return '';
   const d = parseServerTimestamp(value);
   if (!d) return '';
-  const days = ctDaysAgo(d, new Date());
-  if (days <= 0) return ctTime(d);
+  const days = localDaysAgo(d, new Date());
+  if (days <= 0) return localTime(d);
   if (days === 1) return 'Yesterday';
-  if (days < 7) return d.toLocaleDateString('en-US', { timeZone: CT, weekday: 'short' });
+  if (days < 7) return d.toLocaleDateString('en-US', { weekday: 'short' });
   return d.toLocaleDateString('en-US', {
-    timeZone: CT, month: 'numeric', day: 'numeric', year: '2-digit',
+    month: 'numeric', day: 'numeric', year: '2-digit',
   });
 }
 
@@ -52,7 +51,7 @@ export function formatBubbleTime(value: string | number | null | undefined): str
   if (value === 0) return '';
   const d = parseServerTimestamp(value);
   if (!d) return '';
-  return ctTime(d);
+  return localTime(d);
 }
 
 export function formatDateDivider(value: string | number | null | undefined): string {
@@ -60,15 +59,13 @@ export function formatDateDivider(value: string | number | null | undefined): st
   const d = parseServerTimestamp(value);
   if (!d) return '';
   const now = new Date();
-  const days = ctDaysAgo(d, now);
+  const days = localDaysAgo(d, now);
   if (days <= 0) return 'Today';
   if (days === 1) return 'Yesterday';
-  if (days <= 6) return d.toLocaleDateString('en-US', { timeZone: CT, weekday: 'long' });
-  const sameYear =
-    d.toLocaleDateString('en-US', { timeZone: CT, year: 'numeric' }) ===
-    now.toLocaleDateString('en-US', { timeZone: CT, year: 'numeric' });
+  if (days <= 6) return d.toLocaleDateString('en-US', { weekday: 'long' });
+  const sameYear = d.getFullYear() === now.getFullYear();
   return d.toLocaleDateString('en-US', {
-    timeZone: CT, month: 'short', day: 'numeric',
+    month: 'short', day: 'numeric',
     ...(sameYear ? {} : { year: 'numeric' }),
   });
 }

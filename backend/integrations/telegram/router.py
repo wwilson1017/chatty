@@ -10,6 +10,7 @@ import logging
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 
@@ -32,8 +33,7 @@ _busy_chats: dict[tuple[str, int], float] = {}
 _busy_lock = threading.Lock()
 _BUSY_TTL = 300  # 5 minutes
 
-from pathlib import Path as _Path
-_AGENTS_DIR = _Path(__file__).resolve().parent.parent.parent / "data" / "agents"
+_AGENTS_DIR = Path(__file__).resolve().parent.parent.parent / "data" / "agents"
 
 
 def _mark_telegram_configured(agent_slug: str) -> None:

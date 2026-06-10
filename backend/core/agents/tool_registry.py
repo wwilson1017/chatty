@@ -567,7 +567,6 @@ class ToolRegistry:
         return {"error": f"Unknown setup tool: {tool_name}"}
 
     def _execute_import(self, tool_name: str, args: dict) -> dict:
-        from agents.import_service import sessions
         from agents.import_service.tools import execute_import_tool
         from core.agents.context_manager import ContextManager
 

@@ -18,6 +18,7 @@ import {
   type ReactNode,
 } from 'react';
 import { TOKEN_KEY } from './tokenUtils';
+import { clearAuthedImageCache } from '../../shared/useAuthedImage';
 
 const CHANNEL_NAME = 'chatty_auth';
 
@@ -95,6 +96,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           setIsLoggedIn(true);
         } else if (e.data?.type === 'logout') {
           sessionStorage.removeItem(TOKEN_KEY);
+          clearAuthedImageCache();
           setIsLoggedIn(false);
         }
       };
@@ -141,6 +143,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const logout = useCallback(() => {
     sessionStorage.removeItem(TOKEN_KEY);
+    clearAuthedImageCache();
     setIsLoggedIn(false);
 
     // Notify other tabs

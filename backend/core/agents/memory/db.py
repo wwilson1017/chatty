@@ -12,7 +12,7 @@ import logging
 import re
 import sqlite3
 import threading
-from datetime import date, datetime, timedelta
+from datetime import date
 from pathlib import Path
 from zoneinfo import ZoneInfo
 

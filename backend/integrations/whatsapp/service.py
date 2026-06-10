@@ -21,7 +21,6 @@ from core.agents.background_runner import run_background_turn
 from core.agents.tool_registry import ToolRegistry
 from core.agents.tool_definitions import get_tool_definitions
 from core.agents.tools.real_tools import load_all_real_tools
-from core.providers.credentials import CredentialStore
 from core.agents.reminders.tools import (
     create_reminder_handler,
     list_reminders_handler,
@@ -180,7 +179,6 @@ def _process_message_locked(
             system_prompt += "\n\n# Recent Conversation Context\n\n" + "\n".join(context_lines)
 
     # 8. Build tool registry
-    store = CredentialStore()
     ga = config.google_accounts
     gmail_ids = ga.get("gmail", [])
     calendar_ids = ga.get("calendar", [])
@@ -321,7 +319,7 @@ def _build_system_prompt(config, ctx_manager) -> str:
         "",
         f"- Date: {date_str}",
         f"- Time: {time_str}",
-        f"- Channel: WhatsApp (messages are from a phone, keep responses concise)",
+        "- Channel: WhatsApp (messages are from a phone, keep responses concise)",
         "",
         "# Instructions",
         "",

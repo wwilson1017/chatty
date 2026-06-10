@@ -1,6 +1,5 @@
 """Tests for deferred tool loading."""
 
-import pytest
 
 from core.agents.deferred_tools import (
     ALWAYS_LOADED_KINDS,
@@ -232,7 +231,7 @@ class TestExecuteFindTools:
 
         # After the caller pops matched_tools, the remaining dict must not
         # contain any nested input_schema — only flat metadata.
-        matched = result.pop("matched_tools", [])
+        result.pop("matched_tools", [])
         result_str = str(result)
         assert "input_schema" not in result_str
 

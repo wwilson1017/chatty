@@ -9,7 +9,7 @@ engine never has to manage Odoo connections.
 import logging
 
 from ..helpers import safe_get_client, flatten_m2o
-from ..constants import ALLOWED_MODELS, ALLOWED_METHODS, ALLOWED_ACTION_METHODS
+from ..constants import ALLOWED_MODELS, ALLOWED_ACTION_METHODS
 
 logger = logging.getLogger(__name__)
 

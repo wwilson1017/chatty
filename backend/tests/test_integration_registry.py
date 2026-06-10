@@ -1,6 +1,5 @@
 """Tests for integrations.registry — enable/disable and status logic."""
 
-import json
 
 import pytest
 
@@ -49,7 +48,6 @@ class TestEnableDisable:
     def test_disable_preserves_credential_data(self, registry_dir):
         from integrations.registry import (
             disable,
-            enable,
             get_credentials,
             save_credentials,
         )

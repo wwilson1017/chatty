@@ -1,6 +1,5 @@
 """Chatty CLI — Main REPL loop."""
 
-import asyncio
 import json
 
 from prompt_toolkit import PromptSession

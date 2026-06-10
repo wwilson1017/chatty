@@ -6,7 +6,6 @@ compact manifest string injected into every agent's system prompt.
 
 import logging
 from datetime import datetime
-from pathlib import Path
 
 from core.storage import atomic_write, upload_config, delete_config
 

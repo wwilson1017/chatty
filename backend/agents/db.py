@@ -204,16 +204,12 @@ def update_agent(agent_id: str, **fields) -> dict | None:
     if not filtered:
         return get_agent(agent_id)
 
-    # If agent_name changes, update slug too
-    extra = {}
-    if "agent_name" in filtered:
-        with _write_lock:
-            new_slug = _unique_slug(filtered["agent_name"])
-        extra["slug"] = new_slug
-
-    all_fields = {**filtered, **extra}
-    set_clause = ", ".join(f"{k} = ?" for k in all_fields)
-    values = list(all_fields.values()) + [agent_id]
+    # The slug is a permanent storage key assigned at creation — data/agents/{slug}/
+    # holds the agent's context, chat.db, and memory, and Telegram webhooks,
+    # scheduled actions, and WhatsApp sessions are all keyed by it. Renames
+    # change agent_name only; the slug must never change.
+    set_clause = ", ".join(f"{k} = ?" for k in filtered)
+    values = list(filtered.values()) + [agent_id]
 
     with _write_lock:
         cursor = _get_db().execute(

@@ -160,7 +160,7 @@ class TestRateLimiting:
         assert _check_login_rate("10.0.0.2") is False
 
     def test_window_expires(self, app_env, monkeypatch):
-        from core.auth import _check_login_rate, _login_attempts
+        from core.auth import _check_login_rate
 
         fake_time = 1000.0
         monkeypatch.setattr(time, "time", lambda: fake_time)

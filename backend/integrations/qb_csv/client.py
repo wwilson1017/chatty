@@ -4,9 +4,7 @@ Chatty — QuickBooks CSV Analysis CRUD and query operations.
 Import, query, and analyze QBO export data stored in SQLite.
 """
 
-import json
 import logging
-import re
 from .db import _get_db, write_lock
 from .parser import parse_csv_file
 
