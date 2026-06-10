@@ -8,6 +8,7 @@
 - `[0.70]` **When** extracting a shared function from a module that others import → **do** keep a re-export in the original module and update all internal callers to the new location → **because** external callers (tests, plugins) may import from the old path; re-export prevents silent breakage while the new canonical path is established
 - `[0.70]` **When** replacing `getattr(obj, "attr", fallback)` with an explicit parameter → **do** verify every call site passes the parameter, or keep the `getattr` fallback at the entry point → **because** the `_slug` UnboundLocalError was introduced by removing `getattr` in the outer function without ensuring callers pass the new arg
 - `[0.70]` **When** adding new admin settings to Chatty → **do** add them to `core/admin_settings.py` (not `setup/router.py`) → **because** admin settings were extracted to a dedicated cached module; adding to the old location creates conflicts and bypasses the mtime cache
+- `[0.70]` **When** reading per-agent MemoryDB data inside `_build_system_prompt` (e.g. observations) → **do** use `ensure_memory_db(slug)`, not `get_instance(data_dir)` → **because** the Telegram and Paperclip entry points don't pre-initialize MemoryDB, so `get_instance` returns None and the data silently never appears on non-web channels
 
 ## Git & Workflow
 
@@ -15,4 +16,4 @@
 
 ## Deploy & Infrastructure
 
-- `[0.70]` **When** running the backend from a git worktree → **do** use the absolute venv path (`/Users/willwilson/ai/chatty/.venv/bin/python`), not relative (`../../.venv/bin/python`) → **because** worktrees live under `.claude/worktrees/<name>/backend/` and the relative path resolves to a nonexistent location
+- `[0.75]` **When** running the backend from a git worktree → **do** use the absolute venv path (`/Users/willwilson/ai/chatty/.venv/bin/python`), not relative (`../../.venv/bin/python`) → **because** worktrees live under `.claude/worktrees/<name>/backend/` and the relative path resolves to a nonexistent location
