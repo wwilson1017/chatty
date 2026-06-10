@@ -288,10 +288,12 @@ export function AgentPage() {
   }, [searchParams, setSearchParams]);
 
   async function handleSelectConversation(id: string) {
-    if (chat.trainingMode) chat.setTrainingMode(false);
-    if (chat.planMode) chat.setPlanMode(false);
     const msgs = await convs.selectConversation(id);
     if (!msgs) return;
+    // Mode resets only after a successful load — a failed click shouldn't
+    // silently toggle training/plan mode off.
+    if (chat.trainingMode) chat.setTrainingMode(false);
+    if (chat.planMode) chat.setPlanMode(false);
     chat.loadMessages(msgs, id);
   }
 

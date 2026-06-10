@@ -66,10 +66,14 @@ export function AppShell() {
         <NavRail onSettingsClick={() => setShowSettings(true)} userInitial={userInitial} />
       )}
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', position: 'relative', overflow: 'hidden' }}>
-        {/* Keyed by pathname so navigating away resets a crashed route; the
-            nav rail lives outside and survives. */}
+        {/* Keyed by route group so navigating away resets a crashed route
+            while the nav rail (outside) survives. CRM shares one key: its
+            nested tabs change the pathname, and a full-pathname key would
+            remount the stateful CrmLayout on every tab switch (re-showing
+            the dismissed demo dialog). Recovery from a crash inside CRM
+            still works via the fallback's Back to Dashboard / Reload. */}
         <ErrorBoundary
-          key={location.pathname}
+          key={location.pathname.startsWith('/crm') ? '/crm' : location.pathname}
           fallback={(error, reset) => <RouteErrorFallback error={error} reset={reset} />}
         >
           <Outlet context={{ branding, setBranding }} />
