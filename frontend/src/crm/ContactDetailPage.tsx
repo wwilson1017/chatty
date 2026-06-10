@@ -10,6 +10,8 @@ import { PriorityBadge } from './components/badges';
 import { STAGE_COLORS } from './constants';
 import { IconArrowLeft } from '../shared/icons';
 import { useIsMobile } from '../shared/useIsMobile';
+import { confirmDialog } from '../shared/confirm';
+import { toast } from '../shared/toast';
 import {
   INK, INK_MUTE, INK_DIM, LINE, LINE_STRONG, CORAL, SAGE,
   ACCENT, ACCENT_INK,
@@ -60,8 +62,19 @@ export function ContactDetailPage() {
   }
 
   async function handleDelete() {
-    if (!confirm('Delete this contact? This cannot be undone.')) return;
-    await api(`/api/crm/contacts/${id}`, { method: 'DELETE' });
+    const ok = await confirmDialog({
+      title: 'Delete contact',
+      message: `This will permanently delete ${contact?.name || 'this contact'} and their activity history. This cannot be undone.`,
+      confirmLabel: 'Delete contact',
+      danger: true,
+    });
+    if (!ok) return;
+    try {
+      await api(`/api/crm/contacts/${id}`, { method: 'DELETE' });
+    } catch {
+      toast.error('Failed to delete contact.');
+      return;
+    }
     navigate('/crm/contacts');
   }
 

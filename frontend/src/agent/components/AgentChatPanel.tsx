@@ -169,11 +169,9 @@ export function AgentChatPanel({
   }
 
   function handleToolModeClick(mode: ToolMode) {
-    if (!onToolModeChange) return;
-    if (mode === 'power') {
-      if (!window.confirm(`Enable Power mode? ${agentName || 'This agent'} will be able to read and write without asking for confirmation.`)) return;
-    }
-    onToolModeChange(mode);
+    // The Power-mode confirm lives in AgentPage.handleToolModeChange —
+    // confirming here too showed two stacked dialogs for one click.
+    onToolModeChange?.(mode);
   }
 
   const isMobile = useIsMobile();

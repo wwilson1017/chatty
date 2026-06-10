@@ -9,6 +9,8 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../core/api/client';
+import { confirmDialog } from '../shared/confirm';
+import { toast } from '../shared/toast';
 import { useAgentChat } from '../agent/hooks/useAgentChat';
 import { useConversations } from '../agent/hooks/useConversations';
 import { AgentChatPanel } from '../agent/components/AgentChatPanel';
@@ -71,8 +73,18 @@ export function WebbyPage() {
   }
 
   async function handleDeleteConversation(id: string) {
-    if (!confirm('Delete this conversation?')) return;
-    await convs.deleteConversation(id);
+    const ok = await confirmDialog({
+      title: 'Delete conversation',
+      message: 'This conversation and its messages will be permanently deleted.',
+      confirmLabel: 'Delete',
+      danger: true,
+    });
+    if (!ok) return;
+    const deleted = await convs.deleteConversation(id);
+    if (!deleted) {
+      toast.error('Failed to delete conversation.');
+      return;
+    }
     if (convs.activeId === id) chat.clear();
   }
 

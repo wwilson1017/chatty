@@ -16,6 +16,8 @@ import { AvatarMenu } from './components/AvatarMenu';
 import { AgentMark } from '../shared/AgentMark';
 import { useIsMobile } from '../shared/useIsMobile';
 import { MobileMenuDrawer } from '../shared/MobileMenuDrawer';
+import { confirmDialog } from '../shared/confirm';
+import { toast } from '../shared/toast';
 
 interface AgentRow {
   id: string;
@@ -289,8 +291,18 @@ export function AgentPage() {
   }
 
   async function handleDeleteConversation(id: string) {
-    if (!confirm('Delete this conversation?')) return;
-    await convs.deleteConversation(id);
+    const ok = await confirmDialog({
+      title: 'Delete conversation',
+      message: 'This conversation and its messages will be permanently deleted.',
+      confirmLabel: 'Delete',
+      danger: true,
+    });
+    if (!ok) return;
+    const deleted = await convs.deleteConversation(id);
+    if (!deleted) {
+      toast.error('Failed to delete conversation.');
+      return;
+    }
     if (convs.activeId === id) chat.clear();
   }
 
@@ -301,10 +313,15 @@ export function AgentPage() {
     else chat.clear();
   }
 
-  function handleToolModeChange(mode: ToolMode) {
+  async function handleToolModeChange(mode: ToolMode) {
     if (alwaysPowerMode) return;
     if (mode === 'power') {
-      if (!window.confirm(`Enable Power mode? ${agent?.agent_name || 'This agent'} will be able to read and write without asking for confirmation.`)) return;
+      const ok = await confirmDialog({
+        title: 'Enable Power mode',
+        message: `${agent?.agent_name || 'This agent'} will be able to read and write data without asking for confirmation each time.`,
+        confirmLabel: 'Enable Power mode',
+      });
+      if (!ok) return;
     }
     chat.setToolMode(mode);
   }
@@ -561,7 +578,13 @@ export function AgentPage() {
                 chat.setTrainingMode(false);
                 return;
               }
-              if (!confirm(`Exit training? ${agent.agent_name} will use whatever knowledge has been saved so far.`)) return;
+              const ok = await confirmDialog({
+                title: 'Exit training',
+                message: `${agent.agent_name} will use whatever knowledge has been saved so far.`,
+                confirmLabel: 'Exit training',
+                cancelLabel: 'Keep training',
+              });
+              if (!ok) return;
               try {
                 await api(`/api/agents/${agentId}`, { method: 'PUT', body: JSON.stringify({ onboarding_complete: true }) });
                 const updated = await api<AgentRow>(`/api/agents/${agentId}`);
@@ -669,10 +692,22 @@ export function AgentPage() {
               importMode={convs.conversations.find(c => c.id === convs.activeId)?.mode === 'import'}
               greetingPending={chat.greetingPending}
               onCancelImport={async () => {
-                if (!confirm('Cancel this import? The agent and all progress will be deleted.')) return;
+                const ok = await confirmDialog({
+                  title: 'Cancel import',
+                  message: 'The agent and all import progress will be permanently deleted.',
+                  confirmLabel: 'Delete import',
+                  cancelLabel: 'Keep importing',
+                  danger: true,
+                });
+                if (!ok) return;
                 try {
                   await api(`/api/agents/${agentId}`, { method: 'DELETE' });
-                } catch { /* ignore */ }
+                } catch {
+                  // A failed delete leaves the agent live — don't navigate
+                  // away as if it were gone.
+                  toast.error('Failed to cancel import.');
+                  return;
+                }
                 navigate('/');
               }}
             />

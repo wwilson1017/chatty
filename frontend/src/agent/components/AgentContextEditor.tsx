@@ -1,6 +1,8 @@
 import { useState, useEffect } from 'react';
 import { api } from '../../core/api/client';
 import { useIsMobile } from '../../shared/useIsMobile';
+import { confirmDialog } from '../../shared/confirm';
+import { toast } from '../../shared/toast';
 
 interface ContextFile {
   name: string;
@@ -51,8 +53,18 @@ export function AgentContextEditor({ agentId }: Props) {
       .catch(() => {});
   }, [agentId, apiBase]);
 
+  function confirmDiscard() {
+    return confirmDialog({
+      title: 'Discard changes',
+      message: 'You have unsaved changes that will be lost.',
+      confirmLabel: 'Discard',
+      cancelLabel: 'Keep editing',
+      danger: true,
+    });
+  }
+
   async function selectFile(name: string) {
-    if (dirty && !confirm('Unsaved changes — discard?')) return;
+    if (dirty && !(await confirmDiscard())) return;
     setLoading(true);
     try {
       const data = await api<{ filename: string; content: string }>(`${apiBase}/context/${encodeURIComponent(name)}`);
@@ -81,25 +93,42 @@ export function AgentContextEditor({ agentId }: Props) {
   }
 
   async function deleteFile(name: string) {
-    if (!confirm(`Delete ${name}?`)) return;
-    await api(`${apiBase}/context/${encodeURIComponent(name)}`, { method: 'DELETE' });
+    const ok = await confirmDialog({
+      title: 'Delete file',
+      message: `${name} will be permanently removed from this agent's knowledge.`,
+      confirmLabel: 'Delete',
+      danger: true,
+    });
+    if (!ok) return;
+    try {
+      await api(`${apiBase}/context/${encodeURIComponent(name)}`, { method: 'DELETE' });
+    } catch {
+      toast.error('Failed to delete file.');
+      return;
+    }
     setFiles(prev => prev.filter(f => f.name !== name));
     if (selectedFile === name) { setSelectedFile(null); setContent(''); setDirty(false); }
   }
 
-  function handleBack() {
-    if (dirty && !confirm('Unsaved changes — discard?')) return;
+  async function handleBack() {
+    if (dirty && !(await confirmDiscard())) return;
     setSelectedFile(null);
     setContent('');
     setDirty(false);
   }
 
   async function deleteObservation(id: number) {
-    if (!confirm('Delete this observation?')) return;
+    const ok = await confirmDialog({
+      title: 'Delete observation',
+      message: 'This observation will be permanently removed from memory.',
+      confirmLabel: 'Delete',
+      danger: true,
+    });
+    if (!ok) return;
     try {
       await api(`${apiBase}/observations/${id}`, { method: 'DELETE' });
       setObservations(prev => prev.filter(o => o.id !== id));
-    } catch { /* ignore */ }
+    } catch { toast.error('Failed to delete observation.'); }
   }
 
   function formatSize(bytes: number) {

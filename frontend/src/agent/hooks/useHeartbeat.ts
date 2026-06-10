@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { api } from '../../core/api/client';
+import { toast } from '../../shared/toast';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -257,7 +258,9 @@ export function useHeartbeat(agentSlug: string, apiPrefix: string): UseHeartbeat
       await api(`/api/scheduled-actions/${action.id}/run-now`, { method: 'POST' });
     } catch (e) {
       if (e instanceof Error && e.message.includes('409')) {
-        alert('Heartbeat is already running.');
+        toast.info('Heartbeat is already running.');
+      } else {
+        toast.error('Failed to run heartbeat.');
       }
     } finally {
       setRunning(false);

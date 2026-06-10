@@ -1,5 +1,7 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { api } from '../../core/api/client';
+import { confirmDialog } from '../../shared/confirm';
+import { toast } from '../../shared/toast';
 import type { Report, ReportSummary } from './types';
 import ReportRenderer from './ReportRenderer';
 
@@ -61,7 +63,13 @@ export default function ReportsPanel({ apiPrefix }: ReportsPanelProps) {
 
   const handleDelete = async (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
-    if (!confirm('Delete this report?')) return;
+    const ok = await confirmDialog({
+      title: 'Delete report',
+      message: 'This report will be permanently deleted.',
+      confirmLabel: 'Delete',
+      danger: true,
+    });
+    if (!ok) return;
     try {
       await api(`${apiPrefix}/reports/${id}`, { method: 'DELETE' });
       setReports(prev => prev.filter(r => r.id !== id));
@@ -70,7 +78,7 @@ export default function ReportsPanel({ apiPrefix }: ReportsPanelProps) {
         setExpandedReport(null);
       }
     } catch {
-      // silently fail
+      toast.error('Failed to delete report.');
     }
   };
 
