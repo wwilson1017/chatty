@@ -8,7 +8,7 @@ import NotificationLog from './NotificationLog';
 import { IconAttach, IconArrowUp } from '../../shared/icons';
 import { useIsMobile } from '../../shared/useIsMobile';
 import { api } from '../../core/api/client';
-import { ctDateKey } from '../utils/dateFormat';
+import { localDateKey } from '../utils/dateFormat';
 
 const ALLOWED_EXTENSIONS = new Set(['csv', 'xlsx', 'md', 'txt', 'pdf', 'docx']);
 const MAX_FILE_SIZE = 1 * 1024 * 1024;
@@ -507,8 +507,8 @@ export function AgentChatPanel({
             {(() => {
               const visible = messages.filter(msg => !msg.hidden);
               return visible.map((msg, i) => {
-                const dayKey = ctDateKey(msg.timestamp);
-                const prevDayKey = i > 0 ? ctDateKey(visible[i - 1].timestamp) : '';
+                const dayKey = localDateKey(msg.timestamp);
+                const prevDayKey = i > 0 ? localDateKey(visible[i - 1].timestamp) : '';
                 const showDivider = !!dayKey && dayKey !== prevDayKey;
                 const displayMsg = (msg.role === 'user' && msg.content.match(/^\[via (Telegram|WhatsApp) from [^\]]+\] /))
                   ? { ...msg, content: msg.content.replace(/^\[via (?:Telegram|WhatsApp) from [^\]]+\] /, '') }
