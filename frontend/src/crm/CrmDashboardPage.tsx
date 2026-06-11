@@ -8,6 +8,8 @@ import { DealDetailSheet } from './components/DealDetailSheet';
 import { STAGE_COLORS, STAGE_ORDER } from './constants';
 import { WarmHalo } from '../shared/WarmHalo';
 import { useIsMobile } from '../shared/useIsMobile';
+import { LoadError } from '../shared/LoadError';
+import { toast } from '../shared/toast';
 import {
   INK, INK_MUTE, INK_SOFT, INK_DIM, LINE,
   GOLD, FONT_DISPLAY,
@@ -24,7 +26,8 @@ export function CrmDashboardPage() {
   const isMobile = useIsMobile();
 
   function reload() {
-    api<CrmDashboard>('/api/crm/dashboard').then(setData);
+    // best-effort: refresh after a mutation; stale data beats a blank page
+    api<CrmDashboard>('/api/crm/dashboard').then(setData).catch(() => {});
   }
 
   async function updateDealStage(deal: CrmDeal, stage: string) {
@@ -36,14 +39,20 @@ export function CrmDashboardPage() {
       reload();
     } catch (err) {
       console.error('Failed to update deal stage:', err);
+      toast.error('Failed to move deal.');
     }
   }
 
-  useEffect(() => {
+  // Doesn't set loading itself (the set-state-in-effect rule forbids sync
+  // setState via the mount effect); initial state is true, retry sets it.
+  function loadDashboard() {
     api<CrmDashboard>('/api/crm/dashboard')
       .then(setData)
+      .catch(() => {}) // data stays null → LoadError below
       .finally(() => setLoading(false));
-  }, []);
+  }
+
+  useEffect(() => { loadDashboard(); }, []);
 
   if (loading) {
     return (
@@ -53,7 +62,7 @@ export function CrmDashboardPage() {
     );
   }
 
-  if (!data) return <p style={{ color: INK_MUTE, padding: 32 }}>Failed to load CRM dashboard.</p>;
+  if (!data) return <LoadError label="Couldn't load CRM dashboard" onRetry={() => { setLoading(true); loadDashboard(); }} />;
 
   const activePipeline = data.pipeline_by_stage
     .filter(s => s.stage !== 'won' && s.stage !== 'lost')

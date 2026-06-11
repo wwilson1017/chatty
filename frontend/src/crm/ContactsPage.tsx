@@ -7,6 +7,8 @@ import { SmartImportModal } from './components/SmartImportModal';
 import { StatusBadge } from './components/badges';
 import { IconPlus, IconSearch } from '../shared/icons';
 import { useIsMobile } from '../shared/useIsMobile';
+import { LoadError } from '../shared/LoadError';
+import { toast } from '../shared/toast';
 import { INK, INK_MUTE, INK_DIM, LINE, BG_RAISED, FONT_SANS, mono } from '../shared/styles';
 import {
   pageHeading, cardStyle, filterTab,
@@ -27,6 +29,7 @@ export function ContactsPage() {
   const [availableTags, setAvailableTags] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
+  const [loadFailed, setLoadFailed] = useState(false);
   const [showCreate, setShowCreate] = useState(false);
   const [showImport, setShowImport] = useState(false);
   const [tagDropdownOpen, setTagDropdownOpen] = useState(false);
@@ -60,26 +63,41 @@ export function ContactsPage() {
   const reload = useCallback(async () => {
     const id = ++loadIdRef.current;
     setLoading(true);
-    const [data, tagData] = await Promise.all([
-      fetchPage(0),
-      api<{ tags: string[] }>('/api/crm/tags').catch(() => null),
-    ]);
-    if (id !== loadIdRef.current) return;
-    setContacts(data.contacts);
-    setTotal(data.total);
-    if (tagData) setAvailableTags(tagData.tags);
-    setLoading(false);
+    setLoadFailed(false);
+    try {
+      const [data, tagData] = await Promise.all([
+        fetchPage(0),
+        // best-effort: tags only feed the filter dropdown
+        api<{ tags: string[] }>('/api/crm/tags').catch(() => null),
+      ]);
+      if (id !== loadIdRef.current) return;
+      setContacts(data.contacts);
+      setTotal(data.total);
+      if (tagData) setAvailableTags(tagData.tags);
+    } catch {
+      if (id !== loadIdRef.current) return;
+      setLoadFailed(true);
+    } finally {
+      // Guarded: a stale request must not clear the loading flag set by a newer one.
+      if (id === loadIdRef.current) setLoading(false);
+    }
   }, [fetchPage]);
 
   const loadMore = useCallback(async () => {
     if (loading || loadingMore) return;
     const id = loadIdRef.current;
     setLoadingMore(true);
-    const data = await fetchPage(contacts.length);
-    if (id !== loadIdRef.current) return;
-    setContacts(prev => [...prev, ...data.contacts]);
-    setTotal(data.total);
-    setLoadingMore(false);
+    try {
+      const data = await fetchPage(contacts.length);
+      if (id !== loadIdRef.current) return;
+      setContacts(prev => [...prev, ...data.contacts]);
+      setTotal(data.total);
+    } catch {
+      if (id !== loadIdRef.current) return;
+      toast.error('Failed to load more contacts.');
+    } finally {
+      if (id === loadIdRef.current) setLoadingMore(false);
+    }
   }, [fetchPage, contacts.length, loading, loadingMore]);
 
   useEffect(() => {
@@ -203,6 +221,8 @@ export function ContactsPage() {
         <div style={{ display: 'flex', justifyContent: 'center', padding: '48px 0' }}>
           <div className="w-6 h-6 border-2 border-ch-accent border-t-transparent rounded-full animate-spin" />
         </div>
+      ) : loadFailed && contacts.length === 0 ? (
+        <LoadError label="Couldn't load contacts" onRetry={reload} />
       ) : contacts.length === 0 ? (
         <div style={{ textAlign: 'center', padding: '64px 0' }}>
           <p style={{ color: INK_DIM, fontSize: 14 }}>

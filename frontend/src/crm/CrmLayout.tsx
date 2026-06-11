@@ -142,6 +142,7 @@ export function CrmLayout() {
   const [refreshKey, setRefreshKey] = useState(0);
 
   useEffect(() => {
+    // best-effort: assume non-demo on failure
     api<{ demo_mode: boolean }>('/api/crm/demo-status').then(r => setDemoMode(r.demo_mode)).catch(() => setDemoMode(false));
   }, []);
 

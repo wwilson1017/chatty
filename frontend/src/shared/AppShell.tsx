@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { api } from '../core/api/client';
 import { NavRail } from './NavRail';
+import { ErrorBoundary, RouteErrorFallback } from './ErrorBoundary';
 import { SettingsPanel } from '../dashboard/SettingsPanel';
 import { useIsMobile } from './useIsMobile';
 import { IconBot, IconFunnel, IconBook, IconSettings } from './icons';
@@ -28,7 +29,7 @@ export function AppShell() {
       if (data.accent_color && data.accent_color.toLowerCase() !== OLD_DEFAULT) {
         document.documentElement.style.setProperty('--brand-color', data.accent_color);
       }
-    }).catch(() => {});
+    }).catch(() => {}); // best-effort: default branding applies
   }, []);
 
   const userInitial = branding?.company_name?.charAt(0) || 'C';
@@ -65,7 +66,18 @@ export function AppShell() {
         <NavRail onSettingsClick={() => setShowSettings(true)} userInitial={userInitial} />
       )}
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', position: 'relative', overflow: 'hidden' }}>
-        <Outlet context={{ branding, setBranding }} />
+        {/* Keyed by route group so navigating away resets a crashed route
+            while the nav rail (outside) survives. CRM shares one key: its
+            nested tabs change the pathname, and a full-pathname key would
+            remount the stateful CrmLayout on every tab switch (re-showing
+            the dismissed demo dialog). Recovery from a crash inside CRM
+            still works via the fallback's Back to Dashboard / Reload. */}
+        <ErrorBoundary
+          key={location.pathname.startsWith('/crm') ? '/crm' : location.pathname}
+          fallback={(error, reset) => <RouteErrorFallback error={error} reset={reset} />}
+        >
+          <Outlet context={{ branding, setBranding }} />
+        </ErrorBoundary>
       </div>
 
       {isMobile && (

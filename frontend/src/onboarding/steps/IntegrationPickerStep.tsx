@@ -23,6 +23,8 @@ export function IntegrationPickerStep({ onComplete, onSkip }: Props) {
         );
         setIntegrations(available);
       })
+      // best-effort: an empty list still lets the user skip this step
+      .catch(() => {})
       .finally(() => setLoading(false));
   }, []);
 

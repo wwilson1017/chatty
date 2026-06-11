@@ -16,6 +16,8 @@ import { AvatarMenu } from './components/AvatarMenu';
 import { AgentMark } from '../shared/AgentMark';
 import { useIsMobile } from '../shared/useIsMobile';
 import { MobileMenuDrawer } from '../shared/MobileMenuDrawer';
+import { confirmDialog } from '../shared/confirm';
+import { toast } from '../shared/toast';
 
 interface AgentRow {
   id: string;
@@ -126,13 +128,13 @@ export function AgentPage() {
     if (!agentId) return;
     api<{ generate_available: boolean }>(`/api/agents/${agentId}/avatar/availability`)
       .then(d => setOpenaiAvailable(d.generate_available))
-      .catch(() => {});
+      .catch(() => {}); // best-effort: hides "Generate with AI" when unknown
   }, [agentId]);
 
   useEffect(() => {
     api<ProviderStatus>('/api/providers')
       .then(p => { setActiveProvider(p.active_provider); })
-      .catch(() => {});
+      .catch(() => {}); // best-effort: tier labels degrade gracefully
   }, []);
 
   // Fetch tier labels and resolve for the agent's provider
@@ -142,7 +144,7 @@ export function AgentPage() {
     if (!providerKey) return;
     api<{ tier_labels: Record<string, Record<string, string>> }>('/api/providers/tiers')
       .then(d => setTierLabels(d.tier_labels[providerKey] || {}))
-      .catch(() => {});
+      .catch(() => {}); // best-effort: tier labels degrade gracefully
   }, [agent, activeProvider]);
 
 
@@ -156,6 +158,7 @@ export function AgentPage() {
         body: JSON.stringify({ model_tier: tier }),
       });
     } catch {
+      // best-effort: revert the optimistic tier change on failure
       setModelTier(prev);
     }
   }, [agentId, modelTier]);
@@ -167,7 +170,7 @@ export function AgentPage() {
         if (s.always_power_mode) chat.setToolMode('power');
         setGlobalModelTier((s.default_model_tier || 'auto') as ModelTier);
       })
-      .catch(() => {});
+      .catch(() => {}); // best-effort: defaults apply when settings unavailable
   }, []);
 
   function handleStartOnboarding() {
@@ -217,6 +220,9 @@ export function AgentPage() {
     if (showAvatarPicker) return;
     if (chat.messages.length > 0 || chat.isStreaming || chat.trainingMode) return;
     if (!convs.loaded) return;
+    // A failed load also sets loaded=true with an empty list — don't greet
+    // (and create a phantom conversation) off a transient fetch failure.
+    if (convs.loadError) return;
     if (convs.conversations.length > 0) {
       chat.setGreetingPending(false);
       return;
@@ -228,7 +234,7 @@ export function AgentPage() {
       '[Start the conversation. Greet the user warmly based on your personality and role. Keep it brief — 1-2 sentences.]',
       undefined, undefined, { hidden: true },
     );
-  }, [agentId, agent, showAvatarPicker, chat.messages.length, chat.isStreaming, chat.trainingMode, convs.loaded, convs.conversations.length]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [agentId, agent, showAvatarPicker, chat.messages.length, chat.isStreaming, chat.trainingMode, convs.loaded, convs.loadError, convs.conversations.length]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     convs.loadConversations();
@@ -282,16 +288,31 @@ export function AgentPage() {
   }, [searchParams, setSearchParams]);
 
   async function handleSelectConversation(id: string) {
+    const msgs = await convs.selectConversation(id);
+    if (!msgs) return;
+    // Mode resets only after a successful load — a failed click shouldn't
+    // silently toggle training/plan mode off.
     if (chat.trainingMode) chat.setTrainingMode(false);
     if (chat.planMode) chat.setPlanMode(false);
-    const msgs = await convs.selectConversation(id);
     chat.loadMessages(msgs, id);
   }
 
   async function handleDeleteConversation(id: string) {
-    if (!confirm('Delete this conversation?')) return;
-    await convs.deleteConversation(id);
-    if (convs.activeId === id) chat.clear();
+    const ok = await confirmDialog({
+      title: 'Delete conversation',
+      message: 'This conversation and its messages will be permanently deleted.',
+      confirmLabel: 'Delete',
+      danger: true,
+    });
+    if (!ok) return;
+    const res = await convs.deleteConversation(id);
+    if (!res.ok) {
+      toast.error('Failed to delete conversation.');
+      return;
+    }
+    // wasActive comes from the hook's ref (not this render's closure), so a
+    // conversation opened mid-DELETE won't get its view wrongly cleared.
+    if (res.wasActive) chat.clear();
   }
 
   function handleNewChat() {
@@ -301,10 +322,28 @@ export function AgentPage() {
     else chat.clear();
   }
 
-  function handleToolModeChange(mode: ToolMode) {
+  // Invalidates pending Power-mode confirm dialogs when a newer mode choice lands.
+  // The bump is deliberately asymmetric: only NON-power choices increment the
+  // seq, because a Read/Normal click is what should invalidate a pending Power
+  // confirm. The Power path merely reads the seq — if it also bumped, a fast
+  // double-click on Power would increment twice, the duplicate dialog would be
+  // deduped to false, and the user's genuine confirmation of the first dialog
+  // would then be wrongly discarded as stale.
+  const modeChangeSeqRef = useRef(0);
+  async function handleToolModeChange(mode: ToolMode) {
     if (alwaysPowerMode) return;
     if (mode === 'power') {
-      if (!window.confirm(`Enable Power mode? ${agent?.agent_name || 'This agent'} will be able to read and write without asking for confirmation.`)) return;
+      const seq = modeChangeSeqRef.current;
+      const ok = await confirmDialog({
+        title: 'Enable Power mode',
+        message: `${agent?.agent_name || 'This agent'} will be able to read and write data without asking for confirmation each time.`,
+        confirmLabel: 'Enable Power mode',
+      });
+      if (!ok) return;
+      // A non-power choice landed while the dialog was open — discard.
+      if (seq !== modeChangeSeqRef.current) return;
+    } else {
+      modeChangeSeqRef.current++;
     }
     chat.setToolMode(mode);
   }
@@ -318,6 +357,7 @@ export function AgentPage() {
     setShowAvatarPicker(false);
     setAvatarMenuRect(null);
     setAvatarCacheBust(Date.now());
+    // best-effort: a stale avatar is acceptable until the next full load
     if (agentId) api<AgentRow>(`/api/agents/${agentId}`).then(setAgent).catch(() => {});
   }
 
@@ -561,7 +601,13 @@ export function AgentPage() {
                 chat.setTrainingMode(false);
                 return;
               }
-              if (!confirm(`Exit training? ${agent.agent_name} will use whatever knowledge has been saved so far.`)) return;
+              const ok = await confirmDialog({
+                title: 'Exit training',
+                message: `${agent.agent_name} will use whatever knowledge has been saved so far.`,
+                confirmLabel: 'Exit training',
+                cancelLabel: 'Keep training',
+              });
+              if (!ok) return;
               try {
                 await api(`/api/agents/${agentId}`, { method: 'PUT', body: JSON.stringify({ onboarding_complete: true }) });
                 const updated = await api<AgentRow>(`/api/agents/${agentId}`);
@@ -620,6 +666,8 @@ export function AgentPage() {
                     searchQuery={convs.searchQuery}
                     searchResults={convs.searchResults}
                     isSearching={convs.isSearching}
+                    loadError={convs.loadError}
+                    onRetryLoad={convs.loadConversations}
                     onNew={() => { handleNewChat(); setShowSidebar(false); }}
                     onSelect={(id) => { handleSelectConversation(id); setShowSidebar(false); }}
                     onDelete={handleDeleteConversation}
@@ -639,6 +687,8 @@ export function AgentPage() {
                 searchQuery={convs.searchQuery}
                 searchResults={convs.searchResults}
                 isSearching={convs.isSearching}
+                loadError={convs.loadError}
+                onRetryLoad={convs.loadConversations}
                 onNew={handleNewChat}
                 onSelect={handleSelectConversation}
                 onDelete={handleDeleteConversation}
@@ -669,10 +719,22 @@ export function AgentPage() {
               importMode={convs.conversations.find(c => c.id === convs.activeId)?.mode === 'import'}
               greetingPending={chat.greetingPending}
               onCancelImport={async () => {
-                if (!confirm('Cancel this import? The agent and all progress will be deleted.')) return;
+                const ok = await confirmDialog({
+                  title: 'Cancel import',
+                  message: 'The agent and all import progress will be permanently deleted.',
+                  confirmLabel: 'Delete import',
+                  cancelLabel: 'Keep importing',
+                  danger: true,
+                });
+                if (!ok) return;
                 try {
                   await api(`/api/agents/${agentId}`, { method: 'DELETE' });
-                } catch { /* ignore */ }
+                } catch {
+                  // A failed delete leaves the agent live — don't navigate
+                  // away as if it were gone.
+                  toast.error('Failed to cancel import.');
+                  return;
+                }
                 navigate('/');
               }}
             />

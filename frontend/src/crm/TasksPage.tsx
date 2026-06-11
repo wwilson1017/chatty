@@ -5,6 +5,8 @@ import { TaskForm } from './components/TaskForm';
 import { PriorityBadge } from './components/badges';
 import { IconPlus, IconCheck } from '../shared/icons';
 import { useIsMobile } from '../shared/useIsMobile';
+import { LoadError } from '../shared/LoadError';
+import { toast } from '../shared/toast';
 import {
   INK, INK_MUTE, INK_SOFT, INK_DIM, LINE, LINE_STRONG,
   CORAL, SAGE, ACCENT_INK,
@@ -22,6 +24,7 @@ type Filter = 'all' | 'pending' | 'due_today' | 'overdue' | 'completed';
 export function TasksPage() {
   const [tasks, setTasks] = useState<CrmTask[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadFailed, setLoadFailed] = useState(false);
   const [filter, setFilter] = useState<Filter>('pending');
   const [showCreate, setShowCreate] = useState(false);
   const [selectedTask, setSelectedTask] = useState<CrmTask | null>(null);
@@ -37,11 +40,16 @@ export function TasksPage() {
     else if (filter === 'due_today') { params.set('completed', 'false'); params.set('due_before', today); }
     else if (filter === 'overdue') { params.set('completed', 'false'); params.set('due_before', today); }
     params.set('limit', '100');
-    const data = await api<{ tasks: CrmTask[] }>(`/api/crm/tasks?${params}`);
-    let filtered = data.tasks;
-    if (filter === 'due_today') filtered = filtered.filter(t => t.due_date === today);
-    else if (filter === 'overdue') filtered = filtered.filter(t => t.due_date && t.due_date < today);
-    setTasks(filtered);
+    try {
+      const data = await api<{ tasks: CrmTask[] }>(`/api/crm/tasks?${params}`);
+      let filtered = data.tasks;
+      if (filter === 'due_today') filtered = filtered.filter(t => t.due_date === today);
+      else if (filter === 'overdue') filtered = filtered.filter(t => t.due_date && t.due_date < today);
+      setTasks(filtered);
+      setLoadFailed(false);
+    } catch {
+      setLoadFailed(true);
+    }
     setLoading(false);
   }, [filter]);
 
@@ -49,10 +57,15 @@ export function TasksPage() {
   useEffect(() => { load(); }, [load]);
 
   async function toggleComplete(task: CrmTask) {
-    if (task.completed) {
-      await api(`/api/crm/tasks/${task.id}`, { method: 'PUT', body: JSON.stringify({ completed: 0 }) });
-    } else {
-      await api(`/api/crm/tasks/${task.id}/complete`, { method: 'PUT' });
+    try {
+      if (task.completed) {
+        await api(`/api/crm/tasks/${task.id}`, { method: 'PUT', body: JSON.stringify({ completed: 0 }) });
+      } else {
+        await api(`/api/crm/tasks/${task.id}/complete`, { method: 'PUT' });
+      }
+    } catch {
+      toast.error('Failed to update task.');
+      return;
     }
     load();
   }
@@ -93,6 +106,8 @@ export function TasksPage() {
         <div style={{ display: 'flex', justifyContent: 'center', padding: '48px 0' }}>
           <div className="w-6 h-6 border-2 border-ch-accent border-t-transparent rounded-full animate-spin" />
         </div>
+      ) : loadFailed && tasks.length === 0 ? (
+        <LoadError label="Couldn't load tasks" onRetry={load} />
       ) : tasks.length === 0 ? (
         <div style={{ textAlign: 'center', padding: '64px 0' }}>
           <p style={{ color: INK_DIM, fontSize: 14 }}>

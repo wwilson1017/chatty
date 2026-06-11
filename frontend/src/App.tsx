@@ -1,5 +1,7 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider } from './core/auth/AuthContext';
+import { ToastViewport } from './shared/ToastViewport';
+import { ConfirmHost } from './shared/ConfirmHost';
 import { ProtectedRoute } from './core/auth/ProtectedRoute';
 import { AppShell } from './shared/AppShell';
 import { LoginPage } from './login/LoginPage';
@@ -45,6 +47,8 @@ export default function App() {
 
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
+        <ConfirmHost />
+        <ToastViewport />
       </BrowserRouter>
     </AuthProvider>
   );

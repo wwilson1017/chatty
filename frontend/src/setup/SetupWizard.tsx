@@ -8,6 +8,7 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../core/api/client';
+import { toast } from '../shared/toast';
 import { ProviderSetup } from './ProviderSetup';
 import type { BrandingConfig } from '../core/types';
 
@@ -62,6 +63,8 @@ export function SetupWizard() {
         document.documentElement.style.setProperty('--brand-color', updated.accent_color);
       }
       await finish();
+    } catch {
+      toast.error('Failed to finish setup.');
     } finally {
       setSaving(false);
     }

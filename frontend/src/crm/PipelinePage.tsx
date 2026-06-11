@@ -7,6 +7,8 @@ import { DealDetailSheet } from './components/DealDetailSheet';
 import { STAGE_COLORS, STAGE_ORDER } from './constants';
 import { IconPlus } from '../shared/icons';
 import { useIsMobile } from '../shared/useIsMobile';
+import { LoadError } from '../shared/LoadError';
+import { toast } from '../shared/toast';
 import {
   INK, INK_MUTE, INK_DIM, LINE, BG_CARD,
   FONT_DISPLAY, mono, formatNumber,
@@ -48,12 +50,13 @@ export function PipelinePage() {
 
   const load = useCallback(async () => {
     setLoading(true);
-    const d = await api<PipelineData>('/api/crm/deals');
-    setData(d);
-    setLoading(false);
+    try {
+      const d = await api<PipelineData>('/api/crm/deals');
+      setData(d);
+    } catch { /* data stays null → LoadError below */ }
+    finally { setLoading(false); }
   }, []);
 
-  // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { load(); }, [load]);
 
   async function updateDealStage(deal: CrmDeal, stage: string) {
@@ -65,6 +68,7 @@ export function PipelinePage() {
       load();
     } catch (err) {
       console.error('Failed to update deal stage:', err);
+      toast.error('Failed to move deal.');
     }
   }
 
@@ -75,6 +79,8 @@ export function PipelinePage() {
       </div>
     );
   }
+
+  if (!data) return <LoadError label="Couldn't load pipeline" onRetry={load} />;
 
   const deals = data?.deals || [];
   const grouped = STAGES.reduce<Record<string, CrmDeal[]>>((acc, stage) => {

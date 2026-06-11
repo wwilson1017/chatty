@@ -24,7 +24,10 @@ export async function api<T = unknown>(
   if (res.status === 401) {
     sessionStorage.removeItem('chatty_token');
     window.location.href = '/login';
-    throw new Error('Session expired');
+    // Never settle: the page is navigating away. Throwing here would run
+    // every caller's catch block and flash false "Failed to ..." toasts
+    // and error states in the instant before the redirect commits.
+    return new Promise<never>(() => {});
   }
 
   if (!res.ok) {

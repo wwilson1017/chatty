@@ -2,6 +2,8 @@ import { useState, useRef, useCallback } from 'react';
 import type { Conversation } from '../hooks/useConversations';
 import { AgentMark } from '../../shared/AgentMark';
 import { IconPlus } from '../../shared/icons';
+import { LoadError } from '../../shared/LoadError';
+import { toast } from '../../shared/toast';
 import { formatSidebarTime } from '../utils/dateFormat';
 
 interface Props {
@@ -13,16 +15,19 @@ interface Props {
   searchQuery: string;
   searchResults: { id: string; title: string; snippet: string }[];
   isSearching: boolean;
+  loadError?: boolean;
+  onRetryLoad?: () => void;
   onNew: () => void;
   onSelect: (id: string) => void;
   onDelete: (id: string) => void;
   onSearch: (q: string) => void;
-  onRename: (id: string, title: string) => void;
+  onRename: (id: string, title: string) => Promise<boolean>;
 }
 
 export function ConversationSidebar({
   agentName, avatarUrl, onAvatarClick,
   conversations, activeId, searchQuery, searchResults, isSearching,
+  loadError, onRetryLoad,
   onNew, onSelect, onDelete, onSearch, onRename,
 }: Props) {
   const [collapsed, setCollapsed] = useState(false);
@@ -30,6 +35,10 @@ export function ConversationSidebar({
   const [editTitle, setEditTitle] = useState('');
   const [localQuery, setLocalQuery] = useState(searchQuery);
   const debounceRef = useRef<ReturnType<typeof setTimeout>>(undefined);
+  // Both Enter and blur can fire commitEdit for the same edit; this guards
+  // against a double rename while the first commit's await is in flight.
+  const editCommittingRef = useRef(false);
+  const [editCommitting, setEditCommitting] = useState(false);
 
   const handleSearchChange = useCallback((value: string) => {
     setLocalQuery(value);
@@ -43,9 +52,20 @@ export function ConversationSidebar({
     setEditTitle(conv.title);
   }
 
-  function commitEdit(id: string) {
-    if (editTitle.trim()) onRename(id, editTitle.trim());
-    setEditingId(null);
+  async function commitEdit(id: string) {
+    if (editCommittingRef.current) return;
+    if (!editTitle.trim()) { setEditingId(null); return; }
+    editCommittingRef.current = true;
+    setEditCommitting(true);
+    try {
+      // Keep the inline edit visible until the rename resolves.
+      const ok = await onRename(id, editTitle.trim());
+      setEditingId(null);
+      if (!ok) toast.error('Failed to rename conversation.');
+    } finally {
+      editCommittingRef.current = false;
+      setEditCommitting(false);
+    }
   }
 
   const displayList = searchQuery.trim() ? searchResults : conversations;
@@ -133,6 +153,8 @@ export function ConversationSidebar({
           <div style={{ display: 'flex', justifyContent: 'center', padding: 16 }}>
             <div className="w-4 h-4 border-2 border-ch-accent border-t-transparent rounded-full animate-spin" />
           </div>
+        ) : loadError && conversations.length === 0 && !searchQuery.trim() ? (
+          <LoadError compact label="Couldn't load conversations" onRetry={() => onRetryLoad?.()} />
         ) : displayList.length === 0 ? (
           <p style={{ color: 'rgba(237,240,244,0.38)', fontSize: 12, textAlign: 'center', padding: '24px 16px' }}>
             {searchQuery ? 'No results found' : 'No conversations yet'}
@@ -164,11 +186,13 @@ export function ConversationSidebar({
                       onBlur={() => commitEdit(id)}
                       onKeyDown={e => { if (e.key === 'Enter') commitEdit(id); if (e.key === 'Escape') setEditingId(null); }}
                       onClick={e => e.stopPropagation()}
+                      disabled={editCommitting}
                       style={{
                         width: '100%', background: 'rgba(34,40,48,0.55)',
                         color: '#EDF0F4', fontSize: 12, borderRadius: 3,
                         padding: '2px 6px', border: '1px solid rgba(230,235,242,0.14)',
                         outline: 'none',
+                        opacity: editCommitting ? 0.5 : 1,
                       }}
                       autoFocus
                     />

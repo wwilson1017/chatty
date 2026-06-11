@@ -1,10 +1,11 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useNavigate, useOutletContext } from 'react-router-dom';
 import { api } from '../core/api/client';
 import { AgentCard } from './AgentCard';
 import { CreateAgentModal } from './CreateAgentModal';
 import { ImportAgentModal } from './ImportAgentModal';
 import { WarmHalo } from '../shared/WarmHalo';
+import { LoadError } from '../shared/LoadError';
 import { IconSearch, IconPlus, IconDownload } from '../shared/icons';
 import { MobileMenuDrawer } from '../shared/MobileMenuDrawer';
 import { useIsMobile } from '../shared/useIsMobile';
@@ -37,11 +38,16 @@ export function DashboardPage() {
   const [showImport, setShowImport] = useState(false);
   const [suggestedTitle, setSuggestedTitle] = useState('');
   const [loading, setLoading] = useState(true);
+  const [loadFailed, setLoadFailed] = useState(false);
   const navigate = useNavigate();
   const context = useOutletContext<{ branding: BrandingConfig | null; setBranding: (b: BrandingConfig) => void }>();
   const branding = context?.branding;
 
-  useEffect(() => {
+  // No synchronous setState here — the initial state is already
+  // loading=true/loadFailed=false, and the retry handler resets both before
+  // calling. Keeping it out lets the effect call this without tripping the
+  // react-hooks/set-state-in-effect rule.
+  const loadDashboard = useCallback(() => {
     Promise.all([
       api<{ agents: Agent[] }>('/api/agents'),
       api<ProviderStatus>('/api/providers'),
@@ -54,8 +60,11 @@ export function DashboardPage() {
       setAgents(agentsData.agents);
     }).catch(err => {
       console.error('Dashboard load error:', err);
+      setLoadFailed(true);
     }).finally(() => setLoading(false));
   }, [navigate]);
+
+  useEffect(() => { loadDashboard(); }, [loadDashboard]);
 
 
   const isMobile = useIsMobile();
@@ -189,6 +198,8 @@ export function DashboardPage() {
           <div style={{ display: 'flex', justifyContent: 'center', padding: '80px 0' }}>
             <div className="w-8 h-8 border-2 border-ch-accent border-t-transparent rounded-full animate-spin" />
           </div>
+        ) : loadFailed ? (
+          <LoadError label="Couldn't load your agents" onRetry={() => { setLoading(true); setLoadFailed(false); loadDashboard(); }} />
         ) : agents.length === 0 ? (
           <div>
             <div style={{

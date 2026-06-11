@@ -10,6 +10,8 @@ import { PriorityBadge } from './components/badges';
 import { STAGE_COLORS } from './constants';
 import { IconArrowLeft } from '../shared/icons';
 import { useIsMobile } from '../shared/useIsMobile';
+import { confirmDialog } from '../shared/confirm';
+import { toast } from '../shared/toast';
 import {
   INK, INK_MUTE, INK_DIM, LINE, LINE_STRONG, CORAL, SAGE,
   ACCENT, ACCENT_INK,
@@ -43,25 +45,40 @@ export function ContactDetailPage() {
     setLoading(false);
   }, [id]);
 
-  // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { load(); }, [load]);
 
   async function handleLogActivity() {
     if (!logActivity) return;
     setLogging(true);
-    await api('/api/crm/activity', {
-      method: 'POST',
-      body: JSON.stringify({ activity: logActivity, note: logNote, contact_id: Number(id) }),
-    });
-    setLogActivity('');
-    setLogNote('');
-    setLogging(false);
-    load();
+    try {
+      await api('/api/crm/activity', {
+        method: 'POST',
+        body: JSON.stringify({ activity: logActivity, note: logNote, contact_id: Number(id) }),
+      });
+      setLogActivity('');
+      setLogNote('');
+      load();
+    } catch {
+      toast.error('Failed to log activity.');
+    } finally {
+      setLogging(false);
+    }
   }
 
   async function handleDelete() {
-    if (!confirm('Delete this contact? This cannot be undone.')) return;
-    await api(`/api/crm/contacts/${id}`, { method: 'DELETE' });
+    const ok = await confirmDialog({
+      title: 'Delete contact',
+      message: `This will permanently delete ${contact?.name || 'this contact'} and their activity history. This cannot be undone.`,
+      confirmLabel: 'Delete contact',
+      danger: true,
+    });
+    if (!ok) return;
+    try {
+      await api(`/api/crm/contacts/${id}`, { method: 'DELETE' });
+    } catch {
+      toast.error('Failed to delete contact.');
+      return;
+    }
     navigate('/crm/contacts');
   }
 

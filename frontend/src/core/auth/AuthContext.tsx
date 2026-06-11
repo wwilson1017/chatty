@@ -67,7 +67,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const ch = new BroadcastChannel(CHANNEL_NAME);
       ch.postMessage({ type: 'login', token });
       ch.close();
-    } catch { /* noop */ }
+    } catch { /* best-effort: BroadcastChannel unsupported — single-tab fallback */ }
   }, []);
 
   useEffect(() => {
@@ -151,7 +151,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const ch = new BroadcastChannel(CHANNEL_NAME);
       ch.postMessage({ type: 'logout' });
       ch.close();
-    } catch { /* noop */ }
+    } catch { /* best-effort: BroadcastChannel unsupported — single-tab fallback */ }
   }, []);
 
   return (

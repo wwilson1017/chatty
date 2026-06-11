@@ -1,5 +1,6 @@
 import { useState, useRef } from 'react';
 import { IconFile } from '../shared/icons';
+import { confirmDialog } from '../shared/confirm';
 
 export function DataTab() {
   const [downloading, setDownloading] = useState(false);
@@ -34,7 +35,13 @@ export function DataTab() {
 
   async function handleRestore() {
     if (!selectedFile) return;
-    if (!window.confirm('Are you sure? This will replace ALL current data and cannot be undone.')) return;
+    const ok = await confirmDialog({
+      title: 'Restore from backup',
+      message: 'This will replace ALL current data with the backup contents. This cannot be undone.',
+      confirmLabel: 'Replace everything',
+      danger: true,
+    });
+    if (!ok) return;
 
     setRestoring(true);
     setMessage(null);

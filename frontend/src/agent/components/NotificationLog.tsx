@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import type { AgentNotification } from '../../core/types';
 import { api } from '../../core/api/client';
+import { toast } from '../../shared/toast';
 
 interface Props {
   agentSlug: string;
@@ -25,7 +26,7 @@ export default function NotificationLog({ agentSlug }: Props) {
     const fetch = () =>
       api<AgentNotification[]>(`/api/notifications?agent=${agentSlug}&status=active&limit=10`)
         .then(data => { if (!cancelled) setNotifications(data); })
-        .catch(() => {});
+        .catch(() => {}); // best-effort: poll retries in 30s
     fetch();
     const interval = setInterval(fetch, 30000);
     return () => { cancelled = true; clearInterval(interval); };
@@ -35,7 +36,7 @@ export default function NotificationLog({ agentSlug }: Props) {
     try {
       await api(`/api/notifications/${id}/dismiss`, { method: 'POST' });
       setNotifications(prev => prev.filter(n => n.id !== id));
-    } catch { /* ignore */ }
+    } catch { toast.error('Failed to dismiss notification.'); }
   };
 
   const dismissAll = async () => {
@@ -45,7 +46,7 @@ export default function NotificationLog({ agentSlug }: Props) {
         body: JSON.stringify({ agent: agentSlug }),
       });
       setNotifications([]);
-    } catch { /* ignore */ }
+    } catch { toast.error('Failed to dismiss notifications.'); }
   };
 
   const toggleExpand = (id: string) => {

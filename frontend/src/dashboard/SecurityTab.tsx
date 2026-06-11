@@ -117,6 +117,7 @@ export function SecurityTab() {
   }
 
   function copyBackupCodes() {
+    // best-effort: clipboard may be unavailable; codes stay visible to copy manually
     navigator.clipboard.writeText(backupCodes.join('\n')).catch(() => {});
   }
 

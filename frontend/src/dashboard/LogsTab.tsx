@@ -88,6 +88,7 @@ export function LogsTab() {
   const intervalRef = useRef<number | null>(null);
 
   useEffect(() => {
+    // best-effort: agent filter dropdown stays empty on failure
     api<{ agents: Agent[] }>('/api/agents').then(d => setAgents(d.agents)).catch(() => {});
   }, []);
 

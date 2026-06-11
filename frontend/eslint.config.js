@@ -19,5 +19,15 @@ export default defineConfig([
       ecmaVersion: 2020,
       globals: globals.browser,
     },
+    rules: {
+      // Native dialogs are replaced by shared/toast.ts and shared/confirm.ts.
+      'no-alert': 'error',
+      'no-restricted-globals': [
+        'error',
+        { name: 'confirm', message: 'Use confirmDialog() from shared/confirm instead.' },
+        { name: 'alert', message: 'Use toast from shared/toast instead.' },
+        { name: 'prompt', message: 'Use a styled input dialog instead.' },
+      ],
+    },
   },
 ])

@@ -6,6 +6,7 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { api } from '../../core/api/client';
+import { toast } from '../../shared/toast';
 
 interface Props {
   agentId: string;
@@ -551,7 +552,8 @@ function ManagementView({ agentId, agentName, botUsername, telegramEnabled, grou
         body: JSON.stringify({ telegram_group_enabled: !groupEnabled }),
       });
       onUpdate();
-    } finally { setTogglingGroup(false); }
+    } catch { toast.error('Failed to update group setting.'); }
+    finally { setTogglingGroup(false); }
   }
 
   async function handleToggle() {
@@ -562,7 +564,8 @@ function ManagementView({ agentId, agentName, botUsername, telegramEnabled, grou
         body: JSON.stringify({ telegram_enabled: !telegramEnabled }),
       });
       onUpdate();
-    } finally { setToggling(false); }
+    } catch { toast.error('Failed to update Telegram setting.'); }
+    finally { setToggling(false); }
   }
 
   async function handleDisconnect() {
@@ -570,7 +573,8 @@ function ManagementView({ agentId, agentName, botUsername, telegramEnabled, grou
     try {
       await api(`/api/telegram/bot-token/${agentId}`, { method: 'DELETE' });
       onUpdate();
-    } finally {
+    } catch { toast.error('Failed to disconnect Telegram.'); }
+    finally {
       setDisconnecting(false);
       setShowConfirmDisconnect(false);
     }
@@ -586,7 +590,8 @@ function ManagementView({ agentId, agentName, botUsername, telegramEnabled, grou
       });
       setResetSuccess(true);
       setTimeout(() => setResetSuccess(false), 5000);
-    } finally { setResetting(false); }
+    } catch { toast.error('Failed to reset registration.'); }
+    finally { setResetting(false); }
   }
 
   return (
