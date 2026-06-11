@@ -17,6 +17,7 @@ TOOL_KIND_LABELS: dict[str, str] = {
     "setup": "Setup & Integrations",
     "activity_log": "Activity Log",
     "post_message": "Messaging",
+    "chat_history": "Chat History",
 }
 
 
@@ -1541,6 +1542,34 @@ DATETIME_TOOLS = [
     },
 ]
 
+CHAT_HISTORY_TOOLS = [
+    {
+        "name": "search_conversation_history",
+        "description": (
+            "Search your past conversations with the user by keyword. "
+            "Returns matching conversation titles, dates, and text snippets "
+            "with **highlighted** matches. Use this to recall past discussions "
+            "before asking the user to repeat themselves."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "Search keywords (e.g. 'budget spreadsheet', 'project deadline')",
+                },
+                "limit": {
+                    "type": "integer",
+                    "description": "Max conversations to return (default 10, max 20)",
+                },
+            },
+            "required": ["query"],
+        },
+        "kind": "chat_history",
+        "writes": False,
+    },
+]
+
 NOTIFY_USER_TOOLS = [
     {
         "name": "notify_user",
@@ -1611,6 +1640,7 @@ def get_tool_definitions(
 
     tools = list(CONTEXT_TOOLS)
     tools.extend(DATETIME_TOOLS)
+    tools.extend(CHAT_HISTORY_TOOLS)
     if memory_enabled:
         tools.extend(MEMORY_TOOLS)
         tools.extend(SKILL_TOOLS)

@@ -18,6 +18,7 @@ ALWAYS_LOADED_KINDS: set[str] = {
     "context",
     "memory",
     "shared_context",
+    "chat_history",
     "reminder",
     "scheduled_action",
 }
