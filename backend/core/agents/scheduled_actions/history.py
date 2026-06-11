@@ -13,6 +13,12 @@ from core.agents.reminders import db
 
 logger = logging.getLogger(__name__)
 
+# Retention policy: rows are kept long enough to power the usage/cost
+# dashboard; heavy scheduled-action payloads are trimmed much sooner.
+CHAT_RETENTION_DAYS = 365
+SA_RETENTION_DAYS = 90
+SA_PAYLOAD_TRIM_DAYS = 7
+
 
 def _now_utc() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S")
@@ -154,12 +160,23 @@ def get_recent_errors(agent: str, action_id: str | None = None, limit: int = 3) 
     return [dict(r) for r in rows]
 
 
-def cleanup_old(retention_days: int = 7) -> int:
+def cleanup_old() -> int:
     conn = db.get_db()
     now = datetime.now(timezone.utc)
-    sa_cutoff = (now - timedelta(days=retention_days)).strftime("%Y-%m-%dT%H:%M:%S")
-    chat_cutoff = (now - timedelta(days=30)).strftime("%Y-%m-%dT%H:%M:%S")
+    sa_cutoff = (now - timedelta(days=SA_RETENTION_DAYS)).strftime("%Y-%m-%dT%H:%M:%S")
+    chat_cutoff = (now - timedelta(days=CHAT_RETENTION_DAYS)).strftime("%Y-%m-%dT%H:%M:%S")
+    trim_cutoff = (now - timedelta(days=SA_PAYLOAD_TRIM_DAYS)).strftime("%Y-%m-%dT%H:%M:%S")
     with db.write_lock():
+        # Trim heavy payloads from older scheduled-action rows; keep the rows
+        # themselves (tokens/model/status) for the usage dashboard.
+        c0 = conn.execute(
+            """UPDATE execution_history
+               SET result_full = NULL, tool_calls = NULL
+               WHERE (event_type = 'scheduled_action' OR event_type IS NULL)
+                 AND started_at < ?
+                 AND (result_full IS NOT NULL OR tool_calls IS NOT NULL)""",
+            (trim_cutoff,),
+        )
         c1 = conn.execute(
             "DELETE FROM execution_history WHERE (event_type = 'scheduled_action' OR event_type IS NULL) AND started_at < ?",
             (sa_cutoff,),
@@ -169,7 +186,10 @@ def cleanup_old(retention_days: int = 7) -> int:
             (chat_cutoff,),
         )
         conn.commit()
+        trimmed = c0.rowcount
         deleted = c1.rowcount + c2.rowcount
+    if trimmed:
+        logger.info("Trimmed payloads from %d old execution history records", trimmed)
     if deleted:
         logger.info("Cleaned up %d old execution history records", deleted)
     return deleted

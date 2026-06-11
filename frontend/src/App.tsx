@@ -9,6 +9,7 @@ import { DashboardPage } from './dashboard/DashboardPage';
 import { OnboardingPage } from './onboarding/OnboardingPage';
 import { AgentPage } from './agent/AgentPage';
 import { WebbyPage } from './webby/WebbyPage';
+import { UsagePage } from './usage/UsagePage';
 import { CrmLayout } from './crm/CrmLayout';
 import { CrmDashboardPage } from './crm/CrmDashboardPage';
 import { ContactsPage } from './crm/ContactsPage';
@@ -42,6 +43,7 @@ export default function App() {
               <Route path="pipeline" element={<PipelinePage />} />
               <Route path="tasks" element={<TasksPage />} />
             </Route>
+            <Route path="/usage" element={<UsagePage />} />
             <Route path="/webby" element={<WebbyPage />} />
           </Route>
 
