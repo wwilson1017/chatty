@@ -39,6 +39,7 @@ from core.agents.alerts.router import router as alerts_router
 from core.agents.notifications.router import router as notifications_router
 from core.agents.reminders.router import router as reminders_router
 from core.agents.shared_context.router import router as shared_context_router
+from core.agents.usage.router import router as usage_router
 from core.events.router import router as events_router
 
 logger = logging.getLogger(__name__)
@@ -297,6 +298,7 @@ app.include_router(setup_router, prefix="/api/setup", tags=["setup"])
 app.include_router(backup_router, prefix="/api/backup", tags=["backup"])
 app.include_router(telegram_router, prefix="/api/telegram", tags=["telegram"])
 app.include_router(shared_context_router, tags=["shared-context"])
+app.include_router(usage_router, prefix="/api/usage", tags=["usage"])
 app.include_router(events_router)
 
 

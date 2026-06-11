@@ -5,7 +5,7 @@ import { NavRail } from './NavRail';
 import { ErrorBoundary, RouteErrorFallback } from './ErrorBoundary';
 import { SettingsPanel } from '../dashboard/SettingsPanel';
 import { useIsMobile } from './useIsMobile';
-import { IconBot, IconFunnel, IconBook, IconSettings } from './icons';
+import { IconBot, IconFunnel, IconChart, IconBook, IconSettings } from './icons';
 import type { BrandingConfig } from '../core/types';
 
 export function AppShell() {
@@ -37,6 +37,7 @@ export function AppShell() {
   const mobileNavItems = [
     { key: 'agents', icon: IconBot, label: 'Agents', path: '/', match: (p: string) => p === '/' || p.startsWith('/agent/') },
     { key: 'crm', icon: IconFunnel, label: 'CRM', path: '/crm', match: (p: string) => p.startsWith('/crm') },
+    { key: 'usage', icon: IconChart, label: 'Usage', path: '/usage', match: (p: string) => p.startsWith('/usage') },
     { key: 'knowledge', icon: IconBook, label: 'Knowledge', path: null as string | null, match: () => false },
     { key: 'settings', icon: IconSettings, label: 'Settings', path: null as string | null, match: () => false },
   ];

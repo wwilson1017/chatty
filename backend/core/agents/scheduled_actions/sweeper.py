@@ -19,7 +19,7 @@ def sweep() -> None:
         from core.agents.scheduled_actions import service
         from core.agents.alerts import service as alerts_service
 
-        cleaned_history = history_mod.cleanup_old(retention_days=7)
+        cleaned_history = history_mod.cleanup_old()
         cleaned_alerts = alerts_service.cleanup_old(retention_days=30)
         cleaned_usage = _cleanup_context_usage(retention_days=90)
         fixed_drift = _fix_next_run_drift()
