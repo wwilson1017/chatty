@@ -255,7 +255,8 @@ class ChatHistoryService:
                    SUBSTR(m.content, MAX(1, INSTR(LOWER(m.content), ?) - 40), 120) AS snippet
             FROM messages m
             JOIN conversations c ON c.id = m.conversation_id
-            WHERE LOWER(m.content) LIKE ? ESCAPE '\\'
+            WHERE m.role IN ('user', 'assistant') AND m.content != ''
+              AND LOWER(m.content) LIKE ? ESCAPE '\\'
             GROUP BY c.id
             ORDER BY c.updated_at DESC
             LIMIT ?
@@ -343,7 +344,8 @@ class ChatHistoryService:
                    SUBSTR(m.content, MAX(1, INSTR(LOWER(m.content), ?) - 40), 120) AS snippet
             FROM messages m
             JOIN conversations c ON c.id = m.conversation_id
-            WHERE LOWER(m.content) LIKE ? ESCAPE '\\'
+            WHERE m.role IN ('user', 'assistant') AND m.content != ''
+              AND LOWER(m.content) LIKE ? ESCAPE '\\'
             {exclude_clause}
             ORDER BY c.updated_at DESC
             LIMIT ?
