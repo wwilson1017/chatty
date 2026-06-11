@@ -74,7 +74,7 @@ export function AppShell() {
             the dismissed demo dialog). Recovery from a crash inside CRM
             still works via the fallback's Back to Dashboard / Reload. */}
         <ErrorBoundary
-          key={location.pathname.startsWith('/crm') ? '/crm' : location.pathname.startsWith('/usage') ? '/usage' : location.pathname}
+          key={location.pathname.startsWith('/crm') ? '/crm' : location.pathname}
           fallback={(error, reset) => <RouteErrorFallback error={error} reset={reset} />}
         >
           <Outlet context={{ branding, setBranding }} />

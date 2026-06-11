@@ -15,8 +15,10 @@ export const ACCENT = 'var(--color-ch-accent, #C8D1D9)';
 export const ACCENT_INK = 'var(--color-ch-accent-ink, #0E1013)';
 export const ACCENT_SOFT = 'var(--color-ch-accent-soft, rgba(200,209,217,0.12))';
 export const GOLD = 'var(--color-ch-gold, #D4A85A)';
+export const GOLD_HEX = '#D4A85A';
 export const CORAL = 'var(--color-ch-coral, #D97757)';
 export const SAGE = 'var(--color-ch-sage, #8EA589)';
+export const SAGE_HEX = '#8EA589';
 
 // ── Font stacks ──────────────────────────────────────────────────────────────
 

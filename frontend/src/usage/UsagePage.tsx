@@ -21,11 +21,8 @@ import { useIsMobile } from '../shared/useIsMobile';
 import {
   INK, INK_MUTE, INK_DIM, LINE, BG_ELEV,
   FONT_DISPLAY, FONT_SANS, FONT_MONO, mono, formatNumber,
+  SAGE_HEX, GOLD_HEX,
 } from '../shared/styles';
-
-// Raw hex (not CSS vars): SVG fill attributes don't resolve var().
-const SAGE_HEX = '#8EA589';
-const GOLD_HEX = '#D4A85A';
 
 interface DailyUsage {
   date: string;
@@ -95,7 +92,7 @@ export function UsagePage() {
     const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
     api<UsageSummary>(`/api/usage/summary?days=${days}&tz=${encodeURIComponent(tz)}`)
       .then(d => { setData(d); setError(false); })
-      .catch(() => setError(true))
+      .catch((err) => { console.error('[UsagePage] load failed:', err); setError(true); })
       .finally(() => setLoading(false));
   }, [days]);
 

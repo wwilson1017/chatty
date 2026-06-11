@@ -169,25 +169,26 @@ def cleanup_old() -> int:
     with db.write_lock():
         # Trim heavy payloads from older scheduled-action rows; keep the rows
         # themselves (tokens/model/status) for the usage dashboard.
-        c0 = conn.execute(
+        trim_cur = conn.execute(
             """UPDATE execution_history
                SET result_full = NULL, tool_calls = NULL
                WHERE (event_type = 'scheduled_action' OR event_type IS NULL)
                  AND started_at < ?
+                 AND started_at >= ?
                  AND (result_full IS NOT NULL OR tool_calls IS NOT NULL)""",
-            (trim_cutoff,),
+            (trim_cutoff, sa_cutoff),
         )
-        c1 = conn.execute(
+        sa_cur = conn.execute(
             "DELETE FROM execution_history WHERE (event_type = 'scheduled_action' OR event_type IS NULL) AND started_at < ?",
             (sa_cutoff,),
         )
-        c2 = conn.execute(
+        chat_cur = conn.execute(
             "DELETE FROM execution_history WHERE event_type = 'chat' AND started_at < ?",
             (chat_cutoff,),
         )
         conn.commit()
-        trimmed = c0.rowcount
-        deleted = c1.rowcount + c2.rowcount
+        trimmed = trim_cur.rowcount
+        deleted = sa_cur.rowcount + chat_cur.rowcount
     if trimmed:
         logger.info("Trimmed payloads from %d old execution history records", trimmed)
     if deleted:

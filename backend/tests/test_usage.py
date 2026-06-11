@@ -232,6 +232,28 @@ class TestUsageSummary:
         assert len(summary["daily"]) == 7
         assert summary["agents"] == []
 
+        all_time = get_usage_summary(days=0, tz="UTC")
+        assert all_time["daily"] == []
+
+    def test_all_time_zero_fill_spans_earliest_to_today(self, reminders_db):
+        from core.agents.usage.service import get_usage_summary
+
+        old = datetime.now(timezone.utc) - timedelta(days=30)
+        _insert_event(
+            reminders_db, started_at=_iso(old),
+            model="claude-sonnet-4-6", input_tokens=1_000_000,
+        )
+        _insert_event(
+            reminders_db, model="claude-sonnet-4-6", input_tokens=1_000_000,
+        )
+
+        summary = get_usage_summary(days=0, tz="UTC")
+        assert summary["totals"]["events"] == 2
+        assert len(summary["daily"]) >= 30
+        dates = [d["date"] for d in summary["daily"]]
+        assert old.strftime("%Y-%m-%d") in dates
+        assert datetime.now(timezone.utc).strftime("%Y-%m-%d") in dates
+
 
 # ── Retention ─────────────────────────────────────────────────────────────────
 
@@ -284,3 +306,7 @@ class TestRetention:
         assert sa_60d in rows
         assert rows[sa_60d]["result_full"] is None
         assert rows[sa_60d]["tool_calls"] is None
+
+        # Idempotency: second call should not delete or trim anything
+        deleted2 = cleanup_old()
+        assert deleted2 == 0

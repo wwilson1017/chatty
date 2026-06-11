@@ -25,7 +25,7 @@ def get_usage_summary(days: int = 7, tz: str = "UTC") -> dict:
     try:
         zone = ZoneInfo(tz)
     except Exception:
-        zone = timezone.utc
+        zone = ZoneInfo("UTC")
 
     now_local = datetime.now(timezone.utc).astimezone(zone)
     cutoff_utc: str | None = None
@@ -129,8 +129,10 @@ def get_usage_summary(days: int = 7, tz: str = "UTC") -> dict:
         names = {a["slug"]: a.get("agent_name") or a["slug"] for a in list_agents()}
         for slug, agent in agents.items():
             agent["name"] = names.get(slug, slug)
+    except ImportError:
+        pass
     except Exception as e:
-        logger.debug("Agent name enrichment skipped: %s", e)
+        logger.warning("Agent name enrichment failed: %s", e)
 
     return {
         "days": days,
