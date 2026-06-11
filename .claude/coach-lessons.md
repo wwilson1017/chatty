@@ -3,6 +3,14 @@
 > Instincts extracted from development sessions. Scores reflect real-world effectiveness.
 > Format: `[score]` **When** trigger → **do** action → **because** reason
 
+## Deploy & Infrastructure
+
+- `[0.80]` **When** running the backend from a git worktree → **do** use the absolute venv path (`/Users/willwilson/ai/chatty/.venv/bin/python`), not relative (`../../.venv/bin/python`) → **because** worktrees live under `.claude/worktrees/<name>/backend/` and the relative path resolves to a nonexistent location
+
+## Git & Workflow
+
+- `[0.75]` **When** resolving merge conflicts → **do** use `git add <specific files>`, never `git add -A` → **because** `-A` pulled `.claude/fresh-eyes/context.md` (216 lines of session research notes) into the merge commit, which then shipped in the PR
+
 ## Code & Architecture
 
 - `[0.70]` **When** a code review offers "persist data or remove dead tracking" for an in-memory-only pipeline → **do** remove the dead code unless the consumer is actively planned → **because** half-built pipelines (`_track_recall_usage` writing data `score_session_quality` never reads) create false expectations; a docstring "kept for future use" doesn't justify dead code
@@ -10,15 +18,9 @@
 - `[0.70]` **When** replacing `getattr(obj, "attr", fallback)` with an explicit parameter → **do** verify every call site passes the parameter, or keep the `getattr` fallback at the entry point → **because** the `_slug` UnboundLocalError was introduced by removing `getattr` in the outer function without ensuring callers pass the new arg
 - `[0.70]` **When** adding new admin settings to Chatty → **do** add them to `core/admin_settings.py` (not `setup/router.py`) → **because** admin settings were extracted to a dedicated cached module; adding to the old location creates conflicts and bypasses the mtime cache
 - `[0.70]` **When** reading per-agent MemoryDB data inside `_build_system_prompt` (e.g. observations) → **do** use `ensure_memory_db(slug)`, not `get_instance(data_dir)` → **because** the Telegram and Paperclip entry points don't pre-initialize MemoryDB, so `get_instance` returns None and the data silently never appears on non-web channels
-
-## Git & Workflow
-
-- `[0.70]` **When** resolving merge conflicts → **do** use `git add <specific files>`, never `git add -A` → **because** `-A` pulled `.claude/fresh-eyes/context.md` (216 lines of session research notes) into the merge commit, which then shipped in the PR
+- `[0.70]` **When** building a feature that reads historical data from an existing table → **do** check for retention/cleanup jobs that prune old rows → **because** the usage dashboard would have been silently capped at 30 days without discovering `cleanup_old()`'s pruning; the fresh-eyes agent caught this but the original plan missed it entirely
+- `[0.70]` **When** adding a new FastAPI route that performs synchronous SQLite I/O → **do** use `def`, not `async def` → **because** FastAPI only offloads sync work to a thread pool for plain `def` routes; `async def` with blocking SQLite calls freezes the entire event loop for the duration of the query
 
 ## Database & Migration
 
 - `[0.70]` **When** adding columns to an existing SQLite table in Chatty → **do** use the `_migrate_schema()` try/except pattern (`SELECT col LIMIT 0` / `ALTER TABLE ADD COLUMN`) → **because** this pattern handles both fresh installs and upgrades atomically without a migration framework, and `DEFAULT` values are stored in schema not per-row
-
-## Deploy & Infrastructure
-
-- `[0.75]` **When** running the backend from a git worktree → **do** use the absolute venv path (`/Users/willwilson/ai/chatty/.venv/bin/python`), not relative (`../../.venv/bin/python`) → **because** worktrees live under `.claude/worktrees/<name>/backend/` and the relative path resolves to a nonexistent location
