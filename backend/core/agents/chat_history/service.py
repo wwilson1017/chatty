@@ -228,7 +228,7 @@ class ChatHistoryService:
                 ORDER BY c.updated_at DESC
                 LIMIT ?
                 """,
-                (safe_query, limit * 5),
+                (safe_query, limit * 10),
             ).fetchall()
         except sqlite3.OperationalError as e:
             logger.warning("FTS sidebar search failed, using LIKE fallback: %s", e)
@@ -316,7 +316,7 @@ class ChatHistoryService:
             logger.warning("FTS search_history failed, using LIKE fallback: %s", e)
             return self._search_history_like(query, limit, exclude_conversation_id)
 
-        return self._group_search_results(rows, limit)
+        return self._group_search_results(rows, limit, preserve_order=True)
 
     def _search_history_like(
         self,
@@ -353,8 +353,14 @@ class ChatHistoryService:
         return self._group_search_results(rows, limit)
 
     @staticmethod
-    def _group_search_results(rows, limit: int, per_conversation: int = 3) -> list[dict]:
-        """Group message-level search results by conversation."""
+    def _group_search_results(
+        rows, limit: int, per_conversation: int = 3, preserve_order: bool = False,
+    ) -> list[dict]:
+        """Group message-level search results by conversation.
+
+        When preserve_order is True, keeps the SQL ordering (e.g. BM25 rank).
+        When False, re-sorts by conversation recency.
+        """
         conversations: dict[str, dict] = {}
         for row in rows:
             cid = row["conversation_id"]
@@ -372,6 +378,8 @@ class ChatHistoryService:
                     "snippet": row["snippet"],
                 })
 
+        if preserve_order:
+            return list(conversations.values())[:limit]
         results = sorted(
             conversations.values(), key=lambda c: c["updated_at"], reverse=True
         )
