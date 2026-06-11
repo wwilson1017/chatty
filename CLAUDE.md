@@ -167,6 +167,10 @@ Tools that modify external data (send email, create event, upload file) must set
 
 Worktrees live in `.claude/worktrees/` within the repo. Use `/wt <feature name>` to create one, `/dwt` to clean up. Branch from `master`, PR back to `master`.
 
+## Solution Docs
+
+Write-ups of non-trivial problems solved in this repo live in `docs/solutions/<category>/`. Search there (`grep -ri <keyword> docs/solutions/`) before re-debugging something that feels familiar.
+
 ## Blueprints
 
 | Blueprint | Location | What to use it for |
