@@ -205,6 +205,7 @@ class ChatHistoryService:
         """
         if not query.strip():
             return []
+        query = query[:500]
         limit = max(1, min(limit, 20))
 
         if not self._db.fts_available:
@@ -224,28 +225,37 @@ class ChatHistoryService:
                 JOIN messages m ON m.rowid = messages_fts.rowid
                 JOIN conversations c ON c.id = m.conversation_id
                 WHERE messages_fts MATCH ?
-                GROUP BY c.id
                 ORDER BY c.updated_at DESC
                 LIMIT ?
                 """,
-                (safe_query, limit),
+                (safe_query, limit * 5),
             ).fetchall()
-            return [dict(r) for r in rows]
-        except sqlite3.OperationalError:
+        except sqlite3.OperationalError as e:
+            logger.warning("FTS sidebar search failed, using LIKE fallback: %s", e)
             return self._search_conversations_like(query, limit)
+
+        seen: dict[str, dict] = {}
+        for row in rows:
+            cid = row["id"]
+            if cid not in seen:
+                seen[cid] = dict(row)
+                if len(seen) >= limit:
+                    break
+        return list(seen.values())
 
     def _search_conversations_like(self, query: str, limit: int = 20) -> list[dict]:
         """Fallback LIKE-based search."""
         db = self._db.get_db()
         lower_query = query.lower()
-        like_query = f"%{lower_query}%"
+        escaped = lower_query.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        like_query = f"%{escaped}%"
         rows = db.execute(
             """
             SELECT c.id, c.title, c.updated_at,
                    SUBSTR(m.content, MAX(1, INSTR(LOWER(m.content), ?) - 40), 120) AS snippet
             FROM messages m
             JOIN conversations c ON c.id = m.conversation_id
-            WHERE LOWER(m.content) LIKE ?
+            WHERE LOWER(m.content) LIKE ? ESCAPE '\\'
             GROUP BY c.id
             ORDER BY c.updated_at DESC
             LIMIT ?
@@ -267,6 +277,7 @@ class ChatHistoryService:
         """
         if not query.strip():
             return []
+        query = query[:500]
         limit = max(1, min(limit, 20))
 
         if not self._db.fts_available:
@@ -301,7 +312,8 @@ class ChatHistoryService:
                 """,
                 params,
             ).fetchall()
-        except sqlite3.OperationalError:
+        except sqlite3.OperationalError as e:
+            logger.warning("FTS search_history failed, using LIKE fallback: %s", e)
             return self._search_history_like(query, limit, exclude_conversation_id)
 
         return self._group_search_results(rows, limit)
@@ -315,7 +327,8 @@ class ChatHistoryService:
         """Fallback LIKE-based search for the agent tool."""
         db = self._db.get_db()
         lower_query = query.lower()
-        like_query = f"%{lower_query}%"
+        escaped = lower_query.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        like_query = f"%{escaped}%"
         params: list = [lower_query, like_query]
         exclude_clause = ""
         if exclude_conversation_id:
@@ -330,7 +343,7 @@ class ChatHistoryService:
                    SUBSTR(m.content, MAX(1, INSTR(LOWER(m.content), ?) - 40), 120) AS snippet
             FROM messages m
             JOIN conversations c ON c.id = m.conversation_id
-            WHERE LOWER(m.content) LIKE ?
+            WHERE LOWER(m.content) LIKE ? ESCAPE '\\'
             {exclude_clause}
             ORDER BY c.updated_at DESC
             LIMIT ?

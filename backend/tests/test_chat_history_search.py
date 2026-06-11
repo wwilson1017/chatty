@@ -356,3 +356,64 @@ class TestToolDefinition:
         from core.agents.deferred_tools import ALWAYS_LOADED_KINDS
 
         assert "chat_history" in ALWAYS_LOADED_KINDS
+
+
+# ── Additional coverage from review ──────────────────────────────────────────
+
+
+class TestUpdateTrigger:
+    def test_direct_update_reindexes(self, chat_db, chat_service):
+        """SQL UPDATE on a message reindexes via the _au/_au_ins triggers."""
+        conv_id = _create_conversation(chat_db)
+        _insert_message(chat_db, conv_id, "user", "original content about giraffes", 0)
+        assert len(chat_service.search_conversations("giraffes")) == 1
+
+        conn = chat_db.get_db()
+        with chat_db.write_lock():
+            conn.execute(
+                "UPDATE messages SET content = 'new content about elephants' WHERE conversation_id = ?",
+                (conv_id,),
+            )
+            conn.commit()
+
+        assert len(chat_service.search_conversations("giraffes")) == 0
+        assert len(chat_service.search_conversations("elephants")) == 1
+
+
+class TestLIKEFallbackExclude:
+    def test_exclude_works_in_like_mode(self, chat_db, chat_service):
+        conv1 = _create_conversation(chat_db, "Past")
+        _insert_message(chat_db, conv1, "user", "unique zebra keyword", 0)
+        conv2 = _create_conversation(chat_db, "Current")
+        _insert_message(chat_db, conv2, "user", "also zebra keyword", 0)
+
+        chat_db._fts_available = False
+        results = chat_service.search_history("zebra", exclude_conversation_id=conv2)
+        assert len(results) == 1
+        assert results[0]["conversation_id"] == conv1
+
+
+class TestSpecialCharQuery:
+    def test_all_special_chars_returns_empty(self, chat_db, chat_service):
+        _create_conversation(chat_db)
+        _insert_message(chat_db, _create_conversation(chat_db), "user", "some content", 0)
+
+        assert chat_service.search_conversations("*** (()) --") == []
+        assert chat_service.search_history("*** (()) --") == []
+
+
+class TestLimitBounds:
+    def test_limit_clamped_above_max(self, chat_db, chat_service):
+        for i in range(25):
+            conv_id = _create_conversation(chat_db, f"Conv {i}")
+            _insert_message(chat_db, conv_id, "user", "bounded term", 0)
+
+        results = chat_service.search_conversations("bounded", limit=100)
+        assert len(results) <= 20
+
+    def test_limit_clamped_below_min(self, chat_db, chat_service):
+        conv_id = _create_conversation(chat_db)
+        _insert_message(chat_db, conv_id, "user", "minimum limit test", 0)
+
+        results = chat_service.search_conversations("minimum", limit=0)
+        assert len(results) == 1

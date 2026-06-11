@@ -45,7 +45,9 @@ WHEN old.role IN ('user', 'assistant') AND old.content != ''
 BEGIN
     INSERT INTO messages_fts(messages_fts, rowid, content)
     VALUES ('delete', old.rowid, old.content);
-    INSERT INTO messages_fts(rowid, content) VALUES (new.rowid, new.content);
+    INSERT INTO messages_fts(rowid, content)
+    SELECT new.rowid, new.content
+    WHERE new.role IN ('user', 'assistant') AND new.content != '';
 END;
 """
 

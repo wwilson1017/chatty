@@ -111,6 +111,7 @@ class ToolRegistry:
         self.agent_slug = agent_slug
         self.agent_name = agent_name
         self._notify_user_called = False
+        self._current_conversation_id: str | None = None
 
         # Derived paths
         agent_data_dir = str(Path(context_dir).parent)
@@ -582,10 +583,10 @@ class ToolRegistry:
             limit = 10
 
         from agents.engine import get_chat_service
-        from core.agents.security.delimiters import sanitize_memory_content
+        from core.agents.security.scanner import sanitize_memory_content
 
         chat_service = get_chat_service(self.agent_slug)
-        exclude_id = getattr(self, "_current_conversation_id", None)
+        exclude_id = self._current_conversation_id
         results = chat_service.search_history(
             query, limit=limit, exclude_conversation_id=exclude_id
         )
