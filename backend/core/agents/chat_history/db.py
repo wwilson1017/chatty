@@ -19,6 +19,38 @@ from core.storage import safe_backup_sqlite, safe_init_sqlite
 
 logger = logging.getLogger(__name__)
 
+_FTS5_SETUP = """\
+CREATE VIRTUAL TABLE IF NOT EXISTS messages_fts USING fts5(
+    content,
+    content='messages',
+    content_rowid='rowid',
+    tokenize='porter unicode61'
+);
+
+CREATE TRIGGER IF NOT EXISTS messages_fts_ai AFTER INSERT ON messages
+WHEN new.role IN ('user', 'assistant') AND new.content != ''
+BEGIN
+    INSERT INTO messages_fts(rowid, content) VALUES (new.rowid, new.content);
+END;
+
+CREATE TRIGGER IF NOT EXISTS messages_fts_ad AFTER DELETE ON messages
+WHEN old.role IN ('user', 'assistant') AND old.content != ''
+BEGIN
+    INSERT INTO messages_fts(messages_fts, rowid, content)
+    VALUES ('delete', old.rowid, old.content);
+END;
+
+CREATE TRIGGER IF NOT EXISTS messages_fts_au AFTER UPDATE ON messages
+WHEN old.role IN ('user', 'assistant') AND old.content != ''
+BEGIN
+    INSERT INTO messages_fts(messages_fts, rowid, content)
+    VALUES ('delete', old.rowid, old.content);
+    INSERT INTO messages_fts(rowid, content)
+    SELECT new.rowid, new.content
+    WHERE new.role IN ('user', 'assistant') AND new.content != '';
+END;
+"""
+
 
 class ChatHistoryDB:
     """Per-agent chat history database with SQLite WAL mode and GCS sync."""
@@ -30,6 +62,11 @@ class ChatHistoryDB:
         self._connection: sqlite3.Connection | None = None
         self._write_lock = threading.Lock()
         self._backup_mutex = threading.Lock()
+        self._fts_available = False
+
+    @property
+    def fts_available(self) -> bool:
+        return self._fts_available
 
     def get_db(self) -> sqlite3.Connection:
         """Return the singleton SQLite connection."""
@@ -49,8 +86,10 @@ class ChatHistoryDB:
         self._connection.execute("PRAGMA foreign_keys=ON")
         self._connection.execute("PRAGMA busy_timeout=5000")
         self._connection.execute("PRAGMA synchronous=FULL")
+        self._connection.execute("PRAGMA recursive_triggers=ON")
 
         self._create_schema(self._connection)
+        self._setup_fts(self._connection)
         logger.info("Chat history DB initialized at %s", self.db_path)
 
     def init_db(self) -> dict:
@@ -113,3 +152,30 @@ class ChatHistoryDB:
             conn.execute("ALTER TABLE messages ADD COLUMN model TEXT NOT NULL DEFAULT ''")
 
         conn.commit()
+
+    def _setup_fts(self, conn: sqlite3.Connection) -> None:
+        """Create FTS5 virtual table and sync triggers, backfill if needed."""
+        existed = conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='messages_fts'"
+        ).fetchone() is not None
+
+        try:
+            conn.executescript(_FTS5_SETUP)
+        except sqlite3.OperationalError as e:
+            if "fts5" in str(e).lower():
+                logger.error(
+                    "FTS5 not available — conversation search will use LIKE fallback: %s", e
+                )
+                return
+            raise
+
+        self._fts_available = True
+
+        if not existed:
+            msg_count = conn.execute(
+                "SELECT COUNT(*) FROM messages WHERE role IN ('user', 'assistant') AND content != ''"
+            ).fetchone()[0]
+            if msg_count > 0:
+                logger.info("Building FTS index for %d existing messages", msg_count)
+                conn.execute("INSERT INTO messages_fts(messages_fts) VALUES('rebuild')")
+                conn.commit()

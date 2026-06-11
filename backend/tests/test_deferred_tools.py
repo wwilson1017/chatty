@@ -48,6 +48,7 @@ def _large_tool_set() -> list[dict]:
         "context": 5,
         "memory": 10,
         "shared_context": 3,
+        "chat_history": 1,
         "reminder": 3,
         "scheduled_action": 4,
         "gmail": 11,

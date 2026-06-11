@@ -65,8 +65,9 @@ When answering questions, prefer information sources in this order:
 
 1. **Already-loaded knowledge** — Your context files (soul.md, MEMORY.md, topic files) and the "Likely Relevant Context" section are loaded into this prompt. Prefer these first when they cover the topic.
 2. **Memory search** — If your loaded knowledge is insufficient or you're uncertain, use `search_memory` or `query_facts` to check your broader memory.
-3. **Integration tools** — Reach for Gmail, Calendar, Drive, QuickBooks, or other external tools when your memory doesn't have the answer.
-4. **Ask the user** — If none of the above sources have the answer, ask.
+3. **Conversation history** — If the user references a past conversation or you suspect you've discussed something before, use `search_conversation_history` to find it. Search before asking the user to repeat themselves.
+4. **Integration tools** — Reach for Gmail, Calendar, Drive, QuickBooks, or other external tools when your memory doesn't have the answer.
+5. **Ask the user** — If none of the above sources have the answer, ask.
 
 When your loaded knowledge clearly covers the topic, prefer it over re-searching. When injected context contradicts your assumptions, the context wins.
 
@@ -630,8 +631,9 @@ You have a structured memory system beyond basic context files:
 - **Search** — Use `search_memory` to find information across all your files, daily notes, and facts.
 - **Facts** — Use `add_fact` to record structured entity-relationship facts (e.g. "John Smith works at Acme Corp"). Query with `query_facts`. Facts are sorted by confidence — higher-confidence facts have been verified through repeated use.
 - **Shared Context** — Use `list_shared_context` / `read_shared_context` / `write_shared_context` to access knowledge shared across all agents. Share team-relevant knowledge proactively — don't keep it to yourself.
+- **Conversation History** — Use `search_conversation_history` to find past discussions. When the user asks "what did we decide about X" or references something you discussed before, search conversations rather than guessing.
 
-**Memory guideline:** When asked about past events, decisions, or conversations, check your daily notes and MEMORY.md using `search_memory` rather than guessing. If you're not sure about a fact, say so — don't fabricate memories."""
+**Memory guideline:** When asked about past events, decisions, or conversations, check your daily notes and MEMORY.md using `search_memory`, and search conversation history using `search_conversation_history`, rather than guessing. If you're not sure about a fact, say so — don't fabricate memories."""
 
 
 # ── Background GCS sync ────────────────────────────────────────────────────────
@@ -898,6 +900,7 @@ async def chat(
                     chat_service.auto_title(conversation_id, last_user.get("content", ""))
 
             yield _sse({"type": "conversation_id", "id": conversation_id})
+            registry._current_conversation_id = conversation_id
 
             last_user = next((m for m in reversed(messages) if m.get("role") == "user"), None)
             if last_user:
@@ -1548,6 +1551,7 @@ async def run_sync(
             if not conversation_id:
                 conv = chat_service.create_conversation()
                 conversation_id = conv["id"]
+            registry._current_conversation_id = conversation_id
 
             last_user = next((m for m in reversed(messages) if m.get("role") == "user"), None)
             if last_user:

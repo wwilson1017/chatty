@@ -9,13 +9,13 @@ Vector search via sqlite-vec (optional — graceful degradation if unavailable).
 
 import hashlib
 import logging
-import re
 import sqlite3
 import threading
 from datetime import date
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
+from core.agents.fts import sanitize_fts_query as _sanitize_fts_query
 from core.storage import safe_backup_sqlite, safe_init_sqlite
 
 from .types import validate_memory_type
@@ -182,23 +182,6 @@ CREATE TRIGGER IF NOT EXISTS memory_fts_au AFTER UPDATE ON memory_documents BEGI
     VALUES (new.id, new.title, new.content, COALESCE(new.memory_type,''), new.source_type);
 END;
 """
-
-
-# ---------------------------------------------------------------------------
-# FTS5 query sanitizer
-# ---------------------------------------------------------------------------
-
-_FTS_SPECIAL = re.compile(r'["\*\(\)\+\-\^~:]')
-
-
-def _sanitize_fts_query(raw: str) -> str:
-    """Escape special FTS5 characters and wrap each token in quotes for safety."""
-    raw = _FTS_SPECIAL.sub(" ", raw)
-    tokens = raw.split()
-    if not tokens:
-        return '""'
-    # Quote each token individually so multi-word queries use implicit AND
-    return " ".join(f'"{t}"' for t in tokens if t.strip())
 
 
 # ---------------------------------------------------------------------------

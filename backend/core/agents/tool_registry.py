@@ -111,6 +111,7 @@ class ToolRegistry:
         self.agent_slug = agent_slug
         self.agent_name = agent_name
         self._notify_user_called = False
+        self._current_conversation_id: str | None = None
 
         # Derived paths
         agent_data_dir = str(Path(context_dir).parent)
@@ -163,6 +164,8 @@ class ToolRegistry:
                 return self._execute_setup(tool_name, tool_args)
             elif kind == "import":
                 return self._execute_import(tool_name, tool_args)
+            elif kind == "chat_history":
+                return self._execute_chat_history(tool_name, tool_args)
             elif kind == "activity_log":
                 return self._execute_activity_log(tool_name, tool_args)
             elif kind == "post_message":
@@ -565,6 +568,35 @@ class ToolRegistry:
         elif tool_name == "mark_onboarding_complete":
             return self._mark_onboarding_complete()
         return {"error": f"Unknown setup tool: {tool_name}"}
+
+    def _execute_chat_history(self, tool_name: str, args: dict) -> dict:
+        if tool_name != "search_conversation_history":
+            return {"error": f"Unknown chat_history tool: {tool_name}"}
+
+        query = args.get("query", "")
+        if not query.strip():
+            return {"query": query, "results": [], "total": 0}
+
+        try:
+            limit = max(1, min(int(args.get("limit", 10) or 10), 20))
+        except (TypeError, ValueError):
+            limit = 10
+
+        from agents.engine import get_chat_service
+        from core.agents.security.scanner import sanitize_memory_content
+
+        chat_service = get_chat_service(self.agent_slug)
+        exclude_id = self._current_conversation_id
+        results = chat_service.search_history(
+            query, limit=limit, exclude_conversation_id=exclude_id
+        )
+
+        for conv in results:
+            conv["title"] = sanitize_memory_content(conv.get("title", ""))
+            for match in conv.get("matches", []):
+                match["snippet"] = sanitize_memory_content(match.get("snippet", ""))
+
+        return {"query": query, "results": results, "total": len(results)}
 
     def _execute_import(self, tool_name: str, args: dict) -> dict:
         from agents.import_service.tools import execute_import_tool

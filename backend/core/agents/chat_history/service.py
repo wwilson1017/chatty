@@ -9,10 +9,12 @@ separate ChatHistoryDB instance, so conversations are fully isolated.
 """
 
 import logging
+import sqlite3
 import uuid
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
+from core.agents.fts import sanitize_fts_query
 from .db import ChatHistoryDB
 
 logger = logging.getLogger(__name__)
@@ -197,23 +199,193 @@ class ChatHistoryService:
         return results
 
     def search_conversations(self, query: str, limit: int = 20) -> list[dict]:
-        """Search message content (case-insensitive), return matching conversations with snippets."""
+        """FTS5 search over message content, returning matching conversations with snippets.
+
+        Falls back to LIKE-based search if FTS5 is unavailable.
+        """
+        if not query.strip():
+            return []
+        query = query[:500]
+        limit = max(1, min(limit, 20))
+
+        if not self._db.fts_available:
+            return self._search_conversations_like(query, limit)
+
+        safe_query = sanitize_fts_query(query)
+        if not safe_query or safe_query == '""':
+            return []
+
+        db = self._db.get_db()
+        try:
+            rows = db.execute(
+                """
+                SELECT c.id, c.title, c.updated_at,
+                       snippet(messages_fts, 0, '', '', '...', 20) AS snippet
+                FROM messages_fts
+                JOIN messages m ON m.rowid = messages_fts.rowid
+                JOIN conversations c ON c.id = m.conversation_id
+                WHERE messages_fts MATCH ?
+                ORDER BY c.updated_at DESC
+                LIMIT ?
+                """,
+                (safe_query, limit * 10),
+            ).fetchall()
+        except sqlite3.OperationalError as e:
+            logger.warning("FTS sidebar search failed, using LIKE fallback: %s", e)
+            return self._search_conversations_like(query, limit)
+
+        seen: dict[str, dict] = {}
+        for row in rows:
+            cid = row["id"]
+            if cid not in seen:
+                seen[cid] = dict(row)
+                if len(seen) >= limit:
+                    break
+        return list(seen.values())
+
+    def _search_conversations_like(self, query: str, limit: int = 20) -> list[dict]:
+        """Fallback LIKE-based search."""
         db = self._db.get_db()
         lower_query = query.lower()
-        like_query = f"%{lower_query}%"
+        escaped = lower_query.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        like_query = f"%{escaped}%"
         rows = db.execute(
             """
-            SELECT DISTINCT c.id, c.title, c.updated_at,
+            SELECT c.id, c.title, c.updated_at,
                    SUBSTR(m.content, MAX(1, INSTR(LOWER(m.content), ?) - 40), 120) AS snippet
             FROM messages m
             JOIN conversations c ON c.id = m.conversation_id
-            WHERE LOWER(m.content) LIKE ?
+            WHERE m.role IN ('user', 'assistant') AND m.content != ''
+              AND LOWER(m.content) LIKE ? ESCAPE '\\'
+            GROUP BY c.id
             ORDER BY c.updated_at DESC
             LIMIT ?
             """,
             (lower_query, like_query, limit),
         ).fetchall()
         return [dict(r) for r in rows]
+
+    def search_history(
+        self,
+        query: str,
+        limit: int = 10,
+        exclude_conversation_id: str | None = None,
+    ) -> list[dict]:
+        """FTS5 search returning grouped results for the agent tool.
+
+        Returns conversations with up to 3 matching messages each,
+        ranked by BM25 relevance. Falls back to LIKE if FTS5 unavailable.
+        """
+        if not query.strip():
+            return []
+        query = query[:500]
+        limit = max(1, min(limit, 20))
+
+        if not self._db.fts_available:
+            return self._search_history_like(query, limit, exclude_conversation_id)
+
+        safe_query = sanitize_fts_query(query)
+        if not safe_query or safe_query == '""':
+            return []
+
+        db = self._db.get_db()
+        params: list = [safe_query]
+        exclude_clause = ""
+        if exclude_conversation_id:
+            exclude_clause = "AND m.conversation_id != ?"
+            params.append(exclude_conversation_id)
+        params.append(limit * 10)
+
+        try:
+            rows = db.execute(
+                f"""
+                SELECT c.id AS conversation_id, c.title, c.updated_at,
+                       m.role, m.created_at AS message_date,
+                       snippet(messages_fts, 0, '**', '**', '...', 40) AS snippet,
+                       bm25(messages_fts) AS rank
+                FROM messages_fts
+                JOIN messages m ON m.rowid = messages_fts.rowid
+                JOIN conversations c ON c.id = m.conversation_id
+                WHERE messages_fts MATCH ?
+                {exclude_clause}
+                ORDER BY rank
+                LIMIT ?
+                """,
+                params,
+            ).fetchall()
+        except sqlite3.OperationalError as e:
+            logger.warning("FTS search_history failed, using LIKE fallback: %s", e)
+            return self._search_history_like(query, limit, exclude_conversation_id)
+
+        return self._group_search_results(rows, limit, preserve_order=True)
+
+    def _search_history_like(
+        self,
+        query: str,
+        limit: int = 10,
+        exclude_conversation_id: str | None = None,
+    ) -> list[dict]:
+        """Fallback LIKE-based search for the agent tool."""
+        db = self._db.get_db()
+        lower_query = query.lower()
+        escaped = lower_query.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        like_query = f"%{escaped}%"
+        params: list = [lower_query, like_query]
+        exclude_clause = ""
+        if exclude_conversation_id:
+            exclude_clause = "AND m.conversation_id != ?"
+            params.append(exclude_conversation_id)
+        params.append(limit * 10)
+
+        rows = db.execute(
+            f"""
+            SELECT c.id AS conversation_id, c.title, c.updated_at,
+                   m.role, m.created_at AS message_date,
+                   SUBSTR(m.content, MAX(1, INSTR(LOWER(m.content), ?) - 40), 120) AS snippet
+            FROM messages m
+            JOIN conversations c ON c.id = m.conversation_id
+            WHERE m.role IN ('user', 'assistant') AND m.content != ''
+              AND LOWER(m.content) LIKE ? ESCAPE '\\'
+            {exclude_clause}
+            ORDER BY c.updated_at DESC
+            LIMIT ?
+            """,
+            params,
+        ).fetchall()
+        return self._group_search_results(rows, limit)
+
+    @staticmethod
+    def _group_search_results(
+        rows, limit: int, per_conversation: int = 3, preserve_order: bool = False,
+    ) -> list[dict]:
+        """Group message-level search results by conversation.
+
+        When preserve_order is True, keeps the SQL ordering (e.g. BM25 rank).
+        When False, re-sorts by conversation recency.
+        """
+        conversations: dict[str, dict] = {}
+        for row in rows:
+            cid = row["conversation_id"]
+            if cid not in conversations:
+                conversations[cid] = {
+                    "conversation_id": cid,
+                    "title": row["title"],
+                    "updated_at": row["updated_at"],
+                    "matches": [],
+                }
+            if len(conversations[cid]["matches"]) < per_conversation:
+                conversations[cid]["matches"].append({
+                    "role": row["role"],
+                    "date": row["message_date"],
+                    "snippet": row["snippet"],
+                })
+
+        if preserve_order:
+            return list(conversations.values())[:limit]
+        results = sorted(
+            conversations.values(), key=lambda c: c["updated_at"], reverse=True
+        )
+        return results[:limit]
 
     def rename_conversation(self, conv_id: str, title: str) -> str | None:
         """Rename a conversation (user-initiated). Returns title or None if not found."""
