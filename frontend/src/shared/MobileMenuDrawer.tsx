@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import { IconBot, IconFunnel, IconSettings } from './icons';
+import { IconBot, IconFunnel, IconChart, IconSettings } from './icons';
 
 interface MobileMenuDrawerProps {
   onClose: () => void;
@@ -31,6 +31,7 @@ export function MobileMenuDrawer({ onClose, navigate, children }: MobileMenuDraw
         {[
           { icon: IconBot, label: 'Agents', action: () => { onClose(); navigate('/'); } },
           { icon: IconFunnel, label: 'CRM', action: () => { onClose(); navigate('/crm'); } },
+          { icon: IconChart, label: 'Usage', action: () => { onClose(); navigate('/usage'); } },
           { icon: IconSettings, label: 'Settings', action: () => { onClose(); document.dispatchEvent(new CustomEvent('chatty:open-settings')); } },
         ].map(item => (
           <div
