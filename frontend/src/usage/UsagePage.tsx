@@ -4,7 +4,7 @@
  * in the browser's timezone. Costs are estimates from published prices.
  */
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   BarChart,
   Bar,
@@ -86,17 +86,21 @@ export function UsagePage() {
   const [error, setError] = useState(false);
   const isMobile = useIsMobile();
 
-  // Doesn't set loading/error itself (the set-state-in-effect rule forbids
-  // sync setState via the effect); initial state is true, retry resets it.
+  const abortRef = useRef<AbortController | null>(null);
+
   const load = useCallback(() => {
+    abortRef.current?.abort();
+    const ctrl = new AbortController();
+    abortRef.current = ctrl;
+    setLoading(true);
     const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
-    api<UsageSummary>(`/api/usage/summary?days=${days}&tz=${encodeURIComponent(tz)}`)
-      .then(d => { setData(d); setError(false); })
-      .catch((err) => { console.error('[UsagePage] load failed:', err); setError(true); })
-      .finally(() => setLoading(false));
+    api<UsageSummary>(`/api/usage/summary?days=${days}&tz=${encodeURIComponent(tz)}`, { signal: ctrl.signal })
+      .then(d => { if (!ctrl.signal.aborted) { setData(d); setError(false); } })
+      .catch((err) => { if (!ctrl.signal.aborted) { console.error('[UsagePage] load failed:', err); setError(true); } })
+      .finally(() => { if (!ctrl.signal.aborted) setLoading(false); });
   }, [days]);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => { load(); return () => abortRef.current?.abort(); }, [load]);
 
   const px = isMobile ? '20px' : '44px';
 
@@ -357,7 +361,7 @@ export function UsagePage() {
         padding: `8px ${px} 28px`,
         fontFamily: FONT_SANS, fontSize: 11, color: 'rgba(237,240,244,0.38)',
       }}>
-        Costs are estimates based on published API prices. Local models cost $0.00.
+        Costs are estimates based on published API prices. Unpriced and local models show $0.00.
       </div>
     </div>
   );
