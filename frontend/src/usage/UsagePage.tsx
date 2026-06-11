@@ -4,7 +4,7 @@
  * in the browser's timezone. Costs are estimates from published prices.
  */
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   BarChart,
   Bar,
@@ -88,19 +88,18 @@ export function UsagePage() {
 
   const abortRef = useRef<AbortController | null>(null);
 
-  const load = useCallback(() => {
+  function load() {
     abortRef.current?.abort();
     const ctrl = new AbortController();
     abortRef.current = ctrl;
-    setLoading(true);
     const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
     api<UsageSummary>(`/api/usage/summary?days=${days}&tz=${encodeURIComponent(tz)}`, { signal: ctrl.signal })
       .then(d => { if (!ctrl.signal.aborted) { setData(d); setError(false); } })
       .catch((err) => { if (!ctrl.signal.aborted) { console.error('[UsagePage] load failed:', err); setError(true); } })
       .finally(() => { if (!ctrl.signal.aborted) setLoading(false); });
-  }, [days]);
+  }
 
-  useEffect(() => { load(); return () => abortRef.current?.abort(); }, [load]);
+  useEffect(() => { load(); return () => abortRef.current?.abort(); }, [days]);
 
   const px = isMobile ? '20px' : '44px';
 
@@ -148,7 +147,7 @@ export function UsagePage() {
             return (
               <button
                 key={r.days}
-                onClick={() => setDays(r.days)}
+                onClick={() => { setLoading(true); setDays(r.days); }}
                 style={{
                   fontFamily: FONT_MONO, fontSize: 11, letterSpacing: '0.06em',
                   padding: '6px 14px', borderRadius: 999, cursor: 'pointer',
