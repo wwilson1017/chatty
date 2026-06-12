@@ -163,6 +163,10 @@ Tools appear for agents automatically when their integration is enabled globally
 
 Tools that modify external data (send email, create event, upload file) must set `writes: True` in their tool definition. Chatty's `tool_mode` system will require user confirmation before executing write tools in "normal" mode. Write tools (excluding `context_memory` tools) are also subject to per-turn write budgets and optional hourly rate limits configured in admin settings.
 
+## Solution Docs
+
+Non-trivial problems solved in past sessions are written up in `docs/solutions/` (categorized, with YAML frontmatter). Search there before re-deriving a fix or pattern: `grep -ri <keyword> docs/solutions/`.
+
 ## Worktrees
 
 Worktrees live in `.claude/worktrees/` within the repo. Use `/wt <feature name>` to create one, `/dwt` to clean up. Branch from `master`, PR back to `master`.

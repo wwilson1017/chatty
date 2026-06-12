@@ -37,13 +37,13 @@ class PlaybookWriteRequest(BaseModel):
 
 
 @router.get("/{agent_id}/playbooks")
-async def list_playbooks(agent_id: str, user: str = Depends(get_current_user)):
+def list_playbooks(agent_id: str, user: str = Depends(get_current_user)):
     agent = _get_agent_or_404(agent_id)
     return {"playbooks": service.list_playbooks(agent["slug"], include_archived=True)}
 
 
 @router.get("/{agent_id}/playbooks/{slug}")
-async def get_playbook(agent_id: str, slug: str, user: str = Depends(get_current_user)):
+def get_playbook(agent_id: str, slug: str, user: str = Depends(get_current_user)):
     agent = _get_agent_or_404(agent_id)
     pb = service.read_playbook(agent["slug"], slug)
     if not pb:
@@ -52,7 +52,7 @@ async def get_playbook(agent_id: str, slug: str, user: str = Depends(get_current
 
 
 @router.put("/{agent_id}/playbooks/{slug}")
-async def save_playbook(
+def save_playbook(
     agent_id: str, slug: str, req: PlaybookWriteRequest,
     user: str = Depends(get_current_user),
 ):
@@ -73,7 +73,7 @@ async def save_playbook(
 
 
 @router.delete("/{agent_id}/playbooks/{slug}")
-async def delete_playbook(agent_id: str, slug: str, user: str = Depends(get_current_user)):
+def delete_playbook(agent_id: str, slug: str, user: str = Depends(get_current_user)):
     agent = _get_agent_or_404(agent_id)
     result = service.delete_playbook(agent["slug"], slug)
     if result.get("error"):
@@ -82,7 +82,7 @@ async def delete_playbook(agent_id: str, slug: str, user: str = Depends(get_curr
 
 
 @router.post("/{agent_id}/playbooks/{slug}/archive")
-async def archive_playbook(agent_id: str, slug: str, user: str = Depends(get_current_user)):
+def archive_playbook(agent_id: str, slug: str, user: str = Depends(get_current_user)):
     agent = _get_agent_or_404(agent_id)
     result = service.archive_playbook(agent["slug"], slug, origin="user")
     if result.get("error"):
@@ -91,7 +91,7 @@ async def archive_playbook(agent_id: str, slug: str, user: str = Depends(get_cur
 
 
 @router.post("/{agent_id}/playbooks/{slug}/restore")
-async def restore_playbook(agent_id: str, slug: str, user: str = Depends(get_current_user)):
+def restore_playbook(agent_id: str, slug: str, user: str = Depends(get_current_user)):
     agent = _get_agent_or_404(agent_id)
     result = service.restore_playbook(agent["slug"], slug)
     if result.get("error"):
@@ -100,7 +100,7 @@ async def restore_playbook(agent_id: str, slug: str, user: str = Depends(get_cur
 
 
 @router.get("/{agent_id}/learning-events")
-async def list_learning_events(
+def list_learning_events(
     agent_id: str,
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
@@ -114,7 +114,7 @@ async def list_learning_events(
 
 
 @router.post("/{agent_id}/learning-events/{event_id}/revert")
-async def revert_learning_event(
+def revert_learning_event(
     agent_id: str, event_id: int, user: str = Depends(get_current_user),
 ):
     agent = _get_agent_or_404(agent_id)
