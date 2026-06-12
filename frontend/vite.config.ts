@@ -7,7 +7,8 @@ export default defineConfig({
   server: {
     proxy: {
       '/api': {
-        target: 'http://localhost:8000',
+        // VITE_API_PORT lets multiple dev instances run side by side
+        target: `http://localhost:${process.env.VITE_API_PORT || 8000}`,
         changeOrigin: true,
       },
     },
