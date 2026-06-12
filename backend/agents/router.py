@@ -51,6 +51,7 @@ from .engine import (
 )
 from .templates import seed_context_files
 from core.agents import ai_service
+from core.agents.memory import commitments as commitments_svc
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -1160,7 +1161,6 @@ async def list_agent_commitments(
     user=Depends(get_current_user),
 ):
     agent = _get_agent_or_404(agent_id)
-    from core.agents.memory import commitments as commitments_svc
     if status != "all" and status not in commitments_svc.VALID_STATUSES:
         raise HTTPException(status_code=400, detail=f"Invalid status: {status}")
     # No try/except: a DB failure should surface as a 500 (the frontend shows a
@@ -1179,7 +1179,6 @@ async def complete_agent_commitment(
     agent_id: str, commitment_id: int, user=Depends(get_current_user),
 ):
     agent = _get_agent_or_404(agent_id)
-    from core.agents.memory import commitments as commitments_svc
     memory_db = ensure_memory_db(agent["slug"])
     if not commitments_svc.complete_commitment(memory_db, agent["slug"], commitment_id):
         raise HTTPException(status_code=404, detail="Commitment not found")
@@ -1191,7 +1190,6 @@ async def dismiss_agent_commitment(
     agent_id: str, commitment_id: int, user=Depends(get_current_user),
 ):
     agent = _get_agent_or_404(agent_id)
-    from core.agents.memory import commitments as commitments_svc
     memory_db = ensure_memory_db(agent["slug"])
     if not commitments_svc.dismiss_commitment(memory_db, agent["slug"], commitment_id):
         raise HTTPException(status_code=404, detail="Commitment not found")

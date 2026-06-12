@@ -48,6 +48,12 @@ class TestAddCommitment:
         assert row is not None
         assert row["due_at"] is None
 
+    def test_impossible_calendar_date_dropped(self, mem_db):
+        # Passes the YYYY-MM-DD regex but fails date.fromisoformat.
+        row = svc.add_commitment(mem_db, "agent-a", "Commitment with impossible date", due_at="2026-02-30")
+        assert row is not None
+        assert row["due_at"] is None
+
     def test_duplicate_active_rejected(self, mem_db):
         svc.add_commitment(mem_db, "agent-a", "Vendor said they'd send the quote")
         dup = svc.add_commitment(mem_db, "agent-a", "  vendor SAID they'd send   the quote ")
@@ -177,6 +183,17 @@ class TestDueCommitments:
         assert updated["surfaced_count"] == 1
         assert updated["last_surfaced_at"] is not None
 
+    def test_resolved_items_still_consume_surfacing_budget(self, mem_db):
+        # The cap bounds surfacing EVENTS per 24h: resolving a surfaced item
+        # must NOT free its slot, or surface→resolve loops could nag unboundedly.
+        first = svc.add_commitment(mem_db, "agent-a", "Surfaced then resolved", due_at="2026-06-01")
+        svc.add_commitment(mem_db, "agent-a", "Next overdue in line", due_at="2026-06-02")
+        got = svc.due_commitments(mem_db, "agent-a", today="2026-06-12", cap=1)
+        assert [c["id"] for c in got] == [first["id"]]
+        svc.mark_surfaced(mem_db, "agent-a", [first["id"]])
+        svc.complete_commitment(mem_db, "agent-a", first["id"])
+        assert svc.due_commitments(mem_db, "agent-a", today="2026-06-12", cap=1) == []
+
 
 class TestExpireStale:
     def test_past_due_plus_seven_expired(self, mem_db):
@@ -216,6 +233,14 @@ class TestExpireStale:
         assert svc.expire_stale(mem_db, "agent-a") == 0
         assert svc.get_commitment(mem_db, "agent-a", row["id"])["status"] == "done"
 
+    def test_expire_scoped_to_agent(self, mem_db):
+        a = svc.add_commitment(mem_db, "agent-a", "Stale undated commitment A")
+        b = svc.add_commitment(mem_db, "agent-b", "Stale undated commitment B")
+        _backdate(mem_db, a["id"], 20)
+        _backdate(mem_db, b["id"], 20)
+        assert svc.expire_stale(mem_db, "agent-a") == 1
+        assert svc.get_commitment(mem_db, "agent-b", b["id"])["status"] == "active"
+
 
 class _EmptyChatService:
     def get_qualifying_conversations(self, date, min_user_messages=4):
@@ -232,6 +257,22 @@ class _ScriptedChatService:
                 "conversation_title": "supplier chat",
                 "messages": [
                     {"role": "user", "content": "The printer vendor said they'd send the quote by Friday. " * 2},
+                ],
+            }
+        ]
+
+
+class _AssistantOnlyChatService:
+    """One qualifying conversation whose only message is from the assistant —
+    long enough to pass the 50-char skip if the role filter ever broke."""
+
+    def get_qualifying_conversations(self, date, min_user_messages=4):
+        return [
+            {
+                "conversation_id": "conv-2",
+                "conversation_title": "assistant monologue",
+                "messages": [
+                    {"role": "assistant", "content": "Untrusted external data " * 10},
                 ],
             }
         ]
@@ -319,6 +360,23 @@ class TestExtractCommitments:
         )
         assert result["extracted"] == 0
 
+    def test_assistant_only_conversation_skipped(self, mem_db, monkeypatch):
+        # Guards both the user-role filter and the <50-char transcript skip:
+        # the conversation is processed, but the API is never called.
+        calls = []
+
+        async def fake_api(_prompt, _text):
+            calls.append(1)
+            return "{}"
+
+        monkeypatch.setattr(svc, "_call_commitment_api", fake_api)
+        result = asyncio.run(
+            svc.extract_commitments("Agent A", "agent-a", _AssistantOnlyChatService(), mem_db)
+        )
+        assert result["conversations_processed"] == 1
+        assert result["extracted"] == 0
+        assert calls == []
+
 
 class TestFollowupsBlock:
     def test_empty_list_renders_nothing(self):
@@ -369,6 +427,14 @@ class TestHeartbeatFollowupsBlock:
         # The same heartbeat day, the block is empty — budget spent.
         assert svc.heartbeat_followups_block("agent-a") == ""
 
+    def test_missing_memory_db_returns_empty(self, monkeypatch):
+        monkeypatch.setattr(
+            "core.admin_settings.load_admin_settings",
+            lambda: {"commitments_enabled": True, "commitments_daily_cap": 3},
+        )
+        monkeypatch.setattr("agents.engine.ensure_memory_db", lambda slug: None)
+        assert svc.heartbeat_followups_block("agent-a") == ""
+
 
 class TestCompleteCommitmentTool:
     def test_complete_by_id(self, mem_db):
@@ -401,6 +467,13 @@ class TestCompleteCommitmentTool:
     def test_empty_ref_returns_error(self, mem_db):
         result = svc.complete_commitment_tool(str(mem_db.data_dir), "test/", "agent-a", "")
         assert "error" in result
+
+    def test_complete_dismissed_by_id_refused(self, mem_db):
+        row = svc.add_commitment(mem_db, "agent-a", "Owner dismissed this one")
+        svc.dismiss_commitment(mem_db, "agent-a", row["id"])
+        result = svc.complete_commitment_tool(str(mem_db.data_dir), "test/", "agent-a", str(row["id"]))
+        assert "error" in result
+        assert svc.get_commitment(mem_db, "agent-a", row["id"])["status"] == "dismissed"
 
 
 class TestSettingsDefaults:

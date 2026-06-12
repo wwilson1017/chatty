@@ -16,7 +16,13 @@ import re
 from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
-from .observer import _MAX_CONVERSATIONS_PER_NIGHT, _call_observation_api, _parse_observations
+from core.agents.security.scanner import sanitize_memory_content
+
+from .observer import (
+    _MAX_CONVERSATIONS_PER_NIGHT,
+    _call_observation_api,
+    _parse_observations as _parse_extracted_list,  # key-agnostic: finds the first list value
+)
 
 logger = logging.getLogger(__name__)
 
@@ -168,7 +174,7 @@ def _set_status(memory_db, agent_slug: str, commitment_id: int, status: str) -> 
         try:
             memory_db.backup_to_gcs()
         except Exception:
-            pass
+            logger.debug("commitments: GCS backup failed", exc_info=True)
         return True
     return False
 
@@ -196,6 +202,10 @@ def due_commitments(
     cap = max(0, int(cap))
     conn = memory_db.get_db()
 
+    # Deliberately NOT filtered by status: the cap bounds surfacing EVENTS per
+    # rolling 24h. If resolving an item freed its slot, a surface→resolve cycle
+    # could nag without bound in a single day — the exact failure the cap exists
+    # to prevent.
     surfaced_last_day = conn.execute(
         "SELECT COUNT(*) FROM commitments "
         "WHERE agent_slug = ? AND last_surfaced_at >= datetime('now', '-1 day')",
@@ -293,7 +303,7 @@ async def extract_commitments(
             try:
                 memory_db.backup_to_gcs()
             except Exception:
-                pass
+                logger.debug("commitments: GCS backup failed", exc_info=True)
         return {"extracted": 0, "expired": expired, "conversations_processed": 0}
 
     if len(conversations) > _MAX_CONVERSATIONS_PER_NIGHT:
@@ -301,10 +311,16 @@ async def extract_commitments(
                     len(conversations), _MAX_CONVERSATIONS_PER_NIGHT, agent_name)
         conversations = conversations[:_MAX_CONVERSATIONS_PER_NIGHT]
 
-    active_texts = [c["text"] for c in list_commitments(memory_db, agent_slug, status="active")]
+    # Sanitize even though add_commitment scans at write time — defense-in-depth
+    # against a scanner false negative being re-injected into every nightly LLM call.
+    active_texts = [
+        sanitize_memory_content(c["text"])
+        for c in list_commitments(memory_db, agent_slug, status="active")
+    ]
     today = datetime.now(CT_TZ).strftime("%Y-%m-%d")
 
     extracted = 0
+    failures = 0
     for conv in conversations:
         # Only feed USER messages to the extractor — assistant messages quote
         # untrusted external data verbatim (same reasoning as observer.py).
@@ -322,7 +338,7 @@ async def extract_commitments(
 
         try:
             raw = await _call_commitment_api(prompt, transcript)
-            items = _parse_observations(raw)
+            items = _parse_extracted_list(raw)
             if items is None:
                 continue
 
@@ -337,18 +353,23 @@ async def extract_commitments(
                 )
                 if row:
                     extracted += 1
-                    active_texts.append(row["text"])
+                    active_texts.append(sanitize_memory_content(row["text"]))
 
         except Exception as e:
+            failures += 1
             logger.debug("commitments: extraction failed for conv %s: %s",
                          conv.get("conversation_id", "?"), e)
             continue
+
+    if failures:
+        logger.warning("commitments: %d/%d conversation extractions failed for %s",
+                       failures, len(conversations), agent_name)
 
     if extracted > 0 or expired > 0:
         try:
             memory_db.backup_to_gcs()
         except Exception:
-            pass
+            logger.debug("commitments: GCS backup failed", exc_info=True)
 
     return {
         "extracted": extracted,
@@ -358,7 +379,11 @@ async def extract_commitments(
 
 
 async def _call_commitment_api(system_prompt: str, user_text: str) -> str | None:
-    """Cheapest-tier provider call — delegates to observer's fan-out helpers."""
+    """Cheapest-tier provider call — delegates to observer's fan-out helpers.
+
+    Kept as a thin wrapper so tests can monkeypatch commitment extraction
+    without affecting observation extraction.
+    """
     return await _call_observation_api(system_prompt, user_text)
 
 
@@ -383,7 +408,7 @@ def format_followups_block(commitments: list[dict]) -> str:
     for c in commitments:
         # Escape angle brackets so a stored commitment cannot close the wrapper
         # and smuggle instructions into the system prompt (same as observations).
-        due = f" (due {c['due_at']})" if c.get("due_at") else ""
+        due = f" (due {html.escape(c['due_at'], quote=False)})" if c.get("due_at") else ""
         lines.append(f"- [#{c['id']}] {html.escape(c['text'], quote=False)}{due}")
     lines.append("</inferred_followups>")
     return "\n".join(lines)
@@ -419,7 +444,7 @@ def complete_commitment_tool(data_dir: str, gcs_prefix: str, agent_slug: str, re
     """Mark a commitment done, referenced by numeric ID or a text snippet."""
     from .search_tools import _get_db
 
-    ref = str(ref or "").strip().lstrip("#")
+    ref = str(ref or "").strip().lstrip("#")[:200]
     if not ref:
         return {"error": "commitment id or text snippet is required"}
 
@@ -444,6 +469,14 @@ def complete_commitment_tool(data_dir: str, gcs_prefix: str, agent_slug: str, re
     if target["status"] == "done":
         return {"ok": True, "id": target["id"], "text": target["text"], "status": "done",
                 "note": "already completed"}
+
+    if target["status"] in ("dismissed", "expired"):
+        return {
+            "error": f"Commitment {target['id']} is {target['status']} — not completing it. "
+                     "The owner dismissed it or it aged out; leave it unless they ask.",
+            "id": target["id"],
+            "status": target["status"],
+        }
 
     complete_commitment(memory_db, agent_slug, target["id"])
     return {"ok": True, "id": target["id"], "text": target["text"], "status": "done"}

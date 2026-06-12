@@ -23,6 +23,24 @@ except Exception:
     _LOCAL_TZ = ZoneInfo("America/Chicago")
 
 
+def _run_async(coro_factory):
+    """Run an async extraction job from this sync scheduler thread.
+
+    APScheduler normally invokes us with no running loop, where asyncio.run
+    suffices; the executor fallback covers being called from a loop thread.
+    """
+    import asyncio
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        loop = None
+    if loop and loop.is_running():
+        import concurrent.futures
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+            return pool.submit(lambda: asyncio.run(coro_factory())).result()
+    return asyncio.run(coro_factory())
+
+
 def run_nightly_jobs() -> None:
     """Run nightly memory/dreaming jobs for all agents with completed onboarding."""
     try:
@@ -104,19 +122,8 @@ def run_nightly_jobs() -> None:
         try:
             from core.agents.memory.observer import extract_observations
             from agents.engine import ensure_memory_db
-            import asyncio
             memory_db = ensure_memory_db(slug)
-
-            try:
-                loop = asyncio.get_running_loop()
-            except RuntimeError:
-                loop = None
-            if loop and loop.is_running():
-                import concurrent.futures
-                with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
-                    result = pool.submit(lambda: asyncio.run(extract_observations(agent_name, slug, chat_service, memory_db))).result()
-            else:
-                result = asyncio.run(extract_observations(agent_name, slug, chat_service, memory_db))
+            result = _run_async(lambda: extract_observations(agent_name, slug, chat_service, memory_db))
 
             if result.get("extracted", 0) > 0 or result.get("pruned", 0) > 0:
                 logger.info("nightly observations %s: extracted=%d pruned=%d",
@@ -130,19 +137,8 @@ def run_nightly_jobs() -> None:
             if load_admin_settings().get("commitments_enabled", True):
                 from core.agents.memory.commitments import extract_commitments
                 from agents.engine import ensure_memory_db
-                import asyncio
                 memory_db = ensure_memory_db(slug)
-
-                try:
-                    loop = asyncio.get_running_loop()
-                except RuntimeError:
-                    loop = None
-                if loop and loop.is_running():
-                    import concurrent.futures
-                    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
-                        result = pool.submit(lambda: asyncio.run(extract_commitments(agent_name, slug, chat_service, memory_db))).result()
-                else:
-                    result = asyncio.run(extract_commitments(agent_name, slug, chat_service, memory_db))
+                result = _run_async(lambda: extract_commitments(agent_name, slug, chat_service, memory_db))
 
                 if result.get("extracted", 0) > 0 or result.get("expired", 0) > 0:
                     logger.info("nightly commitments %s: extracted=%d expired=%d",
