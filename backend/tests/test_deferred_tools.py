@@ -47,6 +47,7 @@ def _large_tool_set() -> list[dict]:
     tools = _make_tool_set({
         "context": 5,
         "memory": 10,
+        "playbook": 4,
         "shared_context": 3,
         "chat_history": 1,
         "reminder": 3,

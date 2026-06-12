@@ -340,6 +340,34 @@ class TestSSEFormat:
             json.loads(line[6:].strip())
 
 
+class TestPlaybookExpansion:
+    async def test_expansion_substituted_for_provider_only(self, fake_config, mock_registry, mock_ctx):
+        """playbook_expansion replaces the last user message provider-side while
+        the caller's messages list keeps the compact [playbook:slug] marker."""
+        class RecordingProvider(MockAIProvider):
+            def __init__(self):
+                super().__init__()
+                self.seen_messages = []
+
+            async def stream_turn(self, messages, tools, system_prompt):
+                self.seen_messages.append(messages)
+                async for event in super().stream_turn(messages, tools, system_prompt):
+                    yield event
+
+        prov = RecordingProvider()
+        original = [{"role": "user", "content": "[playbook:recap] go"}]
+        events = await collect_events(
+            chat(fake_config, prov, mock_registry, mock_ctx, original,
+                 tool_mode="power", playbook_expansion="EXPANDED-CONTENT")
+        )
+        assert events[-1]["type"] == "done"
+        sent = prov.seen_messages[0]
+        last_user = next(m for m in reversed(sent) if m.get("role") == "user")
+        assert last_user["content"] == "EXPANDED-CONTENT"
+        # Original list untouched — persisted history keeps the marker.
+        assert original[0]["content"] == "[playbook:recap] go"
+
+
 class TestRunSync:
     async def test_returns_accumulated_text(self, fake_config, mock_prov, mock_registry, mock_ctx):
         result = await run_sync(

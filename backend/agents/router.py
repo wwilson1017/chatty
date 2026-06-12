@@ -25,6 +25,7 @@ Per-agent (chat, context, conversations):
 
 import io
 import json as _json_mod
+import re
 import shutil
 import logging
 from pathlib import Path
@@ -107,6 +108,27 @@ def _safe_filename(filename: str) -> bool:
     return True
 
 
+def _build_playbook_expansion(agent_slug: str, messages: list, playbook_slug: str) -> str:
+    """Expand a playbook invocation (chip / slash command) into the provider-bound
+    activation message. Persisted history keeps the compact [playbook:slug] marker."""
+    from core.agents.playbooks.service import build_activation_message, is_safe_slug
+    if not is_safe_slug(playbook_slug):
+        raise HTTPException(status_code=400, detail="invalid playbook_slug")
+    last_user = next((m for m in reversed(messages) if m.get("role") == "user"), None)
+    raw = last_user.get("content", "") if last_user else ""
+    user_text = raw if isinstance(raw, str) else ""
+    # Unanchored on purpose: the upload path prepends attached-file text before
+    # the marker. Targets the invoked slug specifically so user text that
+    # happens to mention another [playbook:...] marker is left intact.
+    user_text = re.sub(rf"\[playbook:{re.escape(playbook_slug)}\]\s*", "", user_text, count=1)
+    expansion = build_activation_message(agent_slug, playbook_slug, user_text)
+    if expansion is None:
+        # Fail loudly: proceeding without the expansion would show the playbook
+        # pill in the UI while the model never received the procedure.
+        raise HTTPException(status_code=404, detail="Playbook not found or archived")
+    return expansion
+
+
 # ── Request models ────────────────────────────────────────────────────────────
 
 class CreateAgentRequest(BaseModel):
@@ -141,6 +163,7 @@ class ChatRequest(BaseModel):
     plan_mode: bool = False
     tool_mode: str = "normal"
     approved_tool: dict | None = None
+    playbook_slug: str | None = None
 
 
 class ToolExecuteRequest(BaseModel):
@@ -458,7 +481,8 @@ async def get_avatar(agent_id: str, user=Depends(get_current_user)):
 def _stream_chat(agent: dict, messages: list, training_mode: bool, conversation_id: str | None,
                   training_type: str | None = None, plan_mode: bool = False,
                   tool_mode: str = "normal", approved_tool: dict | None = None,
-                  import_mode: bool = False, has_attachments: bool = False):
+                  import_mode: bool = False, has_attachments: bool = False,
+                  playbook_expansion: str | None = None):
     """Build provider, registry, and return a StreamingResponse for agent chat."""
     config = build_agent_config(agent)
     ctx_manager = get_context_manager(agent["slug"])
@@ -591,6 +615,7 @@ def _stream_chat(agent: dict, messages: list, training_mode: bool, conversation_
             approved_tool=approved_tool,
             integration_tool_modes=integration_tool_modes,
             triage_info=triage_info,
+            playbook_expansion=playbook_expansion,
         ):
             yield event
 
@@ -622,10 +647,17 @@ async def agent_chat(agent_id: str, req: ChatRequest, user=Depends(get_current_u
     if load_admin_settings().get("always_power_mode"):
         tool_mode = "power"
 
+    # Playbook invocation (chip / slash command): expand the playbook into the
+    # provider-bound message for this turn.
+    playbook_expansion = None
+    if req.playbook_slug:
+        playbook_expansion = _build_playbook_expansion(
+            agent["slug"], req.messages, req.playbook_slug)
+
     return _stream_chat(agent, req.messages, req.training_mode, req.conversation_id,
                         training_type=req.training_type, plan_mode=req.plan_mode,
                         tool_mode=tool_mode, approved_tool=req.approved_tool,
-                        import_mode=import_mode)
+                        import_mode=import_mode, playbook_expansion=playbook_expansion)
 
 
 # ── Per-agent: Plan mode approve/iterate ──────────────────────────────────────
@@ -945,11 +977,19 @@ async def agent_chat_upload(
         prefix = "\n\n".join(file_texts)
         last_msg["content"] = prefix + "\n\n" + (last_msg.get("content") or "")
 
+    # Playbook invocation: expand after file prepending so attachments land
+    # inside the activation message's "User request" section.
+    playbook_expansion = None
+    if body.get("playbook_slug"):
+        playbook_expansion = _build_playbook_expansion(
+            agent["slug"], messages, body["playbook_slug"])
+
     return _stream_chat(
         agent, messages, body.get("training_mode", False), body.get("conversation_id"),
         training_type=body.get("training_type"), plan_mode=body.get("plan_mode", False),
         tool_mode=body.get("tool_mode", "normal"), approved_tool=body.get("approved_tool"),
         import_mode=import_mode, has_attachments=bool(files),
+        playbook_expansion=playbook_expansion,
     )
 
 

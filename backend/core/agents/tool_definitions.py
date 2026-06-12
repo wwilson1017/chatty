@@ -18,6 +18,7 @@ TOOL_KIND_LABELS: dict[str, str] = {
     "activity_log": "Activity Log",
     "post_message": "Messaging",
     "chat_history": "Chat History",
+    "playbook": "Playbooks",
 }
 
 
@@ -314,76 +315,107 @@ MEMORY_TOOLS = [
     },
 ]
 
-# ── Skill pack tools ────────────────────────────────────────────────────────
+# ── Playbook tools ──────────────────────────────────────────────────────────
 
-SKILL_TOOLS = [
+PLAYBOOK_TOOLS = [
     {
-        "name": "list_skills",
-        "description": "List available skill packs (reusable prompt recipes you've saved).",
+        "name": "list_playbooks",
+        "description": (
+            "List all saved playbooks (step-by-step business procedures), "
+            "including archived ones and ones whose integrations aren't connected."
+        ),
         "input_schema": {
             "type": "object",
-            "properties": {
-                "category": {
-                    "type": "string",
-                    "description": "Optional category filter.",
-                },
-            },
+            "properties": {},
         },
-        "kind": "skill",
+        "kind": "playbook",
         "writes": False,
+        "context_memory": True,
     },
     {
-        "name": "run_skill",
-        "description": "Execute a saved skill pack by name. Returns the expanded prompt text for you to follow.",
+        "name": "read_playbook",
+        "description": (
+            "Read the full content of a playbook by slug. Always read a playbook "
+            "before performing a procedure it covers."
+        ),
         "input_schema": {
             "type": "object",
             "properties": {
-                "name": {
+                "slug": {
                     "type": "string",
-                    "description": "Name of the skill to execute.",
-                },
-                "params": {
-                    "type": "object",
-                    "description": "Key-value parameters to substitute into {{param}} placeholders.",
+                    "description": "Playbook slug from the index (e.g. 'chase-overdue-invoices').",
                 },
             },
-            "required": ["name"],
+            "required": ["slug"],
         },
-        "kind": "skill",
-        "writes": True,
+        "kind": "playbook",
+        "writes": False,
+        "context_memory": True,
     },
     {
-        "name": "save_skill",
-        "description": "Save a reusable skill pack (prompt recipe) for future use. Use {{param_name}} for variable placeholders.",
+        "name": "save_playbook",
+        "description": (
+            "Create or update a playbook — a reusable step-by-step procedure for how "
+            "the user's business does something. Use when the user describes a repeatable "
+            "process or asks you to remember how to do a task. Structure the markdown "
+            "body with sections: ## When to Use, ## Procedure, ## Pitfalls. "
+            "When updating by slug, omitted fields keep their current values; new "
+            "playbooks need name, description, and content."
+        ),
         "input_schema": {
             "type": "object",
             "properties": {
+                "slug": {
+                    "type": "string",
+                    "description": "Existing slug to update; omit to create a new playbook.",
+                },
                 "name": {
                     "type": "string",
-                    "description": "Unique name for this skill.",
-                },
-                "prompt": {
-                    "type": "string",
-                    "description": "The prompt template. Use {{param}} for variable parts.",
+                    "description": "Short human name (max 80 chars).",
                 },
                 "description": {
                     "type": "string",
-                    "description": "Brief description of what this skill does.",
+                    "description": "One sentence: when this playbook applies (max 200 chars).",
                 },
-                "category": {
+                "content": {
                     "type": "string",
-                    "description": "Category for organization (e.g. 'email', 'analysis', 'writing').",
+                    "description": "Markdown body with the procedure steps.",
                 },
-                "tags": {
+                "integrations": {
                     "type": "array",
                     "items": {"type": "string"},
-                    "description": "Tags for discovery.",
+                    "description": "Integration ids this procedure requires, e.g. ['quickbooks', 'gmail'].",
+                },
+                "chip": {
+                    "type": "boolean",
+                    "description": "Show as a quick-action button above the chat input.",
                 },
             },
-            "required": ["name", "prompt"],
+            "required": [],
         },
-        "kind": "skill",
+        "kind": "playbook",
         "writes": True,
+        "context_memory": True,
+    },
+    {
+        "name": "archive_playbook",
+        "description": (
+            "Archive a playbook that is obsolete or superseded. Archived playbooks "
+            "are recoverable; never use this to 'clean up' unless the user asked."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "slug": {
+                    "type": "string",
+                    "description": "Slug of the playbook to archive.",
+                },
+            },
+            "required": ["slug"],
+        },
+        "kind": "playbook",
+        "writes": True,
+        "context_memory": True,
     },
 ]
 
@@ -1643,7 +1675,7 @@ def get_tool_definitions(
     tools.extend(CHAT_HISTORY_TOOLS)
     if memory_enabled:
         tools.extend(MEMORY_TOOLS)
-        tools.extend(SKILL_TOOLS)
+        tools.extend(PLAYBOOK_TOOLS)
     if shared_context_enabled:
         tools.extend(SHARED_CONTEXT_TOOLS)
 

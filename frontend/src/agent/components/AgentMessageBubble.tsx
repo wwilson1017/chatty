@@ -4,7 +4,7 @@ import MarkdownContent from './MarkdownContent';
 import { useCopyToClipboard } from '../hooks/useCopyToClipboard';
 import ReportRenderer from '../reports/ReportRenderer';
 import { AgentMark } from '../../shared/AgentMark';
-import { IconAttach } from '../../shared/icons';
+import { IconAttach, IconZap } from '../../shared/icons';
 import { formatBubbleTime } from '../utils/dateFormat';
 
 interface Props {
@@ -341,6 +341,21 @@ function AgentMessageBubbleInner({ message, onApprove, onDeny, onApprovePlan, on
       <div>
         <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
           <div style={{ maxWidth: '80%' }}>
+            {message.playbook && (
+              <div style={{ marginBottom: 6, display: 'flex', justifyContent: 'flex-end' }}>
+                <span style={{
+                  display: 'inline-flex', alignItems: 'center', gap: 5,
+                  padding: '2px 9px', background: 'rgba(212,168,90,0.10)',
+                  border: '1px solid rgba(212,168,90,0.3)', borderRadius: 999,
+                  fontFamily: "'JetBrains Mono', ui-monospace, monospace",
+                  fontSize: 9, letterSpacing: '0.12em', textTransform: 'uppercase',
+                  color: '#D4A85A',
+                }}>
+                  <IconZap size={11} strokeWidth={2} />
+                  {message.playbook.name}
+                </span>
+              </div>
+            )}
             {message.attachments && message.attachments.length > 0 && (
               <div style={{ marginBottom: 6, display: 'flex', flexWrap: 'wrap', gap: 4, justifyContent: 'flex-end' }}>
                 {message.attachments.map((att, i) => (
@@ -364,7 +379,9 @@ function AgentMessageBubbleInner({ message, onApprove, onDeny, onApprovePlan, on
               fontSize: 14.5, lineHeight: 1.5, color: '#EDF0F4',
               whiteSpace: 'pre-wrap', wordBreak: 'break-word',
             }}>
-              {message.content}
+              {message.playbook && !message.content.trim()
+                ? <span style={{ fontStyle: 'italic', color: 'rgba(237,240,244,0.62)' }}>Run “{message.playbook.name}”</span>
+                : message.content}
               {message.timestamp ? (
                 <div style={{ fontSize: 10, color: 'rgba(237,240,244,0.38)', textAlign: 'right', marginTop: 4 }}>
                   {formatBubbleTime(message.timestamp)}

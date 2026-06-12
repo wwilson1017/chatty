@@ -21,6 +21,7 @@ SSE event types emitted:
 import asyncio
 import json
 import logging
+import re
 import threading
 import time
 import uuid
@@ -439,6 +440,27 @@ def _build_system_prompt(
     except Exception:
         pass
 
+    # Playbook index (compact: name + purpose; full content loaded on demand)
+    try:
+        from core.agents.playbooks.service import get_playbook_manifest
+        pb_manifest = get_playbook_manifest(config.slug)
+        if pb_manifest:
+            parts.append("# Your Playbooks (how we do things here)")
+            parts.append("")
+            parts.append(
+                "Playbooks are saved step-by-step procedures for this business. "
+                "The index below shows name and purpose only. Before performing any "
+                "multi-step business procedure (invoicing, follow-ups, reports, "
+                "onboarding a customer, etc.), check this index — if a playbook "
+                "covers the task, call `read_playbook(slug)` and follow it. "
+                "Prefer an existing playbook over improvising."
+            )
+            parts.append("")
+            parts.append(pb_manifest)
+            parts.append("")
+    except Exception as e:
+        logger.debug("playbook manifest skipped for %s: %s", config.slug, e)
+
     if training_mode:
         if training_type == "improve":
             parts.append(_improve_instructions(config))
@@ -458,6 +480,7 @@ def _build_system_prompt(
         parts.append(_information_priority_instructions())
         parts.append(_knowledge_management_instructions())
         parts.append(_memory_instructions())
+        parts.append(_playbook_instructions())
         parts.append(get_report_instructions())
         parts.append(get_scheduling_instructions())
         if Path(config.context_dir, "_pending-setup.md").exists() or Path(config.context_dir, "_integration-setup.md").exists():
@@ -620,6 +643,19 @@ When your human asks about any of these, tell them it IS supported and direct th
 If you see a `_pending-setup.md` file in your knowledge, your human wants help setting those up. Offer proactively but don't be pushy — bring it up naturally during your first conversation."""
 
 
+def _playbook_instructions() -> str:
+    """Instructions for using and maintaining playbooks (procedures, not facts)."""
+    return """## Playbooks
+
+Playbooks store HOW this business does things — procedures, not facts.
+
+- Before a multi-step business task, check your playbook index and call `read_playbook(slug)` if one applies. Follow it rather than improvising.
+- A `[playbook:slug]` marker in an earlier user message means that playbook was invoked for this conversation. If you are continuing that procedure and its steps are no longer in your context, call `read_playbook(slug)` again before proceeding — don't work from memory.
+- When the user explains a repeatable procedure ("here's how we handle X") or asks you to remember a process, save it with `save_playbook`.
+- When a procedure you followed didn't work and the user corrected you, update that playbook with `save_playbook(slug=...)` so next time goes right.
+- Facts ("the Smith account is net-30") belong in memory; procedures ("how we chase overdue invoices") belong in playbooks."""
+
+
 def _memory_instructions() -> str:
     """Instructions for using the memory system (daily notes, MEMORY.md, search)."""
     return """## Memory System
@@ -773,6 +809,7 @@ async def chat(
     approved_tool: dict | None = None,
     integration_tool_modes: dict[str, str] | None = None,
     triage_info: dict | None = None,
+    playbook_expansion: str | None = None,
 ) -> AsyncGenerator[str, None]:
     """Stream a chat response as SSE events.
 
@@ -897,7 +934,11 @@ async def chat(
                 conversation_id = conv["id"]
                 last_user = next((m for m in reversed(messages) if m.get("role") == "user"), None)
                 if last_user:
-                    chat_service.auto_title(conversation_id, last_user.get("content", ""))
+                    title_text = last_user.get("content", "")
+                    if isinstance(title_text, str):
+                        # Don't let a playbook invocation marker leak into the title.
+                        title_text = re.sub(r"\[playbook:[a-z0-9-]+\]\s*", "", title_text, count=1)
+                    chat_service.auto_title(conversation_id, title_text)
 
             yield _sse({"type": "conversation_id", "id": conversation_id})
             registry._current_conversation_id = conversation_id
@@ -915,6 +956,15 @@ async def chat(
 
     # ── Maybe inject knowledge checkpoint ────────────────────────────
     current_messages = list(messages)
+
+    # Playbook invocation: the persisted user message keeps the compact
+    # [playbook:slug] marker; only the provider-bound copy gets the full
+    # activation message (playbook body + user request) for this turn.
+    if playbook_expansion:
+        for i in range(len(current_messages) - 1, -1, -1):
+            if current_messages[i].get("role") == "user":
+                current_messages[i] = {**current_messages[i], "content": playbook_expansion}
+                break
     if not training_mode:
         user_count = sum(1 for m in current_messages if m.get("role") == "user")
         if user_count > 0 and user_count % KNOWLEDGE_CHECKPOINT_EVERY == 0:
@@ -1183,6 +1233,10 @@ async def chat(
                     _log_chat_completion(config.slug, conversation_id, "chat", "ok",
                                         accumulated_text, all_tool_calls, model_used,
                                         total_input_tokens, total_output_tokens, chat_start_time)
+                    if not training_mode and not plan_mode and not import_mode:
+                        from core.agents.playbooks.review import maybe_schedule_review
+                        maybe_schedule_review(config, conversation_id, messages,
+                                              accumulated_text, all_tool_calls, iteration)
                     done_event = {"type": "done", "model": model_used}
                     if triage_info:
                         done_event["tier"] = triage_info.get("tier")
@@ -1201,6 +1255,10 @@ async def chat(
             _log_chat_completion(config.slug, conversation_id, "chat", "ok",
                                 accumulated_text, all_tool_calls, model_used,
                                 total_input_tokens, total_output_tokens, chat_start_time)
+            if not training_mode and not plan_mode and not import_mode:
+                from core.agents.playbooks.review import maybe_schedule_review
+                maybe_schedule_review(config, conversation_id, messages,
+                                      accumulated_text, all_tool_calls, iteration)
             done_event = {"type": "done", "model": model_used}
             if triage_info:
                 done_event["tier"] = triage_info.get("tier")

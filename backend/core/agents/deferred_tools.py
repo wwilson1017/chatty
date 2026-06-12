@@ -17,6 +17,7 @@ logger = logging.getLogger(__name__)
 ALWAYS_LOADED_KINDS: set[str] = {
     "context",
     "memory",
+    "playbook",
     "shared_context",
     "chat_history",
     "reminder",

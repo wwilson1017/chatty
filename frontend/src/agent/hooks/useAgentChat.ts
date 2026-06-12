@@ -73,6 +73,7 @@ export interface ChatMessage {
   reports?: InlineReport[];
   model?: string;
   tier?: string;
+  playbook?: { slug: string; name: string };
 }
 
 export interface ContextUsage {
@@ -150,14 +151,20 @@ export function useAgentChat(apiPrefix: string, options?: Options) {
     args: Record<string, unknown>;
     toolUseId: string;
     result: unknown;
-  }, overrides?: { tool_mode?: string; plan_mode?: boolean; hidden?: boolean }) => {
+  }, overrides?: { tool_mode?: string; plan_mode?: boolean; hidden?: boolean; playbook?: { slug: string; name: string } }) => {
+    const playbook = overrides?.playbook;
+    // The [playbook:slug] marker rides in the persisted content (like the
+    // "[via Telegram from X]" prefix) so the reference survives history
+    // reloads; the payload field below triggers this turn's expansion.
+    const content = playbook ? `[playbook:${playbook.slug}] ${text}`.trimEnd() : text;
     const userMsg: ChatMessage = {
       id: uuid(),
       role: 'user',
-      content: text,
+      content,
       timestamp: Date.now(),
       attachments: files?.map(f => ({ name: f.name, size: f.size })),
       hidden: overrides?.hidden,
+      playbook,
     };
     const assistantMsg: ChatMessage = {
       id: uuid(),
@@ -192,6 +199,7 @@ export function useAgentChat(apiPrefix: string, options?: Options) {
         plan_mode: overrides?.plan_mode ?? planMode,
       };
       if (approvedTool) payload.approved_tool = approvedTool;
+      if (playbook) payload.playbook_slug = playbook.slug;
 
       let res: Response;
       if (hasFiles) {

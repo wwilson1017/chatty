@@ -1,15 +1,18 @@
-import { useState, useRef, useEffect, useCallback, Fragment, type RefObject, type KeyboardEvent, type DragEvent, type MouseEvent } from 'react';
+import { useState, useRef, useEffect, useCallback, useMemo, Fragment, type RefObject, type KeyboardEvent, type DragEvent, type MouseEvent } from 'react';
 import type { ChatMessage, ContextUsage, ToolMode, ModelTier } from '../hooks/useAgentChat';
 import type { AgentAlert } from '../../core/types';
 import { AgentMessageBubble } from './AgentMessageBubble';
 import { DateDivider } from './DateDivider';
 import AlertBanner from './AlertBanner';
 import NotificationLog from './NotificationLog';
-import { IconAttach, IconArrowUp } from '../../shared/icons';
+import { IconAttach, IconArrowUp, IconZap } from '../../shared/icons';
 import { useIsMobile } from '../../shared/useIsMobile';
 import { api } from '../../core/api/client';
 import { toast } from '../../shared/toast';
 import { localDateKey } from '../utils/dateFormat';
+import { PlaybookChipsRow } from '../playbooks/PlaybookChipsRow';
+import { SlashCommandMenu } from '../playbooks/SlashCommandMenu';
+import { integrationLabel, type PlaybookSummary } from '../playbooks/types';
 
 const ALLOWED_EXTENSIONS = new Set(['csv', 'xlsx', 'md', 'txt', 'pdf', 'docx']);
 const MAX_FILE_SIZE = 1 * 1024 * 1024;
@@ -23,7 +26,7 @@ function getExtension(name: string): string {
 interface Props {
   messages: ChatMessage[];
   isStreaming: boolean;
-  onSend: (text: string, files?: File[]) => void;
+  onSend: (text: string, files?: File[], opts?: { playbook?: { slug: string; name: string } }) => void;
   onStop: () => void;
   onApprove?: (msgId: string) => void;
   onDeny?: (msgId: string) => void;
@@ -43,6 +46,8 @@ interface Props {
   modelTier?: ModelTier;
   tierLabels?: Record<string, string>;
   onSwitchTier?: (tier: ModelTier) => void;
+  playbooks?: PlaybookSummary[];
+  onOpenPlaybooks?: () => void;
 }
 
 const TOOL_MODES: { key: ToolMode; label: string }[] = [
@@ -59,12 +64,15 @@ export function AgentChatPanel({
   contextUsage, toolMode, onToolModeChange, alwaysPowerMode, agentName, agentSlug, conversationSource, importMode, onCancelImport,
   greetingPending,
   modelTier, tierLabels, onSwitchTier,
+  playbooks, onOpenPlaybooks,
 }: Props) {
   const [input, setInput] = useState('');
   const [pendingFiles, setPendingFiles] = useState<File[]>([]);
   const [dragOver, setDragOver] = useState(false);
   const [fileError, setFileError] = useState<string | null>(null);
   const [alerts, setAlerts] = useState<AgentAlert[]>([]);
+  const [stagedPlaybook, setStagedPlaybook] = useState<PlaybookSummary | null>(null);
+  const [slashIndex, setSlashIndex] = useState(0);
   const internalScrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -143,21 +151,90 @@ export function AgentChatPanel({
     if (files.length) validateAndAddFiles(files);
   }
 
+  // ── Playbook staging + slash menu state machine ─────────────────────
+  // Open is derived from the input ("/" as first char), so typing and
+  // backspacing naturally open/filter/close the menu.
+  const activePlaybooks = useMemo(
+    () => (playbooks || []).filter(p => !p.archived),
+    [playbooks],
+  );
+  const slashOpen = !importMode && input.startsWith('/') && !stagedPlaybook && activePlaybooks.length > 0;
+  const slashQuery = slashOpen ? input.slice(1).toLowerCase() : '';
+  const slashMatches = useMemo(
+    () => activePlaybooks.filter(p =>
+      p.name.toLowerCase().includes(slashQuery) || p.description.toLowerCase().includes(slashQuery)),
+    [activePlaybooks, slashQuery],
+  );
+
+  // The highlight resets where the query changes (typing / opening the menu),
+  // not via an effect — react-hooks/set-state-in-effect.
+
+  function stagePlaybook(p: PlaybookSummary) {
+    if (!p.available) {
+      const needs = p.missing_integrations.map(integrationLabel).join(', ');
+      toast.info(`“${p.name}” needs ${needs} connected. Connect it in Settings → Integrations.`);
+      return;
+    }
+    setStagedPlaybook(p);
+    setInput('');
+    textareaRef.current?.focus();
+  }
+
   function handleKeyDown(e: KeyboardEvent<HTMLTextAreaElement>) {
+    if (slashOpen) {
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        setSlashIndex(i => (slashMatches.length ? (i + 1) % slashMatches.length : 0));
+        return;
+      }
+      if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        setSlashIndex(i => (slashMatches.length ? (i - 1 + slashMatches.length) % slashMatches.length : 0));
+        return;
+      }
+      if (e.key === 'Enter' || e.key === 'Tab') {
+        e.preventDefault();
+        const pick = slashMatches[slashIndex];
+        if (pick) stagePlaybook(pick);
+        return;
+      }
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        setInput('');
+        return;
+      }
+    }
+    if (stagedPlaybook && e.key === 'Backspace' && input === '') {
+      setStagedPlaybook(null);
+      return;
+    }
+    if (stagedPlaybook && e.key === 'Escape') {
+      e.preventDefault();
+      setStagedPlaybook(null);
+      return;
+    }
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); }
   }
 
   function handleSend() {
     const text = input.trim();
-    if ((!text && pendingFiles.length === 0) || isStreaming) return;
+    if (slashOpen) return; // Enter is handled by the menu
+    if ((!text && pendingFiles.length === 0 && !stagedPlaybook) || isStreaming) return;
     setInput('');
-    onSend(text || '(see attached files)', pendingFiles.length > 0 ? pendingFiles : undefined);
+    if (stagedPlaybook) {
+      onSend(text, pendingFiles.length > 0 ? pendingFiles : undefined,
+        { playbook: { slug: stagedPlaybook.slug, name: stagedPlaybook.name } });
+      setStagedPlaybook(null);
+    } else {
+      onSend(text || '(see attached files)', pendingFiles.length > 0 ? pendingFiles : undefined);
+    }
     setPendingFiles([]);
     if (textareaRef.current) textareaRef.current.style.height = 'auto';
   }
 
   function autoResize(e: React.ChangeEvent<HTMLTextAreaElement>) {
     setInput(e.target.value);
+    setSlashIndex(0); // typing changes the slash query — reset the highlight
     e.target.style.height = 'auto';
     e.target.style.height = Math.min(e.target.scrollHeight, 200) + 'px';
   }
@@ -179,9 +256,43 @@ export function AgentChatPanel({
   const isEmpty = messages.length === 0;
   const showEmptyState = isEmpty && !isStreaming && !greetingPending;
 
+  const chipPlaybooks = useMemo(
+    () => activePlaybooks.filter(p => p.chip),
+    [activePlaybooks],
+  );
+
   function renderInputBox() {
     return (
       <div>
+        {/* Playbook quick-action chips */}
+        {!importMode && !stagedPlaybook && (
+          <PlaybookChipsRow
+            playbooks={chipPlaybooks}
+            disabled={!!isStreaming}
+            onInvoke={stagePlaybook}
+            onOverflow={() => { setInput('/'); setSlashIndex(0); textareaRef.current?.focus(); }}
+          />
+        )}
+
+        {/* Staged playbook token */}
+        {stagedPlaybook && (
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 8, padding: '0 4px' }}>
+            <span style={{
+              display: 'inline-flex', alignItems: 'center', gap: 6,
+              padding: '4px 10px', background: 'rgba(212,168,90,0.10)',
+              border: '1px solid rgba(212,168,90,0.3)', borderRadius: 999,
+              fontSize: 11, color: '#D4A85A',
+            }}>
+              <IconZap size={12} strokeWidth={2} />
+              {stagedPlaybook.name}
+              <button onClick={() => setStagedPlaybook(null)} style={{
+                background: 'none', border: 'none', color: 'rgba(212,168,90,0.7)',
+                cursor: 'pointer', marginLeft: 2, fontSize: 14,
+              }}>&times;</button>
+            </span>
+          </div>
+        )}
+
         {/* Pending file chips */}
         {pendingFiles.length > 0 && (
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 8, padding: '0 4px' }}>
@@ -204,17 +315,29 @@ export function AgentChatPanel({
         )}
 
         <div style={{
+          position: 'relative',
           background: '#11141A',
           border: '1px solid rgba(230,235,242,0.14)',
           borderRadius: 6, padding: '13px 16px',
           boxShadow: '0 6px 32px rgba(0,0,0,0.5)',
         }}>
+          {slashOpen && (
+            <SlashCommandMenu
+              matches={slashMatches}
+              highlightIndex={slashIndex}
+              onHighlight={setSlashIndex}
+              onSelect={stagePlaybook}
+              onManage={() => { setInput(''); onOpenPlaybooks?.(); }}
+            />
+          )}
           <textarea
             ref={textareaRef}
             value={input}
             onChange={autoResize}
             onKeyDown={handleKeyDown}
-            placeholder={`Message ${agentName || 'agent'}…`}
+            placeholder={stagedPlaybook
+              ? `Add details for “${stagedPlaybook.name}” (optional) — Enter to run`
+              : `Message ${agentName || 'agent'}…`}
             disabled={isStreaming}
             rows={1}
             style={{
@@ -346,10 +469,10 @@ export function AgentChatPanel({
                 onClick={handleSend}
                 style={{
                   width: 32, height: 32, borderRadius: 4,
-                  background: (!input.trim() && pendingFiles.length === 0) ? 'rgba(200,209,217,0.3)' : 'var(--color-ch-accent, #C8D1D9)',
+                  background: (!input.trim() && pendingFiles.length === 0 && !stagedPlaybook) ? 'rgba(200,209,217,0.3)' : 'var(--color-ch-accent, #C8D1D9)',
                   color: '#0E1013',
                   display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  cursor: (!input.trim() && pendingFiles.length === 0) ? 'default' : 'pointer',
+                  cursor: (!input.trim() && pendingFiles.length === 0 && !stagedPlaybook) ? 'default' : 'pointer',
                 }}
               >
                 <IconArrowUp size={16} strokeWidth={2.5} />
@@ -510,9 +633,20 @@ export function AgentChatPanel({
                 const dayKey = localDateKey(msg.timestamp);
                 const prevDayKey = i > 0 ? localDateKey(visible[i - 1].timestamp) : '';
                 const showDivider = !!dayKey && dayKey !== prevDayKey;
-                const displayMsg = (msg.role === 'user' && msg.content.match(/^\[via (Telegram|WhatsApp) from [^\]]+\] /))
+                let displayMsg = (msg.role === 'user' && msg.content.match(/^\[via (Telegram|WhatsApp) from [^\]]+\] /))
                   ? { ...msg, content: msg.content.replace(/^\[via (?:Telegram|WhatsApp) from [^\]]+\] /, '') }
                   : msg;
+                // Playbook invocation marker → strip from display, surface as a pill.
+                // History reloads lack .playbook, so resolve the name from the list.
+                // Unanchored: the upload path persists attached-file text before the marker.
+                const pbMatch = displayMsg.role === 'user' ? displayMsg.content.match(/\[playbook:([a-z0-9-]+)\]\s*/) : null;
+                if (pbMatch) {
+                  const slug = pbMatch[1];
+                  const known = displayMsg.playbook
+                    || (playbooks?.find(p => p.slug === slug) && { slug, name: playbooks.find(p => p.slug === slug)!.name })
+                    || { slug, name: slug.replace(/-/g, ' ').replace(/^./, c => c.toUpperCase()) };
+                  displayMsg = { ...displayMsg, content: displayMsg.content.replace(pbMatch[0], ''), playbook: known };
+                }
                 return (
                   <Fragment key={msg.id}>
                     {showDivider && <DateDivider timestamp={msg.timestamp} />}
