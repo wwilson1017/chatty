@@ -368,9 +368,25 @@ def _process_heartbeat(action: dict) -> None:
         except Exception as e:
             logger.warning("Failed to read HEARTBEAT.md for %s: %s", agent_slug, e)
 
+    # Inferred follow-ups due for a check-in ride this heartbeat. Peeked (not
+    # marked) here: an empty checklist normally skips the heartbeat, but due
+    # follow-ups are work of their own and force a full run even with no
+    # checklist. The surfacing budget is only consumed right before the full
+    # run is committed to execute (after triage and the lease re-check).
+    followups = []
+    try:
+        from core.agents.memory.commitments import (
+            claim_followups_for_surfacing, format_followups_block, peek_due_followups,
+        )
+        followups = peek_due_followups(agent_slug)
+    except Exception as e:
+        logger.warning("Heartbeat %s: commitment follow-ups skipped: %s", agent_slug, e)
+
     if not checklist or _is_effectively_empty(checklist):
-        _mark_and_alert(action, "skipped", "no checklist content", 0, lease_id=lease_id, agent_slug=agent_slug)
-        return
+        if not followups:
+            _mark_and_alert(action, "skipped", "no checklist content", 0, lease_id=lease_id, agent_slug=agent_slug)
+            return
+        checklist = "(no checklist items — this run is for the inferred follow-ups below)"
 
     execution_id = None
     try:
@@ -414,6 +430,10 @@ def _process_heartbeat(action: dict) -> None:
             do_triage = True
         else:
             do_triage = bool(action.get("triage_enabled", 1))
+
+        if followups:
+            # Due follow-ups always warrant a full run; triage can't see them.
+            do_triage = False
 
         if do_triage:
             triage_result = run_background_turn(
@@ -498,6 +518,17 @@ def _process_heartbeat(action: dict) -> None:
                 )
             return
 
+        followups_block = ""
+        if followups:
+            # The full run is committed — atomically claim the budget now.
+            # The claim re-validates against concurrent surfacing/resolution,
+            # so only still-eligible items reach the prompt.
+            try:
+                claimed = claim_followups_for_surfacing(agent_slug, followups)
+                followups_block = format_followups_block(claimed) if claimed else ""
+            except Exception as e:
+                logger.warning("Heartbeat %s: commitment follow-ups skipped: %s", agent_slug, e)
+
         error_context = _build_error_context(action, agent_slug)
 
         system_prompt = (
@@ -515,12 +546,13 @@ def _process_heartbeat(action: dict) -> None:
                 f"# Current Date & Time\n\n"
                 f"- Date: {date_str}\n"
                 f"- Time: {time_str}\n\n"
-                f"## Rules\n\n"
-                f"- If everything is normal and no action is needed, respond with exactly: HEARTBEAT_OK\n"
-                f"- If something needs attention, take action using your tools.\n"
-                f"- Use `notify_user` to alert the user about important findings or actions taken — this sends push notifications to their devices. Only call it when you have something genuinely worth alerting about.\n"
-                f"- After completing your checks, respond with: ACTION_TAKEN: <brief description of what you found/did>\n"
-                f"- Be concise. This is an automated check, not a conversation.\n"
+                + (f"{followups_block}\n\n" if followups_block else "")
+                + "## Rules\n\n"
+                "- If everything is normal and no action is needed, respond with exactly: HEARTBEAT_OK\n"
+                "- If something needs attention, take action using your tools.\n"
+                "- Use `notify_user` to alert the user about important findings or actions taken — this sends push notifications to their devices. Only call it when you have something genuinely worth alerting about.\n"
+                "- After completing your checks, respond with: ACTION_TAKEN: <brief description of what you found/did>\n"
+                "- Be concise. This is an automated check, not a conversation.\n"
                 f"{error_context}"
             ),
         )

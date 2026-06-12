@@ -183,6 +183,15 @@ class TestDueCommitments:
         assert updated["surfaced_count"] == 1
         assert updated["last_surfaced_at"] is not None
 
+    def test_mark_surfaced_backs_up(self, mem_db, monkeypatch):
+        # Surfacing state must persist across a Railway restart — otherwise a
+        # restored snapshot resurrects stale last_surfaced_at and re-surfaces.
+        calls = []
+        monkeypatch.setattr(mem_db, "backup_to_gcs", lambda: calls.append(1))
+        row = svc.add_commitment(mem_db, "agent-a", "Backup bookkeeping check")
+        svc.mark_surfaced(mem_db, "agent-a", [row["id"]])
+        assert calls == [1]
+
     def test_resolved_items_still_consume_surfacing_budget(self, mem_db):
         # The cap bounds surfacing EVENTS per 24h: resolving a surfaced item
         # must NOT free its slot, or surface→resolve loops could nag unboundedly.
@@ -198,9 +207,11 @@ class TestDueCommitments:
 class TestExpireStale:
     def test_past_due_plus_seven_expired(self, mem_db):
         conn = mem_db.get_db()
+        # -9 (not -8) days: the insert uses SQLite's UTC date but the expiry
+        # cutoff is Central-Time, which can lag UTC by a calendar day.
         conn.execute(
             "INSERT INTO commitments (agent_slug, text, due_at) "
-            "VALUES (?, ?, date('now', '-8 days'))",
+            "VALUES (?, ?, date('now', '-9 days'))",
             ("agent-a", "Long-overdue commitment"),
         )
         conn.commit()
@@ -427,6 +438,52 @@ class TestHeartbeatFollowupsBlock:
         # The same heartbeat day, the block is empty — budget spent.
         assert svc.heartbeat_followups_block("agent-a") == ""
 
+    def test_peek_does_not_consume_budget(self, mem_db, monkeypatch):
+        # The scheduled-heartbeat processor peeks before triage and only claims
+        # once the full run is committed — peeking must be repeatable for free.
+        row = svc.add_commitment(mem_db, "agent-a", "Quote still pending", due_at="2020-01-02")
+        monkeypatch.setattr(
+            "core.admin_settings.load_admin_settings",
+            lambda: {"commitments_enabled": True, "commitments_daily_cap": 3},
+        )
+        monkeypatch.setattr("agents.engine.ensure_memory_db", lambda slug: mem_db)
+        first = svc.peek_due_followups("agent-a")
+        assert [c["id"] for c in first] == [row["id"]]
+        assert [c["id"] for c in svc.peek_due_followups("agent-a")] == [row["id"]]
+        assert svc.get_commitment(mem_db, "agent-a", row["id"])["surfaced_count"] == 0
+        claimed = svc.claim_followups_for_surfacing("agent-a", first)
+        assert [c["id"] for c in claimed] == [row["id"]]
+        assert svc.get_commitment(mem_db, "agent-a", row["id"])["surfaced_count"] == 1
+        assert svc.peek_due_followups("agent-a") == []
+
+    def test_claim_excludes_items_resolved_after_peek(self, mem_db, monkeypatch):
+        # Owner completes an item between the processor's peek and its claim —
+        # the stale row must not reach a prompt or consume budget.
+        row = svc.add_commitment(mem_db, "agent-a", "Resolved while heartbeat ran", due_at="2020-01-02")
+        monkeypatch.setattr(
+            "core.admin_settings.load_admin_settings",
+            lambda: {"commitments_enabled": True, "commitments_daily_cap": 3},
+        )
+        monkeypatch.setattr("agents.engine.ensure_memory_db", lambda slug: mem_db)
+        peeked = svc.peek_due_followups("agent-a")
+        svc.complete_commitment(mem_db, "agent-a", row["id"])
+        assert svc.claim_followups_for_surfacing("agent-a", peeked) == []
+        assert svc.get_commitment(mem_db, "agent-a", row["id"])["surfaced_count"] == 0
+
+    def test_concurrent_claims_cannot_double_surface(self, mem_db, monkeypatch):
+        # Two heartbeat paths peek the same item before either claims; only the
+        # first claim wins — the second sees the spent budget/recency and gets [].
+        svc.add_commitment(mem_db, "agent-a", "Claimed exactly once", due_at="2020-01-02")
+        monkeypatch.setattr(
+            "core.admin_settings.load_admin_settings",
+            lambda: {"commitments_enabled": True, "commitments_daily_cap": 3},
+        )
+        monkeypatch.setattr("agents.engine.ensure_memory_db", lambda slug: mem_db)
+        peek_a = svc.peek_due_followups("agent-a")
+        peek_b = svc.peek_due_followups("agent-a")
+        assert len(svc.claim_followups_for_surfacing("agent-a", peek_a)) == 1
+        assert svc.claim_followups_for_surfacing("agent-a", peek_b) == []
+
     def test_missing_memory_db_returns_empty(self, monkeypatch):
         monkeypatch.setattr(
             "core.admin_settings.load_admin_settings",
@@ -494,6 +551,15 @@ class TestSettingsDefaults:
         settings = admin_settings.load_admin_settings()
         assert settings["commitments_daily_cap"] == 3
         assert settings["commitments_enabled"] is True
+        admin_settings.invalidate_cache()
+
+    def test_cap_bounded_server_side(self, tmp_path, monkeypatch):
+        from core import admin_settings
+        f = tmp_path / "admin-settings.json"
+        f.write_text(json.dumps({"commitments_daily_cap": 500}))
+        monkeypatch.setattr(admin_settings, "ADMIN_SETTINGS_FILE", f)
+        admin_settings.invalidate_cache()
+        assert admin_settings.load_admin_settings()["commitments_daily_cap"] == 20
         admin_settings.invalidate_cache()
 
 

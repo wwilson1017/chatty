@@ -242,19 +242,30 @@ def mark_surfaced(memory_db, agent_slug: str, commitment_ids: list[int]) -> None
             (agent_slug, *commitment_ids),
         )
         conn.commit()
+    try:
+        memory_db.backup_to_gcs()
+    except Exception:
+        logger.debug("commitments: GCS backup failed", exc_info=True)
 
 
 def expire_stale(memory_db, agent_slug: str) -> int:
     """Expire active commitments past due_at + 7 days, or created 14+ days ago
-    with no due date.  Returns the number expired."""
+    with no due date.  Returns the number expired.
+
+    The dated cutoff is computed against the Central-Time calendar — due_at
+    carries CT date semantics everywhere (due_commitments compares it against
+    a CT "today").  The undated rule stays on SQLite's UTC rolling interval,
+    since created_at is stored UTC and that comparison is timezone-free.
+    """
+    cutoff = (datetime.now(CT_TZ) - timedelta(days=7)).strftime("%Y-%m-%d")
     conn = memory_db.get_db()
     with memory_db.write_lock:
         cursor = conn.execute(
             """UPDATE commitments SET status = 'expired'
                WHERE agent_slug = ? AND status = 'active'
-                 AND ((due_at IS NOT NULL AND due_at < date('now', '-7 days'))
+                 AND ((due_at IS NOT NULL AND due_at < ?)
                       OR (due_at IS NULL AND created_at < datetime('now', '-14 days')))""",
-            (agent_slug,),
+            (agent_slug, cutoff),
         )
         conn.commit()
     return cursor.rowcount
@@ -414,26 +425,101 @@ def format_followups_block(commitments: list[dict]) -> str:
     return "\n".join(lines)
 
 
-def heartbeat_followups_block(agent_slug: str) -> str:
-    """Build the follow-ups block for a heartbeat prompt and mark the surfaced
-    commitments.  Returns "" when disabled, capped out, or nothing is due."""
+def peek_due_followups(agent_slug: str) -> list[dict]:
+    """Due commitments for a heartbeat prompt, WITHOUT consuming the surfacing
+    budget.  Callers decide when execution is committed and then call
+    mark_followups_surfaced — so a triage skip, lost lease, or provider error
+    doesn't burn the daily cap with nothing delivered."""
     from core.admin_settings import load_admin_settings
 
     settings = load_admin_settings()
     if not settings.get("commitments_enabled", True):
-        return ""
+        return []
 
     from agents.engine import ensure_memory_db
     memory_db = ensure_memory_db(agent_slug)
     if not memory_db:
-        return ""
+        return []
 
-    due = due_commitments(memory_db, agent_slug, cap=settings.get("commitments_daily_cap", 3))
-    if not due:
-        return ""
+    return due_commitments(memory_db, agent_slug, cap=settings.get("commitments_daily_cap", 3))
 
-    mark_surfaced(memory_db, agent_slug, [c["id"] for c in due])
-    return format_followups_block(due)
+
+def claim_followups_for_surfacing(agent_slug: str, followups: list[dict]) -> list[dict]:
+    """Atomically re-validate and mark peeked *followups*; return what survived.
+
+    Between peek and commit, another surfacing path (the reminders heartbeat)
+    may have consumed the budget, or the owner may have completed/dismissed an
+    item.  Re-checks status, surfacing recency, and the remaining cap under the
+    write lock — concurrent claims serialize here, so the cap invariant holds
+    and resolved items never reach a prompt stale.
+    """
+    if not followups:
+        return []
+
+    from core.admin_settings import load_admin_settings
+    settings = load_admin_settings()
+    if not settings.get("commitments_enabled", True):
+        return []
+    cap = max(0, int(settings.get("commitments_daily_cap", 3)))
+
+    from agents.engine import ensure_memory_db
+    memory_db = ensure_memory_db(agent_slug)
+    if not memory_db:
+        return []
+
+    ids = [c["id"] for c in followups]
+    placeholders = ",".join("?" for _ in ids)
+    conn = memory_db.get_db()
+
+    with memory_db.write_lock:
+        surfaced_last_day = conn.execute(
+            "SELECT COUNT(*) FROM commitments "
+            "WHERE agent_slug = ? AND last_surfaced_at >= datetime('now', '-1 day')",
+            (agent_slug,),
+        ).fetchone()[0]
+        remaining = cap - surfaced_last_day
+        if remaining <= 0:
+            return []
+
+        # Due-ness needs no re-check (it only increases with time); status and
+        # surfacing recency are the racy bits.
+        rows = conn.execute(
+            f"""SELECT * FROM commitments
+                WHERE agent_slug = ? AND id IN ({placeholders})
+                  AND status = 'active'
+                  AND (last_surfaced_at IS NULL OR last_surfaced_at < datetime('now', '-1 day'))
+                ORDER BY (due_at IS NULL), due_at, created_at
+                LIMIT ?""",
+            (agent_slug, *ids, remaining),
+        ).fetchall()
+        claimed = [dict(r) for r in rows]
+        if not claimed:
+            return []
+
+        claimed_ph = ",".join("?" for _ in claimed)
+        conn.execute(
+            f"UPDATE commitments SET surfaced_count = surfaced_count + 1, "
+            f"last_surfaced_at = datetime('now') "
+            f"WHERE agent_slug = ? AND id IN ({claimed_ph})",
+            (agent_slug, *[c["id"] for c in claimed]),
+        )
+        conn.commit()
+
+    try:
+        memory_db.backup_to_gcs()
+    except Exception:
+        logger.debug("commitments: GCS backup failed", exc_info=True)
+    return claimed
+
+
+def heartbeat_followups_block(agent_slug: str) -> str:
+    """Peek + claim + format in one step, for callers already committed to
+    running a background turn (the reminders heartbeat).  Returns "" when
+    disabled, capped out, or nothing is due."""
+    claimed = claim_followups_for_surfacing(agent_slug, peek_due_followups(agent_slug))
+    if not claimed:
+        return ""
+    return format_followups_block(claimed)
 
 
 # ---------------------------------------------------------------------------

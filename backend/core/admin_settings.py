@@ -73,6 +73,8 @@ def load_admin_settings() -> dict:
             result[_int_key] = ADMIN_DEFAULTS[_int_key]
     # Cap bot_reply_limit so the loop-prevention guard can't be effectively disabled.
     result["bot_reply_limit"] = min(result["bot_reply_limit"], 100)
+    # Cap the follow-up budget so a bad settings payload can't oversize prompts.
+    result["commitments_daily_cap"] = min(result["commitments_daily_cap"], 20)
     if not isinstance(result.get("bot_reply_limit_enabled"), bool):
         result["bot_reply_limit_enabled"] = ADMIN_DEFAULTS["bot_reply_limit_enabled"]
     if not isinstance(result.get("commitments_enabled"), bool):
