@@ -395,7 +395,7 @@ export function SettingsPanel({ branding, onBrandingUpdate, onClose }: Props) {
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                 <div>
                   <p style={{ fontSize: 14, color: '#EDF0F4', margin: 0 }}>Inferred follow-ups</p>
-                  <p style={{ fontSize: 12, color: 'rgba(237,240,244,0.38)', marginTop: 2 }}>Agents notice follow-ups in conversations and check in later</p>
+                  <p style={{ fontSize: 12, color: 'rgba(237,240,244,0.38)', marginTop: 2 }}>Agents notice follow-ups in conversations and check in via their heartbeat</p>
                 </div>
                 <button
                   onClick={async () => {

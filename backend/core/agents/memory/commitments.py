@@ -197,8 +197,13 @@ def due_commitments(
     surfaced within the last day are excluded and count against the cap — so
     multiple heartbeats never exceed it, regardless of timezone or calendar-day
     boundaries.
+
+    expire_stale's cutoffs are mirrored here as exclusions: expiry runs only in
+    the nightly job, and a deploy/restart landing on that window must not let a
+    stale-but-unexpired row keep surfacing — surfacing stays self-correcting.
     """
     today = today or datetime.now(CT_TZ).strftime("%Y-%m-%d")
+    overdue_cutoff = (date.fromisoformat(today) - timedelta(days=7)).isoformat()
     cap = max(0, int(cap))
     conn = memory_db.get_db()
 
@@ -219,11 +224,13 @@ def due_commitments(
         """SELECT * FROM commitments
            WHERE agent_slug = ? AND status = 'active'
              AND (last_surfaced_at IS NULL OR last_surfaced_at < datetime('now', '-1 day'))
-             AND ((due_at IS NOT NULL AND due_at <= ?)
-                  OR (due_at IS NULL AND created_at <= datetime('now', '-3 days')))
+             AND ((due_at IS NOT NULL AND due_at <= ? AND due_at >= ?)
+                  OR (due_at IS NULL AND created_at <= datetime('now', '-3 days')
+                      AND created_at >= datetime('now', '-14 days')))
+             AND created_at >= datetime('now', '-60 days')
            ORDER BY (due_at IS NULL), due_at, created_at
            LIMIT ?""",
-        (agent_slug, today, remaining),
+        (agent_slug, today, overdue_cutoff, remaining),
     ).fetchall()
     return [dict(r) for r in rows]
 
@@ -432,8 +439,8 @@ def format_followups_block(commitments: list[dict]) -> str:
 def peek_due_followups(agent_slug: str) -> list[dict]:
     """Due commitments for a heartbeat prompt, WITHOUT consuming the surfacing
     budget.  Callers decide when execution is committed and then call
-    mark_followups_surfaced — so a triage skip, lost lease, or provider error
-    doesn't burn the daily cap with nothing delivered."""
+    claim_followups_for_surfacing — so a triage skip, lost lease, or provider
+    error doesn't burn the daily cap with nothing delivered."""
     from core.admin_settings import load_admin_settings
 
     settings = load_admin_settings()

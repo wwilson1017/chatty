@@ -382,10 +382,12 @@ def _process_heartbeat(action: dict) -> None:
     except Exception as e:
         logger.warning("Heartbeat %s: commitment follow-ups skipped: %s", agent_slug, e)
 
+    followups_only_run = False
     if not checklist or _is_effectively_empty(checklist):
         if not followups:
             _mark_and_alert(action, "skipped", "no checklist content", 0, lease_id=lease_id, agent_slug=agent_slug)
             return
+        followups_only_run = True
         checklist = "(no checklist items — this run is for the inferred follow-ups below)"
 
     execution_id = None
@@ -528,6 +530,24 @@ def _process_heartbeat(action: dict) -> None:
                 followups_block = format_followups_block(claimed) if claimed else ""
             except Exception as e:
                 logger.warning("Heartbeat %s: commitment follow-ups skipped: %s", agent_slug, e)
+
+        if followups_only_run and not followups_block:
+            # The follow-ups that justified this run were claimed by another
+            # path (or resolved) between peek and claim — with a placeholder
+            # checklist there is nothing left to do; don't spend a model turn.
+            duration_ms = int((time.monotonic() - start_time) * 1000)
+            completed = _mark_and_alert(
+                action, "ok", "Follow-ups already surfaced elsewhere", duration_ms,
+                lease_id=lease_id, agent_slug=agent_slug,
+            )
+            if completed and execution_id:
+                history.record_complete(
+                    execution_id, status="ok",
+                    result_summary="Follow-ups already surfaced elsewhere — skipping full run.",
+                    duration_ms=duration_ms,
+                )
+            logger.info("Heartbeat %s: follow-ups claimed elsewhere, skipping (%dms)", agent_slug, duration_ms)
+            return
 
         error_context = _build_error_context(action, agent_slug)
 

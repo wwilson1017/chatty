@@ -7,6 +7,8 @@ formatting, the complete_commitment tool handler, and settings defaults.
 
 import asyncio
 import json
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
 import pytest
 
@@ -30,6 +32,12 @@ def _backdate(mem_db, commitment_id: int, days: int, column: str = "created_at")
         (commitment_id,),
     )
     conn.commit()
+
+
+def _ct_today() -> str:
+    """Today's Central-Time date — for tests that hit the real clock via
+    peek/claim/heartbeat paths, where a stale due date would now be excluded."""
+    return datetime.now(ZoneInfo("America/Chicago")).strftime("%Y-%m-%d")
 
 
 class TestAddCommitment:
@@ -146,6 +154,17 @@ class TestDueCommitments:
         svc.complete_commitment(mem_db, "agent-a", row["id"])
         assert svc.due_commitments(mem_db, "agent-a", today="2026-06-12") == []
 
+    def test_long_overdue_unexpired_not_surfaced(self, mem_db):
+        # Expiry only runs in the nightly job; if a deploy lands on that window
+        # a stale row stays 'active'. Surfacing must self-correct regardless.
+        svc.add_commitment(mem_db, "agent-a", "Months overdue, never expired", due_at="2026-05-12")
+        assert svc.due_commitments(mem_db, "agent-a", today="2026-06-12") == []
+
+    def test_stale_undated_unexpired_not_surfaced(self, mem_db):
+        row = svc.add_commitment(mem_db, "agent-a", "Undated and stale, never expired")
+        _backdate(mem_db, row["id"], 20)
+        assert svc.due_commitments(mem_db, "agent-a") == []
+
     def test_ordered_by_due_date_dated_first(self, mem_db):
         undated = svc.add_commitment(mem_db, "agent-a", "Undated but old enough")
         _backdate(mem_db, undated["id"], 5)
@@ -157,20 +176,20 @@ class TestDueCommitments:
 
     def test_cap_limits_results(self, mem_db):
         for i in range(5):
-            svc.add_commitment(mem_db, "agent-a", f"Overdue item number {i}", due_at="2026-06-01")
+            svc.add_commitment(mem_db, "agent-a", f"Overdue item number {i}", due_at="2026-06-10")
         due = svc.due_commitments(mem_db, "agent-a", today="2026-06-12", cap=3)
         assert len(due) == 3
 
     def test_recently_surfaced_counts_against_cap(self, mem_db):
         for i in range(4):
-            svc.add_commitment(mem_db, "agent-a", f"Overdue item number {i}", due_at="2026-06-01")
+            svc.add_commitment(mem_db, "agent-a", f"Overdue item number {i}", due_at="2026-06-10")
         first = svc.due_commitments(mem_db, "agent-a", today="2026-06-12", cap=3)
         svc.mark_surfaced(mem_db, "agent-a", [c["id"] for c in first])
         # A second heartbeat within the rolling 24h window gets nothing — budget spent.
         assert svc.due_commitments(mem_db, "agent-a", today="2026-06-12", cap=3) == []
 
     def test_surfaced_over_a_day_ago_eligible_again(self, mem_db):
-        row = svc.add_commitment(mem_db, "agent-a", "Still waiting on the vendor", due_at="2026-06-01")
+        row = svc.add_commitment(mem_db, "agent-a", "Still waiting on the vendor", due_at="2026-06-10")
         svc.mark_surfaced(mem_db, "agent-a", [row["id"]])
         _backdate(mem_db, row["id"], 2, column="last_surfaced_at")
         due = svc.due_commitments(mem_db, "agent-a", today="2026-06-12", cap=3)
@@ -195,8 +214,8 @@ class TestDueCommitments:
     def test_resolved_items_still_consume_surfacing_budget(self, mem_db):
         # The cap bounds surfacing EVENTS per 24h: resolving a surfaced item
         # must NOT free its slot, or surface→resolve loops could nag unboundedly.
-        first = svc.add_commitment(mem_db, "agent-a", "Surfaced then resolved", due_at="2026-06-01")
-        svc.add_commitment(mem_db, "agent-a", "Next overdue in line", due_at="2026-06-02")
+        first = svc.add_commitment(mem_db, "agent-a", "Surfaced then resolved", due_at="2026-06-10")
+        svc.add_commitment(mem_db, "agent-a", "Next overdue in line", due_at="2026-06-11")
         got = svc.due_commitments(mem_db, "agent-a", today="2026-06-12", cap=1)
         assert [c["id"] for c in got] == [first["id"]]
         svc.mark_surfaced(mem_db, "agent-a", [first["id"]])
@@ -430,7 +449,7 @@ class TestFollowupsBlock:
 
 class TestHeartbeatFollowupsBlock:
     def test_disabled_setting_returns_empty(self, mem_db, monkeypatch):
-        svc.add_commitment(mem_db, "agent-a", "Overdue follow-up item", due_at="2020-01-02")
+        svc.add_commitment(mem_db, "agent-a", "Overdue follow-up item", due_at=_ct_today())
         monkeypatch.setattr(
             "core.admin_settings.load_admin_settings",
             lambda: {"commitments_enabled": False, "commitments_daily_cap": 3},
@@ -439,7 +458,7 @@ class TestHeartbeatFollowupsBlock:
         assert svc.heartbeat_followups_block("agent-a") == ""
 
     def test_due_commitment_surfaces_and_marks(self, mem_db, monkeypatch):
-        row = svc.add_commitment(mem_db, "agent-a", "Vendor quote still outstanding", due_at="2020-01-02")
+        row = svc.add_commitment(mem_db, "agent-a", "Vendor quote still outstanding", due_at=_ct_today())
         monkeypatch.setattr(
             "core.admin_settings.load_admin_settings",
             lambda: {"commitments_enabled": True, "commitments_daily_cap": 3},
@@ -454,7 +473,7 @@ class TestHeartbeatFollowupsBlock:
     def test_peek_does_not_consume_budget(self, mem_db, monkeypatch):
         # The scheduled-heartbeat processor peeks before triage and only claims
         # once the full run is committed — peeking must be repeatable for free.
-        row = svc.add_commitment(mem_db, "agent-a", "Quote still pending", due_at="2020-01-02")
+        row = svc.add_commitment(mem_db, "agent-a", "Quote still pending", due_at=_ct_today())
         monkeypatch.setattr(
             "core.admin_settings.load_admin_settings",
             lambda: {"commitments_enabled": True, "commitments_daily_cap": 3},
@@ -472,7 +491,7 @@ class TestHeartbeatFollowupsBlock:
     def test_claim_excludes_items_resolved_after_peek(self, mem_db, monkeypatch):
         # Owner completes an item between the processor's peek and its claim —
         # the stale row must not reach a prompt or consume budget.
-        row = svc.add_commitment(mem_db, "agent-a", "Resolved while heartbeat ran", due_at="2020-01-02")
+        row = svc.add_commitment(mem_db, "agent-a", "Resolved while heartbeat ran", due_at=_ct_today())
         monkeypatch.setattr(
             "core.admin_settings.load_admin_settings",
             lambda: {"commitments_enabled": True, "commitments_daily_cap": 3},
@@ -486,7 +505,7 @@ class TestHeartbeatFollowupsBlock:
     def test_concurrent_claims_cannot_double_surface(self, mem_db, monkeypatch):
         # Two heartbeat paths peek the same item before either claims; only the
         # first claim wins — the second sees the spent budget/recency and gets [].
-        svc.add_commitment(mem_db, "agent-a", "Claimed exactly once", due_at="2020-01-02")
+        svc.add_commitment(mem_db, "agent-a", "Claimed exactly once", due_at=_ct_today())
         monkeypatch.setattr(
             "core.admin_settings.load_admin_settings",
             lambda: {"commitments_enabled": True, "commitments_daily_cap": 3},
