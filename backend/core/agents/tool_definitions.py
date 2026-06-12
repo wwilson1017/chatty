@@ -358,7 +358,9 @@ PLAYBOOK_TOOLS = [
             "Create or update a playbook — a reusable step-by-step procedure for how "
             "the user's business does something. Use when the user describes a repeatable "
             "process or asks you to remember how to do a task. Structure the markdown "
-            "body with sections: ## When to Use, ## Procedure, ## Pitfalls."
+            "body with sections: ## When to Use, ## Procedure, ## Pitfalls. "
+            "When updating by slug, omitted fields keep their current values; new "
+            "playbooks need name, description, and content."
         ),
         "input_schema": {
             "type": "object",
@@ -389,7 +391,7 @@ PLAYBOOK_TOOLS = [
                     "description": "Show as a quick-action button above the chat input.",
                 },
             },
-            "required": ["name", "description", "content"],
+            "required": [],
         },
         "kind": "playbook",
         "writes": True,

@@ -18,6 +18,15 @@ async def execute_playbook_tool(
         result = service.read_playbook(agent_slug, slug, bump=True)
         if not result:
             return {"error": f"Playbook '{slug}' not found"}
+        # Sanitize at injection time, same as the manifest and activation paths
+        # (REST reads stay raw — the editor needs the original text).
+        from core.agents.security.scanner import sanitize_memory_content
+        result["body"] = sanitize_memory_content(result["body"])
+        result["meta"] = {
+            **result["meta"],
+            "name": sanitize_memory_content(result["meta"].get("name", "")),
+            "description": sanitize_memory_content(result["meta"].get("description", "")),
+        }
         return result
     elif tool_name == "save_playbook":
         return service.save_playbook(

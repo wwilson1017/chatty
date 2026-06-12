@@ -108,7 +108,7 @@ def _safe_filename(filename: str) -> bool:
     return True
 
 
-def _build_playbook_expansion(agent_slug: str, messages: list, playbook_slug: str) -> str | None:
+def _build_playbook_expansion(agent_slug: str, messages: list, playbook_slug: str) -> str:
     """Expand a playbook invocation (chip / slash command) into the provider-bound
     activation message. Persisted history keeps the compact [playbook:slug] marker."""
     from core.agents.playbooks.service import build_activation_message, is_safe_slug
@@ -122,7 +122,9 @@ def _build_playbook_expansion(agent_slug: str, messages: list, playbook_slug: st
     user_text = re.sub(r"\[playbook:[a-z0-9-]+\]\s*", "", user_text, count=1)
     expansion = build_activation_message(agent_slug, playbook_slug, user_text)
     if expansion is None:
-        logger.warning("playbook %r not found for chat invocation", playbook_slug)
+        # Fail loudly: proceeding without the expansion would show the playbook
+        # pill in the UI while the model never received the procedure.
+        raise HTTPException(status_code=404, detail="Playbook not found or archived")
     return expansion
 
 

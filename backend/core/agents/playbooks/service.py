@@ -371,6 +371,12 @@ def save_playbook(
     if origin not in VALID_ORIGINS:
         return {"error": f"invalid origin: {origin}"}
 
+    # A create whose name slugifies to an existing active playbook is an
+    # update of that playbook, not a silent overwrite — agents often omit
+    # the slug when re-saving a procedure they already know by name.
+    if not slug and name and (playbooks_dir(agent_slug) / f"{slugify(name)}.md").exists():
+        slug = slugify(name)
+
     existing = None
     if slug:
         if not _safe_slug(slug):

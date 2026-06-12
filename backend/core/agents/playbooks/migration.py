@@ -16,7 +16,13 @@ MIGRATION_MARKER = ".skills-migrated"
 
 
 def migrate_all_agents() -> dict:
-    """Migrate skill_packs → playbooks for every agent. Idempotent."""
+    """Migrate skill_packs → playbooks for every agent. Idempotent.
+
+    Known limitation: scans local agent dirs only. On a GCS-backed deployment
+    whose memory DBs are lazily restored after boot, a fresh instance can skip
+    legacy rows. Accepted: skill packs were a UI-less proto feature, and the
+    skill_packs table is left in place as the recovery source.
+    """
     from agents.engine import DATA_DIR
 
     if not DATA_DIR.exists():
