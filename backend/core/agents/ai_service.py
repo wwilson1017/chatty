@@ -21,6 +21,7 @@ SSE event types emitted:
 import asyncio
 import json
 import logging
+import re
 import threading
 import time
 import uuid
@@ -933,7 +934,11 @@ async def chat(
                 conversation_id = conv["id"]
                 last_user = next((m for m in reversed(messages) if m.get("role") == "user"), None)
                 if last_user:
-                    chat_service.auto_title(conversation_id, last_user.get("content", ""))
+                    title_text = last_user.get("content", "")
+                    if isinstance(title_text, str):
+                        # Don't let a playbook invocation marker leak into the title.
+                        title_text = re.sub(r"\[playbook:[a-z0-9-]+\]\s*", "", title_text, count=1)
+                    chat_service.auto_title(conversation_id, title_text)
 
             yield _sse({"type": "conversation_id", "id": conversation_id})
             registry._current_conversation_id = conversation_id
