@@ -132,6 +132,10 @@ def http_env(agent_db, encryption_env, monkeypatch, tmp_path):
     # Per-slug caches would hand a previous test's DB to a same-named agent.
     engine_mod._get_initialized_db.cache_clear()
     engine_mod._get_initialized_memory_db.cache_clear()
+    # test_health's lifespan-never-ran sentinel reads app.state.db_statuses;
+    # keep it self-defending if any future test runs lifespan on the shared app.
+    import main
+    monkeypatch.delattr(main.app.state, "db_statuses", raising=False)
 
     try:
         yield

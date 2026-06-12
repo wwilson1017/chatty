@@ -137,20 +137,28 @@ def test_chat_write_tool_confirm_flow(chat_client, mock_provider, email_tool):
 def test_chat_approved_tool_resume(client, email_tool, monkeypatch):
     # Record what reaches the provider: the engine must reconstruct the
     # approved tool as tool_use/tool_result blocks, not silently drop it.
+    # (Block shapes are the mock's Anthropic-style add_tool_results format —
+    # per-provider wire shapes are each provider's own responsibility.)
     recording = RecordingProvider()
     monkeypatch.setattr("agents.router.get_ai_provider", lambda **kw: recording)
 
     agent = make_agent(client)
-    events = parse_sse(chat(
-        client, agent,
-        tool_mode="normal",
-        approved_tool={
+    # The frontend sends the approval turn as a "[Approved] <tool>" user
+    # message; the engine must strip it and substitute the tool blocks.
+    resp = client.post(f"/api/agents/{agent['id']}/chat", json={
+        "messages": [
+            {"role": "user", "content": "send the email"},
+            {"role": "user", "content": "[Approved] send_email"},
+        ],
+        "tool_mode": "normal",
+        "approved_tool": {
             "tool": "send_email",
             "args": {"to": "a@b.com"},
             "toolUseId": "tu1",
             "result": {"ok": True},
         },
-    ))
+    })
+    events = parse_sse(resp)
     types = [e["type"] for e in events]
     assert "confirm" not in types
     assert "text" in types
@@ -163,6 +171,9 @@ def test_chat_approved_tool_resume(client, email_tool, monkeypatch):
                     for b in m["content"] if b.get("type") == "tool_result"]
     assert any(b["name"] == "send_email" and b["id"] == "tu1" for b in tool_uses)
     assert any(b["tool_use_id"] == "tu1" and '"ok": true' in b["content"] for b in tool_results)
+    # The placeholder must not leak into provider history.
+    assert not [m for m in sent
+                if isinstance(m.get("content"), str) and m["content"].startswith("[Approved]")]
 
 
 def test_tool_execute_approved_write(chat_client, email_tool):

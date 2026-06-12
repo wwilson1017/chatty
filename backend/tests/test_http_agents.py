@@ -115,7 +115,10 @@ def test_context_delete_then_404(client):
 
 def test_context_rejects_bad_filenames(client):
     agent = make_agent(client)
-    # Single-segment names that route but fail _safe_filename → 400, on all verbs.
+    # Single-segment names rejected with 400 on all verbs. The first three
+    # fail _safe_filename directly; back%5Cslash.md relies on Starlette
+    # percent-decoding %5C to a backslash BEFORE validation — it also guards
+    # that decode-then-validate ordering.
     for bad in ("notes.txt", "noextension", "..sneaky.md", "back%5Cslash.md"):
         for method, kwargs in (
             ("GET", {}),
