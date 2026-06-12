@@ -211,7 +211,8 @@ was learned, and record it with your tools. Most conversations teach nothing —
 "No learnings." is the correct outcome more often than not.
 
 ## Decision tree (in preference order)
-1. A playbook was used (read_playbook or "[Playbook activated]") and the procedure hit \
+1. A playbook was used (read_playbook or a "[playbook:...]" marker in a user message) \
+and the procedure hit \
 a problem or the user corrected a step → read_playbook, then save_playbook with the \
 SAME slug, minimally edited.
 2. The user explained or corrected a repeatable business procedure not covered by any \

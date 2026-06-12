@@ -61,6 +61,10 @@ def _safe_slug(slug: str) -> bool:
     return bool(slug) and len(slug) <= MAX_SLUG_CHARS and bool(_SLUG_RE.match(slug))
 
 
+# Public alias for callers outside this module (e.g. router input validation).
+is_safe_slug = _safe_slug
+
+
 def slugify(name: str) -> str:
     slug = re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")
     return slug[:MAX_SLUG_CHARS].strip("-")
@@ -603,7 +607,10 @@ def build_activation_message(agent_slug: str, slug: str, user_text: str) -> str 
     pb = read_playbook(agent_slug, slug, bump=True)
     if not pb or pb["archived"]:
         return None
-    name = pb["meta"]["name"]
+    # Sanitize the name like the body, and strip XML-breaking characters so it
+    # cannot escape the [Playbook activated: ...] line or the name="..." attribute.
+    name = (sanitize_memory_content(pb["meta"]["name"])
+            .replace('<', '').replace('>', '').replace('"', ''))
     body = sanitize_memory_content(pb["body"])
     return (
         f"[Playbook activated: {name}]\n\n"

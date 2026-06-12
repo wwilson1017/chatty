@@ -151,8 +151,8 @@ export function LearningFeed({ apiPrefix, agentName, onAfterRevert }: Props) {
               <button
                 onClick={() => handleRevert(ev)}
                 disabled={reverting === ev.id}
-                onMouseEnter={e => { (e.target as HTMLElement).style.color = '#D97757'; }}
-                onMouseLeave={e => { (e.target as HTMLElement).style.color = 'rgba(237,240,244,0.62)'; }}
+                onMouseEnter={e => { (e.currentTarget as HTMLElement).style.color = '#D97757'; }}
+                onMouseLeave={e => { (e.currentTarget as HTMLElement).style.color = 'rgba(237,240,244,0.62)'; }}
                 style={{
                   background: 'none', border: 'none', color: INK_MUTE,
                   fontSize: 12, cursor: 'pointer', fontFamily: FONT_SANS,

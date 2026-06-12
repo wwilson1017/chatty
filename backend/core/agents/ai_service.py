@@ -1229,7 +1229,7 @@ async def chat(
                                         total_input_tokens, total_output_tokens, chat_start_time)
                     if not training_mode and not plan_mode and not import_mode:
                         from core.agents.playbooks.review import maybe_schedule_review
-                        maybe_schedule_review(config, conversation_id, current_messages,
+                        maybe_schedule_review(config, conversation_id, messages,
                                               accumulated_text, all_tool_calls, iteration)
                     done_event = {"type": "done", "model": model_used}
                     if triage_info:
@@ -1251,7 +1251,7 @@ async def chat(
                                 total_input_tokens, total_output_tokens, chat_start_time)
             if not training_mode and not plan_mode and not import_mode:
                 from core.agents.playbooks.review import maybe_schedule_review
-                maybe_schedule_review(config, conversation_id, current_messages,
+                maybe_schedule_review(config, conversation_id, messages,
                                       accumulated_text, all_tool_calls, iteration)
             done_event = {"type": "done", "model": model_used}
             if triage_info:

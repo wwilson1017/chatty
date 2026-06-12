@@ -107,11 +107,9 @@ async def list_learning_events(
     user: str = Depends(get_current_user),
 ):
     agent = _get_agent_or_404(agent_id)
-    try:
-        events = learning_log.list_events(agent["slug"], limit=limit, offset=offset)
-    except Exception:
-        logger.warning("learning events fetch failed for %s", agent["slug"], exc_info=True)
-        events = []
+    # No try/except: a DB failure should surface as a 500 (the frontend shows a
+    # retryable error), not a convincing-but-wrong empty feed.
+    events = learning_log.list_events(agent["slug"], limit=limit, offset=offset)
     return {"events": events}
 
 
@@ -120,7 +118,11 @@ async def revert_learning_event(
     agent_id: str, event_id: int, user: str = Depends(get_current_user),
 ):
     agent = _get_agent_or_404(agent_id)
-    result = learning_log.revert_event(agent["slug"], event_id)
+    try:
+        result = learning_log.revert_event(agent["slug"], event_id)
+    except Exception:
+        logger.warning("revert failed for %s event %s", agent["slug"], event_id, exc_info=True)
+        raise HTTPException(status_code=500, detail="revert failed")
     if result.get("error"):
         raise HTTPException(status_code=400, detail=result["error"])
     return result

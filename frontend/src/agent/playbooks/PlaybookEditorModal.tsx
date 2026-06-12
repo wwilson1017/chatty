@@ -14,6 +14,8 @@ import {
 import { useIsMobile } from '../../shared/useIsMobile';
 import type { PlaybookDetail, PlaybookWrite } from './types';
 
+// Must match backend slugify (core/agents/playbooks/service.py) — used only for
+// collision preview; the backend re-derives the slug authoritatively.
 function slugify(name: string): string {
   return name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 64);
 }

@@ -101,6 +101,8 @@ def revert_event(agent_slug: str, event_id: int) -> dict:
     elif etype == "playbook_updated":
         if not event["before_content"]:
             return {"error": "no previous version stored for this event"}
+        if (service.archive_dir(agent_slug) / f"{target}.md").exists():
+            return {"error": "playbook is archived — restore it first, then revert"}
         result = service.write_raw(agent_slug, target, event["before_content"])
     elif etype == "playbook_archived":
         result = service.restore_playbook(agent_slug, target)

@@ -67,6 +67,25 @@ def test_revert_updated_restores_before_content(learning_env):
     assert pb_path.read_text(encoding="utf-8") == before_text
 
 
+def test_revert_updated_blocked_while_archived(learning_env):
+    """Reverting an update while the playbook is archived must not create a
+    duplicate active copy alongside the archived one."""
+    svc.save_playbook("test-agent", name="Recap", description="D",
+                      content="original body", origin="user")
+    pb_path = svc.playbooks_dir("test-agent") / "recap.md"
+    before_text = pb_path.read_text(encoding="utf-8")
+
+    svc.save_playbook("test-agent", slug="recap", content="mutated body", origin="user")
+    eid = ll.log_event("test-agent", event_type="playbook_updated", source="review",
+                       target="recap", title="t", before_content=before_text)
+
+    svc.archive_playbook("test-agent", "recap")
+    result = ll.revert_event("test-agent", eid)
+    assert "error" in result
+    assert not pb_path.exists()
+    assert svc.read_playbook("test-agent", "recap")["archived"]
+
+
 def test_revert_archived_restores(learning_env):
     svc.save_playbook("test-agent", name="Old", description="D", content="b", origin="user")
     svc.archive_playbook("test-agent", "old")

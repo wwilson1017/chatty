@@ -108,6 +108,24 @@ def _safe_filename(filename: str) -> bool:
     return True
 
 
+def _build_playbook_expansion(agent_slug: str, messages: list, playbook_slug: str) -> str | None:
+    """Expand a playbook invocation (chip / slash command) into the provider-bound
+    activation message. Persisted history keeps the compact [playbook:slug] marker."""
+    from core.agents.playbooks.service import build_activation_message, is_safe_slug
+    if not is_safe_slug(playbook_slug):
+        raise HTTPException(status_code=400, detail="invalid playbook_slug")
+    last_user = next((m for m in reversed(messages) if m.get("role") == "user"), None)
+    raw = last_user.get("content", "") if last_user else ""
+    user_text = raw if isinstance(raw, str) else ""
+    # Unanchored on purpose: the upload path prepends attached-file text before
+    # the marker. count=1 strips only the invocation marker itself.
+    user_text = re.sub(r"\[playbook:[a-z0-9-]+\]\s*", "", user_text, count=1)
+    expansion = build_activation_message(agent_slug, playbook_slug, user_text)
+    if expansion is None:
+        logger.warning("playbook %r not found for chat invocation", playbook_slug)
+    return expansion
+
+
 # ── Request models ────────────────────────────────────────────────────────────
 
 class CreateAgentRequest(BaseModel):
@@ -627,18 +645,11 @@ async def agent_chat(agent_id: str, req: ChatRequest, user=Depends(get_current_u
         tool_mode = "power"
 
     # Playbook invocation (chip / slash command): expand the playbook into the
-    # provider-bound message for this turn. Persisted history keeps the compact
-    # [playbook:slug] marker the frontend sent.
+    # provider-bound message for this turn.
     playbook_expansion = None
     if req.playbook_slug:
-        from core.agents.playbooks.service import build_activation_message
-        last_user = next((m for m in reversed(req.messages) if m.get("role") == "user"), None)
-        raw = last_user.get("content", "") if last_user else ""
-        user_text = raw if isinstance(raw, str) else ""
-        user_text = re.sub(r"^\[playbook:[a-z0-9-]+\]\s*", "", user_text)
-        playbook_expansion = build_activation_message(agent["slug"], req.playbook_slug, user_text)
-        if playbook_expansion is None:
-            logger.warning("playbook %r not found for chat invocation", req.playbook_slug)
+        playbook_expansion = _build_playbook_expansion(
+            agent["slug"], req.messages, req.playbook_slug)
 
     return _stream_chat(agent, req.messages, req.training_mode, req.conversation_id,
                         training_type=req.training_type, plan_mode=req.plan_mode,
@@ -967,14 +978,8 @@ async def agent_chat_upload(
     # inside the activation message's "User request" section.
     playbook_expansion = None
     if body.get("playbook_slug"):
-        from core.agents.playbooks.service import build_activation_message
-        last_user = next((m for m in reversed(messages) if m.get("role") == "user"), None)
-        raw = last_user.get("content", "") if last_user else ""
-        user_text = raw if isinstance(raw, str) else ""
-        user_text = re.sub(r"\[playbook:[a-z0-9-]+\]\s*", "", user_text, count=1)
-        playbook_expansion = build_activation_message(agent["slug"], body["playbook_slug"], user_text)
-        if playbook_expansion is None:
-            logger.warning("playbook %r not found for chat invocation", body["playbook_slug"])
+        playbook_expansion = _build_playbook_expansion(
+            agent["slug"], messages, body["playbook_slug"])
 
     return _stream_chat(
         agent, messages, body.get("training_mode", False), body.get("conversation_id"),

@@ -49,18 +49,16 @@ export function usePlaybooks(apiPrefix: string) {
   }, [apiPrefix, reload]);
 
   const remove = useCallback(async (slug: string) => {
-    const prev = playbooks;
     setPlaybooks(p => p.filter(pb => pb.slug !== slug));
     try {
       await api(`${apiPrefix}/playbooks/${slug}`, { method: 'DELETE' });
     } catch (err) {
-      setPlaybooks(prev);
+      await reload();
       throw err;
     }
-  }, [apiPrefix, playbooks]);
+  }, [apiPrefix, reload]);
 
   const toggleChip = useCallback(async (slug: string, chip: boolean) => {
-    const prev = playbooks;
     setPlaybooks(p => p.map(pb => (pb.slug === slug ? { ...pb, chip } : pb)));
     try {
       await api(`${apiPrefix}/playbooks/${slug}`, {
@@ -68,10 +66,10 @@ export function usePlaybooks(apiPrefix: string) {
         body: JSON.stringify({ chip }),
       });
     } catch (err) {
-      setPlaybooks(prev);
+      await reload();
       throw err;
     }
-  }, [apiPrefix, playbooks]);
+  }, [apiPrefix, reload]);
 
   const restore = useCallback(async (slug: string) => {
     await api(`${apiPrefix}/playbooks/${slug}/restore`, { method: 'POST' });

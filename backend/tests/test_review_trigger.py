@@ -1,5 +1,7 @@
 """Tests for the background review trigger, transcript serializer, and registry."""
 
+import types
+
 import pytest
 
 import core.agents.playbooks.review as review
@@ -43,6 +45,48 @@ class TestShouldReview:
                                         now=now + review.REVIEW_AGENT_COOLDOWN_S - 1)
         assert review.should_review(5, 5, "a", "c2",
                                     now=now + review.REVIEW_AGENT_COOLDOWN_S + 1)
+
+
+class TestMaybeScheduleReview:
+    @pytest.fixture
+    def config(self):
+        return types.SimpleNamespace(
+            slug="test-agent", context_dir="/tmp", gcs_prefix="", agent_name="T")
+
+    @pytest.fixture
+    def scheduled(self, monkeypatch):
+        """Stub transcript serialization and ensure_future; capture scheduled coros."""
+        calls = []
+        monkeypatch.setattr(review, "serialize_transcript", lambda *a, **k: "t")
+
+        def fake_ensure_future(coro):
+            calls.append(coro)
+            coro.close()  # never awaited — close to silence the warning
+
+        monkeypatch.setattr(review.asyncio, "ensure_future", fake_ensure_future)
+        return calls
+
+    def test_schedules_on_enough_tool_calls(self, config, scheduled):
+        tool_calls = [{"tool": f"t{i}"} for i in range(5)]
+        assert review.maybe_schedule_review(config, "c1", [], "text", tool_calls, 1) is True
+        assert len(scheduled) == 1
+
+    def test_find_tools_calls_excluded(self, config, scheduled):
+        tool_calls = [{"tool": "find_tools"}] * 3 + [{"tool": "real"}] * 2
+        assert review.maybe_schedule_review(config, "c1", [], "text", tool_calls, 1) is False
+        assert not scheduled
+
+    def test_cooldown_blocks_second_call(self, config, scheduled):
+        tool_calls = [{"tool": f"t{i}"} for i in range(5)]
+        assert review.maybe_schedule_review(config, "c1", [], "", tool_calls, 1) is True
+        assert review.maybe_schedule_review(config, "c1", [], "", tool_calls, 1) is False
+        assert len(scheduled) == 1
+
+    def test_debounce_state_updated(self, config, scheduled):
+        tool_calls = [{"tool": f"t{i}"} for i in range(5)]
+        assert review.maybe_schedule_review(config, "c2", [], "", tool_calls, 1) is True
+        assert ("test-agent", "c2") in review._last_review_by_conversation
+        assert "test-agent" in review._last_review_by_agent
 
 
 class TestSerializeTranscript:
