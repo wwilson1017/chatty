@@ -155,18 +155,18 @@ class TestDueCommitments:
         due = svc.due_commitments(mem_db, "agent-a", today="2026-06-12", cap=3)
         assert len(due) == 3
 
-    def test_surfaced_today_counts_against_cap(self, mem_db):
+    def test_recently_surfaced_counts_against_cap(self, mem_db):
         for i in range(4):
             svc.add_commitment(mem_db, "agent-a", f"Overdue item number {i}", due_at="2026-06-01")
         first = svc.due_commitments(mem_db, "agent-a", today="2026-06-12", cap=3)
         svc.mark_surfaced(mem_db, "agent-a", [c["id"] for c in first])
-        # A second heartbeat the same day gets nothing — the daily budget is spent.
+        # A second heartbeat within the rolling 24h window gets nothing — budget spent.
         assert svc.due_commitments(mem_db, "agent-a", today="2026-06-12", cap=3) == []
 
-    def test_surfaced_yesterday_eligible_again(self, mem_db):
+    def test_surfaced_over_a_day_ago_eligible_again(self, mem_db):
         row = svc.add_commitment(mem_db, "agent-a", "Still waiting on the vendor", due_at="2026-06-01")
         svc.mark_surfaced(mem_db, "agent-a", [row["id"]])
-        _backdate(mem_db, row["id"], 1, column="last_surfaced_at")
+        _backdate(mem_db, row["id"], 2, column="last_surfaced_at")
         due = svc.due_commitments(mem_db, "agent-a", today="2026-06-12", cap=3)
         assert len(due) == 1
 

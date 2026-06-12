@@ -187,29 +187,28 @@ def due_commitments(
     """Active commitments worth surfacing now, respecting the daily cap.
 
     A commitment is due when its due_at has arrived, or it has no due date and
-    is at least 3 days old.  Already-surfaced-today commitments are excluded,
-    and the result is limited to the cap minus today's surfacing count — so
-    multiple heartbeats in one day never exceed the cap.
+    is at least 3 days old.  The cap is a rolling 24-hour budget: commitments
+    surfaced within the last day are excluded and count against the cap — so
+    multiple heartbeats never exceed it, regardless of timezone or calendar-day
+    boundaries.
     """
     today = today or datetime.now(CT_TZ).strftime("%Y-%m-%d")
     cap = max(0, int(cap))
     conn = memory_db.get_db()
 
-    # Surfacing bookkeeping uses SQLite's UTC clock consistently (last_surfaced_at
-    # is written with datetime('now')), so the daily budget compares UTC dates.
-    surfaced_today = conn.execute(
+    surfaced_last_day = conn.execute(
         "SELECT COUNT(*) FROM commitments "
-        "WHERE agent_slug = ? AND date(last_surfaced_at) = date('now')",
+        "WHERE agent_slug = ? AND last_surfaced_at >= datetime('now', '-1 day')",
         (agent_slug,),
     ).fetchone()[0]
-    remaining = cap - surfaced_today
+    remaining = cap - surfaced_last_day
     if remaining <= 0:
         return []
 
     rows = conn.execute(
         """SELECT * FROM commitments
            WHERE agent_slug = ? AND status = 'active'
-             AND (last_surfaced_at IS NULL OR date(last_surfaced_at) < date('now'))
+             AND (last_surfaced_at IS NULL OR last_surfaced_at < datetime('now', '-1 day'))
              AND ((due_at IS NOT NULL AND due_at <= ?)
                   OR (due_at IS NULL AND created_at <= datetime('now', '-3 days')))
            ORDER BY (due_at IS NULL), due_at, created_at
