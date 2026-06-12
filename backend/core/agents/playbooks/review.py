@@ -130,6 +130,12 @@ def maybe_schedule_review(config, conversation_id: str | None, messages: list,
         if not should_review(len(real_tool_calls), iterations, config.slug, conversation_id):
             return False
         now = time.time()
+        # Entries past the debounce window are dead weight — prune so the
+        # dict can't grow unbounded in a long-running server.
+        if len(_last_review_by_conversation) > 1000:
+            cutoff = now - REVIEW_CONVERSATION_DEBOUNCE_S
+            for key in [k for k, ts in _last_review_by_conversation.items() if ts < cutoff]:
+                del _last_review_by_conversation[key]
         _last_review_by_conversation[(config.slug, conversation_id or "")] = now
         _last_review_by_agent[config.slug] = now
         transcript = serialize_transcript(messages, all_tool_calls, accumulated_text)

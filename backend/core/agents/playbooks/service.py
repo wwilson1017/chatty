@@ -8,6 +8,7 @@ same approach as core/agents/tools/real_tools.py).
 import json
 import logging
 import re
+import threading
 from datetime import datetime
 from pathlib import Path
 
@@ -171,6 +172,11 @@ def integrations_available(required: list[str]) -> tuple[bool, list[str]]:
 # Usage telemetry (_usage.json)
 # ---------------------------------------------------------------------------
 
+# Guards the read-modify-write cycle on _usage.json (chat event loop,
+# heartbeat thread pool, and review fork can all bump concurrently).
+_usage_lock = threading.Lock()
+
+
 def _load_usage(agent_slug: str) -> dict:
     path = playbooks_dir(agent_slug) / USAGE_FILENAME
     if not path.exists():
@@ -184,25 +190,32 @@ def _load_usage(agent_slug: str) -> dict:
 def _save_usage(agent_slug: str, usage: dict) -> None:
     pb_dir = playbooks_dir(agent_slug)
     pb_dir.mkdir(parents=True, exist_ok=True)
-    atomic_write_json(pb_dir / USAGE_FILENAME, usage)
+    path = pb_dir / USAGE_FILENAME
+    atomic_write_json(path, usage)
+    try:
+        upload_config(path, USAGE_FILENAME, prefix=gcs_prefix(agent_slug))
+    except Exception:
+        logger.warning("GCS upload failed for %s usage file", agent_slug, exc_info=True)
 
 
 def bump_usage(agent_slug: str, slug: str) -> None:
     try:
-        usage = _load_usage(agent_slug)
-        entry = usage.setdefault(slug, {"use_count": 0, "last_used_at": None})
-        entry["use_count"] = int(entry.get("use_count", 0)) + 1
-        entry["last_used_at"] = _now_iso()
-        _save_usage(agent_slug, usage)
+        with _usage_lock:
+            usage = _load_usage(agent_slug)
+            entry = usage.setdefault(slug, {"use_count": 0, "last_used_at": None})
+            entry["use_count"] = int(entry.get("use_count", 0)) + 1
+            entry["last_used_at"] = _now_iso()
+            _save_usage(agent_slug, usage)
     except Exception:
         logger.warning("usage bump failed for %s/%s", agent_slug, slug, exc_info=True)
 
 
 def seed_usage(agent_slug: str, slug: str, use_count: int) -> None:
     """Seed telemetry for a migrated playbook."""
-    usage = _load_usage(agent_slug)
-    usage[slug] = {"use_count": int(use_count), "last_used_at": None}
-    _save_usage(agent_slug, usage)
+    with _usage_lock:
+        usage = _load_usage(agent_slug)
+        usage[slug] = {"use_count": int(use_count), "last_used_at": None}
+        _save_usage(agent_slug, usage)
 
 
 # ---------------------------------------------------------------------------

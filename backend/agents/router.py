@@ -118,8 +118,9 @@ def _build_playbook_expansion(agent_slug: str, messages: list, playbook_slug: st
     raw = last_user.get("content", "") if last_user else ""
     user_text = raw if isinstance(raw, str) else ""
     # Unanchored on purpose: the upload path prepends attached-file text before
-    # the marker. count=1 strips only the invocation marker itself.
-    user_text = re.sub(r"\[playbook:[a-z0-9-]+\]\s*", "", user_text, count=1)
+    # the marker. Targets the invoked slug specifically so user text that
+    # happens to mention another [playbook:...] marker is left intact.
+    user_text = re.sub(rf"\[playbook:{re.escape(playbook_slug)}\]\s*", "", user_text, count=1)
     expansion = build_activation_message(agent_slug, playbook_slug, user_text)
     if expansion is None:
         # Fail loudly: proceeding without the expansion would show the playbook

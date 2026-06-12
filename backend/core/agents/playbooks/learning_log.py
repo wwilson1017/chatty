@@ -90,38 +90,49 @@ def revert_event(agent_slug: str, event_id: int) -> dict:
     if not row:
         return {"error": "learning event not found"}
     event = dict(row)
-    if event["reverted_at"]:
-        return {"error": "event already reverted"}
 
     etype = event["event_type"]
     target = event["target"]
+    if etype == "blocked_injection":
+        return {"error": "nothing to revert — this write was already blocked"}
+    if etype not in EVENT_TYPES:
+        return {"error": f"cannot revert event type: {etype}"}
+
+    # Claim the event atomically before acting so a double-click can't run
+    # the revert action twice; released again below if the action fails.
+    with db.write_lock:
+        cursor = conn.execute(
+            "UPDATE learning_events SET reverted_at = datetime('now') "
+            "WHERE id = ? AND reverted_at IS NULL",
+            (event_id,),
+        )
+        conn.commit()
+    if cursor.rowcount == 0:
+        return {"error": "event already reverted"}
 
     if etype == "playbook_created":
         result = service.archive_playbook(agent_slug, target, origin="user")
     elif etype == "playbook_updated":
         if not event["before_content"]:
-            return {"error": "no previous version stored for this event"}
-        if (service.archive_dir(agent_slug) / f"{target}.md").exists():
-            return {"error": "playbook is archived — restore it first, then revert"}
-        result = service.write_raw(agent_slug, target, event["before_content"])
+            result = {"error": "no previous version stored for this event"}
+        elif (service.archive_dir(agent_slug) / f"{target}.md").exists():
+            result = {"error": "playbook is archived — restore it first, then revert"}
+        else:
+            result = service.write_raw(agent_slug, target, event["before_content"])
     elif etype == "playbook_archived":
         result = service.restore_playbook(agent_slug, target)
-    elif etype == "fact_added":
+    else:  # fact_added
         result = _delete_fact(db, target)
-    elif etype == "blocked_injection":
-        return {"error": "nothing to revert — this write was already blocked"}
-    else:
-        return {"error": f"cannot revert event type: {etype}"}
 
     if result.get("error"):
+        with db.write_lock:
+            conn.execute(
+                "UPDATE learning_events SET reverted_at = NULL WHERE id = ?",
+                (event_id,),
+            )
+            conn.commit()
         return result
 
-    with db.write_lock:
-        conn.execute(
-            "UPDATE learning_events SET reverted_at = datetime('now') WHERE id = ?",
-            (event_id,),
-        )
-        conn.commit()
     return {"id": event_id, "reverted": True}
 
 
