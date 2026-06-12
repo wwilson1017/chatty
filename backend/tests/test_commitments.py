@@ -244,6 +244,19 @@ class TestExpireStale:
         assert svc.expire_stale(mem_db, "agent-a") == 0
         assert svc.get_commitment(mem_db, "agent-a", row["id"])["status"] == "done"
 
+    def test_far_future_due_date_expires_via_age_backstop(self, mem_db):
+        # A hallucinated due date decades out must not make the commitment
+        # immortal — the 60-day created_at backstop catches it.
+        row = svc.add_commitment(mem_db, "agent-a", "Vendor will deliver someday", due_at="2099-01-01")
+        _backdate(mem_db, row["id"], 61)
+        assert svc.expire_stale(mem_db, "agent-a") == 1
+        assert svc.get_commitment(mem_db, "agent-a", row["id"])["status"] == "expired"
+
+    def test_future_due_date_under_backstop_kept(self, mem_db):
+        row = svc.add_commitment(mem_db, "agent-a", "Vendor delivers next month", due_at="2099-01-01")
+        _backdate(mem_db, row["id"], 30)
+        assert svc.expire_stale(mem_db, "agent-a") == 0
+
     def test_expire_scoped_to_agent(self, mem_db):
         a = svc.add_commitment(mem_db, "agent-a", "Stale undated commitment A")
         b = svc.add_commitment(mem_db, "agent-b", "Stale undated commitment B")

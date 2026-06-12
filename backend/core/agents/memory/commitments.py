@@ -250,12 +250,15 @@ def mark_surfaced(memory_db, agent_slug: str, commitment_ids: list[int]) -> None
 
 def expire_stale(memory_db, agent_slug: str) -> int:
     """Expire active commitments past due_at + 7 days, or created 14+ days ago
-    with no due date.  Returns the number expired.
+    with no due date, or — regardless of due date — created 60+ days ago, so a
+    hallucinated far-future due_at can't make a commitment immortal (a follow-up
+    with a months-out horizon is reminder territory anyway).  Returns the number
+    expired.
 
     The dated cutoff is computed against the Central-Time calendar — due_at
     carries CT date semantics everywhere (due_commitments compares it against
-    a CT "today").  The undated rule stays on SQLite's UTC rolling interval,
-    since created_at is stored UTC and that comparison is timezone-free.
+    a CT "today").  The created_at rules stay on SQLite's UTC rolling interval,
+    since created_at is stored UTC and those comparisons are timezone-free.
     """
     cutoff = (datetime.now(CT_TZ) - timedelta(days=7)).strftime("%Y-%m-%d")
     conn = memory_db.get_db()
@@ -264,7 +267,8 @@ def expire_stale(memory_db, agent_slug: str) -> int:
             """UPDATE commitments SET status = 'expired'
                WHERE agent_slug = ? AND status = 'active'
                  AND ((due_at IS NOT NULL AND due_at < ?)
-                      OR (due_at IS NULL AND created_at < datetime('now', '-14 days')))""",
+                      OR (due_at IS NULL AND created_at < datetime('now', '-14 days'))
+                      OR created_at < datetime('now', '-60 days'))""",
             (agent_slug, cutoff),
         )
         conn.commit()
@@ -541,7 +545,9 @@ def complete_commitment_tool(data_dir: str, gcs_prefix: str, agent_slug: str, re
         if not target:
             return {"error": f"No commitment with id {ref}"}
     else:
-        actives = list_commitments(memory_db, agent_slug, status="active")
+        # Max limit, not the default 100 — expiry bounds the active set well
+        # below this, and a truncated lookup would miss older matches.
+        actives = list_commitments(memory_db, agent_slug, status="active", limit=500)
         matches = [c for c in actives if ref.lower() in c["text"].lower()]
         if not matches:
             return {"error": f"No active commitment matching '{ref}'"}
