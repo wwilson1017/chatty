@@ -127,7 +127,7 @@ def test_chat_write_tool_confirm_flow(chat_client, mock_provider, email_tool):
     assert confirm["args"] == {"to": "a@b.com", "subject": "hi", "body": "test"}
     assert confirm["description"] == "Send an email"
     # The frontend spinner keys off tool_start arriving before the confirm.
-    assert "tool_start" in types
+    assert types.index("tool_start") < types.index("confirm")
     # Confirmation means no execution: no tool_end, stub untouched.
     assert "tool_end" not in types
     assert email_tool == []

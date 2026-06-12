@@ -105,7 +105,7 @@ SWEEP_ALLOWLIST = {
     ("POST", "/api/login/verify-2fa"),          # pending-token + TOTP auth
     ("GET", "/api/health"),                     # public health
     ("GET", "/api/health/live"),                # liveness probe
-    ("POST", "/api/telegram/webhook/{agent_slug}"),  # secret-token header auth
+    ("POST", "/api/telegram/webhook/{agent_slug}"),  # secret-token header auth; invalid secrets get 200 by design (stops Telegram retries)
     ("GET", "/api/oauth/callback"),             # OAuth provider redirect — no JWT possible
     ("GET", "/api/branding/logo"),              # served in <img>/CSS tags
     ("POST", "/api/messaging/whatsapp/webhook"),  # Baileys sidecar, X-Api-Key auth
@@ -139,3 +139,33 @@ def test_route_rejects_unauthenticated(anon_client, method, path):
     url = re.sub(r"\{[^}]+\}", "x", path)
     resp = anon_client.request(method, url)
     assert resp.status_code == 401, f"{method} {path} returned {resp.status_code}"
+
+
+def test_no_sub_app_mounts_under_api():
+    """The sweep can't see inside Mount sub-apps, so none may live under /api."""
+    from starlette.routing import Mount
+
+    mounts = [r for r in main.app.routes if isinstance(r, Mount)]
+    assert not [m.path for m in mounts if m.path.startswith("/api")]
+
+
+# ── Webhook auth (allowlisted non-JWT routes) ─────────────────────────────────
+
+def test_paperclip_heartbeat_closed_when_unconfigured(anon_client):
+    # No webhook secret in the (tmp, empty) registry → closed by default.
+    resp = anon_client.post(
+        "/api/integrations/paperclip/heartbeat", json={"agentId": "x"}
+    )
+    assert resp.status_code == 403
+
+
+def test_whatsapp_webhook_rejects_bad_api_key(anon_client, monkeypatch):
+    from core.config import settings
+
+    monkeypatch.setattr(settings.whatsapp, "webhook_secret", "wh-secret")
+    missing = anon_client.post("/api/messaging/whatsapp/webhook", json={})
+    assert missing.status_code == 401
+    wrong = anon_client.post(
+        "/api/messaging/whatsapp/webhook", json={}, headers={"X-Api-Key": "nope"}
+    )
+    assert wrong.status_code == 401
