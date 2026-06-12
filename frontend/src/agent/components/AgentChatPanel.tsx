@@ -166,7 +166,8 @@ export function AgentChatPanel({
     [activePlaybooks, slashQuery],
   );
 
-  useEffect(() => { setSlashIndex(0); }, [slashQuery]);
+  // The highlight resets where the query changes (typing / opening the menu),
+  // not via an effect — react-hooks/set-state-in-effect.
 
   function stagePlaybook(p: PlaybookSummary) {
     if (!p.available) {
@@ -233,6 +234,7 @@ export function AgentChatPanel({
 
   function autoResize(e: React.ChangeEvent<HTMLTextAreaElement>) {
     setInput(e.target.value);
+    setSlashIndex(0); // typing changes the slash query — reset the highlight
     e.target.style.height = 'auto';
     e.target.style.height = Math.min(e.target.scrollHeight, 200) + 'px';
   }
@@ -268,7 +270,7 @@ export function AgentChatPanel({
             playbooks={chipPlaybooks}
             disabled={!!isStreaming}
             onInvoke={stagePlaybook}
-            onOverflow={() => { setInput('/'); textareaRef.current?.focus(); }}
+            onOverflow={() => { setInput('/'); setSlashIndex(0); textareaRef.current?.focus(); }}
           />
         )}
 
