@@ -631,6 +631,8 @@ def build_activation_message(agent_slug: str, slug: str, user_text: str) -> str 
     name = (sanitize_memory_content(pb["meta"]["name"])
             .replace('<', '').replace('>', '').replace('"', ''))
     body = sanitize_memory_content(pb["body"])
+    # A literal closing tag inside the body would end the wrapper early.
+    body = body.replace("</playbook", "<\\/playbook")
     return (
         f"[Playbook activated: {name}]\n\n"
         f"The user invoked this playbook — follow its procedure now.\n\n"

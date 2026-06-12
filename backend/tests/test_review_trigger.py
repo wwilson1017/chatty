@@ -59,12 +59,18 @@ class TestMaybeScheduleReview:
         calls = []
         monkeypatch.setattr(review, "serialize_transcript", lambda *a, **k: "t")
 
+        class _FakeTask:
+            def add_done_callback(self, cb):
+                pass
+
         def fake_ensure_future(coro):
             calls.append(coro)
             coro.close()  # never awaited — close to silence the warning
+            return _FakeTask()
 
         monkeypatch.setattr(review.asyncio, "ensure_future", fake_ensure_future)
-        return calls
+        yield calls
+        review._review_tasks.clear()
 
     def test_schedules_on_enough_tool_calls(self, config, scheduled):
         tool_calls = [{"tool": f"t{i}"} for i in range(5)]

@@ -649,6 +649,7 @@ def _playbook_instructions() -> str:
 Playbooks store HOW this business does things — procedures, not facts.
 
 - Before a multi-step business task, check your playbook index and call `read_playbook(slug)` if one applies. Follow it rather than improvising.
+- A `[playbook:slug]` marker in an earlier user message means that playbook was invoked for this conversation. If you are continuing that procedure and its steps are no longer in your context, call `read_playbook(slug)` again before proceeding — don't work from memory.
 - When the user explains a repeatable procedure ("here's how we handle X") or asks you to remember a process, save it with `save_playbook`.
 - When a procedure you followed didn't work and the user corrected you, update that playbook with `save_playbook(slug=...)` so next time goes right.
 - Facts ("the Smith account is net-30") belong in memory; procedures ("how we chase overdue invoices") belong in playbooks."""

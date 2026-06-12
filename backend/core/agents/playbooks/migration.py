@@ -7,6 +7,7 @@ no user data is lost. The old table is left in place as a safety net.
 """
 
 import logging
+import re
 import sqlite3
 from pathlib import Path
 
@@ -75,6 +76,10 @@ def migrate_agent(agent_dir: Path) -> int:
         prompt = (row.get("prompt") or "").strip()
         if not name or not prompt:
             continue
+        # Skill packs used {{param}} placeholders; the prompt-injection
+        # sanitizer redacts {{...}} at read time, so convert them to a
+        # bracket form that survives sanitization ("about [topic]").
+        prompt = re.sub(r"\{\{\s*(\w+)\s*\}\}", r"[\1]", prompt)
         description = (row.get("description") or "").strip() or f"Migrated skill pack: {name}"
         body_parts = ["*(Migrated from a skill pack.)*", ""]
         if row.get("category"):

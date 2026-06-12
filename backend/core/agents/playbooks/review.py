@@ -36,6 +36,10 @@ REVIEW_MEMORY_TOOL_NAMES = {"add_fact", "query_facts", "search_memory", "read_me
 _last_review_by_conversation: dict[tuple[str, str], float] = {}
 _last_review_by_agent: dict[str, float] = {}
 
+# Keep strong references to in-flight review tasks — a bare ensure_future
+# result can be garbage-collected mid-execution, silently dropping the review.
+_review_tasks: set = set()
+
 
 def _review_tool_defs() -> list[dict]:
     from core.agents.tool_definitions import MEMORY_TOOLS, PLAYBOOK_TOOLS
@@ -139,7 +143,9 @@ def maybe_schedule_review(config, conversation_id: str | None, messages: list,
         _last_review_by_conversation[(config.slug, conversation_id or "")] = now
         _last_review_by_agent[config.slug] = now
         transcript = serialize_transcript(messages, all_tool_calls, accumulated_text)
-        asyncio.ensure_future(_run_review(config, conversation_id, transcript))
+        task = asyncio.ensure_future(_run_review(config, conversation_id, transcript))
+        _review_tasks.add(task)
+        task.add_done_callback(_review_tasks.discard)
         return True
     except Exception:
         logger.warning("review scheduling failed for %s", getattr(config, "slug", "?"), exc_info=True)

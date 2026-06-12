@@ -68,6 +68,12 @@ def test_migrates_rows_to_files(migration_env):
     assert "## Procedure" in weekly["body"]
     assert "analysis" in weekly["body"]
 
+    # {{param}} placeholders become [param] so the injection sanitizer
+    # (which redacts {{...}} at read time) can't corrupt migrated content.
+    email = svc.read_playbook("test-agent", "email-draft")
+    assert "[topic]" in email["body"]
+    assert "{{topic}}" not in email["body"]
+
     # usage_count seeded into telemetry
     by_slug = {r["slug"]: r for r in rows}
     assert by_slug["weekly-report"]["use_count"] == 7

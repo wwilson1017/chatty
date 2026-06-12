@@ -636,7 +636,8 @@ export function AgentChatPanel({
                   : msg;
                 // Playbook invocation marker → strip from display, surface as a pill.
                 // History reloads lack .playbook, so resolve the name from the list.
-                const pbMatch = displayMsg.role === 'user' ? displayMsg.content.match(/^\[playbook:([a-z0-9-]+)\]\s*/) : null;
+                // Unanchored: the upload path persists attached-file text before the marker.
+                const pbMatch = displayMsg.role === 'user' ? displayMsg.content.match(/\[playbook:([a-z0-9-]+)\]\s*/) : null;
                 if (pbMatch) {
                   const slug = pbMatch[1];
                   const known = displayMsg.playbook
