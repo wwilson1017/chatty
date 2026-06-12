@@ -137,9 +137,14 @@ class ToolRegistry:
                 return self._execute_context(tool_name, tool_args)
             elif kind == "memory":
                 return await self._execute_memory(tool_name, tool_args)
-            elif kind == "skill":
-                from core.agents.skills.tools import execute_skill_tool
-                return await execute_skill_tool(tool_name, tool_args, self.context_dir)
+            elif kind == "playbook":
+                from core.agents.playbooks.tools import execute_playbook_tool
+                return await execute_playbook_tool(
+                    tool_name, tool_args,
+                    agent_slug=self.agent_slug,
+                    conversation_id=self._current_conversation_id,
+                    origin=getattr(self, "_playbook_origin", "agent"),
+                )
             elif kind == "shared_context":
                 return self._execute_shared_context(tool_name, tool_args)
             elif kind == "gmail":

@@ -60,6 +60,28 @@ class TestGoogleFlagGating:
         assert "send_email" not in names
 
 
+class TestPlaybookTools:
+    def test_playbook_tools_present(self):
+        names = _tool_names(get_tool_definitions())
+        assert {"list_playbooks", "read_playbook", "save_playbook", "archive_playbook"} <= names
+
+    def test_skill_tools_removed(self):
+        names = _tool_names(get_tool_definitions())
+        assert not {"list_skills", "run_skill", "save_skill", "delete_skill"} & names
+
+    def test_playbook_writes_are_context_memory(self):
+        defs = get_tool_definitions()
+        writes = build_writes_map(defs)
+        cm = build_context_memory_map(defs)
+        assert writes["save_playbook"] and cm["save_playbook"]
+        assert writes["archive_playbook"] and cm["archive_playbook"]
+        assert not writes["read_playbook"]
+
+    def test_disabled_with_memory(self):
+        names = _tool_names(get_tool_definitions(memory_enabled=False))
+        assert "read_playbook" not in names
+
+
 class TestFeatureFlags:
     def test_disabling_web_removes_tools(self):
         names = _tool_names(get_tool_definitions(web_enabled=False))

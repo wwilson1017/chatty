@@ -25,6 +25,7 @@ Per-agent (chat, context, conversations):
 
 import io
 import json as _json_mod
+import re
 import shutil
 import logging
 from pathlib import Path
@@ -141,6 +142,7 @@ class ChatRequest(BaseModel):
     plan_mode: bool = False
     tool_mode: str = "normal"
     approved_tool: dict | None = None
+    playbook_slug: str | None = None
 
 
 class ToolExecuteRequest(BaseModel):
@@ -458,7 +460,8 @@ async def get_avatar(agent_id: str, user=Depends(get_current_user)):
 def _stream_chat(agent: dict, messages: list, training_mode: bool, conversation_id: str | None,
                   training_type: str | None = None, plan_mode: bool = False,
                   tool_mode: str = "normal", approved_tool: dict | None = None,
-                  import_mode: bool = False, has_attachments: bool = False):
+                  import_mode: bool = False, has_attachments: bool = False,
+                  playbook_expansion: str | None = None):
     """Build provider, registry, and return a StreamingResponse for agent chat."""
     config = build_agent_config(agent)
     ctx_manager = get_context_manager(agent["slug"])
@@ -591,6 +594,7 @@ def _stream_chat(agent: dict, messages: list, training_mode: bool, conversation_
             approved_tool=approved_tool,
             integration_tool_modes=integration_tool_modes,
             triage_info=triage_info,
+            playbook_expansion=playbook_expansion,
         ):
             yield event
 
@@ -622,10 +626,24 @@ async def agent_chat(agent_id: str, req: ChatRequest, user=Depends(get_current_u
     if load_admin_settings().get("always_power_mode"):
         tool_mode = "power"
 
+    # Playbook invocation (chip / slash command): expand the playbook into the
+    # provider-bound message for this turn. Persisted history keeps the compact
+    # [playbook:slug] marker the frontend sent.
+    playbook_expansion = None
+    if req.playbook_slug:
+        from core.agents.playbooks.service import build_activation_message
+        last_user = next((m for m in reversed(req.messages) if m.get("role") == "user"), None)
+        raw = last_user.get("content", "") if last_user else ""
+        user_text = raw if isinstance(raw, str) else ""
+        user_text = re.sub(r"^\[playbook:[a-z0-9-]+\]\s*", "", user_text)
+        playbook_expansion = build_activation_message(agent["slug"], req.playbook_slug, user_text)
+        if playbook_expansion is None:
+            logger.warning("playbook %r not found for chat invocation", req.playbook_slug)
+
     return _stream_chat(agent, req.messages, req.training_mode, req.conversation_id,
                         training_type=req.training_type, plan_mode=req.plan_mode,
                         tool_mode=tool_mode, approved_tool=req.approved_tool,
-                        import_mode=import_mode)
+                        import_mode=import_mode, playbook_expansion=playbook_expansion)
 
 
 # ── Per-agent: Plan mode approve/iterate ──────────────────────────────────────
@@ -945,11 +963,25 @@ async def agent_chat_upload(
         prefix = "\n\n".join(file_texts)
         last_msg["content"] = prefix + "\n\n" + (last_msg.get("content") or "")
 
+    # Playbook invocation: expand after file prepending so attachments land
+    # inside the activation message's "User request" section.
+    playbook_expansion = None
+    if body.get("playbook_slug"):
+        from core.agents.playbooks.service import build_activation_message
+        last_user = next((m for m in reversed(messages) if m.get("role") == "user"), None)
+        raw = last_user.get("content", "") if last_user else ""
+        user_text = raw if isinstance(raw, str) else ""
+        user_text = re.sub(r"\[playbook:[a-z0-9-]+\]\s*", "", user_text, count=1)
+        playbook_expansion = build_activation_message(agent["slug"], body["playbook_slug"], user_text)
+        if playbook_expansion is None:
+            logger.warning("playbook %r not found for chat invocation", body["playbook_slug"])
+
     return _stream_chat(
         agent, messages, body.get("training_mode", False), body.get("conversation_id"),
         training_type=body.get("training_type"), plan_mode=body.get("plan_mode", False),
         tool_mode=body.get("tool_mode", "normal"), approved_tool=body.get("approved_tool"),
         import_mode=import_mode, has_attachments=bool(files),
+        playbook_expansion=playbook_expansion,
     )
 
 

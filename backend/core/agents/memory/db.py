@@ -78,21 +78,6 @@ CREATE TABLE IF NOT EXISTS memory_embedding_config (
     created_at  TEXT    NOT NULL DEFAULT (datetime('now'))
 );
 
--- Skill packs (reusable prompt recipes)
-CREATE TABLE IF NOT EXISTS skill_packs (
-    id              INTEGER PRIMARY KEY AUTOINCREMENT,
-    name            TEXT    NOT NULL UNIQUE,
-    description     TEXT    NOT NULL DEFAULT '',
-    prompt          TEXT    NOT NULL,
-    category        TEXT,
-    tags            TEXT,
-    trigger_pattern TEXT,
-    usage_count     INTEGER NOT NULL DEFAULT 0,
-    auto_generated  INTEGER NOT NULL DEFAULT 0,
-    created_at      TEXT    NOT NULL DEFAULT (datetime('now')),
-    updated_at      TEXT    NOT NULL DEFAULT (datetime('now'))
-);
-
 -- Temporal facts (entity-relationship triples with validity windows)
 CREATE TABLE IF NOT EXISTS facts (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -312,6 +297,31 @@ class MemoryDB:
             """)
             conn.execute("CREATE INDEX IF NOT EXISTS idx_obs_agent ON observations(agent_slug)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_obs_created ON observations(created_at DESC)")
+            conn.commit()
+
+        # Create learning_events table if missing (playbook/memory learning feed)
+        try:
+            conn.execute("SELECT 1 FROM learning_events LIMIT 0")
+        except sqlite3.OperationalError:
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS learning_events (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    agent_slug TEXT NOT NULL,
+                    event_type TEXT NOT NULL,
+                    source TEXT NOT NULL,
+                    target TEXT NOT NULL,
+                    title TEXT NOT NULL DEFAULT '',
+                    before_content TEXT,
+                    after_content TEXT,
+                    conversation_id TEXT,
+                    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                    reverted_at TEXT
+                )
+            """)
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_learn_agent "
+                "ON learning_events(agent_slug, created_at DESC)"
+            )
             conn.commit()
 
     def init_db(self) -> dict:

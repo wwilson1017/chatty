@@ -7,6 +7,8 @@ import { useConversations } from './hooks/useConversations';
 import { useScrollDirection } from './hooks/useScrollDirection';
 import { AgentChatPanel } from './components/AgentChatPanel';
 import { AgentContextEditor } from './components/AgentContextEditor';
+import { PlaybooksPanel } from './playbooks/PlaybooksPanel';
+import { usePlaybooks } from './playbooks/usePlaybooks';
 import ReportsPanel from './reports/ReportsPanel';
 import HeartbeatPanel from './components/HeartbeatPanel';
 import AgentRemindersPanel from './components/AgentRemindersPanel';
@@ -39,18 +41,19 @@ interface AgentRow {
   provider_override?: string;
 }
 
-type Tab = 'chat' | 'knowledge' | 'reports' | 'reminders' | 'heartbeat';
+type Tab = 'chat' | 'knowledge' | 'playbooks' | 'reports' | 'reminders' | 'heartbeat';
 
 function parseTab(raw: string | null): Tab | null {
   if (!raw) return null;
   if (raw === 'activity') return 'heartbeat';
-  if (['chat', 'knowledge', 'reports', 'reminders', 'heartbeat'].includes(raw)) return raw as Tab;
+  if (['chat', 'knowledge', 'playbooks', 'reports', 'reminders', 'heartbeat'].includes(raw)) return raw as Tab;
   return null;
 }
 
 const TABS: { key: Tab; label: string }[] = [
   { key: 'chat', label: 'Chat' },
   { key: 'knowledge', label: 'Knowledge' },
+  { key: 'playbooks', label: 'Playbooks' },
   { key: 'reports', label: 'Reports' },
   { key: 'reminders', label: 'Reminders' },
   { key: 'heartbeat', label: 'Heartbeat' },
@@ -84,6 +87,7 @@ export function AgentPage() {
 
   const apiPrefix = `/api/agents/${agentId}`;
   const convs = useConversations(apiPrefix);
+  const pb = usePlaybooks(apiPrefix);
 
   const handleTitleUpdate = useCallback((convId: string, title: string) => {
     convs.updateConversationTitle(convId, title);
@@ -699,7 +703,7 @@ export function AgentPage() {
             <AgentChatPanel
               messages={chat.messages}
               isStreaming={chat.isStreaming}
-              onSend={chat.sendMessage}
+              onSend={(text, files, opts) => chat.sendMessage(text, files, undefined, opts)}
               onStop={chat.stop}
               onApprove={chat.approveAction}
               onDeny={chat.denyAction}
@@ -718,6 +722,8 @@ export function AgentPage() {
               conversationSource={convs.conversations.find(c => c.id === convs.activeId)?.source}
               importMode={convs.conversations.find(c => c.id === convs.activeId)?.mode === 'import'}
               greetingPending={chat.greetingPending}
+              playbooks={chat.trainingMode ? undefined : pb.playbooks}
+              onOpenPlaybooks={() => setActiveTab('playbooks')}
               onCancelImport={async () => {
                 const ok = await confirmDialog({
                   title: 'Cancel import',
@@ -741,6 +747,22 @@ export function AgentPage() {
           </>
         ) : activeTab === 'knowledge' ? (
           <AgentContextEditor agentId={agentId!} />
+        ) : activeTab === 'playbooks' ? (
+          <div style={{ flex: 1, overflow: 'auto' }}>
+            <PlaybooksPanel
+              apiPrefix={apiPrefix}
+              agentName={agent.agent_name}
+              playbooks={pb.playbooks}
+              loading={pb.loading}
+              loadFailed={pb.loadFailed}
+              onReload={pb.reload}
+              onGetDetail={pb.getDetail}
+              onSave={pb.save}
+              onDelete={pb.remove}
+              onToggleChip={pb.toggleChip}
+              onRestore={pb.restore}
+            />
+          </div>
         ) : activeTab === 'reports' ? (
           <ReportsPanel apiPrefix={apiPrefix} />
         ) : activeTab === 'reminders' ? (

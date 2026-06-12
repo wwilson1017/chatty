@@ -215,7 +215,7 @@ export function WebbyPage() {
             <AgentChatPanel
               messages={chat.messages}
               isStreaming={chat.isStreaming}
-              onSend={chat.sendMessage}
+              onSend={(text, files, opts) => chat.sendMessage(text, files, undefined, opts)}
               onStop={chat.stop}
             />
           </>
