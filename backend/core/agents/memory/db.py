@@ -324,6 +324,30 @@ class MemoryDB:
             )
             conn.commit()
 
+        # Create commitments table if missing (inferred follow-ups)
+        try:
+            conn.execute("SELECT 1 FROM commitments LIMIT 0")
+        except sqlite3.OperationalError:
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS commitments (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    agent_slug TEXT NOT NULL,
+                    text TEXT NOT NULL,
+                    due_at TEXT,
+                    source_conversation_id TEXT,
+                    status TEXT NOT NULL DEFAULT 'active'
+                        CHECK(status IN ('active','done','dismissed','expired')),
+                    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                    surfaced_count INTEGER DEFAULT 0,
+                    last_surfaced_at TEXT
+                )
+            """)
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_commit_agent "
+                "ON commitments(agent_slug, status)"
+            )
+            conn.commit()
+
     def init_db(self) -> dict:
         """Initialize with integrity check and GCS restore."""
         self.data_dir.mkdir(parents=True, exist_ok=True)

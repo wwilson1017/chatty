@@ -46,6 +46,8 @@ export function SettingsPanel({ branding, onBrandingUpdate, onClose }: Props) {
   const [tierLabels, setTierLabels] = useState<Record<string, string>>({});
   const [botReplyLimitEnabled, setBotReplyLimitEnabled] = useState(true);
   const [botReplyLimit, setBotReplyLimit] = useState(5);
+  const [commitmentsEnabled, setCommitmentsEnabled] = useState(true);
+  const [commitmentsDailyCap, setCommitmentsDailyCap] = useState(3);
 
   // Security settings
   const [securityExpanded, setSecurityExpanded] = useState(false);
@@ -75,6 +77,8 @@ export function SettingsPanel({ branding, onBrandingUpdate, onClose }: Props) {
           setEventRetention(s.event_log_retention_days as number ?? 90);
           setBotReplyLimitEnabled(s.bot_reply_limit_enabled as boolean ?? true);
           setBotReplyLimit(s.bot_reply_limit as number ?? 5);
+          setCommitmentsEnabled(s.commitments_enabled as boolean ?? true);
+          setCommitmentsDailyCap(s.commitments_daily_cap as number ?? 3);
         })
         .catch(() => {});
       api<{ tier_labels: Record<string, Record<string, string>>; active_provider: string }>('/api/providers/tiers')
@@ -371,6 +375,71 @@ export function SettingsPanel({ branding, onBrandingUpdate, onClose }: Props) {
                       await api('/api/setup/admin-settings', {
                         method: 'PUT',
                         body: JSON.stringify({ bot_reply_limit: botReplyLimit }),
+                      });
+                    }}
+                    style={{
+                      background: 'rgba(230,235,242,0.08)',
+                      border: '1px solid rgba(230,235,242,0.14)',
+                      color: '#EDF0F4',
+                      borderRadius: 4,
+                      padding: '6px 10px',
+                      fontSize: 13,
+                      width: 64,
+                      textAlign: 'center',
+                      outline: 'none',
+                    }}
+                  />
+                </div>
+              )}
+
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <div>
+                  <p style={{ fontSize: 14, color: '#EDF0F4', margin: 0 }}>Inferred follow-ups</p>
+                  <p style={{ fontSize: 12, color: 'rgba(237,240,244,0.38)', marginTop: 2 }}>Agents notice follow-ups in conversations and check in later</p>
+                </div>
+                <button
+                  onClick={async () => {
+                    const next = !commitmentsEnabled;
+                    setCommitmentsEnabled(next);
+                    await api('/api/setup/admin-settings', {
+                      method: 'PUT',
+                      body: JSON.stringify({ commitments_enabled: next }),
+                    });
+                  }}
+                  style={{
+                    position: 'relative', width: 44, height: 24, borderRadius: 12,
+                    background: commitmentsEnabled ? 'var(--color-ch-accent, #C8D1D9)' : 'rgba(230,235,242,0.14)',
+                    border: 'none', cursor: 'pointer', transition: 'background 0.2s',
+                  }}
+                >
+                  <span style={{
+                    position: 'absolute', top: 2, width: 20, height: 20,
+                    borderRadius: '50%', background: '#fff',
+                    boxShadow: '0 1px 3px rgba(0,0,0,0.3)',
+                    transition: 'left 0.2s',
+                    left: commitmentsEnabled ? 22 : 2,
+                  }} />
+                </button>
+              </div>
+              {commitmentsEnabled && (
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <div>
+                    <p style={{ fontSize: 14, color: '#EDF0F4', margin: 0 }}>Daily follow-up cap</p>
+                    <p style={{ fontSize: 12, color: 'rgba(237,240,244,0.38)', marginTop: 2 }}>Maximum follow-ups surfaced per agent per day</p>
+                  </div>
+                  <input
+                    type="number"
+                    min={1}
+                    max={20}
+                    value={commitmentsDailyCap}
+                    onChange={(e) => {
+                      const val = Math.max(1, Math.min(20, parseInt(e.target.value, 10) || 3));
+                      setCommitmentsDailyCap(val);
+                    }}
+                    onBlur={async () => {
+                      await api('/api/setup/admin-settings', {
+                        method: 'PUT',
+                        body: JSON.stringify({ commitments_daily_cap: commitmentsDailyCap }),
                       });
                     }}
                     style={{

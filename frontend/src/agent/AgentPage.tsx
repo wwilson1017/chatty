@@ -767,7 +767,7 @@ export function AgentPage() {
           <ReportsPanel apiPrefix={apiPrefix} />
         ) : activeTab === 'reminders' ? (
           <div style={{ flex: 1, overflow: 'auto' }}>
-            <AgentRemindersPanel agentSlug={agent.slug} />
+            <AgentRemindersPanel agentSlug={agent.slug} agentId={agentId!} />
           </div>
         ) : activeTab === 'heartbeat' ? (
           <div style={{ flex: 1, overflow: 'auto' }}>

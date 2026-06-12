@@ -1148,3 +1148,51 @@ async def delete_observation(agent_id: str, obs_id: int, user=Depends(get_curren
     except Exception as e:
         logger.warning("delete_observation failed for obs %s: %s", obs_id, e)
         raise HTTPException(status_code=500, detail="Internal error")
+
+
+# ── Per-agent: Commitments (inferred follow-ups) ──────────────────────────────
+
+@router.get("/{agent_id}/commitments")
+async def list_agent_commitments(
+    agent_id: str,
+    status: str = Query("active"),
+    limit: int = Query(100, ge=1, le=500),
+    user=Depends(get_current_user),
+):
+    agent = _get_agent_or_404(agent_id)
+    from core.agents.memory import commitments as commitments_svc
+    if status != "all" and status not in commitments_svc.VALID_STATUSES:
+        raise HTTPException(status_code=400, detail=f"Invalid status: {status}")
+    # No try/except: a DB failure should surface as a 500 (the frontend shows a
+    # retryable error), not a convincing-but-wrong empty list.
+    memory_db = ensure_memory_db(agent["slug"])
+    items = commitments_svc.list_commitments(
+        memory_db, agent["slug"],
+        status=None if status == "all" else status,
+        limit=limit,
+    )
+    return {"commitments": items}
+
+
+@router.post("/{agent_id}/commitments/{commitment_id}/complete")
+async def complete_agent_commitment(
+    agent_id: str, commitment_id: int, user=Depends(get_current_user),
+):
+    agent = _get_agent_or_404(agent_id)
+    from core.agents.memory import commitments as commitments_svc
+    memory_db = ensure_memory_db(agent["slug"])
+    if not commitments_svc.complete_commitment(memory_db, agent["slug"], commitment_id):
+        raise HTTPException(status_code=404, detail="Commitment not found")
+    return {"ok": True, "id": commitment_id, "status": "done"}
+
+
+@router.post("/{agent_id}/commitments/{commitment_id}/dismiss")
+async def dismiss_agent_commitment(
+    agent_id: str, commitment_id: int, user=Depends(get_current_user),
+):
+    agent = _get_agent_or_404(agent_id)
+    from core.agents.memory import commitments as commitments_svc
+    memory_db = ensure_memory_db(agent["slug"])
+    if not commitments_svc.dismiss_commitment(memory_db, agent["slug"], commitment_id):
+        raise HTTPException(status_code=404, detail="Commitment not found")
+    return {"ok": True, "id": commitment_id, "status": "dismissed"}
