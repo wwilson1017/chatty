@@ -4,6 +4,9 @@ import re
 
 import pytest
 
+# Imported at collection time because _protected_routes() feeds parametrize.
+# main is import-side-effect-free (all init lives in lifespan) — test_health
+# asserts that holds.
 import main
 
 
@@ -91,6 +94,7 @@ def test_usage_summary_aggregates(client):
 def test_usage_summary_bad_tz_falls_back(client):
     resp = client.get("/api/usage/summary", params={"tz": "Not/AZone"})
     assert resp.status_code == 200
+    assert resp.json()["timezone"] == "UTC"
 
 
 # ── Unauthenticated-route sweep ───────────────────────────────────────────────
@@ -114,6 +118,8 @@ def _protected_routes():
 
     cases = []
     for route in main.app.routes:
+        # Only APIRoutes are swept; Mount sub-apps (e.g. static files) are
+        # intentionally excluded and must be audited manually if ever added.
         if not isinstance(route, APIRoute):
             continue
         for method in sorted(route.methods - {"HEAD", "OPTIONS"}):

@@ -69,7 +69,7 @@ def parse_sse(response):
     events = []
     for line in response.text.split("\n"):
         if line.startswith("data: "):
-            events.append(json.loads(line[len("data: "):]))
+            events.append(json.loads(line[len("data: "):].strip()))
     return events
 
 
@@ -89,6 +89,8 @@ def http_env(agent_db, encryption_env, monkeypatch, tmp_path):
     import core.agents.playbooks.service as pb_service
     import core.agents.reminders.db as reminders_db
     import core.agents.shared_context.bootstrap as bootstrap_mod
+    import core.agents.shared_context.db as shared_db
+    import core.agents.shared_context.service as shared_service
     import core.providers.credentials as creds_mod
     import integrations.pending_setup as pending_mod
     import integrations.registry as registry_mod
@@ -111,6 +113,11 @@ def http_env(agent_db, encryption_env, monkeypatch, tmp_path):
     monkeypatch.setattr(pb_service, "delete_config", lambda *a, **k: None)
     # Creating a 2nd agent spawns a shared-knowledge bootstrap thread otherwise.
     monkeypatch.setattr(bootstrap_mod, "should_bootstrap", lambda: False)
+    # Chat's system-prompt builder globs the shared-context dir for a manifest;
+    # service.SHARED_DATA_DIR is a module-level copy of db.DATA_DIR, patch both.
+    monkeypatch.setattr(shared_db, "DATA_DIR", tmp_path / "shared")
+    monkeypatch.setattr(shared_db, "DB_PATH", tmp_path / "shared" / "shared_context.db")
+    monkeypatch.setattr(shared_service, "SHARED_DATA_DIR", tmp_path / "shared")
     # GET /api/branding/logo is public (the 401 sweep reaches its handler).
     monkeypatch.setattr(branding_storage, "BRANDING_DIR", tmp_path / "branding")
     monkeypatch.setattr(branding_storage, "CONFIG_FILE", tmp_path / "branding" / "config.json")
@@ -164,4 +171,4 @@ def anon_client(http_env):
     from core.auth import get_current_user
 
     assert get_current_user not in main.app.dependency_overrides
-    return TestClient(main.app)
+    yield TestClient(main.app)

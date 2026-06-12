@@ -4,7 +4,7 @@ import pytest
 
 from core.agents.playbooks import learning_log
 
-from .test_http_agents import make_agent
+from tests.test_http_agents import make_agent
 
 PLAYBOOK_BODY = {
     "name": "Morning Brief",
@@ -103,7 +103,7 @@ def test_learning_events_empty(client, agent):
 
 def test_learning_events_list_after_seed(client, agent):
     eid = learning_log.log_event(
-        "helper", event_type="playbook_created", source="review",
+        agent["slug"], event_type="playbook_created", source="review",
         target="morning-brief", title="New playbook “Morning Brief”",
         after_content="full file text",
     )
@@ -129,11 +129,11 @@ def test_revert_playbook_updated_restores_content(client, agent):
     # Reconstruct the on-disk v1 text the way the service stores it, then
     # simulate an agent-learned update with before_content = v1.
     from core.agents.playbooks import service as pb_service
-    v1_text = (pb_service.playbooks_dir("helper") / "morning-brief.md").read_text()
+    v1_text = (pb_service.playbooks_dir(agent["slug"]) / "morning-brief.md").read_text()
 
     put_playbook(client, agent, content="## Procedure\nCOMPLETELY REWRITTEN")
     eid = learning_log.log_event(
-        "helper", event_type="playbook_updated", source="agent",
+        agent["slug"], event_type="playbook_updated", source="agent",
         target="morning-brief", title="Updated playbook",
         before_content=v1_text,
     )
@@ -150,7 +150,7 @@ def test_revert_playbook_updated_restores_content(client, agent):
 def test_revert_playbook_created_archives(client, agent):
     put_playbook(client, agent)
     eid = learning_log.log_event(
-        "helper", event_type="playbook_created", source="review",
+        agent["slug"], event_type="playbook_created", source="review",
         target="morning-brief", title="New playbook",
     )
 
@@ -164,7 +164,7 @@ def test_revert_playbook_created_archives(client, agent):
 def test_revert_twice_400(client, agent):
     put_playbook(client, agent)
     eid = learning_log.log_event(
-        "helper", event_type="playbook_created", source="review",
+        agent["slug"], event_type="playbook_created", source="review",
         target="morning-brief", title="New playbook",
     )
     assert client.post(

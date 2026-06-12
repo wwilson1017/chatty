@@ -2,9 +2,9 @@
 
 import pytest
 
-from .conftest import parse_sse
-from .test_ai_service import MockAIProvider
-from .test_http_agents import make_agent
+from tests.conftest import parse_sse
+from tests.test_ai_service import MockAIProvider
+from tests.test_http_agents import make_agent
 
 SEND_EMAIL_DEF = {
     "name": "send_email",
@@ -21,6 +21,19 @@ LOOKUP_DEF = {
     "input_schema": {"type": "object", "properties": {}},
     "description": "Look something up",
 }
+
+
+class RecordingProvider(MockAIProvider):
+    """MockAIProvider that records the messages sent to each stream_turn call."""
+
+    def __init__(self, *a, **k):
+        super().__init__(*a, **k)
+        self.seen_messages = []
+
+    async def stream_turn(self, messages, tools, system_prompt):
+        self.seen_messages.append(messages)
+        async for event in super().stream_turn(messages, tools, system_prompt):
+            yield event
 
 
 @pytest.fixture
@@ -111,17 +124,25 @@ def test_chat_write_tool_confirm_flow(chat_client, mock_provider, email_tool):
     confirm = next(e for e in events if e["type"] == "confirm")
     assert confirm["tool"] == "send_email"
     assert confirm["tool_use_id"] == "tu1"
+    assert confirm["args"] == {"to": "a@b.com", "subject": "hi", "body": "test"}
     assert confirm["description"] == "Send an email"
+    # The frontend spinner keys off tool_start arriving before the confirm.
+    assert "tool_start" in types
     # Confirmation means no execution: no tool_end, stub untouched.
     assert "tool_end" not in types
     assert email_tool == []
     assert types[-1] == "done"
 
 
-def test_chat_approved_tool_resume(chat_client, mock_provider, email_tool):
-    agent = make_agent(chat_client)
+def test_chat_approved_tool_resume(client, email_tool, monkeypatch):
+    # Record what reaches the provider: the engine must reconstruct the
+    # approved tool as tool_use/tool_result blocks, not silently drop it.
+    recording = RecordingProvider()
+    monkeypatch.setattr("agents.router.get_ai_provider", lambda **kw: recording)
+
+    agent = make_agent(client)
     events = parse_sse(chat(
-        chat_client, agent,
+        client, agent,
         tool_mode="normal",
         approved_tool={
             "tool": "send_email",
@@ -134,6 +155,14 @@ def test_chat_approved_tool_resume(chat_client, mock_provider, email_tool):
     assert "confirm" not in types
     assert "text" in types
     assert types[-1] == "done"
+
+    sent = recording.seen_messages[0]
+    tool_uses = [b for m in sent if isinstance(m.get("content"), list)
+                 for b in m["content"] if b.get("type") == "tool_use"]
+    tool_results = [b for m in sent if isinstance(m.get("content"), list)
+                    for b in m["content"] if b.get("type") == "tool_result"]
+    assert any(b["name"] == "send_email" and b["id"] == "tu1" for b in tool_uses)
+    assert any(b["tool_use_id"] == "tu1" and '"ok": true' in b["content"] for b in tool_results)
 
 
 def test_tool_execute_approved_write(chat_client, email_tool):

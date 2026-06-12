@@ -115,10 +115,19 @@ def test_context_delete_then_404(client):
 
 def test_context_rejects_bad_filenames(client):
     agent = make_agent(client)
-    # Single-segment names that route but fail _safe_filename → 400.
+    # Single-segment names that route but fail _safe_filename → 400, on all verbs.
     for bad in ("notes.txt", "noextension", "..sneaky.md", "back%5Cslash.md"):
-        resp = client.get(f"/api/agents/{agent['id']}/context/{bad}")
-        assert resp.status_code == 400, f"{bad!r} returned {resp.status_code}"
+        for method, kwargs in (
+            ("GET", {}),
+            ("PUT", {"json": {"content": "x"}}),
+            ("DELETE", {}),
+        ):
+            resp = client.request(
+                method, f"/api/agents/{agent['id']}/context/{bad}", **kwargs
+            )
+            assert resp.status_code == 400, (
+                f"{method} {bad!r} returned {resp.status_code}"
+            )
 
 
 def test_context_encoded_traversal_blocked(client, tmp_path):
