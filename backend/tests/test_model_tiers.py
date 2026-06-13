@@ -87,6 +87,20 @@ class TestResolution:
         assert all(labels[t] for t in ("top", "mid", "light"))
 
 
+class TestResolvedDefaultModel:
+    """Guards the connect-time default resolver against the recursion bug."""
+
+    def test_unknown_provider_returns_empty_without_recursing(self, tier_store):
+        from core.providers.credentials import _resolved_default_model
+        # No inferred entry and no hardcoded TIER_MODELS entry → must return ""
+        # (PROVIDER_DEFAULTS), NOT recurse into itself.
+        assert _resolved_default_model("nonexistent-provider") == ""
+
+    def test_known_provider_falls_back_to_hardcoded_top(self, tier_store):
+        from core.providers.credentials import _resolved_default_model
+        assert _resolved_default_model("anthropic") == tiers.TIER_MODELS["anthropic"]["top"]
+
+
 # ── Listing cache: live-vs-fallback signal ──────────────────────────────────────
 
 

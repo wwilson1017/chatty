@@ -102,27 +102,24 @@ async def set_tiers(body: SetTiersRequest, user=Depends(get_current_user)):
 
 # ── Inferred default model after a credential save ────────────────────────────
 
-async def _apply_inferred_default(provider_name: str, fallback_model: str = "") -> str:
-    """After credentials are saved: live-list models (which materializes inferred
-    tiers via list_models) and set active_model to the inferred 'top' model.
+async def _materialize_inferred_tiers(provider_name: str, requested_model: str = "") -> str:
+    """After credentials are saved: live-list models so the inferred tier defaults
+    get materialized into the tier store (list_models persists them on a live fetch),
+    giving the tier picker good defaults.
 
-    Best-effort — if listing/inference fails, active_model keeps whatever value
-    the preceding store.set_*() call assigned (the request default / PROVIDER_DEFAULTS).
-    Returns the chosen model id for the response body.
+    Deliberately does NOT change the user's active model — that was set by the
+    preceding store.set_*() to the requested/curated model. Overriding it with the
+    inferred 'top' would ignore an explicit choice and flip cost-sensitive defaults
+    (e.g. Google → Pro). Returns the model to echo in the response body.
     """
     from core.providers import get_ai_provider
-    from core.providers.tiers import resolve_tier_model
     try:
         provider = get_ai_provider(agent_provider=provider_name)
         if provider is not None:
             await provider.list_models()  # live fetch -> materialize inferred tiers
-            top = resolve_tier_model(provider_name, "top")
-            if top:
-                CredentialStore().set_active_model(top)
-                return top
     except Exception as e:
-        logger.warning("apply_inferred_default(%s) failed: %s", provider_name, e)
-    return fallback_model
+        logger.warning("Tier materialization for %s failed: %s", provider_name, e)
+    return requested_model or CredentialStore().data.get("active_model", "")
 
 
 # ── Connect Anthropic (API key) ───────────────────────────────────────────────
@@ -142,7 +139,7 @@ async def connect_anthropic(body: AnthropicConnectRequest, user=Depends(get_curr
 
     store = CredentialStore()
     store.set_api_key("anthropic", body.api_key, model=body.model)
-    model = await _apply_inferred_default("anthropic", body.model)
+    model = await _materialize_inferred_tiers("anthropic", body.model)
     return {"ok": True, "provider": "anthropic", "model": model}
 
 
@@ -162,7 +159,7 @@ async def connect_anthropic_token(body: SetupTokenRequest, user=Depends(get_curr
 
     store = CredentialStore()
     store.set_setup_token("anthropic", body.token, model=body.model)
-    model = await _apply_inferred_default("anthropic", body.model)
+    model = await _materialize_inferred_tiers("anthropic", body.model)
     return {"ok": True, "provider": "anthropic", "model": model}
 
 
@@ -204,7 +201,7 @@ async def connect_google_complete(body: CompleteOAuthRequest, user=Depends(get_c
         expires_in=tokens["expires_in"],
         model="gemini-2.5-flash",
     )
-    await _apply_inferred_default("google", "gemini-2.5-flash")
+    await _materialize_inferred_tiers("google", "gemini-2.5-flash")
     return {"ok": True, "provider": "google"}
 
 
@@ -223,7 +220,7 @@ async def connect_google_key(body: GoogleKeyRequest, user=Depends(get_current_us
 
     store = CredentialStore()
     store.set_api_key("google", body.api_key, model=body.model)
-    model = await _apply_inferred_default("google", body.model)
+    model = await _materialize_inferred_tiers("google", body.model)
     return {"ok": True, "provider": "google", "model": model}
 
 
@@ -242,7 +239,7 @@ async def connect_openai_key(body: OpenAIKeyRequest, user=Depends(get_current_us
 
     store = CredentialStore()
     store.set_api_key("openai", body.api_key, model=body.model)
-    model = await _apply_inferred_default("openai", body.model)
+    model = await _materialize_inferred_tiers("openai", body.model)
     return {"ok": True, "provider": "openai", "model": model}
 
 
@@ -274,7 +271,7 @@ async def connect_openai_complete(body: CompleteOAuthRequest, user=Depends(get_c
         expires_in=tokens.get("expires_in", 3600),
         model="gpt-5.4",
     )
-    await _apply_inferred_default("openai", "gpt-5.4")
+    await _materialize_inferred_tiers("openai", "gpt-5.4")
     return {"ok": True, "provider": "openai"}
 
 
@@ -337,7 +334,7 @@ async def connect_together(body: TogetherConnectRequest, user=Depends(get_curren
 
     store = CredentialStore()
     store.set_api_key("together", body.api_key, model=body.model)
-    model = await _apply_inferred_default("together", body.model)
+    model = await _materialize_inferred_tiers("together", body.model)
     return {"ok": True, "provider": "together", "model": model}
 
 
@@ -443,7 +440,7 @@ async def sync_openai_cli(user=Depends(get_current_user)):
                 if await provider.validate():
                     store = CredentialStore()
                     store.set_api_key("openai", api_key, model="gpt-5.4")
-                    await _apply_inferred_default("openai", "gpt-5.4")
+                    await _materialize_inferred_tiers("openai", "gpt-5.4")
                     return {"ok": True, "provider": "openai", "source": str(cred_path)}
 
             # ChatGPT mode: validate via the Node.js proxy sidecar
@@ -467,7 +464,7 @@ async def sync_openai_cli(user=Depends(get_current_user)):
                                 refresh_token=refresh_token,
                                 expires_in=864000,  # ~10 days
                             )
-                            await _apply_inferred_default("openai", "gpt-5.4")
+                            await _materialize_inferred_tiers("openai", "gpt-5.4")
                             return {"ok": True, "provider": "openai", "source": str(cred_path), "mode": "chatgpt"}
                         else:
                             raise HTTPException(status_code=400, detail=result.get("error", "Token validation failed"))

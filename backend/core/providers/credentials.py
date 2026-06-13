@@ -53,7 +53,7 @@ def _resolved_default_model(provider: str) -> str:
             return top
     except Exception:
         pass
-    return _resolved_default_model(provider)
+    return PROVIDER_DEFAULTS.get(provider, "")
 
 
 class CredentialStore:
