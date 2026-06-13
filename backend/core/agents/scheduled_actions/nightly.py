@@ -1,12 +1,13 @@
 """Nightly memory and dreaming jobs — runs per-agent at 11 PM CT.
 
-Six jobs per agent (in order):
+Seven jobs per agent (in order):
 1. Daily note summarization — Claude Haiku summarizes yesterday's chat
 2. Memory consolidation — Claude Sonnet rewrites MEMORY.md from daily notes
 3. Dreaming — score files, archive dormant ones, rebuild load order
 4. Fact confidence decay (Sundays only)
 5. Archive old daily notes (>90 days)
 6. Observation extraction — extract user/business observations from yesterday's chats
+7. Commitment extraction — extract inferred follow-ups from yesterday's chats
 """
 
 import logging
@@ -20,6 +21,24 @@ try:
     _LOCAL_TZ = ZoneInfo(os.getenv("TIMEZONE", "America/Chicago") or "America/Chicago")
 except Exception:
     _LOCAL_TZ = ZoneInfo("America/Chicago")
+
+
+def _run_async(coro_factory):
+    """Run an async extraction job from this sync scheduler thread.
+
+    APScheduler normally invokes us with no running loop, where asyncio.run
+    suffices; the executor fallback covers being called from a loop thread.
+    """
+    import asyncio
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        loop = None
+    if loop and loop.is_running():
+        import concurrent.futures
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+            return pool.submit(lambda: asyncio.run(coro_factory())).result()
+    return asyncio.run(coro_factory())
 
 
 def run_nightly_jobs() -> None:
@@ -103,24 +122,28 @@ def run_nightly_jobs() -> None:
         try:
             from core.agents.memory.observer import extract_observations
             from agents.engine import ensure_memory_db
-            import asyncio
             memory_db = ensure_memory_db(slug)
-
-            try:
-                loop = asyncio.get_running_loop()
-            except RuntimeError:
-                loop = None
-            if loop and loop.is_running():
-                import concurrent.futures
-                with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
-                    result = pool.submit(lambda: asyncio.run(extract_observations(agent_name, slug, chat_service, memory_db))).result()
-            else:
-                result = asyncio.run(extract_observations(agent_name, slug, chat_service, memory_db))
+            result = _run_async(lambda: extract_observations(agent_name, slug, chat_service, memory_db))
 
             if result.get("extracted", 0) > 0 or result.get("pruned", 0) > 0:
                 logger.info("nightly observations %s: extracted=%d pruned=%d",
                             agent_name, result.get("extracted", 0), result.get("pruned", 0))
         except Exception as e:
             logger.warning("nightly observations failed for %s: %s", agent_name, e)
+
+        # 7. Commitment extraction from yesterday's conversations (inferred follow-ups)
+        try:
+            from core.admin_settings import load_admin_settings
+            if load_admin_settings().get("commitments_enabled", True):
+                from core.agents.memory.commitments import extract_commitments
+                from agents.engine import ensure_memory_db
+                memory_db = ensure_memory_db(slug)
+                result = _run_async(lambda: extract_commitments(agent_name, slug, chat_service, memory_db))
+
+                if result.get("extracted", 0) > 0 or result.get("expired", 0) > 0:
+                    logger.info("nightly commitments %s: extracted=%d expired=%d",
+                                agent_name, result.get("extracted", 0), result.get("expired", 0))
+        except Exception as e:
+            logger.warning("nightly commitments failed for %s: %s", agent_name, e)
 
     logger.info("nightly jobs complete for %d agents", len(agents))

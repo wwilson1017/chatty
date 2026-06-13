@@ -313,6 +313,28 @@ MEMORY_TOOLS = [
         "writes": True,
         "context_memory": True,
     },
+    {
+        "name": "complete_commitment",
+        "description": (
+            "Mark an inferred follow-up (commitment) as done — use when the user confirms "
+            "the awaited thing happened (e.g. 'yes, they got back to us'). Pass the "
+            "commitment's numeric ID (shown as [#id] in follow-up lists) or a distinctive "
+            "snippet of its text."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "commitment": {
+                    "type": "string",
+                    "description": "Commitment ID (e.g. '12') or a snippet of its text",
+                },
+            },
+            "required": ["commitment"],
+        },
+        "kind": "memory",
+        "writes": True,
+        "context_memory": True,
+    },
 ]
 
 # ── Playbook tools ──────────────────────────────────────────────────────────

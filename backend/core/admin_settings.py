@@ -30,6 +30,8 @@ ADMIN_DEFAULTS = {
     "event_log_retention_days": 90,
     "bot_reply_limit_enabled": True,
     "bot_reply_limit": 5,
+    "commitments_enabled": True,
+    "commitments_daily_cap": 3,
 }
 
 VALID_TRIAGE_MODES = {"standard", "cheap", "always_cheap"}
@@ -66,13 +68,17 @@ def load_admin_settings() -> dict:
         result["injection_scanning"] = ADMIN_DEFAULTS["injection_scanning"]
     for _int_key in ("write_budget_heartbeat", "write_budget_interactive",
                      "hourly_write_rate_limit", "event_log_retention_days",
-                     "bot_reply_limit"):
+                     "bot_reply_limit", "commitments_daily_cap"):
         if not isinstance(result.get(_int_key), int) or result[_int_key] < 1:
             result[_int_key] = ADMIN_DEFAULTS[_int_key]
     # Cap bot_reply_limit so the loop-prevention guard can't be effectively disabled.
     result["bot_reply_limit"] = min(result["bot_reply_limit"], 100)
+    # Cap the follow-up budget so a bad settings payload can't oversize prompts.
+    result["commitments_daily_cap"] = min(result["commitments_daily_cap"], 20)
     if not isinstance(result.get("bot_reply_limit_enabled"), bool):
         result["bot_reply_limit_enabled"] = ADMIN_DEFAULTS["bot_reply_limit_enabled"]
+    if not isinstance(result.get("commitments_enabled"), bool):
+        result["commitments_enabled"] = ADMIN_DEFAULTS["commitments_enabled"]
 
     with _cache_lock:
         _cached_settings = result
