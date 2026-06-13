@@ -84,7 +84,7 @@ def get_usage_summary(days: int = 7, tz: str = "UTC") -> dict:
         in_tok = row["input_tokens"] or 0
         out_tok = row["output_tokens"] or 0
         model = row["model_used"] or ""
-        provider = row["provider"] if "provider" in row.keys() else ""
+        provider = row["provider"] or ""  # column added by migration; NULL on legacy rows
         cost, unknown = _cost_and_unknown(provider, model, in_tok, out_tok)
         kind = "chat" if row["event_type"] == "chat" else "background"
 

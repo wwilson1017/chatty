@@ -48,10 +48,11 @@ async def get_tiers(user=Depends(get_current_user)):
     from core.providers.model_tiers import get_resolved
     store = CredentialStore()
     providers = list(TIER_MODELS.keys())
+    tier_models = {p: get_resolved(p) for p in providers}
     return {
         "active_provider": store.data.get("active_provider", ""),
-        "tier_models": {p: get_resolved(p) for p in providers},
-        "tier_labels": {p: derive_tier_labels(p) for p in providers},
+        "tier_models": tier_models,
+        "tier_labels": {p: derive_tier_labels(p, tier_models[p]) for p in providers},
         "auto_triage_providers": [p for p in providers if supports_auto_triage(p)],
     }
 

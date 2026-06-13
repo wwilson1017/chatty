@@ -30,9 +30,8 @@ logger = logging.getLogger(__name__)
 DATA_DIR = Path(__file__).parent.parent.parent / "data"
 PROFILES_PATH = DATA_DIR / "auth-profiles.json"
 
-# Last-resort fallback when no model is specified at connect time and live
-# listing/inference is unavailable. apply_inferred_default() (router) prefers
-# the inferred "top" model over these.
+# Last-resort fallback when no model is specified. _resolved_default_model()
+# (below) prefers the inferred "top" tier from model-tiers.json when available.
 PROVIDER_DEFAULTS = {
     "anthropic": "claude-opus-4-8",
     "openai": "gpt-5.4",

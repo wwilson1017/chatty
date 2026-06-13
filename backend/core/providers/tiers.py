@@ -102,7 +102,8 @@ def infer_tier_models(provider: str, available: list[str]) -> dict[str, str]:
         if sized:
             top = sized[0]
             light = sized[-1]
-            mid = sized[len(sized) // 2]
+            # Avoid mid == light on a 2-model list (len//2 == 1 == last index).
+            mid = sized[len(sized) // 2] if len(sized) > 2 else sized[0]
 
     return {
         "top": top or fb.get("top", ""),
@@ -131,12 +132,14 @@ def _short_label(model_id: str) -> str:
     return model_id.split("/")[-1] if model_id else ""
 
 
-def derive_tier_labels(provider: str) -> dict[str, str]:
+def derive_tier_labels(provider: str, resolved: dict[str, str] | None = None) -> dict[str, str]:
     """Display labels per tier, derived from the resolved model id, with
     TIER_LABELS as fallback. Always non-empty for a known provider so the
-    frontend tier switcher never hides itself."""
-    from core.providers.model_tiers import get_resolved
-    resolved = get_resolved(provider)
+    frontend tier switcher never hides itself. Pass an already-loaded
+    ``resolved`` map to avoid a redundant store read."""
+    if resolved is None:
+        from core.providers.model_tiers import get_resolved
+        resolved = get_resolved(provider)
     fb = TIER_LABELS.get(provider, {})
     return {
         t: _short_label(resolved.get(t, "")) or fb.get(t, t.title())

@@ -44,8 +44,9 @@ export function TierPicker({ provider, onChanged }: Props) {
   }, [provider]);
 
   async function save(tier: string, model: string) {
+    const previous = tiers[tier] ?? '';
     setSaving(true);
-    setTiers(prev => ({ ...prev, [tier]: model }));
+    setTiers(prev => ({ ...prev, [tier]: model }));  // optimistic
     try {
       await api('/api/providers/tiers', {
         method: 'PUT',
@@ -54,6 +55,7 @@ export function TierPicker({ provider, onChanged }: Props) {
       onChanged?.();
     } catch (err) {
       console.error('Failed to set tier:', err);
+      setTiers(prev => ({ ...prev, [tier]: previous }));  // roll back on failure
     } finally {
       setSaving(false);
     }
@@ -80,6 +82,7 @@ export function TierPicker({ provider, onChanged }: Props) {
               disabled={saving}
               style={{ ...selectStyle, opacity: saving ? 0.5 : 1 }}
             >
+              <option value="">Use inferred default</option>
               {optionsFor(tiers[t.key] || '').map(m => (
                 <option key={m} value={m}>{m}</option>
               ))}

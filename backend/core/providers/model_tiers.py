@@ -62,12 +62,21 @@ def get_overrides(provider: str) -> dict[str, str]:
     return (_load().get(provider, {}) or {}).get("overrides", {}) or {}
 
 
+# Sanity cap on persisted model ids — guards against a misbehaving/compromised
+# provider API returning absurd strings (matches the override length check).
+_MAX_MODEL_ID_LEN = 200
+
+
 def set_inferred(provider: str, mapping: dict[str, str]) -> None:
     """Persist the name-inferred tier defaults for a provider (live-fetch only)."""
     with _lock:
         data = _load()
         entry = data.setdefault(provider, {})
-        entry["inferred"] = {t: mapping[t] for t in TIERS if mapping.get(t)}
+        entry["inferred"] = {
+            t: mapping[t]
+            for t in TIERS
+            if mapping.get(t) and len(mapping[t]) <= _MAX_MODEL_ID_LEN
+        }
         atomic_write_json(TIERS_PATH, data)
 
 

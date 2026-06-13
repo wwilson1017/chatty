@@ -127,6 +127,24 @@ class TestUnknownPricing:
         assert s["unknown_pricing_models"] == []
         assert s["agents"][0]["has_unknown_pricing"] is False
 
+    def test_empty_model_not_flagged(self, reminders_db):
+        # A paid-provider row with no model id can't be priced OR flagged.
+        from core.agents.usage.service import get_usage_summary
+        _insert_event(reminders_db, agent="t", model="", provider="together",
+                      input_tokens=1_000_000, output_tokens=0)
+        s = get_usage_summary(days=7, tz="UTC")
+        assert s["unknown_pricing_models"] == []
+        assert s["agents"][0]["has_unknown_pricing"] is False
+
+    def test_explicit_anthropic_provider_priced(self, reminders_db):
+        # Exercises the provider column read on the priced path (not just NULL rows).
+        from core.agents.usage.service import get_usage_summary
+        _insert_event(reminders_db, agent="a", model="claude-opus-4-8",
+                      provider="anthropic", input_tokens=1_000_000, output_tokens=0)
+        s = get_usage_summary(days=7, tz="UTC")
+        assert s["totals"]["cost"] == pytest.approx(5.0)
+        assert s["agents"][0]["has_unknown_pricing"] is False
+
     def test_legacy_null_provider_unpriced_flagged_not_free(self, reminders_db):
         # Pre-migration rows have provider=NULL; an unpriced model must be
         # flagged (conservative), never silently treated as free $0.
