@@ -98,18 +98,31 @@ def infer_tier_models(provider: str, available: list[str]) -> dict[str, str]:
         def _params(m: str) -> int:
             nums = re.findall(r"(\d+)\s*b", m.lower())
             return int(nums[-1]) if nums else 0
-        sized = sorted(av, key=_params, reverse=True)
+        # Only rank models with a detectable size — otherwise an unsized,
+        # possibly-large model (e.g. DeepSeek-V3) sorts to the cheap 'light' slot.
+        sized = sorted([m for m in av if _params(m) > 0], key=_params, reverse=True)
         if sized:
             top = sized[0]
             light = sized[-1]
             # Avoid mid == light on a 2-model list (len//2 == 1 == last index).
             mid = sized[len(sized) // 2] if len(sized) > 2 else sized[0]
 
-    return {
+    chosen = {
         "top": top or fb.get("top", ""),
         "mid": mid or fb.get("mid", ""),
         "light": light or fb.get("light", ""),
     }
+    # Never persist a tier whose model isn't actually in the live catalog: the
+    # per-tier hardcoded fallback may name a model this account/catalog doesn't
+    # expose, and auto-triage would then call a nonexistent model. Substitute a
+    # model that IS available (the heuristic picks are members of `av`).
+    if av:
+        present = set(av)
+        substitute = top or mid or light or av[0]
+        for tier in chosen:
+            if chosen[tier] and chosen[tier] not in present:
+                chosen[tier] = substitute if substitute in present else av[0]
+    return chosen
 
 
 def infer_triage_classifier(provider: str, available: list[str]) -> str | None:

@@ -159,7 +159,7 @@ async def _run_turn(
                 text=accumulated_text or "(no response)",
                 input_tokens=total_input_tokens,
                 output_tokens=total_output_tokens,
-                model_used=model_used,
+                model_used=model_used, provider=provider_name,
                 tool_log=tool_log,
                 error=not accumulated_text,
             )

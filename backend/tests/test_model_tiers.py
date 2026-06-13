@@ -214,6 +214,21 @@ class TestInferenceEdges:
         assert out["light"] == "Qwen/Qwen3.5-7B"
         assert out["mid"] != out["light"]
 
+    def test_inferred_tiers_coerced_to_available(self):
+        # OpenAI live list missing -mini/-nano: those tiers must NOT resolve to
+        # the hardcoded (unavailable) models — they collapse to an available one.
+        out = tiers.infer_tier_models("openai", ["gpt-5.5"])
+        assert set(out.values()) == {"gpt-5.5"}
+
+    def test_together_ignores_unsized_model_for_light(self):
+        # DeepSeek-V3 is unsized → must not be chosen as the cheap 'light' tier.
+        out = tiers.infer_tier_models(
+            "together",
+            ["Qwen/Qwen3.5-32B", "Qwen/Qwen3.5-7B", "deepseek-ai/DeepSeek-V3-0324"],
+        )
+        assert out["top"] == "Qwen/Qwen3.5-32B"
+        assert out["light"] == "Qwen/Qwen3.5-7B"
+
 
 class TestLabelsAndTriageFallback:
     def test_derive_labels_strips_together_org(self, tier_store):

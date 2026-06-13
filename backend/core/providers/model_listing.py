@@ -13,6 +13,7 @@ OllamaProvider._tool_support_cache).
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import logging
 import time
@@ -26,6 +27,15 @@ DEFAULT_TTL = 12 * 60 * 60
 
 # key -> (monotonic_timestamp, models)
 _cache: dict[str, tuple[float, list[str]]] = {}
+# key -> asyncio.Lock for single-flight (avoid concurrent cold fetches per key)
+_locks: dict[str, asyncio.Lock] = {}
+
+
+def _lock_for(key: str) -> asyncio.Lock:
+    lock = _locks.get(key)
+    if lock is None:
+        lock = _locks[key] = asyncio.Lock()
+    return lock
 
 
 def cache_key(provider: str, *secrets: str) -> str:
@@ -56,22 +66,31 @@ async def cached_models(
     if cached is not None and (now - cached[0]) < ttl:
         return list(cached[1]), False
 
-    try:
-        models = await fetch_fn()
-    except Exception as e:
-        logger.warning("Live model listing for %s failed: %s", key, e)
-        models = None
+    # Single-flight: serialize concurrent cold/expired fetches for the same key
+    # so we don't fan out to the provider API (and race set_inferred writes).
+    async with _lock_for(key):
+        # Re-check — another coroutine may have refreshed while we waited.
+        now = time.monotonic()
+        cached = _cache.get(key)
+        if cached is not None and (now - cached[0]) < ttl:
+            return list(cached[1]), False
 
-    if models:
-        _cache[key] = (now, list(models))
-        return list(models), True
+        try:
+            models = await fetch_fn()
+        except Exception as e:
+            logger.warning("Live model listing for %s failed: %s", key, e)
+            models = None
 
-    # Empty or errored fetch → last-good cache, else hardcoded fallback.
-    if cached is not None:
-        logger.info("Model listing for %s empty/failed; serving last-good cache", key)
-        return list(cached[1]), False
-    logger.info("Model listing for %s empty/failed; serving hardcoded fallback", key)
-    return list(fallback), False
+        if models:
+            _cache[key] = (now, list(models))
+            return list(models), True
+
+        # Empty or errored fetch → last-good cache, else hardcoded fallback.
+        if cached is not None:
+            logger.info("Model listing for %s empty/failed; serving last-good cache", key)
+            return list(cached[1]), False
+        logger.info("Model listing for %s empty/failed; serving hardcoded fallback", key)
+        return list(fallback), False
 
 
 def invalidate(key: str) -> None:
