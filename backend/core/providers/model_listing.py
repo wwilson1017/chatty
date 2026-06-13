@@ -17,6 +17,7 @@ import asyncio
 import hashlib
 import logging
 import time
+import weakref
 from typing import Awaitable, Callable
 
 logger = logging.getLogger(__name__)
@@ -27,14 +28,17 @@ DEFAULT_TTL = 12 * 60 * 60
 
 # key -> (monotonic_timestamp, models)
 _cache: dict[str, tuple[float, list[str]]] = {}
-# key -> asyncio.Lock for single-flight (avoid concurrent cold fetches per key)
-_locks: dict[str, asyncio.Lock] = {}
+# key -> asyncio.Lock for single-flight (avoid concurrent cold fetches per key).
+# WeakValueDictionary so locks are reclaimed once no coroutine holds one — the
+# dict can't grow unboundedly as credentials rotate (each rotation = a new key).
+_locks: "weakref.WeakValueDictionary[str, asyncio.Lock]" = weakref.WeakValueDictionary()
 
 
 def _lock_for(key: str) -> asyncio.Lock:
     lock = _locks.get(key)
     if lock is None:
-        lock = _locks[key] = asyncio.Lock()
+        lock = asyncio.Lock()
+        _locks[key] = lock  # caller holds a strong ref via `async with`, so it survives
     return lock
 
 

@@ -93,6 +93,26 @@ class TestPricing:
         assert is_priced("llama3.2") is False
         assert is_priced("") is False
 
+    def test_pricing_md_in_sync_with_pricing_py(self):
+        # Guards against PRICING.md (the reviewable report) drifting from the
+        # runtime MODEL_PRICING source of truth — the price-check skill must
+        # regenerate both together.
+        import re
+        from pathlib import Path
+        from core.providers.pricing import MODEL_PRICING
+
+        md = (Path(__file__).resolve().parent.parent
+              / "core" / "providers" / "PRICING.md").read_text(encoding="utf-8")
+        rows = {
+            m.group(1): (float(m.group(2)), float(m.group(3)))
+            for m in re.finditer(r"\|\s*`([^`]+)`\s*\|\s*([\d.]+)\s*\|\s*([\d.]+)\s*\|", md)
+        }
+        for model, prices in MODEL_PRICING.items():
+            assert model in rows, f"{model} priced in pricing.py but missing from PRICING.md"
+            assert rows[model] == prices, (
+                f"{model} price mismatch: pricing.py={prices} PRICING.md={rows[model]}"
+            )
+
 
 # ── Provider-aware unknown pricing ──────────────────────────────────────────────
 
