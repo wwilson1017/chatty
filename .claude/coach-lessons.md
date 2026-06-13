@@ -5,16 +5,20 @@
 
 ## Deploy & Infrastructure
 
-- `[0.85]` **When** running the backend from a git worktree → **do** use the absolute venv path (`/Users/willwilson/ai/chatty/.venv/bin/python`), not relative (`../../.venv/bin/python`) → **because** worktrees live under `.claude/worktrees/<name>/backend/` and the relative path resolves to a nonexistent location
+- `[0.75]` **When** running the backend from a git worktree → **do** use the absolute venv path (`/Users/willwilson/ai/chatty/.venv/bin/python`), not relative (`../../.venv/bin/python`) → **because** worktrees live under `.claude/worktrees/<name>/backend/` and the relative path resolves to a nonexistent location
 
 ## Git & Workflow
 
-- `[0.80]` **When** resolving merge conflicts → **do** use `git add <specific files>`, never `git add -A` → **because** `-A` pulled `.claude/fresh-eyes/context.md` (216 lines of session research notes) into the merge commit, which then shipped in the PR
+- `[0.85]` **When** resolving merge conflicts → **do** use `git add <specific files>`, never `git add -A` → **because** `-A` pulled `.claude/fresh-eyes/context.md` (216 lines of session research notes) into the merge commit, which then shipped in the PR
 - `[0.70]` **When** committing frontend changes → **do** run `npm run lint` (eslint) in addition to `npm run build` → **because** CI's build-and-lint job enforces react-hooks rules (e.g. `set-state-in-effect`) that tsc and vite never check — the playbooks PR went red on exactly this
 
 ## Database & Migration
 
 - `[0.75]` **When** adding columns to an existing SQLite table in Chatty → **do** use the `_migrate_schema()` try/except pattern (`SELECT col LIMIT 0` / `ALTER TABLE ADD COLUMN`) → **because** this pattern handles both fresh installs and upgrades atomically without a migration framework, and `DEFAULT` values are stored in schema not per-row
+
+## Testing
+
+- `[0.70]` **When** testing Chatty chat flows that resume or reconstruct state (`approved_tool`) → **do** end the messages with the frontend's literal `[Approved] <tool>` user message → **because** `ai_service` strips that placeholder conditionally (ai_service.py:1143) — a generic message silently bypasses the strip branch, and the test stays green while production leaks `[Approved] send_email` into provider history
 
 ## Code & Architecture
 
