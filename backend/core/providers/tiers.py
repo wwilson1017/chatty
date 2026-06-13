@@ -160,14 +160,6 @@ def derive_tier_labels(provider: str, resolved: dict[str, str] | None = None) ->
     }
 
 
-def get_tier_info(provider: str) -> dict | None:
-    from core.providers.model_tiers import get_resolved
-    models = get_resolved(provider)
-    if not any(models.values()):
-        return None
-    return {"models": models, "labels": derive_tier_labels(provider)}
-
-
 def supports_auto_triage(provider: str) -> bool:
     return provider in TRIAGE_CLASSIFIERS
 
