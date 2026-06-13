@@ -143,6 +143,15 @@ def _process_self_reminder(reminder: dict) -> None:
         account_info_map=account_info_map,
     )
 
+    # Inferred follow-ups (commitments) due for a check-in ride this heartbeat
+    # prompt — the agent decides whether and how to nudge the user.
+    followups_block = ""
+    try:
+        from core.agents.memory.commitments import heartbeat_followups_block
+        followups_block = heartbeat_followups_block(agent["slug"])
+    except Exception as e:
+        logger.warning("Commitment follow-ups skipped for %s: %s", agent["slug"], e)
+
     from core.agents.ai_service import _google_accounts_context
     ga_ctx = _google_accounts_context(account_info_map, ga)
     system_prompt = (
@@ -162,8 +171,9 @@ def _process_self_reminder(reminder: dict) -> None:
             f"# Current Date & Time\n\n"
             f"- Date: {date_str}\n"
             f"- Time: {time_str}\n\n"
-            f"Take any appropriate action using your tools. Be concise.\n"
-            f"Use `notify_user` to alert the user about important findings or actions taken."
+            + (f"{followups_block}\n\n" if followups_block else "")
+            + "Take any appropriate action using your tools. Be concise.\n"
+            "Use `notify_user` to alert the user about important findings or actions taken."
         ),
     )
 

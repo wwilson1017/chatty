@@ -65,6 +65,18 @@ export interface Reminder {
   is_recurring: boolean;
 }
 
+export interface Commitment {
+  id: number;
+  agent_slug: string;
+  text: string;
+  due_at: string | null;
+  source_conversation_id: string | null;
+  status: 'active' | 'done' | 'dismissed' | 'expired';
+  created_at: string;
+  surfaced_count: number;
+  last_surfaced_at: string | null;
+}
+
 export type GmailScopeLevel = 'none' | 'read' | 'send';
 export type CalendarScopeLevel = 'none' | 'read' | 'full';
 export type DriveScopeLevel = 'none' | 'file' | 'readonly' | 'full';

@@ -1,12 +1,15 @@
 /**
  * Chatty — AgentRemindersPanel.
- * Read-only view of all reminders for an agent.
+ * Read-only view of all reminders for an agent, plus inferred follow-ups
+ * (commitments) the agent noticed in past conversations.
  */
 
 import { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { api } from '../../core/api/client';
 import { LoadError } from '../../shared/LoadError';
-import type { Reminder } from '../../core/types';
+import { toast } from '../../shared/toast';
+import type { Commitment, Reminder } from '../../core/types';
 
 function toUTC(iso: string): Date {
   return new Date(iso.replace(' ', 'T') + 'Z');
@@ -68,7 +71,7 @@ interface SeriesCache {
   [seriesId: string]: Reminder[];
 }
 
-export default function AgentRemindersPanel({ agentSlug }: { agentSlug: string }) {
+export default function AgentRemindersPanel({ agentSlug, agentId }: { agentSlug: string; agentId: string }) {
   const [reminders, setReminders] = useState<Reminder[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadFailed, setLoadFailed] = useState(false);
@@ -120,24 +123,6 @@ export default function AgentRemindersPanel({ agentSlug }: { agentSlug: string }
     );
   }
 
-  if (loadFailed && reminders.length === 0) {
-    return (
-      <LoadError
-        label="Couldn't load reminders"
-        onRetry={() => { setLoading(true); setRetryKey(k => k + 1); }}
-      />
-    );
-  }
-
-  if (reminders.length === 0) {
-    return (
-      <div className="text-center py-12">
-        <p className="text-sm text-ch-ink-dim">No reminders yet.</p>
-        <p className="text-xs text-ch-ink-dim mt-1">Ask your agent to set a reminder and it will appear here.</p>
-      </div>
-    );
-  }
-
   const pending = reminders.filter(r => r.status === 'pending')
     .sort((a, b) => a.due_at.localeCompare(b.due_at));
   const fired = reminders.filter(r => r.status === 'fired').slice(0, 20);
@@ -149,8 +134,18 @@ export default function AgentRemindersPanel({ agentSlug }: { agentSlug: string }
     { key: 'cancelled', label: `Cancelled (${cancelled.length})`, items: cancelled, emptyText: '' },
   ];
 
-  return (
-    <div className="space-y-4 p-4">
+  const remindersContent = loadFailed && reminders.length === 0 ? (
+    <LoadError
+      label="Couldn't load reminders"
+      onRetry={() => { setLoading(true); setRetryKey(k => k + 1); }}
+    />
+  ) : reminders.length === 0 ? (
+    <div className="text-center py-12">
+      <p className="text-sm text-ch-ink-dim">No reminders yet.</p>
+      <p className="text-xs text-ch-ink-dim mt-1">Ask your agent to set a reminder and it will appear here.</p>
+    </div>
+  ) : (
+    <>
       {sections.map(section => {
         if (section.items.length === 0 && !section.emptyText) return null;
         const isCollapsed = collapsedSections.has(section.key);
@@ -191,6 +186,106 @@ export default function AgentRemindersPanel({ agentSlug }: { agentSlug: string }
           </div>
         );
       })}
+    </>
+  );
+
+  return (
+    <div className="space-y-4 p-4">
+      <CommitmentsSection agentId={agentId} />
+      {remindersContent}
+    </div>
+  );
+}
+
+function formatDueDate(isoDate: string): string {
+  return new Date(isoDate + 'T00:00:00').toLocaleDateString(undefined, {
+    month: 'short', day: 'numeric',
+  });
+}
+
+function CommitmentsSection({ agentId }: { agentId: string }) {
+  const [commitments, setCommitments] = useState<Commitment[]>([]);
+  const [loadFailed, setLoadFailed] = useState(false);
+  const [loaded, setLoaded] = useState(false);
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const result = await api<{ commitments: Commitment[] }>(`/api/agents/${agentId}/commitments?status=active`);
+        if (!cancelled) { setCommitments(result.commitments); setLoadFailed(false); }
+      } catch {
+        if (!cancelled) setLoadFailed(true);
+      } finally {
+        if (!cancelled) setLoaded(true);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [agentId]);
+
+  async function act(c: Commitment, action: 'complete' | 'dismiss') {
+    try {
+      await api(`/api/agents/${agentId}/commitments/${c.id}/${action}`, { method: 'POST' });
+      setCommitments(prev => prev.filter(x => x.id !== c.id));
+      toast.success(action === 'complete' ? 'Follow-up marked done.' : 'Follow-up dismissed.');
+    } catch {
+      toast.error(`Couldn't ${action === 'complete' ? 'complete' : 'dismiss'} the follow-up.`);
+    }
+  }
+
+  if (!loaded) return null;
+
+  return (
+    <div>
+      <div className="flex items-center gap-2 mb-2 text-sm font-semibold text-ch-ink">
+        Inferred follow-ups{commitments.length > 0 ? ` (${commitments.length})` : ''}
+      </div>
+      {loadFailed ? (
+        <p className="text-xs text-ch-ink-dim pl-5">Couldn't load inferred follow-ups.</p>
+      ) : commitments.length === 0 ? (
+        <p className="text-xs text-ch-ink-dim pl-5">None right now — these appear automatically when conversations mention things worth checking back on.</p>
+      ) : (
+        <div className="space-y-2">
+          {commitments.map(c => (
+            <div key={c.id} className="border border-ch-line-strong rounded-lg bg-ch-bg-elev px-4 py-3 flex items-center gap-3">
+              <div className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: '#D9A957' }} />
+              <div className="flex-1 min-w-0">
+                <div className="text-xs font-medium text-ch-ink">{c.text}</div>
+                <div className="flex items-center gap-2 mt-0.5 text-xs text-ch-ink-dim">
+                  <span>{c.due_at ? `Due ${formatDueDate(c.due_at)}` : `Noticed ${timeAgo(c.created_at)}`}</span>
+                  {c.source_conversation_id && (
+                    <button
+                      onClick={() => navigate(`/agent/${agentId}?tab=chat&conversation=${c.source_conversation_id}`)}
+                      className="text-ch-accent hover:underline"
+                    >
+                      View conversation
+                    </button>
+                  )}
+                </div>
+              </div>
+              <button
+                onClick={() => act(c, 'complete')}
+                title="Mark done"
+                className="shrink-0 w-7 h-7 flex items-center justify-center rounded text-ch-ink-dim hover:text-[#6DBF5B] hover:bg-ch-bg-raised/50 transition-colors"
+              >
+                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                </svg>
+              </button>
+              <button
+                onClick={() => act(c, 'dismiss')}
+                title="Dismiss"
+                className="shrink-0 w-7 h-7 flex items-center justify-center rounded text-ch-ink-dim hover:text-[#D97757] hover:bg-ch-bg-raised/50 transition-colors"
+              >
+                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

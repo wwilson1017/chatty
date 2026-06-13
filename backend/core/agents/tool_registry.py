@@ -264,6 +264,11 @@ class ToolRegistry:
                 ctx_dir, prefix, api_key,
                 days=args.get("days", 7),
             )
+        elif tool_name == "complete_commitment":
+            from core.agents.memory.commitments import complete_commitment_tool
+            return complete_commitment_tool(
+                ctx_dir, prefix, self.agent_slug, args.get("commitment", ""),
+            )
         return {"error": f"Unknown memory tool: {tool_name}"}
 
     def _execute_shared_context(self, tool_name: str, args: dict) -> dict:
