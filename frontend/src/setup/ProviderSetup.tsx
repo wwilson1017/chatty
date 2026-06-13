@@ -4,6 +4,7 @@ import type { ProviderStatus } from '../core/types';
 import { ApiKeyEntry } from './ApiKeyEntry';
 import { SetupTokenEntry } from './SetupTokenEntry';
 import { ModelSelector } from './ModelSelector';
+import { TierPicker } from './TierPicker';
 import { OllamaSetup } from './OllamaSetup';
 import { TogetherSetup } from './TogetherSetup';
 import { IconBrain, IconZap, IconSparkle, IconGlobe, IconHome } from '../shared/icons';
@@ -131,6 +132,7 @@ export function ProviderSetup() {
             {!isConnected ? renderConnectUI(p) : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                 <ModelSelector provider={p.id} currentModel={currentModel} onChanged={reload} />
+                {p.id !== 'ollama' && <TierPicker provider={p.id} onChanged={reload} />}
                 {!isActive && (
                   <button onClick={async () => {
                     await api('/api/providers/active', { method: 'PUT', body: JSON.stringify({ provider: p.id, model: currentModel || '' }) });

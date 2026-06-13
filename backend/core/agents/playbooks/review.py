@@ -292,6 +292,7 @@ async def _run_review(config, conversation_id: str | None, transcript: str) -> N
                 result_summary=(result.text or "")[:500],
                 tool_calls=result.tool_log,
                 model_used=result.model_used,
+                provider=result.provider,
                 input_tokens=result.input_tokens,
                 output_tokens=result.output_tokens,
             )

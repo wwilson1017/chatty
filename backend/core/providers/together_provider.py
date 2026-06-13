@@ -34,6 +34,25 @@ TOGETHER_MODELS = [
 
 TOGETHER_DEFAULT_MODEL = "Qwen/Qwen3.5-7B"
 
+# Together's catalog is large and mixes chat, embedding, image, rerank, etc.
+# Prefer the per-model `type` (chat/language) when present; otherwise exclude
+# obvious non-chat ids by name. The curated TOGETHER_MODELS is the fallback.
+_TOGETHER_NON_CHAT = (
+    "embedding", "rerank", "image", "audio", "moderation",
+    "whisper", "guard", "vision", "tts", "flux",
+)
+
+
+def _is_together_chat(model) -> bool:
+    mtype = getattr(model, "type", None)
+    if mtype is None:
+        extra = getattr(model, "model_extra", None) or {}
+        mtype = extra.get("type")
+    if mtype:
+        return mtype in ("chat", "language")
+    low = model.id.lower()
+    return not any(token in low for token in _TOGETHER_NON_CHAT)
+
 
 class TogetherProvider(AIProvider):
     def __init__(self, api_key: str, model: str = TOGETHER_DEFAULT_MODEL):
@@ -82,8 +101,17 @@ class TogetherProvider(AIProvider):
     ) -> list[dict]:
         return build_openai_tool_results(messages, tool_calls, results)
 
+    async def _fetch_models(self) -> list[str]:
+        client = openai.AsyncOpenAI(api_key=self.api_key, base_url=TOGETHER_BASE_URL)
+        resp = await client.models.list()
+        return sorted(m.id for m in resp.data if _is_together_chat(m))
+
     async def list_models(self) -> list[str]:
-        return TOGETHER_MODELS
+        from core.providers.model_listing import cache_key, cached_models, materialize_inference
+        key = cache_key("together", self.api_key)
+        models, is_live = await cached_models(key, self._fetch_models, TOGETHER_MODELS)
+        materialize_inference("together", models, is_live)
+        return models
 
     async def validate(self) -> bool:
         """Validate the API key with a minimal completion."""

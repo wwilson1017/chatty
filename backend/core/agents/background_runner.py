@@ -30,6 +30,7 @@ class BackgroundResult:
     output_tokens: int = 0
     tool_log: list[dict] = field(default_factory=list)
     model_used: str = ""
+    provider: str = ""
     error: bool = False
 
 
@@ -59,6 +60,7 @@ async def _run_turn(
         return BackgroundResult(text="No AI provider configured", error=True)
 
     model_used = getattr(provider, "model", "") or ""
+    provider_name = getattr(provider, "provider_name", "") or ""
 
     # Convert tool defs to provider format (strip 'kind')
     kind_map: dict[str, str] = {}
@@ -110,7 +112,7 @@ async def _run_turn(
                     text="(lease lost -- aborted)",
                     input_tokens=total_input_tokens,
                     output_tokens=total_output_tokens,
-                    model_used=model_used,
+                    model_used=model_used, provider=provider_name,
                     tool_log=tool_log,
                     error=True,
                 )
@@ -137,7 +139,7 @@ async def _run_turn(
                         text=accumulated_text or "(provider error)",
                         input_tokens=total_input_tokens,
                         output_tokens=total_output_tokens,
-                        model_used=model_used,
+                        model_used=model_used, provider=provider_name,
                         tool_log=tool_log,
                         error=True,
                     )
@@ -147,7 +149,7 @@ async def _run_turn(
                         text=accumulated_text or "(no response)",
                         input_tokens=total_input_tokens,
                         output_tokens=total_output_tokens,
-                        model_used=model_used,
+                        model_used=model_used, provider=provider_name,
                         tool_log=tool_log,
                         error=not accumulated_text,
                     )
@@ -216,7 +218,7 @@ async def _run_turn(
                     result_str = json.dumps({"error": "Turn terminated: write budget exceeded"})
                     tool_log.append({"tool": tool_name, "args": json.dumps(tool_args)[:200], "result": result_str[:500], "duration_ms": 0})
                     results.append({"tool_use_id": tc.get("id", ""), "tool_name": tool_name, "content": result_str})
-                    return BackgroundResult(text="(terminated: write budget exceeded)", input_tokens=total_input_tokens, output_tokens=total_output_tokens, model_used=model_used, tool_log=tool_log, error=True)
+                    return BackgroundResult(text="(terminated: write budget exceeded)", input_tokens=total_input_tokens, output_tokens=total_output_tokens, model_used=model_used, provider=provider_name, tool_log=tool_log, error=True)
 
                 if _hourly_enabled and not get_limiter().check_and_record(_hourly_limit):
                     result_str = json.dumps({"error": "Hourly write rate limit exceeded."})
@@ -256,6 +258,7 @@ async def _run_turn(
         input_tokens=total_input_tokens,
         output_tokens=total_output_tokens,
         model_used=model_used,
+        provider=provider_name,
         tool_log=tool_log,
         error=True,
     )
@@ -333,6 +336,7 @@ def run_background_turn(
                 result_summary=result.text[:500],
                 tool_calls=result.tool_log or None,
                 model_used=result.model_used,
+                provider=result.provider,
                 input_tokens=result.input_tokens,
                 output_tokens=result.output_tokens,
                 duration_ms=int((time.time() - t0) * 1000),

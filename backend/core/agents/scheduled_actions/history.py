@@ -46,6 +46,7 @@ def record_complete(
     result_full: str = "",
     tool_calls: list | None = None,
     model_used: str = "",
+    provider: str = "",
     input_tokens: int = 0,
     output_tokens: int = 0,
     duration_ms: int = 0,
@@ -57,13 +58,13 @@ def record_complete(
         conn.execute(
             """UPDATE execution_history SET
                completed_at = ?, status = ?, result_summary = ?,
-               result_full = ?, tool_calls = ?, model_used = ?,
+               result_full = ?, tool_calls = ?, model_used = ?, provider = ?,
                input_tokens = ?, output_tokens = ?, duration_ms = ?,
                notification_sent = ?
                WHERE id = ?""",
             (
                 _now_utc(), status, result_summary[:500],
-                result_full[:5000], tool_calls_json, model_used,
+                result_full[:5000], tool_calls_json, model_used, provider,
                 input_tokens, output_tokens, duration_ms,
                 1 if notification_sent else 0,
                 execution_id,

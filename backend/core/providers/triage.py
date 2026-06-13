@@ -12,7 +12,7 @@ import logging
 from collections import OrderedDict
 
 from core.providers.credentials import CredentialStore
-from core.providers.tiers import TRIAGE_CLASSIFIERS
+from core.providers.tiers import get_triage_classifier
 
 logger = logging.getLogger(__name__)
 
@@ -109,7 +109,7 @@ async def _classify_anthropic(text: str, creds: dict) -> str:
     import anthropic
     client = anthropic.AsyncAnthropic(api_key=creds["api_key"], timeout=_CLASSIFIER_TIMEOUT)
     response = await client.messages.create(
-        model=TRIAGE_CLASSIFIERS["anthropic"],
+        model=get_triage_classifier("anthropic"),
         max_tokens=5,
         system=_TRIAGE_SYSTEM_PROMPT,
         messages=[{"role": "user", "content": text[:_MAX_INPUT_CHARS]}],
@@ -125,7 +125,7 @@ async def _classify_openai(text: str, creds: dict) -> str:
         kwargs["base_url"] = CHATGPT_PROXY_URL
     client = openai.AsyncOpenAI(**kwargs)
     response = await client.chat.completions.create(
-        model=TRIAGE_CLASSIFIERS["openai"],
+        model=get_triage_classifier("openai"),
         max_completion_tokens=20,
         messages=[
             {"role": "system", "content": _TRIAGE_SYSTEM_PROMPT},
@@ -143,7 +143,7 @@ async def _classify_google(text: str, creds: dict) -> str:
     elif creds.get("access_token"):
         genai.configure(credentials=_google_oauth_creds(creds["access_token"]))
     model = genai.GenerativeModel(
-        TRIAGE_CLASSIFIERS["google"],
+        get_triage_classifier("google"),
         system_instruction=_TRIAGE_SYSTEM_PROMPT,
     )
     response = await asyncio.wait_for(

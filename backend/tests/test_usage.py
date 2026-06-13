@@ -35,6 +35,7 @@ def _insert_event(
     status="ok",
     started_at=None,
     model="claude-sonnet-4-6",
+    provider=None,
     input_tokens=0,
     output_tokens=0,
     result_full=None,
@@ -46,12 +47,12 @@ def _insert_event(
     conn.execute(
         """INSERT INTO execution_history
            (id, action_id, agent, action_type, event_type, started_at,
-            completed_at, status, result_full, tool_calls, model_used,
+            completed_at, status, result_full, tool_calls, model_used, provider,
             input_tokens, output_tokens)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         (eid, eid, agent, "chat" if event_type == "chat" else "heartbeat",
          event_type, started, started, status, result_full, tool_calls,
-         model, input_tokens, output_tokens),
+         model, provider, input_tokens, output_tokens),
     )
     conn.commit()
     return eid
@@ -81,6 +82,60 @@ class TestPricing:
         # 1M input + 1M output on sonnet = $3 + $15
         assert estimate_cost("claude-sonnet-4-6", 1_000_000, 1_000_000) == pytest.approx(18.0)
         assert estimate_cost("claude-haiku-4-5-20251001", 2_000_000, 0) == pytest.approx(2.0)
+
+    def test_current_models_priced(self):
+        from core.providers.pricing import is_priced
+        assert is_priced("claude-opus-4-8") is True
+        assert is_priced("gpt-5.5") is True
+        assert is_priced("gemini-2.5-flash-lite") is True
+        # Together is paid but not priced yet; local models unpriced
+        assert is_priced("Qwen/Qwen3.5-32B") is False
+        assert is_priced("llama3.2") is False
+        assert is_priced("") is False
+
+
+# ── Provider-aware unknown pricing ──────────────────────────────────────────────
+
+
+class TestUnknownPricing:
+    def test_ollama_row_is_free_not_flagged(self, reminders_db):
+        from core.agents.usage.service import get_usage_summary
+        _insert_event(reminders_db, agent="local", model="llama3.2",
+                      provider="ollama", input_tokens=1_000_000, output_tokens=1_000_000)
+        s = get_usage_summary(days=7, tz="UTC")
+        assert s["totals"]["cost"] == 0.0
+        assert s["unknown_pricing_models"] == []
+        assert s["agents"][0]["has_unknown_pricing"] is False
+        assert s["agents"][0]["unknown_pricing_models"] == []
+
+    def test_unpriced_paid_model_is_flagged(self, reminders_db):
+        from core.agents.usage.service import get_usage_summary
+        _insert_event(reminders_db, agent="t", model="Qwen/Qwen3.5-32B",
+                      provider="together", input_tokens=1_000_000, output_tokens=0)
+        s = get_usage_summary(days=7, tz="UTC")
+        assert s["totals"]["cost"] == 0.0  # unknown → 0 but FLAGGED, not silent
+        assert "Qwen/Qwen3.5-32B" in s["unknown_pricing_models"]
+        assert s["agents"][0]["has_unknown_pricing"] is True
+        assert "Qwen/Qwen3.5-32B" in s["agents"][0]["unknown_pricing_models"]
+
+    def test_priced_paid_model_not_flagged(self, reminders_db):
+        from core.agents.usage.service import get_usage_summary
+        _insert_event(reminders_db, agent="a", model="claude-opus-4-8",
+                      provider="anthropic", input_tokens=1_000_000, output_tokens=0)
+        s = get_usage_summary(days=7, tz="UTC")
+        assert s["totals"]["cost"] == pytest.approx(5.0)
+        assert s["unknown_pricing_models"] == []
+        assert s["agents"][0]["has_unknown_pricing"] is False
+
+    def test_legacy_null_provider_unpriced_flagged_not_free(self, reminders_db):
+        # Pre-migration rows have provider=NULL; an unpriced model must be
+        # flagged (conservative), never silently treated as free $0.
+        from core.agents.usage.service import get_usage_summary
+        _insert_event(reminders_db, agent="legacy", model="mystery-model-x",
+                      provider=None, input_tokens=1_000_000, output_tokens=0)
+        s = get_usage_summary(days=7, tz="UTC")
+        assert "mystery-model-x" in s["unknown_pricing_models"]
+        assert s["agents"][0]["has_unknown_pricing"] is True
 
 
 # ── Aggregation ───────────────────────────────────────────────────────────────
