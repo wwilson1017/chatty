@@ -39,6 +39,7 @@ def log_chat_event(
     result_summary: str = "",
     tool_calls: list | None = None,
     model_used: str = "",
+    provider: str = "",
     input_tokens: int = 0,
     output_tokens: int = 0,
     duration_ms: int = 0,
@@ -57,15 +58,15 @@ def log_chat_event(
             """INSERT INTO execution_history
                (id, action_id, agent, action_type, event_type, source,
                 conversation_id, started_at, completed_at, status,
-                result_summary, tool_calls, model_used,
+                result_summary, tool_calls, model_used, provider,
                 input_tokens, output_tokens, duration_ms)
                VALUES (?, ?, ?, 'chat', 'chat', ?,
                        ?, ?, ?, ?,
-                       ?, ?, ?,
+                       ?, ?, ?, ?,
                        ?, ?, ?)""",
             (event_id, event_id, agent, source,
              conversation_id, now, now, status,
-             result_summary[:500], tool_calls_json, model_used,
+             result_summary[:500], tool_calls_json, model_used, provider,
              input_tokens, output_tokens, duration_ms),
         )
         conn.commit()

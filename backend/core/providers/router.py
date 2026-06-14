@@ -38,22 +38,96 @@ async def get_providers(user=Depends(get_current_user)):
 
 @router.get("/tiers")
 async def get_tiers(user=Depends(get_current_user)):
-    """Return tier configuration for all providers."""
-    from core.providers.tiers import TIER_MODELS, TIER_LABELS, supports_auto_triage
+    """Return resolved tier configuration for all providers.
+
+    Cheap and store-only — does NOT list models live (the tier picker fetches
+    options from GET /{provider}/models, which is cached). tier_models reflect
+    override -> inferred -> hardcoded; tier_labels are always non-empty.
+    """
+    from core.providers.tiers import TIER_MODELS, supports_auto_triage, derive_tier_labels
+    from core.providers.model_tiers import get_resolved
     store = CredentialStore()
+    providers = list(TIER_MODELS.keys())
+    tier_models = {p: get_resolved(p) for p in providers}
     return {
         "active_provider": store.data.get("active_provider", ""),
-        "tier_models": TIER_MODELS,
-        "tier_labels": TIER_LABELS,
-        "auto_triage_providers": [p for p in TIER_MODELS if supports_auto_triage(p)],
+        "tier_models": tier_models,
+        "tier_labels": {p: derive_tier_labels(p, tier_models[p]) for p in providers},
+        "auto_triage_providers": [p for p in providers if supports_auto_triage(p)],
     }
+
+
+class SetTiersRequest(BaseModel):
+    provider: str
+    models: dict[str, str]  # subset of {top,mid,light} -> model id ("" clears the override)
+
+
+@router.put("/tiers")
+async def set_tiers(body: SetTiersRequest, user=Depends(get_current_user)):
+    """Persist user tier overrides for a provider.
+
+    Validates the requested model ids against the provider's current model list
+    BEFORE writing (the model_tiers store lock is held only for the JSON write,
+    never across the async list call)."""
+    from core.providers.tiers import TIER_MODELS
+    from core.providers import model_tiers, get_ai_provider
+
+    if body.provider not in TIER_MODELS:
+        raise HTTPException(status_code=400, detail=f"Unknown provider: {body.provider}")
+    bad_keys = set(body.models) - {"top", "mid", "light"}
+    if bad_keys:
+        raise HTTPException(status_code=400, detail=f"Invalid tier keys: {sorted(bad_keys)}")
+
+    nonempty = {t: m for t, m in body.models.items() if m}
+    if nonempty:
+        provider = get_ai_provider(agent_provider=body.provider)
+        if provider is None:
+            raise HTTPException(status_code=400, detail=f"Provider not configured: {body.provider}")
+        available = await provider.list_models()  # cached; not under the store lock
+        for tier, model in nonempty.items():
+            if len(model) > 200:
+                raise HTTPException(status_code=400, detail=f"Model id too long for tier '{tier}'")
+            if model not in available:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"'{model}' is not an available {body.provider} model",
+                )
+
+    model_tiers.set_overrides(body.provider, body.models)
+    return {
+        "ok": True,
+        "provider": body.provider,
+        "tier_models": model_tiers.get_resolved(body.provider),
+    }
+
+
+# ── Inferred default model after a credential save ────────────────────────────
+
+async def _materialize_inferred_tiers(provider_name: str, requested_model: str = "") -> str:
+    """After credentials are saved: live-list models so the inferred tier defaults
+    get materialized into the tier store (list_models persists them on a live fetch),
+    giving the tier picker good defaults.
+
+    Deliberately does NOT change the user's active model — that was set by the
+    preceding store.set_*() to the requested/curated model. Overriding it with the
+    inferred 'top' would ignore an explicit choice and flip cost-sensitive defaults
+    (e.g. Google → Pro). Returns the model to echo in the response body.
+    """
+    from core.providers import get_ai_provider
+    try:
+        provider = get_ai_provider(agent_provider=provider_name)
+        if provider is not None:
+            await provider.list_models()  # live fetch -> materialize inferred tiers
+    except Exception as e:
+        logger.warning("Tier materialization for %s failed: %s", provider_name, e)
+    return requested_model or CredentialStore().data.get("active_model", "")
 
 
 # ── Connect Anthropic (API key) ───────────────────────────────────────────────
 
 class AnthropicConnectRequest(BaseModel):
     api_key: str
-    model: str = "claude-opus-4-6"
+    model: str = "claude-opus-4-8"
 
 
 @router.post("/anthropic/connect")
@@ -66,12 +140,13 @@ async def connect_anthropic(body: AnthropicConnectRequest, user=Depends(get_curr
 
     store = CredentialStore()
     store.set_api_key("anthropic", body.api_key, model=body.model)
-    return {"ok": True, "provider": "anthropic", "model": body.model}
+    model = await _materialize_inferred_tiers("anthropic", body.model)
+    return {"ok": True, "provider": "anthropic", "model": model}
 
 
 class SetupTokenRequest(BaseModel):
     token: str
-    model: str = "claude-opus-4-6"
+    model: str = "claude-opus-4-8"
 
 
 @router.post("/anthropic/setup-token")
@@ -85,7 +160,8 @@ async def connect_anthropic_token(body: SetupTokenRequest, user=Depends(get_curr
 
     store = CredentialStore()
     store.set_setup_token("anthropic", body.token, model=body.model)
-    return {"ok": True, "provider": "anthropic", "model": body.model}
+    model = await _materialize_inferred_tiers("anthropic", body.model)
+    return {"ok": True, "provider": "anthropic", "model": model}
 
 
 # ── Connect Google / OpenAI (PKCE OAuth) ─────────────────────────────────────
@@ -124,14 +200,15 @@ async def connect_google_complete(body: CompleteOAuthRequest, user=Depends(get_c
         access_token=tokens["access_token"],
         refresh_token=tokens["refresh_token"],
         expires_in=tokens["expires_in"],
-        model="gemini-2.0-flash-exp",
+        model="gemini-2.5-flash",
     )
+    await _materialize_inferred_tiers("google", "gemini-2.5-flash")
     return {"ok": True, "provider": "google"}
 
 
 class GoogleKeyRequest(BaseModel):
     api_key: str
-    model: str = "gemini-2.0-flash-exp"
+    model: str = "gemini-2.5-flash"
 
 
 @router.post("/google/connect-key")
@@ -144,7 +221,8 @@ async def connect_google_key(body: GoogleKeyRequest, user=Depends(get_current_us
 
     store = CredentialStore()
     store.set_api_key("google", body.api_key, model=body.model)
-    return {"ok": True, "provider": "google", "model": body.model}
+    model = await _materialize_inferred_tiers("google", body.model)
+    return {"ok": True, "provider": "google", "model": model}
 
 
 class OpenAIKeyRequest(BaseModel):
@@ -162,7 +240,8 @@ async def connect_openai_key(body: OpenAIKeyRequest, user=Depends(get_current_us
 
     store = CredentialStore()
     store.set_api_key("openai", body.api_key, model=body.model)
-    return {"ok": True, "provider": "openai", "model": body.model}
+    model = await _materialize_inferred_tiers("openai", body.model)
+    return {"ok": True, "provider": "openai", "model": model}
 
 
 @router.post("/openai/connect")
@@ -193,6 +272,7 @@ async def connect_openai_complete(body: CompleteOAuthRequest, user=Depends(get_c
         expires_in=tokens.get("expires_in", 3600),
         model="gpt-5.4",
     )
+    await _materialize_inferred_tiers("openai", "gpt-5.4")
     return {"ok": True, "provider": "openai"}
 
 
@@ -255,7 +335,8 @@ async def connect_together(body: TogetherConnectRequest, user=Depends(get_curren
 
     store = CredentialStore()
     store.set_api_key("together", body.api_key, model=body.model)
-    return {"ok": True, "provider": "together", "model": body.model}
+    model = await _materialize_inferred_tiers("together", body.model)
+    return {"ok": True, "provider": "together", "model": model}
 
 
 # ── Disconnect ────────────────────────────────────────────────────────────────
@@ -325,6 +406,7 @@ async def refresh_google(user=Depends(get_current_user)):
         access_token=tokens["access_token"],
         refresh_token=refresh_token,  # keep existing refresh token
         expires_in=tokens.get("expires_in", 3600),
+        set_active=False,  # token refresh must not reset the active provider/model
     )
     return {"ok": True}
 
@@ -359,6 +441,7 @@ async def sync_openai_cli(user=Depends(get_current_user)):
                 if await provider.validate():
                     store = CredentialStore()
                     store.set_api_key("openai", api_key, model="gpt-5.4")
+                    await _materialize_inferred_tiers("openai", "gpt-5.4")
                     return {"ok": True, "provider": "openai", "source": str(cred_path)}
 
             # ChatGPT mode: validate via the Node.js proxy sidecar
@@ -382,6 +465,7 @@ async def sync_openai_cli(user=Depends(get_current_user)):
                                 refresh_token=refresh_token,
                                 expires_in=864000,  # ~10 days
                             )
+                            await _materialize_inferred_tiers("openai", "gpt-5.4")
                             return {"ok": True, "provider": "openai", "source": str(cred_path), "mode": "chatgpt"}
                         else:
                             raise HTTPException(status_code=400, detail=result.get("error", "Token validation failed"))

@@ -16,10 +16,12 @@ from core.providers.base import AIProvider
 
 logger = logging.getLogger(__name__)
 
+# Fallback list only — list_models() fetches live from the Anthropic Models API
+# and this is used when that call fails. Kept current by the price-check skill.
 ANTHROPIC_MODELS = [
-    "claude-opus-4-6",
+    "claude-opus-4-8",
     "claude-sonnet-4-6",
-    "claude-haiku-4-5-20251001",
+    "claude-haiku-4-5",
 ]
 
 _CACHE_CONTROL: dict = {"type": "ephemeral"}
@@ -41,7 +43,7 @@ def _get_client(api_key: str = "", auth_token: str = "") -> anthropic.AsyncAnthr
 
 
 class AnthropicProvider(AIProvider):
-    def __init__(self, api_key: str = "", auth_token: str = "", model: str = "claude-opus-4-6"):
+    def __init__(self, api_key: str = "", auth_token: str = "", model: str = "claude-opus-4-8"):
         super().__init__(model=model)
         self.api_key = api_key
         self.auth_token = auth_token
@@ -254,8 +256,18 @@ class AnthropicProvider(AIProvider):
             {"role": "user", "content": user_content},
         ]
 
+    async def _fetch_models(self) -> list[str]:
+        client = _get_client(self.api_key, self.auth_token)
+        resp = await client.models.list(limit=1000)
+        # The Models API returns Claude chat models only (newest first).
+        return [m.id for m in resp.data]
+
     async def list_models(self) -> list[str]:
-        return ANTHROPIC_MODELS
+        from core.providers.model_listing import cache_key, cached_models, materialize_inference
+        key = cache_key("anthropic", self.api_key, self.auth_token)
+        models, is_live = await cached_models(key, self._fetch_models, ANTHROPIC_MODELS)
+        materialize_inference("anthropic", models, is_live)
+        return models
 
     async def validate(self) -> bool:
         try:
@@ -264,7 +276,7 @@ class AnthropicProvider(AIProvider):
                 auth_token=self.auth_token or None,
             )
             client.messages.create(
-                model="claude-haiku-4-5-20251001",
+                model="claude-haiku-4-5",
                 max_tokens=1,
                 messages=[{"role": "user", "content": "hi"}],
             )

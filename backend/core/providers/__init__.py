@@ -48,8 +48,8 @@ def get_ai_provider(
     if profile_name.startswith("anthropic:"):
         from core.providers.anthropic_provider import AnthropicProvider
         if profile.get("type") == "setup_token":
-            return AnthropicProvider(api_key=profile.get("token", ""), model=model or "claude-opus-4-6")
-        return AnthropicProvider(api_key=profile.get("key", ""), model=model or "claude-opus-4-6")
+            return AnthropicProvider(api_key=profile.get("token", ""), model=model or "claude-opus-4-8")
+        return AnthropicProvider(api_key=profile.get("key", ""), model=model or "claude-opus-4-8")
 
     elif profile_name.startswith("openai:"):
         from core.providers.openai_provider import OpenAIProvider
@@ -82,9 +82,9 @@ def get_ai_provider(
     elif profile_name.startswith("google:"):
         from core.providers.google_provider import GoogleProvider
         if profile.get("type") == "api_key":
-            return GoogleProvider(api_key=profile.get("key", ""), model=model or "gemini-2.0-flash-exp")
+            return GoogleProvider(api_key=profile.get("key", ""), model=model or "gemini-2.5-flash")
         access_token = profile.get("access", "")
-        return GoogleProvider(access_token=access_token, model=model or "gemini-2.0-flash-exp")
+        return GoogleProvider(access_token=access_token, model=model or "gemini-2.5-flash")
 
     elif profile_name.startswith("ollama:"):
         from core.providers.ollama_provider import OllamaProvider

@@ -32,11 +32,9 @@ _AGENT_TURN_ERRORS = frozenset({
     "(max iterations reached)",
 })
 
-_TRIAGE_MODELS = {
-    "anthropic": "claude-haiku-4-5-20251001",
-    "openai": "gpt-4.1-nano",
-    "google": "gemini-2.0-flash-lite",
-}
+# Triage classifier model is resolved via tiers.get_triage_classifier()
+# (override -> inferred -> hardcoded), unifying what used to be a separate,
+# drift-prone _TRIAGE_MODELS map here.
 
 # -- In-flight tracking --------------------------------------------------
 _in_flight_count = 0
@@ -424,7 +422,8 @@ def _process_heartbeat(action: dict) -> None:
         triage_model_override = model_override
         cheap_model = None
         if triage_mode in ("cheap", "always_cheap"):
-            cheap_model = _TRIAGE_MODELS.get(_resolve_triage_provider(agent))
+            from core.providers.tiers import get_triage_classifier
+            cheap_model = get_triage_classifier(_resolve_triage_provider(agent))
             if cheap_model:
                 triage_model_override = cheap_model
 
@@ -475,7 +474,7 @@ def _process_heartbeat(action: dict) -> None:
                         execution_id, status="error" if completed else "lease_lost",
                         result_summary=f"triage failed: {triage_result.text[:200]}",
                         result_full=triage_result.text,
-                        model_used=triage_result.model_used,
+                        model_used=triage_result.model_used, provider=triage_result.provider,
                         input_tokens=triage_result.input_tokens,
                         output_tokens=triage_result.output_tokens,
                         duration_ms=duration_ms,
@@ -502,7 +501,7 @@ def _process_heartbeat(action: dict) -> None:
                             result_summary="Triage: all clear",
                             result_full="Triage returned ALL_CLEAR — skipping full check.",
                             tool_calls=[{"triage": triage_data}],
-                            model_used=triage_result.model_used,
+                            model_used=triage_result.model_used, provider=triage_result.provider,
                             input_tokens=triage_result.input_tokens,
                             output_tokens=triage_result.output_tokens,
                             duration_ms=duration_ms,
@@ -629,7 +628,7 @@ def _process_heartbeat(action: dict) -> None:
                 result_summary=result.text[:500],
                 result_full=result.text,
                 tool_calls=full_tool_log,
-                model_used=result.model_used,
+                model_used=result.model_used, provider=result.provider,
                 input_tokens=total_inp,
                 output_tokens=total_out,
                 duration_ms=duration_ms,
@@ -749,7 +748,7 @@ def _process_cron(action: dict) -> None:
                 result_summary=result.text[:500],
                 result_full=result.text,
                 tool_calls=result.tool_log,
-                model_used=result.model_used,
+                model_used=result.model_used, provider=result.provider,
                 input_tokens=result.input_tokens,
                 output_tokens=result.output_tokens,
                 duration_ms=duration_ms,

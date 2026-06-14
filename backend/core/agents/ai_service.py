@@ -762,6 +762,7 @@ def _log_chat_completion(
     total_input_tokens: int,
     total_output_tokens: int,
     chat_start_time: float,
+    provider_name: str = "",
 ) -> None:
     try:
         from core.agents.activity_log import log_chat_event
@@ -780,6 +781,7 @@ def _log_chat_completion(
             result_summary=summary,
             tool_calls=all_tool_calls or None,
             model_used=model_used,
+            provider=provider_name,
             input_tokens=total_input_tokens,
             output_tokens=total_output_tokens,
             duration_ms=int((time.time() - chat_start_time) * 1000),
@@ -836,6 +838,7 @@ async def chat(
     total_input_tokens = 0
     total_output_tokens = 0
     model_used = getattr(provider, "model", "") or ""
+    provider_name = getattr(provider, "provider_name", "") or ""
 
     # Validate tool_mode
     if tool_mode not in ("read-only", "normal", "power"):
@@ -1232,7 +1235,7 @@ async def chat(
                 if stop_reason != "tool_use" or not tool_calls_this_turn:
                     _log_chat_completion(config.slug, conversation_id, "chat", "ok",
                                         accumulated_text, all_tool_calls, model_used,
-                                        total_input_tokens, total_output_tokens, chat_start_time)
+                                        total_input_tokens, total_output_tokens, chat_start_time, provider_name)
                     if not training_mode and not plan_mode and not import_mode:
                         from core.agents.playbooks.review import maybe_schedule_review
                         maybe_schedule_review(config, conversation_id, messages,
@@ -1246,7 +1249,7 @@ async def chat(
             elif etype == "error":
                 _log_chat_completion(config.slug, conversation_id, "chat", "error",
                                     event.get("error", "Unknown error"), all_tool_calls, model_used,
-                                    total_input_tokens, total_output_tokens, chat_start_time)
+                                    total_input_tokens, total_output_tokens, chat_start_time, provider_name)
                 yield _sse({"type": "error", "error": event.get("error", "Unknown error")})
                 return
 
@@ -1254,7 +1257,7 @@ async def chat(
         if not tool_calls_this_turn:
             _log_chat_completion(config.slug, conversation_id, "chat", "ok",
                                 accumulated_text, all_tool_calls, model_used,
-                                total_input_tokens, total_output_tokens, chat_start_time)
+                                total_input_tokens, total_output_tokens, chat_start_time, provider_name)
             if not training_mode and not plan_mode and not import_mode:
                 from core.agents.playbooks.review import maybe_schedule_review
                 maybe_schedule_review(config, conversation_id, messages,
@@ -1334,7 +1337,7 @@ async def chat(
                         break
                 _log_chat_completion(config.slug, conversation_id, "chat", "ok",
                                     accumulated_text, all_tool_calls, model_used,
-                                    total_input_tokens, total_output_tokens, chat_start_time)
+                                    total_input_tokens, total_output_tokens, chat_start_time, provider_name)
                 done_event = {"type": "done", "model": model_used}
                 if triage_info:
                     done_event["tier"] = triage_info.get("tier")
@@ -1453,7 +1456,7 @@ async def chat(
                     break
             _log_chat_completion(config.slug, conversation_id, "chat", "ok",
                                 accumulated_text, all_tool_calls, model_used,
-                                total_input_tokens, total_output_tokens, chat_start_time)
+                                total_input_tokens, total_output_tokens, chat_start_time, provider_name)
             done_event = {"type": "done", "model": model_used}
             if triage_info:
                 done_event["tier"] = triage_info.get("tier")
@@ -1463,7 +1466,7 @@ async def chat(
     # Exceeded max iterations
     _log_chat_completion(config.slug, conversation_id, "chat", "error",
                         "Tool loop exceeded maximum iterations", all_tool_calls, model_used,
-                        total_input_tokens, total_output_tokens, chat_start_time)
+                        total_input_tokens, total_output_tokens, chat_start_time, provider_name)
     yield _sse({"type": "error", "error": "Tool loop exceeded maximum iterations"})
 
 
@@ -1492,6 +1495,7 @@ async def run_sync(
     """
     chat_start_time = time.time()
     model_used = getattr(provider, "model", "") or ""
+    provider_name = getattr(provider, "provider_name", "") or ""
 
     # Build tool definitions (same as streaming path)
     real_tools_dir = str(Path(config.context_dir).parent / "real_tools")
@@ -1653,7 +1657,7 @@ async def run_sync(
                 logger.error("run_sync: provider error: %s", event.get("error"))
                 _log_chat_completion(config.slug, conversation_id, source, "error",
                                     event.get("error", "Provider error"), all_tool_calls, model_used,
-                                    total_input_tokens, total_output_tokens, chat_start_time)
+                                    total_input_tokens, total_output_tokens, chat_start_time, provider_name)
                 return accumulated_text or "I encountered an error. Please try again."
 
         # Save assistant turn to history (with tool calls)
@@ -1675,7 +1679,7 @@ async def run_sync(
         if stop_reason != "tool_use" or not tool_calls_this_turn:
             _log_chat_completion(config.slug, conversation_id, source, "ok",
                                 accumulated_text, all_tool_calls, model_used,
-                                total_input_tokens, total_output_tokens, chat_start_time)
+                                total_input_tokens, total_output_tokens, chat_start_time, provider_name)
             break
 
         # Execute tool calls (power mode — no confirmation flow for messaging)
@@ -1726,7 +1730,7 @@ async def run_sync(
                         pass
                     _log_chat_completion(config.slug, conversation_id, source, "error",
                                         "Write budget exceeded — turn terminated", all_tool_calls, model_used,
-                                        total_input_tokens, total_output_tokens, chat_start_time)
+                                        total_input_tokens, total_output_tokens, chat_start_time, provider_name)
                     return accumulated_text or "Write budget exceeded. Turn terminated."
 
                 if _sync_hourly_enabled and not _get_limiter().check_and_record(_sync_hourly_limit):
@@ -1772,6 +1776,6 @@ async def run_sync(
     else:
         _log_chat_completion(config.slug, conversation_id, source, "error",
                             "Tool loop exceeded maximum iterations", all_tool_calls, model_used,
-                            total_input_tokens, total_output_tokens, chat_start_time)
+                            total_input_tokens, total_output_tokens, chat_start_time, provider_name)
 
     return accumulated_text or "I had trouble generating a response. Please try again."
