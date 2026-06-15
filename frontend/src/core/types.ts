@@ -236,8 +236,10 @@ export interface ProviderStatus {
 }
 
 // Context usage (returned from SSE 'usage' event)
+// contextTokens is the cache-inclusive total the model read this turn (how full
+// the context window is); contextWindow is the model's window size.
 export interface ContextUsage {
-  inputTokens: number;
+  contextTokens: number;
   contextWindow: number;
 }
 
@@ -256,7 +258,7 @@ export type SSEEvent =
   | { type: 'tool_end'; tool: string; tool_use_id: string; result: unknown; elapsed_ms?: number; duration_ms?: number }
   | { type: 'confirm'; tool: string; args: Record<string, unknown>; tool_use_id: string; description: string }
   | { type: 'plan_ready'; plan: string }
-  | { type: 'usage'; input_tokens: number; context_window: number }
+  | { type: 'usage'; input_tokens: number; output_tokens: number; context_tokens: number; context_window: number }
   | { type: 'report'; report: { id: string; title: string; subtitle?: string; sections: unknown[]; created_at: string } }
   | { type: 'title_update'; title: string; conversation_id: string }
   | { type: 'done'; model?: string; tier?: string }

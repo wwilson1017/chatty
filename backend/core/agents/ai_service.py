@@ -12,7 +12,9 @@ SSE event types emitted:
   tool_end         — tool result          {tool, tool_use_id, result, elapsed_ms}
   confirm          — write tool needs approval {tool, args, tool_use_id, description}
   plan_ready       — plan mode completed  {plan_text, status}
-  usage            — token usage          {input_tokens, output_tokens, context_window}
+  usage            — token usage          {input_tokens, output_tokens, context_tokens, context_window}
+                     input_tokens/output_tokens are RAW (CLI + cost log);
+                     context_tokens is the cache-inclusive total for the meter
   title_update     — AI-generated title   {title, conversation_id}
   done             — stream complete
   error            — error message
@@ -33,6 +35,7 @@ from zoneinfo import ZoneInfo
 
 from core.storage import upload_config, delete_config
 from core.providers.base import AIProvider, _sse
+from core.providers.windows import context_usage_event
 from .config import AgentConfig
 from .context_manager import ContextManager, is_social_closer, _tokenize
 from .tool_registry import ToolRegistry
@@ -1192,17 +1195,16 @@ async def chat(
                 tool_calls_this_turn = event.get("tool_calls", [])
                 stop_reason = event.get("stop_reason", "stop")
 
-                # Emit usage event and track totals
+                # Track raw token totals for the activity/cost log.
                 usage = event.get("usage", {})
                 if usage:
                     total_input_tokens += usage.get("input_tokens", 0)
                     total_output_tokens += usage.get("output_tokens", 0)
-                    yield _sse({
-                        "type": "usage",
-                        "input_tokens": usage.get("input_tokens", 0),
-                        "output_tokens": usage.get("output_tokens", 0),
-                        "context_window": 200000,  # Default context window
-                    })
+                # Emit the context-meter usage event (cache-inclusive total over
+                # the model's real window). None when usage/window unavailable.
+                usage_event = context_usage_event(usage, provider.context_window)
+                if usage_event:
+                    yield _sse(usage_event)
 
                 # Save assistant turn to history (with tool calls if any)
                 if persist and turn_text and conversation_id:
@@ -1331,6 +1333,11 @@ async def chat(
                         accumulated_text += event["text"]
                         yield _sse({"type": "text", "text": event["text"]})
                     elif etype == "_turn_complete":
+                        # Update the meter for this wrap-up turn (raw totals are
+                        # intentionally left untouched here, as before).
+                        usage_event = context_usage_event(event.get("usage", {}), provider.context_window)
+                        if usage_event:
+                            yield _sse(usage_event)
                         break
                 _log_chat_completion(config.slug, conversation_id, "chat", "ok",
                                     accumulated_text, all_tool_calls, model_used,
@@ -1450,6 +1457,11 @@ async def chat(
                     accumulated_text += event["text"]
                     yield _sse({"type": "text", "text": event["text"]})
                 elif etype == "_turn_complete":
+                    # Update the meter for this wrap-up turn (raw totals are
+                    # intentionally left untouched here, as before).
+                    usage_event = context_usage_event(event.get("usage", {}), provider.context_window)
+                    if usage_event:
+                        yield _sse(usage_event)
                     break
             _log_chat_completion(config.slug, conversation_id, "chat", "ok",
                                 accumulated_text, all_tool_calls, model_used,

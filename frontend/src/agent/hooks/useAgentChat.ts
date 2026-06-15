@@ -77,7 +77,7 @@ export interface ChatMessage {
 }
 
 export interface ContextUsage {
-  inputTokens: number;
+  contextTokens: number;
   contextWindow: number;
 }
 
@@ -324,9 +324,9 @@ export function useAgentChat(apiPrefix: string, options?: Options) {
                   status: 'pending',
                 },
               }));
-            } else if (event.type === 'usage' && event.input_tokens != null && event.context_window != null) {
+            } else if (event.type === 'usage' && event.context_tokens != null && event.context_window != null) {
               setContextUsage({
-                inputTokens: event.input_tokens,
+                contextTokens: event.context_tokens,
                 contextWindow: event.context_window,
               });
             } else if (event.type === 'report' && event.report) {

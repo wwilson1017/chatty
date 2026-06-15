@@ -22,6 +22,8 @@ class MockAIProvider(AIProvider):
         super().__init__(model="mock-model")
         self._responses = responses or [self._default_response()]
         self._call_index = 0
+        # Drives the context meter; set to None to simulate an unknown window.
+        self.context_window_value = 200_000
 
     @staticmethod
     def _default_response():
@@ -66,6 +68,10 @@ class MockAIProvider(AIProvider):
     @property
     def provider_name(self):
         return "mock"
+
+    @property
+    def context_window(self):
+        return self.context_window_value
 
 
 # ---------------------------------------------------------------------------
@@ -170,8 +176,75 @@ class TestSingleTurn:
         )
         usage = [e for e in events if e["type"] == "usage"]
         assert len(usage) == 1
-        assert usage[0]["input_tokens"] == 10
-        assert usage[0]["output_tokens"] == 5
+        assert usage[0]["input_tokens"] == 10        # raw
+        assert usage[0]["output_tokens"] == 5         # raw
+        assert usage[0]["context_tokens"] == 10       # cache-inclusive (no cache here)
+        assert usage[0]["context_window"] == 200_000
+
+
+class TestContextUsageMeter:
+    """The 'usage' SSE event that drives the composer context-fullness meter."""
+
+    async def test_context_tokens_is_cache_inclusive(self, fake_config, mock_prov, mock_registry, mock_ctx):
+        # With prompt caching, the bulk of the prompt lives in cache_* fields;
+        # context_tokens must sum all three while input_tokens stays raw.
+        mock_prov.set_responses([[
+            {"type": "text", "text": "hi"},
+            {"type": "_turn_complete", "tool_calls": [], "stop_reason": "stop",
+             "usage": {"input_tokens": 300, "output_tokens": 50,
+                       "cache_creation_input_tokens": 1_000,
+                       "cache_read_input_tokens": 48_700}},
+        ]])
+        events = await collect_events(
+            chat(fake_config, mock_prov, mock_registry, mock_ctx,
+                 [{"role": "user", "content": "hi"}], tool_mode="power")
+        )
+        usage = next(e for e in events if e["type"] == "usage")
+        assert usage["input_tokens"] == 300            # raw uncached delta
+        assert usage["context_tokens"] == 50_000       # 300 + 1000 + 48700
+        assert usage["context_window"] == 200_000
+
+    async def test_no_usage_event_when_window_unknown(self, fake_config, mock_prov, mock_registry, mock_ctx):
+        # Provider can't report a window (e.g. non-Anthropic, follow-up PR) →
+        # meter stays hidden, no 'usage' event at all.
+        mock_prov.context_window_value = None
+        events = await collect_events(
+            chat(fake_config, mock_prov, mock_registry, mock_ctx,
+                 [{"role": "user", "content": "hi"}], tool_mode="power")
+        )
+        assert not [e for e in events if e["type"] == "usage"]
+
+    async def test_meter_updates_on_pending_confirmation_continuation(self, fake_config, mock_prov, mock_registry, mock_ctx):
+        # A write tool in normal mode emits a confirm and runs a wrap-up turn;
+        # that continuation turn must still emit the meter usage event.
+        mock_prov.set_responses([
+            [
+                {"type": "_turn_complete", "tool_calls": [
+                    {"name": "send_email", "id": "tu1", "args": {}}
+                ], "stop_reason": "tool_use", "usage": {}},
+            ],
+            [
+                {"type": "text", "text": "I'll send that once you confirm."},
+                {"type": "_turn_complete", "tool_calls": [], "stop_reason": "stop",
+                 "usage": {"input_tokens": 100, "output_tokens": 20,
+                           "cache_read_input_tokens": 5_000}},
+            ],
+        ])
+        events = await collect_events(
+            chat(fake_config, mock_prov, mock_registry, mock_ctx,
+                 [{"role": "user", "content": "send email"}],
+                 tool_mode="normal",
+                 integration_tool_defs=[{
+                     "name": "send_email", "kind": "gmail",
+                     "writes": True, "input_schema": {"type": "object", "properties": {}},
+                     "description": "Send an email",
+                 }])
+        )
+        assert "confirm" in [e["type"] for e in events]
+        usage = [e for e in events if e["type"] == "usage"]
+        assert len(usage) == 1
+        assert usage[0]["context_tokens"] == 5_100     # 100 + 5000
+        assert usage[0]["context_window"] == 200_000
 
 
 class TestToolExecution:
