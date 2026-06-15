@@ -13,6 +13,7 @@
 
 import { useState, useCallback, useRef, useEffect } from 'react';
 import { getToken } from '../../core/auth/tokenUtils';
+import type { ContextUsage } from '../../core/types';
 
 function uuid(): string {
   if (typeof crypto !== 'undefined' && crypto.randomUUID) return crypto.randomUUID();
@@ -76,10 +77,9 @@ export interface ChatMessage {
   playbook?: { slug: string; name: string };
 }
 
-export interface ContextUsage {
-  contextTokens: number;
-  contextWindow: number;
-}
+// ContextUsage lives in core/types as the single source of truth; re-exported
+// here so existing importers (AgentChatPanel) keep their import path.
+export type { ContextUsage };
 
 interface Options {
   onTitleUpdate?: (convId: string, title: string) => void;

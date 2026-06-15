@@ -245,6 +245,63 @@ class TestContextUsageMeter:
         assert len(usage) == 1
         assert usage[0]["context_tokens"] == 5_100     # 100 + 5000
         assert usage[0]["context_window"] == 200_000
+        # meter-only: raw tokens zeroed so the CLI session total ignores them.
+        assert usage[0]["input_tokens"] == 0
+        assert usage[0]["output_tokens"] == 0
+
+    async def test_meter_updates_on_plan_mode_exit(self, fake_config, mock_prov, mock_registry, mock_ctx):
+        # The exit_plan_mode wrap-up turn must also emit a (meter-only) usage event.
+        mock_prov.set_responses([
+            [
+                {"type": "_turn_complete", "tool_calls": [
+                    {"name": "exit_plan_mode", "id": "tu1", "args": {"plan": "Do the thing."}}
+                ], "stop_reason": "tool_use", "usage": {}},
+            ],
+            [
+                {"type": "text", "text": "Plan ready for your review."},
+                {"type": "_turn_complete", "tool_calls": [], "stop_reason": "stop",
+                 "usage": {"input_tokens": 200, "output_tokens": 30,
+                           "cache_read_input_tokens": 9_800}},
+            ],
+        ])
+        events = await collect_events(
+            chat(fake_config, mock_prov, mock_registry, mock_ctx,
+                 [{"role": "user", "content": "make a plan"}],
+                 tool_mode="power", plan_mode=True)
+        )
+        assert "plan_ready" in [e["type"] for e in events]
+        usage = [e for e in events if e["type"] == "usage"]
+        assert len(usage) == 1
+        assert usage[0]["context_tokens"] == 10_000     # 200 + 9800
+        assert usage[0]["input_tokens"] == 0            # meter-only
+        assert usage[0]["context_window"] == 200_000
+
+    async def test_no_usage_event_at_continuation_when_window_unknown(self, fake_config, mock_prov, mock_registry, mock_ctx):
+        # Even with real wrap-up usage, an unknown window keeps the meter hidden.
+        mock_prov.context_window_value = None
+        mock_prov.set_responses([
+            [
+                {"type": "_turn_complete", "tool_calls": [
+                    {"name": "send_email", "id": "tu1", "args": {}}
+                ], "stop_reason": "tool_use", "usage": {}},
+            ],
+            [
+                {"type": "text", "text": "I'll send that once you confirm."},
+                {"type": "_turn_complete", "tool_calls": [], "stop_reason": "stop",
+                 "usage": {"input_tokens": 100, "cache_read_input_tokens": 5_000}},
+            ],
+        ])
+        events = await collect_events(
+            chat(fake_config, mock_prov, mock_registry, mock_ctx,
+                 [{"role": "user", "content": "send email"}],
+                 tool_mode="normal",
+                 integration_tool_defs=[{
+                     "name": "send_email", "kind": "gmail",
+                     "writes": True, "input_schema": {"type": "object", "properties": {}},
+                     "description": "Send an email",
+                 }])
+        )
+        assert not [e for e in events if e["type"] == "usage"]
 
 
 class TestToolExecution:

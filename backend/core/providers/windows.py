@@ -36,7 +36,8 @@ def get_context_window(model: str) -> int | None:
     return MODEL_CONTEXT_WINDOWS[best_key] if best_key else None
 
 
-def context_usage_event(usage: dict, context_window: int | None) -> dict | None:
+def context_usage_event(usage: dict, context_window: int | None,
+                        meter_only: bool = False) -> dict | None:
     """Build the 'usage' SSE payload, or None when the meter can't be shown.
 
     The composer meter shows how full the context window is, so it needs the
@@ -50,10 +51,18 @@ def context_usage_event(usage: dict, context_window: int | None) -> dict | None:
     the activity/cost log sums them. Only `context_tokens` is cache-inclusive,
     and it is emit-only (never accumulated).
 
-    Returns None when there's no usage data or no known window, so the caller
-    simply emits nothing and the frontend keeps the meter hidden.
+    `meter_only=True` is used for the plan-mode / pending-confirmation wrap-up
+    turns. Those turns are deliberately excluded from token/cost accounting (the
+    backend cost log never accumulates them), so we zero the raw
+    input_tokens/output_tokens to keep the CLI session total — which sums every
+    usage event it sees — from picking them up. The meter still updates from
+    `context_tokens`.
+
+    Returns None when there's no usage data, no known window, or no usable
+    input-side count — so the caller emits nothing and the meter stays hidden
+    rather than rendering a misleading 0% / negative.
     """
-    if not usage or not context_window:
+    if not usage or context_window is None:
         return None
     # `or 0` guards a provider that supplies an explicit None for any field
     # (this helper is provider-generic; Anthropic returns ints today).
@@ -62,10 +71,15 @@ def context_usage_event(usage: dict, context_window: int | None) -> dict | None:
         + (usage.get("cache_creation_input_tokens") or 0)
         + (usage.get("cache_read_input_tokens") or 0)
     )
+    if context_tokens <= 0:
+        # No usable input-side count (e.g. output-only or malformed usage, or a
+        # negative from a buggy provider) — hide the meter instead of showing a
+        # bogus 0% / negative reading.
+        return None
     return {
         "type": "usage",
-        "input_tokens": usage.get("input_tokens") or 0,    # raw — CLI + cost log
-        "output_tokens": usage.get("output_tokens") or 0,  # raw
+        "input_tokens": 0 if meter_only else (usage.get("input_tokens") or 0),
+        "output_tokens": 0 if meter_only else (usage.get("output_tokens") or 0),
         "context_tokens": context_tokens,                  # cache-inclusive — meter
         "context_window": context_window,
     }

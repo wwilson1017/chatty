@@ -489,7 +489,7 @@ export function AgentChatPanel({
           color: 'rgba(237,240,244,0.38)',
         }}>
           {contextUsage && contextUsage.contextWindow > 0 ? (() => {
-            const pct = Math.min(100, Math.round((contextUsage.contextTokens / contextUsage.contextWindow) * 100));
+            const pct = Math.max(0, Math.min(100, Math.round((contextUsage.contextTokens / contextUsage.contextWindow) * 100)));
             // Neutral < 75%, amber 75–90%, red > 90%.
             const color = pct > 90 ? '#e0524d' : pct >= 75 ? '#d9a441' : 'rgba(237,240,244,0.38)';
             return <span style={{ color }}>{`${pct}% ctx · ⏎ send`}</span>;

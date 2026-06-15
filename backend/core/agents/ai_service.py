@@ -1333,9 +1333,11 @@ async def chat(
                         accumulated_text += event["text"]
                         yield _sse({"type": "text", "text": event["text"]})
                     elif etype == "_turn_complete":
-                        # Update the meter for this wrap-up turn (raw totals are
-                        # intentionally left untouched here, as before).
-                        usage_event = context_usage_event(event.get("usage", {}), provider.context_window)
+                        # Meter-only: this wrap-up turn is excluded from token/
+                        # cost accounting (raw totals untouched), so emit with
+                        # meter_only=True so the CLI session total ignores it too.
+                        usage_event = context_usage_event(
+                            event.get("usage", {}), provider.context_window, meter_only=True)
                         if usage_event:
                             yield _sse(usage_event)
                         break
@@ -1457,9 +1459,11 @@ async def chat(
                     accumulated_text += event["text"]
                     yield _sse({"type": "text", "text": event["text"]})
                 elif etype == "_turn_complete":
-                    # Update the meter for this wrap-up turn (raw totals are
-                    # intentionally left untouched here, as before).
-                    usage_event = context_usage_event(event.get("usage", {}), provider.context_window)
+                    # Meter-only: this wrap-up turn is excluded from token/cost
+                    # accounting (raw totals untouched), so emit with
+                    # meter_only=True so the CLI session total ignores it too.
+                    usage_event = context_usage_event(
+                        event.get("usage", {}), provider.context_window, meter_only=True)
                     if usage_event:
                         yield _sse(usage_event)
                     break

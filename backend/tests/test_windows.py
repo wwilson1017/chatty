@@ -53,6 +53,25 @@ class TestContextUsageEvent:
         assert ev["context_tokens"] == 15          # 10 + 0 + 5
         assert ev["output_tokens"] == 0
 
+    def test_none_when_only_output_tokens(self):
+        # Output-only usage (no input-side tokens) -> hidden, not a bogus 0%.
+        assert context_usage_event({"output_tokens": 50}, 200_000) is None
+
+    def test_none_when_all_tokens_zero(self):
+        assert context_usage_event({"input_tokens": 0, "output_tokens": 0}, 200_000) is None
+
+    def test_meter_only_zeros_raw_tokens(self):
+        # Wrap-up turns emit meter_only so the CLI session total ignores them,
+        # while context_tokens stays accurate for the meter.
+        ev = context_usage_event(
+            {"input_tokens": 100, "output_tokens": 20, "cache_read_input_tokens": 5_000},
+            200_000, meter_only=True,
+        )
+        assert ev["input_tokens"] == 0
+        assert ev["output_tokens"] == 0
+        assert ev["context_tokens"] == 5_100
+        assert ev["context_window"] == 200_000
+
 
 class TestAnthropicContextWindow:
     def test_known_model(self):
@@ -70,3 +89,13 @@ class TestAnthropicContextWindow:
     def test_non_claude_model_returns_none(self):
         prov = AnthropicProvider(api_key="x", model="some-other-model")
         assert prov.context_window is None
+
+
+class TestAnthropicModelsCoverage:
+    def test_all_listed_models_resolve_to_a_window(self):
+        # Guards against drift: every model the provider offers must resolve to a
+        # known window (or the claude- family floor), never None.
+        from core.providers.anthropic_provider import ANTHROPIC_MODELS
+        for model in ANTHROPIC_MODELS:
+            prov = AnthropicProvider(api_key="x", model=model)
+            assert prov.context_window == 200_000, f"{model} window drifted"
