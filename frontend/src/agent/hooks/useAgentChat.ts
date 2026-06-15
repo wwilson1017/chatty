@@ -521,6 +521,10 @@ export function useAgentChat(apiPrefix: string, options?: Options) {
       streamInIntervalRef.current = null;
     }
 
+    // New conversation loaded — clear the previous conversation's context meter
+    // so it doesn't keep showing a stale fullness % until the next turn updates it.
+    setContextUsage(null);
+
     if (!streamIn || !msgs.length || msgs[msgs.length - 1].role !== 'assistant') {
       setMessages(msgs);
       setConversationId(id);

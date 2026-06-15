@@ -1198,8 +1198,8 @@ async def chat(
                 # Track raw token totals for the activity/cost log.
                 usage = event.get("usage", {})
                 if usage:
-                    total_input_tokens += usage.get("input_tokens", 0)
-                    total_output_tokens += usage.get("output_tokens", 0)
+                    total_input_tokens += usage.get("input_tokens") or 0
+                    total_output_tokens += usage.get("output_tokens") or 0
                 # Emit the context-meter usage event (cache-inclusive total over
                 # the model's real window). None when usage/window unavailable.
                 usage_event = context_usage_event(usage, provider.context_window)
@@ -1662,8 +1662,8 @@ async def run_sync(
                 tool_calls_this_turn = event.get("tool_calls", [])
                 stop_reason = event.get("stop_reason", "stop")
                 usage = event.get("usage", {})
-                total_input_tokens += usage.get("input_tokens", 0)
-                total_output_tokens += usage.get("output_tokens", 0)
+                total_input_tokens += usage.get("input_tokens") or 0
+                total_output_tokens += usage.get("output_tokens") or 0
 
             elif etype == "error":
                 logger.error("run_sync: provider error: %s", event.get("error"))

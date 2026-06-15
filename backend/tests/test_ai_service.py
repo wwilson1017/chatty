@@ -303,6 +303,24 @@ class TestContextUsageMeter:
         )
         assert not [e for e in events if e["type"] == "usage"]
 
+    async def test_none_token_fields_do_not_crash(self, fake_config, mock_prov, mock_registry, mock_ctx):
+        # A provider returning an explicit None token must not crash the
+        # raw-total accumulation path (regression for the `+= None` TypeError).
+        mock_prov.set_responses([[
+            {"type": "text", "text": "hi"},
+            {"type": "_turn_complete", "tool_calls": [], "stop_reason": "stop",
+             "usage": {"input_tokens": None, "output_tokens": 5,
+                       "cache_read_input_tokens": 1_000}},
+        ]])
+        events = await collect_events(
+            chat(fake_config, mock_prov, mock_registry, mock_ctx,
+                 [{"role": "user", "content": "hi"}], tool_mode="power")
+        )
+        assert events[-1]["type"] == "done"
+        usage = [e for e in events if e["type"] == "usage"]
+        assert len(usage) == 1
+        assert usage[0]["context_tokens"] == 1_000     # 0 + 0 + 1000
+
 
 class TestToolExecution:
     async def test_tool_call_executes_and_continues(self, fake_config, mock_prov, mock_registry, mock_ctx):
