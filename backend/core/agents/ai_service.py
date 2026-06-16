@@ -1349,6 +1349,28 @@ async def chat(
             is_cm = cm_map.get(tool_name, False)
             eff_mode = _effective_mode(tool_name)
 
+            # cli_call is statically writes=False; recover the real verdict from the
+            # resolved command so the write budget, read-only rejection, and confirm
+            # all key off what the call actually does (plan M4 write-safety crux).
+            cli_call_desc = None
+            if tool_name == "cli_call":
+                from integrations.printing_press.bridge import resolve_cli_call
+                _resolved = resolve_cli_call(tool_args)
+                if "error" not in _resolved:
+                    is_write = _resolved["writes"]
+                    eff_mode = _RANK_MODE[min(
+                        _MODE_RANK.get(tool_mode, 1),
+                        _MODE_RANK.get(_resolved["tool_mode"], 1),
+                    )]
+                    cli_call_desc = _resolved["description"]
+
+            # A resolved write in read-only mode is rejected here — the static
+            # read-only tool filter can't see cli_call's write-ness.
+            if is_write and not is_cm and eff_mode == "read-only":
+                result_str = json.dumps({"error": "This command performs a write and is disabled in read-only mode."})
+                results.append({"tool_use_id": tool_use_id, "tool_name": tool_name, "content": result_str})
+                continue
+
             # ── Write budget + rate limit check ──
             if is_write and not is_cm:
                 _budget_action = _write_budget.check_write(tool_name)
@@ -1383,8 +1405,8 @@ async def chat(
                     continue
 
             if eff_mode == "normal" and is_write and not is_cm:
-                # Get human-readable description
-                tool_desc = next(
+                # Get human-readable description (the resolved command for cli_call)
+                tool_desc = cli_call_desc or next(
                     (t.get("description", tool_name) for t in tool_defs if t["name"] == tool_name),
                     tool_name,
                 )
@@ -1710,6 +1732,18 @@ async def run_sync(
             # ── Write budget + rate limit check ──
             is_write = writes_map.get(tool_name, False)
             is_cm = cm_map.get(tool_name, False)
+            # cli_call's write-ness is dynamic; run_sync has no approval UI, so a
+            # resolved write is blocked unless the CLI opted into power (plan M4/R4).
+            if tool_name == "cli_call":
+                from integrations.printing_press.bridge import resolve_cli_call
+                _r = resolve_cli_call(tool_args)
+                if "error" not in _r and _r["writes"]:
+                    if _r["tool_mode"] != "power":
+                        result_str = json.dumps({"error": "This command performs a write; printed-CLI writes do not auto-run here unless the CLI is set to power mode."})
+                        results.append({"tool_use_id": tool_use_id, "tool_name": tool_name, "content": result_str})
+                        all_tool_calls.append({"tool": tool_name, "tool_use_id": tool_use_id, "args": tool_args, "result": result_str[:2000], "elapsed_ms": 0})
+                        continue
+                    is_write = True
             if is_write and not is_cm:
                 _ba = _sync_write_budget.check_write(tool_name)
                 if _ba == _BudgetAction.REJECT:

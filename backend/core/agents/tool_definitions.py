@@ -19,6 +19,8 @@ TOOL_KIND_LABELS: dict[str, str] = {
     "post_message": "Messaging",
     "chat_history": "Chat History",
     "playbook": "Playbooks",
+    "printed_cli": "API CLIs (Printing Press)",
+    "printed_cli_bridge": "API CLIs (Printing Press)",
 }
 
 

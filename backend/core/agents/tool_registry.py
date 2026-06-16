@@ -95,6 +95,7 @@ class ToolRegistry:
         drive_account_ids: list[str] | None = None,
         account_info_map: dict[str, dict] | None = None,
         integration_executors: dict | None = None,
+        printed_cli_executors: dict | None = None,
         agent_slug: str = "",
         agent_name: str = "",
         reminder_handlers: dict | None = None,
@@ -108,6 +109,8 @@ class ToolRegistry:
         self.drive_account_ids = drive_account_ids or []
         self.account_info_map: dict[str, dict] = account_info_map or {}
         self.integration_executors: dict = integration_executors or {}
+        # Printing Press CLI executors (kind="printed_cli"); name → sync callable.
+        self.printed_cli_executors: dict = printed_cli_executors or {}
         self.agent_slug = agent_slug
         self.agent_name = agent_name
         self._notify_user_called = False
@@ -165,6 +168,8 @@ class ToolRegistry:
                 return self._execute_scheduled_action(tool_name, tool_args)
             elif kind == "integration":
                 return await self._execute_integration(tool_name, tool_args)
+            elif kind in ("printed_cli", "printed_cli_bridge"):
+                return await self._execute_printed_cli(tool_name, tool_args)
             elif kind == "setup":
                 return self._execute_setup(tool_name, tool_args)
             elif kind == "import":
@@ -795,3 +800,16 @@ class ToolRegistry:
                 return await executor(**args)
             return executor(**args)
         return {"error": f"Invalid executor for tool: {tool_name}"}
+
+    async def _execute_printed_cli(self, tool_name: str, args: dict) -> dict:
+        """Execute a Printing Press CLI tool.
+
+        The executor shells out to a built Go binary (up to a per-call timeout),
+        so it runs in a worker thread to avoid blocking the single-worker event
+        loop while the subprocess runs.
+        """
+        executor = self.printed_cli_executors.get(tool_name)
+        if not callable(executor):
+            return {"error": f"Printed CLI tool not available: {tool_name}"}
+        import asyncio
+        return await asyncio.to_thread(executor, **args)

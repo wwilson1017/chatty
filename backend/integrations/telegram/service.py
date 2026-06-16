@@ -5,7 +5,6 @@ runs the agent (non-streaming), and returns the response text.
 The router handles sending the response back via the Telegram client.
 """
 
-import importlib
 import logging
 import uuid
 
@@ -75,43 +74,8 @@ async def save_message_only(
     except Exception:
         logger.warning("save_message_only: failed for agent=%s sender=%s", agent_slug, sender_id, exc_info=True)
 
-# Integration module registry (same as agents/router.py)
-_INTEGRATION_MODULES = {
-    "crm_lite": ("integrations.crm_lite.tools", "CRM_LITE_TOOL_DEFS"),
-    "odoo": ("integrations.odoo.tools", "ODOO_TOOL_DEFS"),
-    "bamboohr": ("integrations.bamboohr.tools", "BAMBOOHR_TOOL_DEFS"),
-    "quickbooks": ("integrations.quickbooks.tools", "QB_TOOL_DEFS"),
-    "qb_csv": ("integrations.qb_csv.tools", "QB_CSV_TOOL_DEFS"),
-    "paperclip": ("integrations.paperclip.tools", "PAPERCLIP_TOOL_DEFS"),
-    "todoist": ("integrations.todoist.tools", "TODOIST_TOOL_DEFS"),
-}
-
-
-def _load_integration_tools() -> tuple[list[dict], dict]:
-    """Load tool definitions and executors from all enabled integrations."""
-    from integrations.registry import is_enabled
-
-    tool_defs: list[dict] = []
-    executors: dict = {}
-
-    for name, (module_path, defs_attr) in _INTEGRATION_MODULES.items():
-        if not is_enabled(name):
-            continue
-        try:
-            if name == "crm_lite":
-                from integrations.crm_lite.db import init_db, _connection
-                if _connection is None:
-                    init_db()
-
-            mod = importlib.import_module(module_path)
-            defs = getattr(mod, defs_attr, [])
-            execs = getattr(mod, "TOOL_EXECUTORS", {})
-            tool_defs.extend({**d, "integration": name} for d in defs)
-            executors.update(execs)
-        except Exception as e:
-            logger.warning("Failed to load integration %s: %s", name, e)
-
-    return tool_defs, executors
+# Integration + printed-CLI tool loading is centralized in agents.tool_loader
+# (load_all_dynamic_tools); this service no longer keeps a private copy.
 
 
 def _build_agent_handlers(agent_slug: str) -> tuple[dict, dict]:
@@ -186,20 +150,24 @@ async def process_message(
         for aid, a in all_ga.items()
     }
 
-    integration_tool_defs, integration_executors = _load_integration_tools()
+    from agents.tool_loader import load_all_dynamic_tools, INTEGRATION_MODULES
+    _dyn = load_all_dynamic_tools()
+    integration_tool_defs = _dyn.tool_defs
 
     from integrations.registry import get_tool_mode, get_credentials
     integration_tool_modes = {
         name: get_tool_mode(name)
-        for name in _INTEGRATION_MODULES
+        for name in INTEGRATION_MODULES
         if "tool_mode" in get_credentials(name)
     }
+    integration_tool_modes.update(_dyn.printed_tool_modes)
 
     reminder_handlers, sa_handlers = _build_agent_handlers(slug)
     registry = ToolRegistry(
         context_dir=config.context_dir,
         google_connected=google_connected,
-        integration_executors=integration_executors,
+        integration_executors=_dyn.integration_executors,
+        printed_cli_executors=_dyn.printed_executors,
         agent_slug=slug,
         reminder_handlers=reminder_handlers,
         scheduled_action_handlers=sa_handlers,
@@ -290,20 +258,24 @@ async def process_group_message(
         for aid, a in all_ga.items()
     }
 
-    integration_tool_defs, integration_executors = _load_integration_tools()
+    from agents.tool_loader import load_all_dynamic_tools, INTEGRATION_MODULES
+    _dyn = load_all_dynamic_tools()
+    integration_tool_defs = _dyn.tool_defs
 
     from integrations.registry import get_tool_mode, get_credentials
     integration_tool_modes = {
         name: get_tool_mode(name)
-        for name in _INTEGRATION_MODULES
+        for name in INTEGRATION_MODULES
         if "tool_mode" in get_credentials(name)
     }
+    integration_tool_modes.update(_dyn.printed_tool_modes)
 
     reminder_handlers, sa_handlers = _build_agent_handlers(slug)
     registry = ToolRegistry(
         context_dir=config.context_dir,
         google_connected=google_connected,
-        integration_executors=integration_executors,
+        integration_executors=_dyn.integration_executors,
+        printed_cli_executors=_dyn.printed_executors,
         agent_slug=slug,
         reminder_handlers=reminder_handlers,
         scheduled_action_handlers=sa_handlers,

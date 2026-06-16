@@ -9,6 +9,8 @@ import secrets
 
 _EXTERNAL_KINDS: frozenset[str] = frozenset({
     "gmail", "calendar", "drive", "web",
+    # Printed CLIs (and the bridge that fronts them) return external API output.
+    "printed_cli", "printed_cli_bridge",
 })
 
 _UNWRAPPED_INTEGRATION_PREFIXES: tuple[str, ...] = ("crm_",)

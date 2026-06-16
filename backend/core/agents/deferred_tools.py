@@ -22,6 +22,9 @@ ALWAYS_LOADED_KINDS: set[str] = {
     "chat_history",
     "reminder",
     "scheduled_action",
+    # The Printing Press bridge (cli_search/describe/call) already collapses many
+    # CLI commands into 3 tools, so it must never itself be deferred.
+    "printed_cli_bridge",
 }
 
 DEFERRED_TOOL_THRESHOLD = 100

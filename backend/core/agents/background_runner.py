@@ -197,6 +197,18 @@ async def _run_turn(
             # ── Write budget + rate limit check ──
             is_write = writes_map.get(tool_name, False)
             is_cm = cm_map.get(tool_name, False)
+            # cli_call's write-ness is dynamic; background turns have no approval UI,
+            # so a resolved write is blocked unless the CLI opted into power (R4).
+            if tool_name == "cli_call":
+                from integrations.printing_press.bridge import resolve_cli_call
+                _r = resolve_cli_call(tool_args)
+                if "error" not in _r and _r["writes"]:
+                    if _r["tool_mode"] != "power":
+                        result_str = json.dumps({"error": "This command performs a write; printed-CLI writes do not auto-run in background unless the CLI is set to power mode."})
+                        tool_log.append({"tool": tool_name, "args": json.dumps(tool_args)[:200], "result": result_str[:500], "duration_ms": 0})
+                        results.append({"tool_use_id": tc.get("id", ""), "tool_name": tool_name, "content": result_str})
+                        continue
+                    is_write = True
             if is_write and not is_cm:
                 _budget_action = _write_budget.check_write(tool_name)
                 if _budget_action == BudgetAction.REJECT:

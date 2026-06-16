@@ -36,6 +36,7 @@ from core.agents.scheduled_actions.router import router as scheduled_actions_rou
 from setup.router import router as setup_router
 from backup.router import router as backup_router
 from integrations.telegram.router import router as telegram_router
+from integrations.printing_press.router import router as printing_press_router
 from core.agents.alerts.router import router as alerts_router
 from core.agents.notifications.router import router as notifications_router
 from core.agents.reminders.router import router as reminders_router
@@ -88,7 +89,8 @@ async def lifespan(app: FastAPI):
 
     # Ensure data directories exist
     data_root = Path(__file__).resolve().parent / "data"
-    for subdir in ("agents", "branding", "integrations", "reminders", "telegram", "whatsapp"):
+    for subdir in ("agents", "branding", "integrations", "reminders", "telegram", "whatsapp",
+                   "clis", "printing_press"):
         (data_root / subdir).mkdir(parents=True, exist_ok=True)
 
     # ── Database initialization (per-DB error isolation) ───────────────────
@@ -302,6 +304,7 @@ app.include_router(reminders_router, prefix="/api/reminders", tags=["reminders"]
 app.include_router(setup_router, prefix="/api/setup", tags=["setup"])
 app.include_router(backup_router, prefix="/api/backup", tags=["backup"])
 app.include_router(telegram_router, prefix="/api/telegram", tags=["telegram"])
+app.include_router(printing_press_router, prefix="/api/printing-press", tags=["printing-press"])
 app.include_router(shared_context_router, tags=["shared-context"])
 app.include_router(usage_router, prefix="/api/usage", tags=["usage"])
 app.include_router(events_router)

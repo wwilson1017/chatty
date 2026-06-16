@@ -8,6 +8,7 @@ import { AppCredentialsForm } from './AppCredentialsForm';
 import type { Integration, Agent } from '../core/types';
 import { IconGlobe, IconUsers, IconFile, IconPhone, IconMail, IconChart, IconBook, IconZap } from '../shared/icons';
 import { TelegramSettings } from '../agent/components/TelegramSettings';
+import { PrintingPressSection } from './PrintingPressSection';
 
 const INTEGRATION_ICONS: Record<string, React.ComponentType<{ size?: number; className?: string; strokeWidth?: number }>> = {
   quickbooks: IconChart,
@@ -876,6 +877,8 @@ export function IntegrationsTab() {
           </div>
         );
       })}
+
+      <PrintingPressSection />
     </div>
   );
 }

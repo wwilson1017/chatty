@@ -10,7 +10,6 @@ Adapted: uses Chatty's background_runner + agent engine instead of
 CAKE OS's run_sync + load_agent_components.
 """
 
-import importlib
 import logging
 import threading
 import uuid
@@ -54,43 +53,8 @@ def _get_agent_lock(agent_slug: str) -> threading.Lock:
             _agent_locks[agent_slug] = threading.Lock()
         return _agent_locks[agent_slug]
 
-# Integration module registry (same as agents/router.py)
-_INTEGRATION_MODULES = {
-    "crm_lite": ("integrations.crm_lite.tools", "CRM_LITE_TOOL_DEFS"),
-    "odoo": ("integrations.odoo.tools", "ODOO_TOOL_DEFS"),
-    "bamboohr": ("integrations.bamboohr.tools", "BAMBOOHR_TOOL_DEFS"),
-    "quickbooks": ("integrations.quickbooks.tools", "QB_TOOL_DEFS"),
-    "qb_csv": ("integrations.qb_csv.tools", "QB_CSV_TOOL_DEFS"),
-    "paperclip": ("integrations.paperclip.tools", "PAPERCLIP_TOOL_DEFS"),
-    "todoist": ("integrations.todoist.tools", "TODOIST_TOOL_DEFS"),
-}
-
-
-def _load_integration_tools() -> tuple[list[dict], dict]:
-    """Load tool definitions and executors from all enabled integrations."""
-    from integrations.registry import is_enabled
-
-    tool_defs: list[dict] = []
-    executors: dict = {}
-
-    for name, (module_path, defs_attr) in _INTEGRATION_MODULES.items():
-        if not is_enabled(name):
-            continue
-        try:
-            if name == "crm_lite":
-                from integrations.crm_lite.db import init_db, _connection
-                if _connection is None:
-                    init_db()
-
-            mod = importlib.import_module(module_path)
-            defs = getattr(mod, defs_attr, [])
-            execs = getattr(mod, "TOOL_EXECUTORS", {})
-            tool_defs.extend({**d, "integration": name} for d in defs)
-            executors.update(execs)
-        except Exception as e:
-            logger.warning("Failed to load integration %s: %s", name, e)
-
-    return tool_defs, executors
+# Integration + printed-CLI tool loading is centralized in agents.tool_loader
+# (load_all_dynamic_tools); this service no longer keeps a private copy.
 
 
 def process_message(
@@ -192,14 +156,17 @@ def _process_message_locked(
         for aid, a in all_ga.items()
     }
 
-    integration_tool_defs, integration_executors = _load_integration_tools()
+    from agents.tool_loader import load_all_dynamic_tools, INTEGRATION_MODULES
+    _dyn = load_all_dynamic_tools()
+    integration_tool_defs = _dyn.tool_defs
 
     from integrations.registry import get_tool_mode, get_credentials
     integration_tool_modes = {
         name: get_tool_mode(name)
-        for name in _INTEGRATION_MODULES
+        for name in INTEGRATION_MODULES
         if "tool_mode" in get_credentials(name)
     }
+    integration_tool_modes.update(_dyn.printed_tool_modes)
 
     reminder_handlers = {
         "create_reminder": lambda **kw: create_reminder_handler(agent_slug, **kw),
@@ -216,7 +183,8 @@ def _process_message_locked(
     registry = ToolRegistry(
         context_dir=config.context_dir,
         google_connected=google_connected,
-        integration_executors=integration_executors,
+        integration_executors=_dyn.integration_executors,
+        printed_cli_executors=_dyn.printed_executors,
         agent_slug=agent_slug,
         reminder_handlers=reminder_handlers,
         scheduled_action_handlers=sa_handlers,

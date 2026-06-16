@@ -39,7 +39,11 @@ from core.storage import atomic_write, atomic_write_bytes
 from core.providers import get_ai_provider
 from core.providers.credentials import CredentialStore
 from core.agents.tool_registry import ToolRegistry
-from .tool_loader import INTEGRATION_MODULES, load_integration_tools, build_agent_handlers
+from .tool_loader import (
+    INTEGRATION_MODULES,
+    load_all_dynamic_tools,
+    build_agent_handlers,
+)
 from . import db as agent_db
 from .engine import (
     build_agent_config,
@@ -529,7 +533,8 @@ def _stream_chat(agent: dict, messages: list, training_mode: bool, conversation_
         for aid, a in all_ga.items()
     }
 
-    integration_tool_defs, integration_executors = load_integration_tools()
+    _dyn = load_all_dynamic_tools()
+    integration_tool_defs = _dyn.tool_defs
 
     from integrations.registry import get_tool_mode, get_credentials
     integration_tool_modes = {
@@ -537,6 +542,9 @@ def _stream_chat(agent: dict, messages: list, training_mode: bool, conversation_
         for name in INTEGRATION_MODULES
         if "tool_mode" in get_credentials(name)
     }
+    # Printed-CLI confirmation ceilings ("pp:<slug>" → mode); without these,
+    # printed writes would default to "power" in _effective_mode (plan R4).
+    integration_tool_modes.update(_dyn.printed_tool_modes)
     reminder_handlers, sa_handlers = build_agent_handlers(agent["slug"])
     registry = ToolRegistry(
         context_dir=config.context_dir,
@@ -546,7 +554,8 @@ def _stream_chat(agent: dict, messages: list, training_mode: bool, conversation_
         calendar_account_ids=calendar_ids,
         drive_account_ids=drive_ids,
         account_info_map=account_info_map,
-        integration_executors=integration_executors,
+        integration_executors=_dyn.integration_executors,
+        printed_cli_executors=_dyn.printed_executors,
         agent_slug=agent["slug"],
         agent_name=config.agent_name,
         reminder_handlers=reminder_handlers,
@@ -1015,7 +1024,8 @@ async def tool_execute(agent_id: str, req: ToolExecuteRequest, user=Depends(get_
         for aid, a in all_ga.items()
     }
 
-    integration_tool_defs, integration_executors = load_integration_tools()
+    _dyn = load_all_dynamic_tools()
+    integration_tool_defs = _dyn.tool_defs
     reminder_handlers, sa_handlers = build_agent_handlers(agent["slug"])
 
     registry = ToolRegistry(
@@ -1026,7 +1036,8 @@ async def tool_execute(agent_id: str, req: ToolExecuteRequest, user=Depends(get_
         calendar_account_ids=calendar_ids,
         drive_account_ids=drive_ids,
         account_info_map=account_info_map,
-        integration_executors=integration_executors,
+        integration_executors=_dyn.integration_executors,
+        printed_cli_executors=_dyn.printed_executors,
         agent_slug=agent["slug"],
         reminder_handlers=reminder_handlers,
         scheduled_action_handlers=sa_handlers,
@@ -1047,17 +1058,39 @@ async def tool_execute(agent_id: str, req: ToolExecuteRequest, user=Depends(get_
         drive_write_enabled=drive_caps["drive_write_enabled"],
     )
     writes_map = build_writes_map(tool_defs)
-    if not writes_map.get(req.tool, False):
-        raise HTTPException(status_code=400, detail="Tool is not a write operation")
 
-    # Enforce integration permission ceiling — reject if integration is set to read-only
-    tool_def = next((t for t in tool_defs if t["name"] == req.tool), None)
-    integ_name = (tool_def or {}).get("integration", "")
-    if integ_name:
-        from integrations.registry import get_tool_mode as _get_tm
-        integ_ceil = _get_tm(integ_name)
-        if integ_ceil == "read-only":
-            raise HTTPException(status_code=403, detail=f"Write operations are disabled for {integ_name} (set to read-only)")
+    if req.tool == "cli_call":
+        # cli_call is statically writes=False; its write-ness + ceiling come from
+        # the resolved command (plan M4). Re-resolve here and gate on the real
+        # verdict (a missing install resolves to read-only — fail closed).
+        from integrations.printing_press.bridge import resolve_cli_call
+        _resolved = resolve_cli_call(req.args)
+        if "error" in _resolved:
+            raise HTTPException(status_code=400, detail=_resolved["error"])
+        if not _resolved["writes"]:
+            raise HTTPException(status_code=400, detail="Tool is not a write operation")
+        if _resolved["tool_mode"] == "read-only":
+            raise HTTPException(status_code=403, detail="Write operations are disabled for this CLI (set to read-only)")
+    else:
+        if not writes_map.get(req.tool, False):
+            raise HTTPException(status_code=400, detail="Tool is not a write operation")
+
+        # Enforce integration permission ceiling — reject if set to read-only. Printed
+        # CLIs take their ceiling from the install record (a missing install is treated
+        # as read-only — fail closed).
+        tool_def = next((t for t in tool_defs if t["name"] == req.tool), None)
+        integ_name = (tool_def or {}).get("integration", "")
+        if integ_name.startswith("pp:"):
+            from integrations.printing_press import store as _pp_store
+            _inst = _pp_store.get_install(integ_name[3:])
+            integ_ceil = _inst.tool_mode if _inst else "read-only"
+            if integ_ceil == "read-only":
+                raise HTTPException(status_code=403, detail=f"Write operations are disabled for {integ_name} (set to read-only)")
+        elif integ_name:
+            from integrations.registry import get_tool_mode as _get_tm
+            integ_ceil = _get_tm(integ_name)
+            if integ_ceil == "read-only":
+                raise HTTPException(status_code=403, detail=f"Write operations are disabled for {integ_name} (set to read-only)")
 
     kind_map = {t["name"]: t.get("kind", "context") for t in tool_defs}
     kind = kind_map.get(req.tool, "context")

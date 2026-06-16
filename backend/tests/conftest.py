@@ -93,7 +93,11 @@ def http_env(agent_db, encryption_env, monkeypatch, tmp_path):
     import core.agents.shared_context.service as shared_service
     import core.providers.credentials as creds_mod
     import integrations.pending_setup as pending_mod
+    import integrations.printing_press.paths as pp_paths
     import integrations.registry as registry_mod
+
+    # Empty printed-CLI store: tests never load CLIs installed on the dev machine.
+    monkeypatch.setattr(pp_paths, "CLIS_DIR", tmp_path / "clis")
 
     # agents.router captures DATA_DIR from agents.engine at import time —
     # delete-agent rmtrees DATA_DIR/{slug}, so this must point at tmp.

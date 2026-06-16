@@ -167,7 +167,10 @@ def _build_tools(agent_slug: str, agent: dict, *, background_mode: bool = False)
 
     Returns (tool_defs, registry, account_info_map).
     """
-    from agents.tool_loader import load_integration_tools, build_agent_handlers, INTEGRATION_MODULES
+    from agents.tool_loader import (
+        load_all_dynamic_tools, build_agent_handlers, INTEGRATION_MODULES,
+        filter_no_confirm_writes,
+    )
     from agents.engine import build_agent_config
     from integrations.registry import get_tool_mode, list_google_accounts as _list_ga
     from integrations.google.policy import google_capabilities_union
@@ -186,7 +189,8 @@ def _build_tools(agent_slug: str, agent: dict, *, background_mode: bool = False)
         for aid, a in all_ga.items()
     }
 
-    integration_tool_defs, integration_executors = load_integration_tools()
+    _dyn = load_all_dynamic_tools()
+    integration_tool_defs = _dyn.tool_defs
     gmail_caps = google_capabilities_union(gmail_ids)
     cal_caps = google_capabilities_union(calendar_ids)
     drive_caps = google_capabilities_union(drive_ids)
@@ -212,17 +216,15 @@ def _build_tools(agent_slug: str, agent: dict, *, background_mode: bool = False)
     )
 
     integration_modes = {name: get_tool_mode(name) for name in INTEGRATION_MODULES}
-    tool_defs = [
-        t for t in tool_defs
-        if not (t.get("integration") and t.get("writes")
-                and integration_modes.get(t["integration"]) == "read-only")
-    ]
+    integration_modes.update(_dyn.printed_tool_modes)
+    tool_defs = filter_no_confirm_writes(tool_defs, integration_modes)
 
     registry = ToolRegistry(
         context_dir=config.context_dir,
         gcs_prefix=config.gcs_prefix,
         google_connected=google_connected,
-        integration_executors=integration_executors,
+        integration_executors=_dyn.integration_executors,
+        printed_cli_executors=_dyn.printed_executors,
         agent_slug=agent_slug,
         agent_name=config.agent_name,
         reminder_handlers=reminder_handlers,

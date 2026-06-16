@@ -7,6 +7,7 @@ actions processor can build a full tool set with integration parity.
 import importlib
 import logging
 from datetime import datetime
+from typing import NamedTuple
 from zoneinfo import ZoneInfo
 
 from core.agents.reminders.tools import (
@@ -75,6 +76,101 @@ def load_integration_tools() -> tuple[list[dict], dict]:
             logger.warning("Failed to load integration %s: %s", name, e)
 
     return tool_defs, executors
+
+
+def load_printed_cli_tools() -> tuple[list[dict], dict, dict]:
+    """Load tool defs, executors, and per-CLI confirmation ceilings from every
+    installed + enabled Printing Press CLI.
+
+    Returns ``(tool_defs, executors, tool_modes)`` where ``tool_modes`` maps
+    ``"pp:<slug>"`` → the CLI's tool mode (default ``"normal"``). Threading these
+    modes everywhere is what keeps printed-CLI writes from defaulting to ``power``
+    in ``_effective_mode`` (plan R4).
+    """
+    try:
+        from integrations.printing_press import bridge, manifest as pp_manifest, store
+    except Exception as e:
+        logger.warning("Printing Press unavailable: %s", e)
+        return [], {}, {}
+
+    commands = []
+    tool_modes: dict = {}
+    try:
+        installs = store.list_installed()
+    except Exception as e:
+        logger.warning("Failed to list printed CLIs: %s", e)
+        return [], {}, {}
+
+    for inst in installs:
+        if not (inst.enabled and inst.build_status == store.BUILD_READY):
+            continue
+        manifest = store.get_manifest(inst.slug)
+        if not manifest:
+            continue
+        try:
+            commands.extend(pp_manifest.build_commands(inst.slug, manifest))
+        except Exception as e:
+            logger.warning("Failed to build tools for printed CLI %s: %s", inst.slug, e)
+            continue
+        # Per-CLI ceilings are needed even on the bridge path: the cli_call write
+        # gate resolves to a slug and looks its mode up here.
+        tool_modes[pp_manifest.integration_id(inst.slug)] = inst.tool_mode
+
+    # Collapse to the bridge (cli_search/describe/call) above the token budget,
+    # else emit flat per-command tools.
+    tool_defs, executors = bridge.build_printed_surface(commands)
+    return tool_defs, executors, tool_modes
+
+
+class DynamicTools(NamedTuple):
+    """Everything a ToolRegistry construction site needs from dynamic sources."""
+    tool_defs: list[dict]           # integration defs + printed-CLI defs (kind-tagged)
+    integration_executors: dict     # name → callable (kind="integration")
+    printed_executors: dict         # name → callable (kind="printed_cli")
+    printed_tool_modes: dict        # "pp:<slug>" → confirmation ceiling
+
+
+def load_all_dynamic_tools() -> DynamicTools:
+    """Single entry point for all dynamically-loaded tools — integrations *and*
+    installed Printing Press CLIs.
+
+    Every ToolRegistry construction site routes through here so the two sources
+    stay in lockstep across chat, scheduled actions, heartbeat, Telegram,
+    WhatsApp, Paperclip, and the CLI harness (plan R2).
+    """
+    integ_defs, integ_execs = load_integration_tools()
+    pp_defs, pp_execs, pp_modes = load_printed_cli_tools()
+    return DynamicTools(
+        tool_defs=integ_defs + pp_defs,
+        integration_executors=integ_execs,
+        printed_executors=pp_execs,
+        printed_tool_modes=pp_modes,
+    )
+
+
+def filter_no_confirm_writes(tool_defs: list[dict], modes: dict) -> list[dict]:
+    """Drop write tools that must not auto-run in a no-confirm (background) context.
+
+    Background turns (scheduled actions, heartbeat) have no approval UI. Existing
+    integrations keep their behavior — only a ``read-only`` ceiling strips their
+    writes. **Printed CLIs** (``integration`` id ``"pp:<slug>"``) are less-trusted
+    external binaries, so their writes are blocked unless the CLI is explicitly set
+    to ``power`` — that opt-in is the per-CLI auto-run allowlist (plan R4). This
+    never strips context/memory tools.
+    """
+    def blocked(t: dict) -> bool:
+        if not t.get("writes") or t.get("context_memory"):
+            return False
+        integ = t.get("integration", "")
+        if not integ:
+            return False
+        if integ.startswith("pp:"):
+            # Printed writes auto-run only with an explicit "power" opt-in; a missing
+            # mode fails closed (block).
+            return modes.get(integ, "normal") != "power"
+        return modes.get(integ, "power") == "read-only"
+
+    return [t for t in tool_defs if not blocked(t)]
 
 
 def build_agent_handlers(agent_slug: str) -> tuple[dict, dict]:

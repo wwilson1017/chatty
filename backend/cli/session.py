@@ -42,7 +42,7 @@ def create_session(slug: str, tool_mode: str = "normal",
     )
     from core.providers import get_ai_provider
     from core.providers.credentials import CredentialStore
-    from agents.tool_loader import load_integration_tools, build_agent_handlers, INTEGRATION_MODULES
+    from agents.tool_loader import load_all_dynamic_tools, build_agent_handlers, INTEGRATION_MODULES
     from integrations.registry import get_tool_mode
     from integrations.google.policy import google_capabilities
     from core.agents.tool_definitions import get_tool_definitions, build_writes_map
@@ -83,7 +83,8 @@ def create_session(slug: str, tool_mode: str = "normal",
         for aid, a in all_ga.items()
     }
 
-    integration_tool_defs, integration_executors = load_integration_tools()
+    _dyn = load_all_dynamic_tools()
+    integration_tool_defs = _dyn.tool_defs
 
     from integrations.registry import get_credentials
     integration_tool_modes = {
@@ -91,6 +92,7 @@ def create_session(slug: str, tool_mode: str = "normal",
         for name in INTEGRATION_MODULES
         if "tool_mode" in get_credentials(name)
     }
+    integration_tool_modes.update(_dyn.printed_tool_modes)
 
     reminder_handlers, sa_handlers = build_agent_handlers(slug)
     registry = ToolRegistry(
@@ -101,7 +103,8 @@ def create_session(slug: str, tool_mode: str = "normal",
         calendar_account_ids=calendar_ids,
         drive_account_ids=drive_ids,
         account_info_map=account_info_map,
-        integration_executors=integration_executors,
+        integration_executors=_dyn.integration_executors,
+        printed_cli_executors=_dyn.printed_executors,
         agent_slug=slug,
         agent_name=config.agent_name,
         reminder_handlers=reminder_handlers,
@@ -177,16 +180,32 @@ async def execute_approved_tool(session: Session, tool_name: str,
     if session.tool_mode == "read-only":
         return {"error": "Write operations are not permitted in read-only mode"}
 
-    if not session.writes_map.get(tool_name, False):
-        logger.error("Confirm event for non-write tool: %s", tool_name)
-        return {"error": f"Tool {tool_name} is not a write operation"}
+    if tool_name == "cli_call":
+        # cli_call is statically writes=False; gate on the resolved command (M4).
+        from integrations.printing_press.bridge import resolve_cli_call
+        _resolved = resolve_cli_call(tool_args)
+        if "error" in _resolved:
+            return _resolved
+        if not _resolved["writes"]:
+            return {"error": "cli_call did not resolve to a write operation"}
+        if _resolved["tool_mode"] == "read-only":
+            return {"error": "Write operations disabled for this CLI (read-only)"}
+    else:
+        if not session.writes_map.get(tool_name, False):
+            logger.error("Confirm event for non-write tool: %s", tool_name)
+            return {"error": f"Tool {tool_name} is not a write operation"}
 
-    tool_def = next((t for t in tool_defs if t["name"] == tool_name), None)
-    integ_name = (tool_def or {}).get("integration", "")
-    if integ_name:
-        from integrations.registry import get_tool_mode as _get_tm
-        if _get_tm(integ_name) == "read-only":
-            return {"error": f"Write operations disabled for {integ_name} (read-only)"}
+        tool_def = next((t for t in tool_defs if t["name"] == tool_name), None)
+        integ_name = (tool_def or {}).get("integration", "")
+        if integ_name.startswith("pp:"):
+            from integrations.printing_press import store as _pp_store
+            _inst = _pp_store.get_install(integ_name[3:])
+            if (_inst.tool_mode if _inst else "read-only") == "read-only":
+                return {"error": f"Write operations disabled for {integ_name} (read-only)"}
+        elif integ_name:
+            from integrations.registry import get_tool_mode as _get_tm
+            if _get_tm(integ_name) == "read-only":
+                return {"error": f"Write operations disabled for {integ_name} (read-only)"}
 
     kind = session.kind_map.get(tool_name, "context")
     result = await session.registry.execute_tool(tool_name, tool_args, kind)
