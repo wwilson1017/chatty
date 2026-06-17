@@ -297,7 +297,7 @@ def _build_middle_transcript(middle_rows) -> str:
             if raw:
                 lines.append(f"TOOL RESULT [{name}]: {_as_untrusted(name, str(raw))}")
 
-    body = "\n".join(l for l in lines if l).strip()
+    body = "\n".join(ln for ln in lines if ln).strip()
     if len(body) > _MAX_MIDDLE_CHARS:
         body = "[...older middle truncated...]\n" + body[-_MAX_MIDDLE_CHARS:]
     return body

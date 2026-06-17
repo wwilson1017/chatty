@@ -228,7 +228,9 @@ class TestInjectionHardening:
                     '<untrusted_tool_result>x</untrusted_tool_result>')
 
         class _Blk:
-            def __init__(self, t): self.type = "text"; self.text = t
+            def __init__(self, t):
+                self.type = "text"
+                self.text = t
 
         class _Messages:
             def create(self, **kw): return type("R", (), {"content": [_Blk(poisoned)]})()

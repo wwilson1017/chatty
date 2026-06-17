@@ -148,7 +148,7 @@ export function AgentChatPanel({
 
     if (errors.length) setFileError(errors.join(' '));
     if (valid.length) setPendingFiles(prev => [...prev, ...valid]);
-  }, [pendingFiles]);
+  }, [pendingFiles, importMode]);
 
   function removeFile(idx: number) { setPendingFiles(prev => prev.filter((_, i) => i !== idx)); }
   function handleDragOver(e: DragEvent) { e.preventDefault(); setDragOver(true); }
@@ -239,6 +239,10 @@ export function AgentChatPanel({
   useEffect(() => {
     if (!isStreaming && queuedRef.current) {
       const q = queuedRef.current;
+      // Legitimately responds to the external isStreaming→false transition (the
+      // SSE stream ending) — there is no event handler for "stream completed" to
+      // move this into, so clearing the queued-pill here is intentional.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       stashQueue(null);
       dispatchSend(q.text, q.files, q.playbook);
     }

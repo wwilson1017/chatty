@@ -610,7 +610,9 @@ class TestCompactionIntegration:
         _GIST = "EARLIER: user planned a Rome trip; budget $5000; 5/17 booked."
 
         class _Blk:
-            def __init__(self, t): self.type = "text"; self.text = t
+            def __init__(self, t):
+                self.type = "text"
+                self.text = t
 
         class _Messages:
             def create(self, **kw):

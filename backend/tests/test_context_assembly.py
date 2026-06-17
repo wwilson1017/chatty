@@ -10,8 +10,6 @@ folding.
 
 import json
 
-import pytest
-
 from core.agents.context_assembly import (
     assemble_messages, _truncate_wrapped, _gist_marker, HEAD_MSGS,
 )
