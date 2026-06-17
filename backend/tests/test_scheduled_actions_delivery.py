@@ -120,6 +120,19 @@ class TestCronAutoDelivery:
         assert cron_env["deliver"] == []  # model already delivered → no double-send
         assert cron_env["record_complete"][-1]["notification_sent"] is True
 
+    def test_no_double_send_when_model_used_post_message(self, cron_env):
+        # post_message is the other tool _delivered_via_tool() honors; it returns
+        # {"ok": True, "notification_created": True, ...} on success (tool_registry
+        # _execute_post_message). A successful post_message must suppress the
+        # auto-fallback exactly like notify_user.
+        tool_log = [{"tool": "post_message",
+                     "result": json.dumps({"ok": True, "notification_created": True, "external_sent": True})}]
+        cron_env["result"] = _fake_result(text="Brief body", tool_log=tool_log)
+        processor._process_cron(_action())
+
+        assert cron_env["deliver"] == []  # model already delivered → no double-send
+        assert cron_env["record_complete"][-1]["notification_sent"] is True
+
     def test_delivers_when_notify_user_errored(self, cron_env):
         # The bug guard: a notify_user that ERRORED (e.g. missing args) must NOT
         # count as delivered — the auto-fallback still fires.
