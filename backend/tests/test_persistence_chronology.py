@@ -145,6 +145,38 @@ class TestChronology:
         # Final text row carries no tool calls.
         assert rows[2]["content"] == "Done." and rows[2]["tool_calls"] is None
 
+    async def test_user_row_save_failure_still_answers_new_message(
+            self, fake_config, mock_prov, mock_registry, mock_ctx, chat_service, monkeypatch):
+        # Context now comes from the DB, so a failed user-row save would otherwise
+        # make the turn answer the PREVIOUS message (or an empty array for a fresh
+        # conversation). The client message is spliced back in as a fallback.
+        cid = chat_service.create_conversation()["id"]
+        orig_save = chat_service.save_message
+
+        def _save(*a, **k):
+            if k.get("role") == "user":
+                raise RuntimeError("disk full")
+            return orig_save(*a, **k)
+        monkeypatch.setattr(chat_service, "save_message", _save)
+
+        seen = {}
+        orig = mock_prov.stream_turn
+
+        async def _spy(messages, tools, system_prompt):
+            seen["messages"] = messages
+            async for ev in orig(messages, tools, system_prompt):
+                yield ev
+        mock_prov.stream_turn = _spy
+        mock_prov.set_responses([MockAIProvider._default_response()])
+        await collect_events(chat(
+            fake_config, mock_prov, mock_registry, mock_ctx,
+            [{"role": "user", "content": "remember the quokka"}], tool_mode="power",
+            chat_service=chat_service, conversation_id=cid))
+
+        # The turn ran on the client's message despite the persistence failure.
+        assert "quokka" in json.dumps(seen["messages"])
+        assert seen["messages"][-1]["role"] == "user"
+
     async def test_each_row_holds_its_own_tool_calls_not_the_accumulator(
             self, fake_config, mock_prov, mock_registry, mock_ctx, chat_service):
         # Two tool iterations then a final answer. Each assistant row must hold
@@ -450,6 +482,50 @@ class TestApprovalReconciliation:
         assert len(send_rows) == 1
         assert "REAL" in send_rows[0]["tool_results"]
         assert "DUPLICATE" not in send_rows[0]["tool_results"]
+
+    async def test_approved_reconcile_ends_turn_on_user_message(
+            self, fake_config, mock_prov, mock_registry, mock_ctx, chat_service):
+        # With the confirm wrap-up persisted, the approval turn's DB tail is the
+        # assistant "Shall I send it?" narration, so the assembled context ends on
+        # an ASSISTANT turn. The reconcile path must append a transient user ack —
+        # otherwise Gemini resends that narration as the user turn (it sends
+        # messages[-1] with role=user) and Anthropic treats it as a prefill.
+        cid = chat_service.create_conversation()["id"]
+        mock_prov.set_responses([
+            [{"type": "_turn_complete",
+              "tool_calls": [{"name": "send_email", "id": "tu1", "args": {"to": "a@b.com"}}],
+              "stop_reason": "tool_use", "usage": {}}],
+            [{"type": "text", "text": "Shall I send it?"},
+             {"type": "_turn_complete", "tool_calls": [], "stop_reason": "stop", "usage": {}}],
+        ])
+        ev1 = await collect_events(chat(
+            fake_config, mock_prov, mock_registry, mock_ctx,
+            [{"role": "user", "content": "email a@b.com"}], tool_mode="normal",
+            integration_tool_defs=_EMAIL_TOOL, chat_service=chat_service, conversation_id=cid))
+        confirm = next(e for e in ev1 if e["type"] == "confirm")
+
+        seen = {}
+        orig = mock_prov.stream_turn
+
+        async def _spy(messages, tools, system_prompt):
+            seen["messages"] = messages
+            async for ev in orig(messages, tools, system_prompt):
+                yield ev
+        mock_prov.stream_turn = _spy
+        mock_prov.set_responses([[{"type": "text", "text": "Sent!"},
+            {"type": "_turn_complete", "tool_calls": [], "stop_reason": "stop", "usage": {}}]])
+        await collect_events(chat(
+            fake_config, mock_prov, mock_registry, mock_ctx,
+            [{"role": "user", "content": "[Approved] send_email"}], tool_mode="normal",
+            integration_tool_defs=_EMAIL_TOOL,
+            approved_tool={"tool": "send_email", "args": {"to": "a@b.com"}, "toolUseId": "tu1",
+                           "msgId": confirm["msg_id"], "result": {"status": "sent"}},
+            chat_service=chat_service, conversation_id=cid))
+
+        # The wrap-up narration is preserved in context (assistant), but the turn
+        # ends on a user message so every provider produces a fresh response.
+        assert seen["messages"][-1]["role"] == "user"
+        assert "Shall I send it?" in json.dumps(seen["messages"])
 
 
 # ---------------------------------------------------------------------------
