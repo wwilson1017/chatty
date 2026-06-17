@@ -62,6 +62,21 @@ def get_overrides(provider: str) -> dict[str, str]:
     return (_load().get(provider, {}) or {}).get("overrides", {}) or {}
 
 
+def has_explicit_tier(provider: str, tier: str) -> bool:
+    """True if a user override or live-inferred value exists for this tier — i.e.
+    resolution would NOT fall through to the hardcoded TIER_MODELS constant.
+
+    Inspects the raw store directly (not get_resolved, which always returns a
+    hardcoded fallback). Used so background runs prefer the user's configured
+    active_model over a baked-in constant on a fresh deploy with no tiers file.
+    """
+    entry = _load().get(provider, {}) or {}
+    return bool(
+        (entry.get("overrides", {}) or {}).get(tier)
+        or (entry.get("inferred", {}) or {}).get(tier)
+    )
+
+
 # Sanity cap on persisted model ids — guards against a misbehaving/compromised
 # provider API returning absurd strings (matches the override length check).
 _MAX_MODEL_ID_LEN = 200

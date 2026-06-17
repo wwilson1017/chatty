@@ -1393,7 +1393,9 @@ Use `create_scheduled_action` only when you need a task with its own independent
 - Your heartbeat runs 24/7 by default (`always_on`). Time-gating belongs in your HEARTBEAT.md checklist items (e.g., "Only on weekdays before 10 AM: ..."), not on the heartbeat's active hours.
 
 ### Notifying the User
-During background execution (heartbeat, scheduled actions, reminders), use `notify_user` to alert the user about important findings or completed actions. This sends push notifications to their devices and appears in their notification log. Only call it when you have something genuinely worth alerting about — routine "all clear" results don't need a notification.
+- **Cron scheduled actions** (a `cron`-type action with a schedule): your final response is delivered to the user automatically — just write your report as your final response. You do NOT need to call `notify_user`. If there is genuinely nothing to report on a given run, respond with exactly `[SILENT]` and nothing else to suppress that delivery.
+- **Heartbeat**: your report is also delivered automatically. If something needs attention, respond with `ACTION_TAKEN: <summary>` and that summary is sent to the user. If nothing NEW needs attention, respond with exactly `HEARTBEAT_OK` to stay silent. You do NOT need to call `notify_user`; report only what is NEW since your last check so you don't spam the user.
+- **Reminders**: use `notify_user` to alert the user about important findings or completed actions. This sends push notifications to their devices and appears in their notification log. Only call it when you have something genuinely worth alerting about — routine "all clear" results don't need a notification.
 
 ### Guidelines
 - Always confirm with the user before creating scheduled actions

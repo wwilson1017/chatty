@@ -245,6 +245,86 @@ class TestLabelsAndTriageFallback:
         assert tiers.get_triage_classifier("nonexistent") is None
 
 
+class TestGetAiProviderActiveModelFallback:
+    """Fix C: background runs must use the user's configured active_model — not a
+    hardcoded TIER_MODELS constant — on a fresh deploy with no materialized tiers,
+    so a PR that bumps TIER_MODELS can't silently swap the background model."""
+
+    @pytest.fixture
+    def creds_env(self, monkeypatch, tmp_path, encryption_env):
+        import core.providers.credentials as creds
+
+        monkeypatch.setattr(creds, "PROFILES_PATH", tmp_path / "auth-profiles.json")
+        store = creds.CredentialStore()
+        store.data = {
+            "active_provider": "anthropic",
+            "active_model": "claude-opus-4-6",
+            "profiles": {
+                "anthropic:default": {"type": "api_key", "key": "sk-ant-x"},
+                "openai:default": {"type": "api_key", "key": "sk-oai-x"},
+            },
+        }
+        store._save()
+        yield
+
+    def test_top_tier_uses_active_model_when_no_tiers_file(self, creds_env, tier_store):
+        from core.providers import get_ai_provider
+        prov = get_ai_provider(agent_model_tier="top")
+        assert prov is not None
+        # NOT the hardcoded TIER_MODELS["anthropic"]["top"] (claude-opus-4-8)
+        assert prov.model == "claude-opus-4-6"
+
+    def test_auto_tier_uses_active_model_when_no_tiers_file(self, creds_env, tier_store):
+        from core.providers import get_ai_provider
+        prov = get_ai_provider(agent_model_tier="auto")
+        assert prov.model == "claude-opus-4-6"
+
+    def test_inferred_tier_wins_over_active_model(self, creds_env, tier_store):
+        from core.providers import get_ai_provider
+        model_tiers.set_inferred(
+            "anthropic",
+            {"top": "claude-opus-4-8", "mid": "claude-sonnet-4-6", "light": "claude-haiku-4-5"},
+        )
+        prov = get_ai_provider(agent_model_tier="top")
+        assert prov.model == "claude-opus-4-8"
+
+    def test_override_wins_over_active_model(self, creds_env, tier_store):
+        from core.providers import get_ai_provider
+        model_tiers.set_overrides("anthropic", {"top": "claude-opus-4-7"})
+        prov = get_ai_provider(agent_model_tier="top")
+        assert prov.model == "claude-opus-4-7"
+
+    def test_provider_mismatch_does_not_borrow_active_model(self, creds_env, tier_store):
+        # active is anthropic; requesting an openai tier with no openai tier source
+        # must use the hardcoded openai top, NOT the anthropic active_model.
+        from core.providers import get_ai_provider
+        prov = get_ai_provider(agent_provider="openai", agent_model_tier="top")
+        assert prov is not None
+        assert prov.model == tiers.TIER_MODELS["openai"]["top"]
+
+    def test_mid_tier_uses_hardcoded_not_active_model(self, creds_env, tier_store):
+        # Only top/auto borrow active_model; mid/light keep the hardcoded fallback.
+        from core.providers import get_ai_provider
+        prov = get_ai_provider(agent_model_tier="mid")
+        assert prov.model == tiers.TIER_MODELS["anthropic"]["mid"]
+
+
+class TestHasExplicitTier:
+    def test_false_when_empty(self, tier_store):
+        assert model_tiers.has_explicit_tier("anthropic", "top") is False
+
+    def test_true_for_inferred(self, tier_store):
+        model_tiers.set_inferred(
+            "anthropic",
+            {"top": "claude-opus-4-8", "mid": "claude-sonnet-4-6", "light": "claude-haiku-4-5"},
+        )
+        assert model_tiers.has_explicit_tier("anthropic", "top") is True
+
+    def test_true_for_override(self, tier_store):
+        model_tiers.set_overrides("anthropic", {"top": "claude-opus-4-7"})
+        assert model_tiers.has_explicit_tier("anthropic", "top") is True
+
+
 class TestMaterializeDoesNotOverrideActiveModel:
     def test_active_model_preserved(self, monkeypatch, tmp_path, tier_store):
         import asyncio
