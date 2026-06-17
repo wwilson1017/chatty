@@ -186,6 +186,11 @@ def _setup_connection() -> None:
         _connection.execute("ALTER TABLE execution_history ADD COLUMN source TEXT DEFAULT 'system'")
     if "conversation_id" not in eh_cols:
         _connection.execute("ALTER TABLE execution_history ADD COLUMN conversation_id TEXT")
+    if "provider" not in eh_cols:
+        # AI provider for the row (anthropic/openai/google/together/ollama).
+        # Lets the usage dashboard treat only local Ollama rows as free and
+        # flag unpriced PAID models instead of silently reporting $0.
+        _connection.execute("ALTER TABLE execution_history ADD COLUMN provider TEXT")
     _connection.execute("CREATE INDEX IF NOT EXISTS idx_eh_event_type ON execution_history(event_type, started_at DESC)")
     _connection.commit()
 

@@ -33,14 +33,24 @@ def get_ai_provider(
     # Resolve model: agent_model > tier > global active_model
     if agent_model:
         raw_model = agent_model
-    elif agent_model_tier and agent_model_tier != "auto":
+    elif agent_model_tier:
+        from core.providers.model_tiers import has_explicit_tier
         from core.providers.tiers import resolve_tier_model
         provider_key = agent_provider or store.data.get("active_provider", "")
-        raw_model = resolve_tier_model(provider_key, agent_model_tier) or ""
-    elif agent_model_tier == "auto":
-        from core.providers.tiers import resolve_tier_model
-        provider_key = agent_provider or store.data.get("active_provider", "")
-        raw_model = resolve_tier_model(provider_key, "top") or ""
+        tier = "top" if agent_model_tier == "auto" else agent_model_tier
+        active_model = store.data.get("active_model", "")
+        active_provider = store.data.get("active_provider", "")
+        if has_explicit_tier(provider_key, tier):
+            raw_model = resolve_tier_model(provider_key, tier) or ""
+        elif tier == "top" and active_model and provider_key == active_provider:
+            # Fresh deploy / no tiers materialized yet: respect the user's
+            # configured active_model instead of the hardcoded TIER_MODELS
+            # constant, so a PR that bumps the constant can't silently swap the
+            # model used by background runs. mid/light keep the hardcoded
+            # fallback (they were never the user's explicit pick).
+            raw_model = active_model
+        else:
+            raw_model = resolve_tier_model(provider_key, tier) or ""
     else:
         raw_model = store.data.get("active_model", "")
     model = raw_model if raw_model and raw_model != "default" else ""
@@ -48,8 +58,8 @@ def get_ai_provider(
     if profile_name.startswith("anthropic:"):
         from core.providers.anthropic_provider import AnthropicProvider
         if profile.get("type") == "setup_token":
-            return AnthropicProvider(api_key=profile.get("token", ""), model=model or "claude-opus-4-6")
-        return AnthropicProvider(api_key=profile.get("key", ""), model=model or "claude-opus-4-6")
+            return AnthropicProvider(api_key=profile.get("token", ""), model=model or "claude-opus-4-8")
+        return AnthropicProvider(api_key=profile.get("key", ""), model=model or "claude-opus-4-8")
 
     elif profile_name.startswith("openai:"):
         from core.providers.openai_provider import OpenAIProvider
@@ -82,9 +92,9 @@ def get_ai_provider(
     elif profile_name.startswith("google:"):
         from core.providers.google_provider import GoogleProvider
         if profile.get("type") == "api_key":
-            return GoogleProvider(api_key=profile.get("key", ""), model=model or "gemini-2.0-flash-exp")
+            return GoogleProvider(api_key=profile.get("key", ""), model=model or "gemini-2.5-flash")
         access_token = profile.get("access", "")
-        return GoogleProvider(access_token=access_token, model=model or "gemini-2.0-flash-exp")
+        return GoogleProvider(access_token=access_token, model=model or "gemini-2.5-flash")
 
     elif profile_name.startswith("ollama:"):
         from core.providers.ollama_provider import OllamaProvider

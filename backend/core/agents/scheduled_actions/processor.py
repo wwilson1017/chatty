@@ -5,6 +5,7 @@ Uses a ThreadPoolExecutor for parallel execution with atomic claim/lease
 to prevent duplicate work across overlapping ticks.
 """
 
+import json
 import logging
 import os
 import threading
@@ -32,11 +33,52 @@ _AGENT_TURN_ERRORS = frozenset({
     "(max iterations reached)",
 })
 
-_TRIAGE_MODELS = {
-    "anthropic": "claude-haiku-4-5-20251001",
-    "openai": "gpt-4.1-nano",
-    "google": "gemini-2.0-flash-lite",
-}
+# Marker the model emits to suppress auto-delivery of a cron run's output
+# (Hermes-style). When a cron's final response is exactly this, nothing is sent.
+SILENT_MARKER = "[SILENT]"
+
+
+def _delivered_via_tool(tool_log: list) -> bool:
+    """True only if a notify_user/post_message call actually SUCCEEDED this run.
+
+    Checks the tool RESULT, not just the tool name: a notify_user entry can be a
+    failure — rejected by the write budget / hourly rate limit (background_runner)
+    or an arg/error return (tool_registry). Conservative on unparseable results:
+    treat as NOT delivered so the auto-fallback fires (a possible duplicate beats
+    a silent miss). Both notify_user and post_message return {"ok": True, ...} on
+    success and {"error": ...} on failure.
+    """
+    for tc in tool_log:
+        if tc.get("tool") not in ("notify_user", "post_message"):
+            continue
+        try:
+            res = json.loads(tc.get("result") or "")
+        except (ValueError, TypeError):
+            continue
+        if isinstance(res, dict) and res.get("ok") is True:
+            return True
+    return False
+
+
+# Status marker a heartbeat emits when it has something to report. HEARTBEAT_OK is
+# its silent marker (OpenClaw uses the same token). Delivery is guaranteed unless
+# the run went silent — see scheduled-action-guaranteed-delivery solution doc.
+_ACTION_MARKER = "ACTION_TAKEN:"
+
+
+def _strip_action_marker(text: str) -> str:
+    """Return the heartbeat report body with the ACTION_TAKEN: marker removed, so
+    the delivered notification reads cleanly (mirrors OpenClaw's stripHeartbeatToken).
+    Falls back to the full text if nothing follows the marker."""
+    s = text.strip()
+    idx = s.upper().find(_ACTION_MARKER)
+    if idx == -1:
+        return s
+    return s[idx + len(_ACTION_MARKER):].strip() or s
+
+# Triage classifier model is resolved via tiers.get_triage_classifier()
+# (override -> inferred -> hardcoded), unifying what used to be a separate,
+# drift-prone _TRIAGE_MODELS map here.
 
 # -- In-flight tracking --------------------------------------------------
 _in_flight_count = 0
@@ -424,7 +466,8 @@ def _process_heartbeat(action: dict) -> None:
         triage_model_override = model_override
         cheap_model = None
         if triage_mode in ("cheap", "always_cheap"):
-            cheap_model = _TRIAGE_MODELS.get(_resolve_triage_provider(agent))
+            from core.providers.tiers import get_triage_classifier
+            cheap_model = get_triage_classifier(_resolve_triage_provider(agent))
             if cheap_model:
                 triage_model_override = cheap_model
 
@@ -475,7 +518,7 @@ def _process_heartbeat(action: dict) -> None:
                         execution_id, status="error" if completed else "lease_lost",
                         result_summary=f"triage failed: {triage_result.text[:200]}",
                         result_full=triage_result.text,
-                        model_used=triage_result.model_used,
+                        model_used=triage_result.model_used, provider=triage_result.provider,
                         input_tokens=triage_result.input_tokens,
                         output_tokens=triage_result.output_tokens,
                         duration_ms=duration_ms,
@@ -502,7 +545,7 @@ def _process_heartbeat(action: dict) -> None:
                             result_summary="Triage: all clear",
                             result_full="Triage returned ALL_CLEAR — skipping full check.",
                             tool_calls=[{"triage": triage_data}],
-                            model_used=triage_result.model_used,
+                            model_used=triage_result.model_used, provider=triage_result.provider,
                             input_tokens=triage_result.input_tokens,
                             output_tokens=triage_result.output_tokens,
                             duration_ms=duration_ms,
@@ -568,10 +611,10 @@ def _process_heartbeat(action: dict) -> None:
                 f"- Time: {time_str}\n\n"
                 + (f"{followups_block}\n\n" if followups_block else "")
                 + "## Rules\n\n"
-                "- If everything is normal and no action is needed, respond with exactly: HEARTBEAT_OK\n"
-                "- If something needs attention, take action using your tools.\n"
-                "- Use `notify_user` to alert the user about important findings or actions taken — this sends push notifications to their devices. Only call it when you have something genuinely worth alerting about.\n"
-                "- After completing your checks, respond with: ACTION_TAKEN: <brief description of what you found/did>\n"
+                "- If nothing NEW needs attention since your last check, respond with exactly: HEARTBEAT_OK (this suppresses any notification).\n"
+                "- If something needs attention, take action using your tools, then respond with: ACTION_TAKEN: <concise summary of what you found/did>.\n"
+                "- That ACTION_TAKEN summary is delivered to the user automatically (push, Telegram, WhatsApp, in-app log) — you do NOT need to call `notify_user`.\n"
+                "- Only report what is NEW since your last check — do not re-report standing conditions you already reported, or you will spam the user.\n"
                 "- Be concise. This is an automated check, not a conversation.\n"
                 f"{error_context}"
             ),
@@ -618,10 +661,38 @@ def _process_heartbeat(action: dict) -> None:
                 )
             return
 
-        notified = any(
-            tc.get("tool") in ("notify_user", "post_message")
-            for tc in result.tool_log
-        )
+        model_notified = _delivered_via_tool(result.tool_log)
+
+        # Guaranteed delivery, same model as cron and OpenClaw's heartbeat: the
+        # run's report is delivered unless the model went silent with HEARTBEAT_OK
+        # (status "ok"). status == "action_taken" means a real report → deliver it,
+        # unless the model already delivered (avoids a double-send). Triage and the
+        # empty-checklist early-returns above keep most ticks from ever getting
+        # here, and the prompt tells the model to report only what is NEW.
+        auto_delivered = False
+        delivery_marker = None
+        if status == "action_taken" and not model_notified:
+            body = _strip_action_marker(result.text)
+            if body:
+                try:
+                    from core.agents.notifications.delivery import deliver_notification
+                    title = action.get("name") or "Heartbeat update"
+                    report = deliver_notification(agent_slug, title, body[:4000])
+                    auto_delivered = bool(report.get("ok"))
+                    channels = report.get("channels_sent", [])
+                    delivery_marker = {"tool": "auto_deliver", "ok": auto_delivered, "channels": channels}
+                    if auto_delivered:
+                        logger.info("Heartbeat %s: auto-delivered action report (channels=%s)", agent_slug, channels or ["in-app log"])
+                    else:
+                        logger.warning("Heartbeat %s: auto-delivery returned not-ok: %s", agent_slug, report)
+                except Exception as e:
+                    delivery_marker = {"tool": "auto_deliver", "ok": False, "error": str(e)[:200]}
+                    logger.warning("Heartbeat %s: auto-delivery failed: %s", agent_slug, e)
+
+        notification_sent = model_notified or auto_delivered
+        # Prepend the marker so it survives history's 10 KB tool_calls truncation.
+        if delivery_marker:
+            full_tool_log = [delivery_marker] + full_tool_log
 
         if execution_id:
             history.record_complete(
@@ -629,13 +700,16 @@ def _process_heartbeat(action: dict) -> None:
                 result_summary=result.text[:500],
                 result_full=result.text,
                 tool_calls=full_tool_log,
-                model_used=result.model_used,
+                model_used=result.model_used, provider=result.provider,
                 input_tokens=total_inp,
                 output_tokens=total_out,
                 duration_ms=duration_ms,
-                notification_sent=notified,
+                notification_sent=notification_sent,
             )
-        logger.info("Heartbeat %s: %s (%dms, tools: %d)", agent_slug, status, duration_ms, len(result.tool_log))
+        logger.info(
+            "Heartbeat %s: %s (%dms, tools: %d, notified=%s, auto=%s)",
+            agent_slug, status, duration_ms, len(result.tool_log), model_notified, auto_delivered,
+        )
 
     except Exception as e:
         duration_ms = int((time.monotonic() - start_time) * 1000)
@@ -698,7 +772,10 @@ def _process_cron(action: dict) -> None:
             f"- Date: {date_str}\n"
             f"- Time: {time_str}\n\n"
             f"Take appropriate action using your tools. Be concise.\n"
-            f"Use `notify_user` to alert the user about important findings or completed actions."
+            f"Your final response will be delivered to the user automatically — just "
+            f"produce your report as your final response. You do not need to call "
+            f"`notify_user`. If there is genuinely nothing to report, respond with "
+            f"exactly [SILENT] and nothing else."
         ),
     )
 
@@ -738,24 +815,60 @@ def _process_cron(action: dict) -> None:
                 )
             return
 
-        notified = any(
-            tc.get("tool") in ("notify_user", "post_message")
-            for tc in result.tool_log
-        )
+        model_notified = _delivered_via_tool(result.tool_log)
+
+        # Model-independent delivery guarantee: a cron action's whole purpose is
+        # to report back, so if the run produced output but the model didn't
+        # deliver it (and didn't explicitly go silent), the system delivers it
+        # via the same path notify_user uses. Best-effort against MODEL behavior
+        # (a model swap / a skipped tool call) — not crash-proof; see the
+        # scheduled-action-guaranteed-delivery solution doc.
+        text = result.text.strip()
+        is_silent = text.upper() == SILENT_MARKER
+        auto_delivered = False
+        delivery_marker = None
+        if status == "ok" and text and not is_silent and not model_notified:
+            try:
+                from core.agents.notifications.delivery import deliver_notification
+                title = action.get("name") or "Scheduled update"
+                report = deliver_notification(agent_slug, title, result.text[:4000])
+                auto_delivered = bool(report.get("ok"))
+                channels = report.get("channels_sent", [])
+                delivery_marker = {"tool": "auto_deliver", "ok": auto_delivered, "channels": channels}
+                if auto_delivered:
+                    # Empty channels just means "in-app log only" (no push sub /
+                    # external channels off) — a valid state, not an error.
+                    logger.info("Cron %s: auto-delivered result (channels=%s)", agent_slug, channels or ["in-app log"])
+                else:
+                    logger.warning("Cron %s: auto-delivery returned not-ok: %s", agent_slug, report)
+            except Exception as e:
+                delivery_marker = {"tool": "auto_deliver", "ok": False, "error": str(e)[:200]}
+                logger.warning("Cron %s: auto-delivery failed: %s", agent_slug, e)
+        elif is_silent:
+            logger.info("Cron %s: model returned [SILENT] — skipping delivery", agent_slug)
+
+        notification_sent = model_notified or auto_delivered
+        # Prepend the marker so it survives history.record_complete's 10 KB
+        # tool_calls truncation. The durable signal is the notification_sent
+        # column; status=ok + notification_sent=False flags "ran but not notified".
+        tool_calls = ([delivery_marker] + result.tool_log) if delivery_marker else result.tool_log
 
         if completed and execution_id:
             history.record_complete(
                 execution_id, status=status,
                 result_summary=result.text[:500],
                 result_full=result.text,
-                tool_calls=result.tool_log,
-                model_used=result.model_used,
+                tool_calls=tool_calls,
+                model_used=result.model_used, provider=result.provider,
                 input_tokens=result.input_tokens,
                 output_tokens=result.output_tokens,
                 duration_ms=duration_ms,
-                notification_sent=notified,
+                notification_sent=notification_sent,
             )
-        logger.info("Cron %s/%s: %s (%dms, notified=%s)", agent_slug, action["id"][:8], status, duration_ms, notified)
+        logger.info(
+            "Cron %s/%s: %s (%dms, notified=%s, auto=%s)",
+            agent_slug, action["id"][:8], status, duration_ms, model_notified, auto_delivered,
+        )
     except Exception as e:
         duration_ms = int((time.monotonic() - start_time) * 1000)
         logger.error("Cron %s failed: %s", agent_slug, e)

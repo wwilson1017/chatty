@@ -30,17 +30,32 @@ def _ensure_array_items(schema: dict) -> dict:
         result["items"] = _ensure_array_items(result["items"])
     return result
 
+# Fallback list only — list_models() fetches live from the OpenAI Models API
+# and this is used when that call fails. Kept current by the price-check skill.
 OPENAI_MODELS = [
+    "gpt-5.5",
     "gpt-5.4",
     "gpt-5.4-mini",
     "gpt-5.4-nano",
-    "o3",
-    "o4-mini",
-    "gpt-4o",
-    "gpt-4o-mini",
 ]
 
 CHATGPT_PROXY_URL = "http://127.0.0.1:9877/v1"
+
+# OpenAI's /v1/models exposes no capability flag, so chat-vs-not is heuristic:
+# a conservative prefix allowlist minus obvious non-chat substrings. The
+# hardcoded OPENAI_MODELS fallback is the known-good safety net.
+_OPENAI_CHAT_PREFIXES = ("gpt-", "o1", "o3", "o4", "chatgpt-")
+_OPENAI_EXCLUDE = (
+    "embedding", "tts", "whisper", "audio", "realtime",
+    "image", "moderation", "-instruct", "dall-e", "search", "transcribe",
+)
+
+
+def _is_openai_chat_model(model_id: str) -> bool:
+    low = model_id.lower()
+    if not low.startswith(_OPENAI_CHAT_PREFIXES):
+        return False
+    return not any(token in low for token in _OPENAI_EXCLUDE)
 
 
 class OpenAIProvider(AIProvider):
@@ -221,17 +236,30 @@ class OpenAIProvider(AIProvider):
 
         return messages + [assistant_msg] + result_msgs
 
+    async def _fetch_models(self) -> list[str]:
+        client = openai.AsyncOpenAI(**self._build_client_kwargs())
+        resp = await client.models.list()
+        ids = [m.id for m in resp.data if _is_openai_chat_model(m.id)]
+        # Roughly newest-first (gpt-5.5 > gpt-5.4 > gpt-4o > o3...).
+        return sorted(ids, reverse=True)
+
     async def list_models(self) -> list[str]:
-        return OPENAI_MODELS
+        from core.providers.model_listing import cache_key, cached_models, materialize_inference
+        # use_chatgpt_api routes through a local proxy that may not implement
+        # /v1/models; on failure cached_models falls back to OPENAI_MODELS.
+        key = cache_key("openai", self.access_token, str(self.use_chatgpt_api))
+        models, is_live = await cached_models(key, self._fetch_models, OPENAI_MODELS)
+        materialize_inference("openai", models, is_live)
+        return models
 
     async def validate(self) -> bool:
         try:
             client = openai.OpenAI(**self._build_client_kwargs())
-            model = "gpt-4o-mini"
+            model = "gpt-5.4-nano"
             client.chat.completions.create(
                 model=model,
                 messages=[{"role": "user", "content": "hi"}],
-                max_tokens=1,
+                max_completion_tokens=1,
             )
             return True
         except Exception:

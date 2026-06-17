@@ -43,6 +43,8 @@ interface AgentUsage {
   chat_events: number;
   background_events: number;
   cost: number;
+  has_unknown_pricing?: boolean;
+  unknown_pricing_models?: string[];
 }
 
 interface UsageSummary {
@@ -325,6 +327,18 @@ export function UsagePage() {
                           fontFamily: FONT_MONO, fontSize: 11,
                         }}>
                           {a.primary_model || '—'}
+                          {a.has_unknown_pricing && (
+                            <span
+                              title={`No published price for: ${(a.unknown_pricing_models || []).join(', ')}. Run the price-check skill to add it to pricing.py.`}
+                              style={{
+                                marginLeft: 8, padding: '1px 6px', borderRadius: 3, fontSize: 9,
+                                fontFamily: FONT_MONO, letterSpacing: '0.08em', textTransform: 'uppercase',
+                                color: '#D4A85A', border: '1px solid rgba(212,168,90,0.4)', whiteSpace: 'nowrap',
+                              }}
+                            >
+                              pricing unknown
+                            </span>
+                          )}
                         </td>
                         <td style={{
                           padding: '11px 16px', textAlign: 'right', color: INK_MUTE,
@@ -360,7 +374,9 @@ export function UsagePage() {
         padding: `8px ${px} 28px`,
         fontFamily: FONT_SANS, fontSize: 11, color: 'rgba(237,240,244,0.38)',
       }}>
-        Costs are estimates based on published API prices. Unpriced and local models show $0.00.
+        Costs are estimates based on published API prices. Local models (Ollama) are free ($0.00).
+        A “pricing unknown” tag means a paid model has no entry in pricing.py yet — run the price-check
+        skill to refresh rates; until then its cost is shown as $0.00 but excluded from accuracy.
       </div>
     </div>
   );

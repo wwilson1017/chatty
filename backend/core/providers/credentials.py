@@ -6,7 +6,7 @@ Reads and writes data/auth-profiles.json.
 Schema:
 {
     "active_provider": "anthropic" | "openai" | "google",
-    "active_model": "claude-opus-4-6",
+    "active_model": "claude-opus-4-8",
     "profiles": {
         "anthropic:default": {"type": "api_key", "key": "sk-ant-..."}
                            | {"type": "setup_token", "token": "..."},
@@ -30,13 +30,29 @@ logger = logging.getLogger(__name__)
 DATA_DIR = Path(__file__).parent.parent.parent / "data"
 PROFILES_PATH = DATA_DIR / "auth-profiles.json"
 
+# Last-resort fallback when no model is specified. _resolved_default_model()
+# (below) prefers the inferred "top" tier from model-tiers.json when available.
 PROVIDER_DEFAULTS = {
-    "anthropic": "claude-opus-4-6",
+    "anthropic": "claude-opus-4-8",
     "openai": "gpt-5.4",
-    "google": "gemini-2.0-flash-exp",
+    "google": "gemini-2.5-flash",
     "ollama": "",
     "together": "Qwen/Qwen3.5-7B",
 }
+
+
+def _resolved_default_model(provider: str) -> str:
+    """Default model when none is specified: the inferred/resolved 'top' tier if
+    materialized, else the hardcoded PROVIDER_DEFAULTS. Keeps fresh connections
+    pointed at a current model even outside the connect-flow inference path."""
+    try:
+        from core.providers.model_tiers import get_resolved
+        top = get_resolved(provider).get("top")
+        if top:
+            return top
+    except Exception:
+        pass
+    return PROVIDER_DEFAULTS.get(provider, "")
 
 
 class CredentialStore:
@@ -110,7 +126,7 @@ class CredentialStore:
             "expires": int(time.time()) + expires_in,
         }
         self.data["active_provider"] = "openai"
-        self.data["active_model"] = model or PROVIDER_DEFAULTS.get("openai", "")
+        self.data["active_model"] = model or _resolved_default_model("openai")
         self._save()
 
     def set_setup_token(self, provider: str, token: str, model: str | None = None):
@@ -120,7 +136,7 @@ class CredentialStore:
             self.data["profiles"] = {}
         self.data["profiles"][profile_name] = {"type": "setup_token", "token": token}
         self.data["active_provider"] = provider
-        self.data["active_model"] = model or PROVIDER_DEFAULTS.get(provider, "")
+        self.data["active_model"] = model or _resolved_default_model(provider)
         self._save()
 
     def set_api_key(self, provider: str, key: str, model: str | None = None):
@@ -130,7 +146,7 @@ class CredentialStore:
             self.data["profiles"] = {}
         self.data["profiles"][profile_name] = {"type": "api_key", "key": key}
         self.data["active_provider"] = provider
-        self.data["active_model"] = model or PROVIDER_DEFAULTS.get(provider, "")
+        self.data["active_model"] = model or _resolved_default_model(provider)
         self._save()
 
     def set_oauth_tokens(
@@ -168,7 +184,7 @@ class CredentialStore:
         }
         if set_active:
             self.data["active_provider"] = provider
-            self.data["active_model"] = model or PROVIDER_DEFAULTS.get(provider, "")
+            self.data["active_model"] = model or _resolved_default_model(provider)
         self._save()
 
     def set_active_model(self, model: str):
@@ -177,14 +193,14 @@ class CredentialStore:
             self.data["active_model"] = model
         else:
             provider = self.data.get("active_provider", "")
-            self.data["active_model"] = PROVIDER_DEFAULTS.get(provider, "")
+            self.data["active_model"] = _resolved_default_model(provider)
         self._save()
 
     def set_active_provider(self, provider: str):
         """Switch active provider (must already have credentials stored)."""
         self.data["active_provider"] = provider
         if not self.data.get("active_model"):
-            self.data["active_model"] = PROVIDER_DEFAULTS.get(provider, "")
+            self.data["active_model"] = _resolved_default_model(provider)
         self._save()
 
     def remove_provider(self, provider: str):

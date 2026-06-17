@@ -30,18 +30,19 @@ def _clean_schema(schema: dict) -> dict:
         result["items"] = _clean_schema(result["items"])
     return result
 
+# Fallback list only — list_models() fetches live from the Gemini API and this
+# is used when that call fails. Kept current by the price-check skill.
 GOOGLE_MODELS = [
-    "gemini-2.5-flash",
     "gemini-2.5-pro",
+    "gemini-2.5-flash",
+    "gemini-2.5-flash-lite",
     "gemini-2.0-flash",
     "gemini-2.0-flash-lite",
-    "gemini-1.5-pro",
-    "gemini-1.5-flash",
 ]
 
 
 class GoogleProvider(AIProvider):
-    def __init__(self, access_token: str = "", api_key: str = "", model: str = "gemini-2.0-flash"):
+    def __init__(self, access_token: str = "", api_key: str = "", model: str = "gemini-2.5-flash"):
         super().__init__(model=model)
         self.access_token = access_token
         self.api_key = api_key
@@ -239,8 +240,33 @@ class GoogleProvider(AIProvider):
 
         return messages + [assistant_msg, user_msg]
 
+    async def _fetch_models(self) -> list[str]:
+        import asyncio
+        import google.generativeai as genai
+        if self.api_key:
+            genai.configure(api_key=self.api_key)
+        else:
+            from google.oauth2.credentials import Credentials
+            genai.configure(credentials=Credentials(token=self.access_token))
+
+        def _list() -> list[str]:
+            out = []
+            for m in genai.list_models():
+                methods = getattr(m, "supported_generation_methods", []) or []
+                if "generateContent" not in methods:
+                    continue
+                name = m.name
+                out.append(name[len("models/"):] if name.startswith("models/") else name)
+            return out
+
+        return await asyncio.to_thread(_list)
+
     async def list_models(self) -> list[str]:
-        return GOOGLE_MODELS
+        from core.providers.model_listing import cache_key, cached_models, materialize_inference
+        key = cache_key("google", self.api_key, self.access_token)
+        models, is_live = await cached_models(key, self._fetch_models, GOOGLE_MODELS)
+        materialize_inference("google", models, is_live)
+        return models
 
     async def validate(self) -> bool:
         try:
