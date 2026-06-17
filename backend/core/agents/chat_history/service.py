@@ -158,7 +158,8 @@ class ChatHistoryService:
             db.commit()
 
     def find_pending_tool_message(
-        self, conversation_id: str, tool_use_id: str, prefer_msg_id: str | None = None,
+        self, conversation_id: str, tool_use_id: str,
+        prefer_msg_id: str | None = None, prefer_tool: str | None = None,
     ) -> str | None:
         """Return the msg_id of the assistant row whose result for tool_use_id is
         still pending/absent — so an approval reconciles only a genuinely-pending
@@ -168,12 +169,17 @@ class ChatHistoryService:
 
         ``prefer_msg_id`` disambiguates the Gemini id-reuse hazard: the confirm
         SSE carries the exact DB row id of the pending assistant turn, and the
-        client echoes it back on approval. When TWO rows share a regenerated id
-        (e.g. the user abandons one pending `call_0` confirmation, sends another
-        message, then approves the FIRST via its still-live button), targeting
-        the exact confirmed row prevents the newer row from absorbing the older
-        row's result. We still verify that row is genuinely pending; if the
-        client sent no id (older build) or it's no longer pending, fall back to
+        client echoes it back on approval. When a row id is supplied it is
+        AUTHORITATIVE — return that exact row iff it is still genuinely pending,
+        otherwise return None. We deliberately do NOT fall back to another row in
+        that case: a stale or duplicated approval (double-click, retry, replay)
+        for an already-reconciled row must be a no-op, never silently redirected
+        onto a newer row that reused the id.
+
+        ``prefer_tool`` only hardens the no-row-id path (older clients that
+        predate this field): among pending rows sharing the id, prefer one whose
+        call is for the same tool, so two same-id pending writes for *different*
+        tools still disambiguate. With neither hint we fall back to
         newest-pending-wins (ORDER BY seq DESC)."""
         db = self._db.get_db()
         rows = db.execute(
@@ -183,12 +189,14 @@ class ChatHistoryService:
             (conversation_id,),
         ).fetchall()
 
-        def _is_pending(r) -> bool:
+        def _calls(r) -> list:
             try:
-                tcs = json.loads(r["tool_calls"]) or []
+                return json.loads(r["tool_calls"]) or []
             except Exception:
-                return False
-            if not any((tc.get("tool_use_id") or tc.get("id")) == tool_use_id for tc in tcs):
+                return []
+
+        def _is_pending(r) -> bool:
+            if not any((tc.get("tool_use_id") or tc.get("id")) == tool_use_id for tc in _calls(r)):
                 return False
             try:
                 results = json.loads(r["tool_results"]) if r["tool_results"] else []
@@ -197,10 +205,19 @@ class ChatHistoryService:
             res = next((x for x in results if x.get("tool_use_id") == tool_use_id), None)
             return res is None or "pending_user_approval" in (res.get("content") or "")
 
+        # Explicit row id is authoritative — exact-and-pending, or nothing.
         if prefer_msg_id:
             exact = next((r for r in rows if r["id"] == prefer_msg_id), None)
-            if exact is not None and _is_pending(exact):
-                return exact["id"]
+            return exact["id"] if (exact is not None and _is_pending(exact)) else None
+
+        # No row id (older client): prefer a pending row matching the tool too.
+        if prefer_tool:
+            for r in rows:
+                if _is_pending(r) and any(
+                    (tc.get("tool_use_id") or tc.get("id")) == tool_use_id
+                    and tc.get("tool") == prefer_tool for tc in _calls(r)
+                ):
+                    return r["id"]
         for r in rows:
             if _is_pending(r):
                 return r["id"]

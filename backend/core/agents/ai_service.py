@@ -965,7 +965,9 @@ async def chat(
                     # msg_id round-tripped via the confirm SSE) so a reused Gemini
                     # tool id can't route this result onto a newer same-id row.
                     _pending_id = chat_service.find_pending_tool_message(
-                        conversation_id, _at_id, prefer_msg_id=approved_tool.get("msgId") or None)
+                        conversation_id, _at_id,
+                        prefer_msg_id=approved_tool.get("msgId") or None,
+                        prefer_tool=approved_tool.get("tool") or None)
                     if _pending_id:
                         # Merge (not replace) so a read executed in the same
                         # iteration as the approved write keeps its result.

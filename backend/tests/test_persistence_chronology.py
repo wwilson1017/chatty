@@ -253,11 +253,15 @@ class TestApprovalReconciliation:
             [{"type": "text", "text": "Confirm?"},
              {"type": "_turn_complete", "tool_calls": [], "stop_reason": "stop", "usage": {}}],
         ])
-        await collect_events(chat(
+        ev1 = await collect_events(chat(
             fake_config, mock_prov, mock_registry, mock_ctx,
             [{"role": "user", "content": "email a@b.com"}], tool_mode="normal",
             integration_tool_defs=_EMAIL_TOOL,
             chat_service=chat_service, conversation_id=cid))
+        # The confirm SSE carries the pending row's DB id; the real client echoes
+        # it back on approval, so exercise that authoritative path here.
+        confirm = next(e for e in ev1 if e["type"] == "confirm")
+        assert confirm["tool_use_id"] == "tu1" and confirm.get("msg_id")
 
         # Turn 2: user approves; frontend sends the executed result + "[Approved]".
         mock_prov.set_responses([
@@ -269,7 +273,8 @@ class TestApprovalReconciliation:
             [{"role": "user", "content": "[Approved] send_email"}], tool_mode="normal",
             integration_tool_defs=_EMAIL_TOOL,
             approved_tool={"tool": "send_email", "args": {"to": "a@b.com"},
-                           "toolUseId": "tu1", "result": {"status": "sent", "id": "e99"}},
+                           "toolUseId": "tu1", "msgId": confirm["msg_id"],
+                           "result": {"status": "sent", "id": "e99"}},
             chat_service=chat_service, conversation_id=cid))
 
         rows = _rows(chat_service, cid)
@@ -349,9 +354,12 @@ class TestApprovalReconciliation:
             tool_calls=json.dumps([{"tool": "create_event", "tool_use_id": "call_0", "args": {"title": "y"}}]),
             tool_results=_pending("create_event", "call_0"))
 
-        # Legacy hazard: without the row id, newest-pending (rowB) wins.
+        # Legacy hazard: with no hints, newest-pending (rowB) wins.
         assert chat_service.find_pending_tool_message(cid, "call_0") == "rowB"
-        # Disambiguated: the confirmed row's id targets the OLDER row.
+        # Old-client hardening: the tool name disambiguates same-id pending rows.
+        assert chat_service.find_pending_tool_message(
+            cid, "call_0", prefer_tool="send_email") == "rowA"
+        # Disambiguated by row id: the confirmed row targets the OLDER row.
         assert chat_service.find_pending_tool_message(cid, "call_0", prefer_msg_id="rowA") == "rowA"
 
         # Reconcile A; B must stay pending (its own write was never approved).
@@ -359,10 +367,12 @@ class TestApprovalReconciliation:
         rows = {r["id"]: r for r in _rows(chat_service, cid)}
         assert json.loads(rows["rowA"]["tool_results"])[0]["content"] == json.dumps({"status": "sent"})
         assert "pending_user_approval" in json.loads(rows["rowB"]["tool_results"])[0]["content"]
-        # A stale/forged prefer_msg_id (now-resolved or unknown) falls back to
-        # the genuine remaining pending row, never a non-pending or missing one.
-        assert chat_service.find_pending_tool_message(cid, "call_0", prefer_msg_id="rowA") == "rowB"
-        assert chat_service.find_pending_tool_message(cid, "call_0", prefer_msg_id="nope") == "rowB"
+        # An explicit row id is AUTHORITATIVE: a stale/duplicate approval naming
+        # the now-reconciled rowA (or a forged id) must be a no-op — never
+        # redirected onto rowB. Only the no-row-id path falls back to newest.
+        assert chat_service.find_pending_tool_message(cid, "call_0", prefer_msg_id="rowA") is None
+        assert chat_service.find_pending_tool_message(cid, "call_0", prefer_msg_id="nope") is None
+        assert chat_service.find_pending_tool_message(cid, "call_0") == "rowB"  # fallback unchanged
 
 
 # ---------------------------------------------------------------------------
