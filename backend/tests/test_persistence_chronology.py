@@ -374,6 +374,80 @@ class TestApprovalReconciliation:
         assert chat_service.find_pending_tool_message(cid, "call_0", prefer_msg_id="nope") is None
         assert chat_service.find_pending_tool_message(cid, "call_0") == "rowB"  # fallback unchanged
 
+    async def test_pending_detection_requires_placeholder_shape_not_substring(self, chat_service):
+        # A genuine COMPLETED result that merely mentions the placeholder phrase
+        # (e.g. an echoed email body) must not be mistaken for pending — else an
+        # approval could overwrite real data. Pending is the exact JSON shape.
+        cid = chat_service.create_conversation()["id"]
+        real = json.dumps({"status": "ok", "body": "re: the pending_user_approval flow"})
+        chat_service.save_message(
+            cid, "done", "assistant", "fetched",
+            tool_calls=json.dumps([{"tool": "web_fetch", "tool_use_id": "call_0", "args": {}}]),
+            tool_results=json.dumps([{"tool_use_id": "call_0", "tool_name": "web_fetch", "content": real}]))
+        assert chat_service.find_pending_tool_message(cid, "call_0") is None
+        assert chat_service.find_pending_tool_message(cid, "call_0", prefer_msg_id="done") is None
+
+    async def test_stale_duplicate_approval_with_msgid_does_not_reinject(
+            self, fake_config, mock_prov, mock_registry, mock_ctx, chat_service):
+        # After an approval reconciles the pending row, a DUPLICATE approval that
+        # names the same (now-resolved) row must be a true no-op: reconcile misses,
+        # and because the client supplied an authoritative msgId we must NOT
+        # live-inject the stale exchange — the assembler already holds the real
+        # one, so re-injecting would duplicate it and answer a stale approval.
+        cid = chat_service.create_conversation()["id"]
+        mock_prov.set_responses([
+            [{"type": "_turn_complete",
+              "tool_calls": [{"name": "send_email", "id": "tu1", "args": {"to": "a@b.com"}}],
+              "stop_reason": "tool_use", "usage": {}}],
+            [{"type": "text", "text": "Confirm?"},
+             {"type": "_turn_complete", "tool_calls": [], "stop_reason": "stop", "usage": {}}],
+        ])
+        ev1 = await collect_events(chat(
+            fake_config, mock_prov, mock_registry, mock_ctx,
+            [{"role": "user", "content": "email a@b.com"}], tool_mode="normal",
+            integration_tool_defs=_EMAIL_TOOL, chat_service=chat_service, conversation_id=cid))
+        confirm = next(e for e in ev1 if e["type"] == "confirm")
+
+        # First approval reconciles the pending row with the REAL result.
+        mock_prov.set_responses([[{"type": "text", "text": "Sent!"},
+            {"type": "_turn_complete", "tool_calls": [], "stop_reason": "stop", "usage": {}}]])
+        await collect_events(chat(
+            fake_config, mock_prov, mock_registry, mock_ctx,
+            [{"role": "user", "content": "[Approved] send_email"}], tool_mode="normal",
+            integration_tool_defs=_EMAIL_TOOL,
+            approved_tool={"tool": "send_email", "args": {"to": "a@b.com"}, "toolUseId": "tu1",
+                           "msgId": confirm["msg_id"], "result": {"status": "sent", "id": "REAL"}},
+            chat_service=chat_service, conversation_id=cid))
+
+        # Duplicate approval of the SAME row carries a DISTINCT marker; spy context.
+        seen = {}
+        orig = mock_prov.stream_turn
+
+        async def _spy(messages, tools, system_prompt):
+            seen["messages"] = messages
+            async for ev in orig(messages, tools, system_prompt):
+                yield ev
+        mock_prov.stream_turn = _spy
+        mock_prov.set_responses([[{"type": "text", "text": "ok"},
+            {"type": "_turn_complete", "tool_calls": [], "stop_reason": "stop", "usage": {}}]])
+        await collect_events(chat(
+            fake_config, mock_prov, mock_registry, mock_ctx,
+            [{"role": "user", "content": "[Approved] send_email"}], tool_mode="normal",
+            integration_tool_defs=_EMAIL_TOOL,
+            approved_tool={"tool": "send_email", "args": {"to": "a@b.com"}, "toolUseId": "tu1",
+                           "msgId": confirm["msg_id"], "result": {"status": "sent", "id": "DUPLICATE"}},
+            chat_service=chat_service, conversation_id=cid))
+
+        blob = json.dumps(seen["messages"])
+        assert "REAL" in blob          # the assembler reconstructs the real result
+        assert "DUPLICATE" not in blob  # the stale duplicate was NOT injected live
+        # DB still holds exactly one send_email result — the real one.
+        send_rows = [r for r in _rows(chat_service, cid)
+                     if r["tool_calls"] and json.loads(r["tool_calls"])[0]["tool"] == "send_email"]
+        assert len(send_rows) == 1
+        assert "REAL" in send_rows[0]["tool_results"]
+        assert "DUPLICATE" not in send_rows[0]["tool_results"]
+
 
 # ---------------------------------------------------------------------------
 # Plan mode

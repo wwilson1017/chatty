@@ -1194,11 +1194,15 @@ async def chat(
                 )
                 provider_tools = build_provider_tools(tool_defs)
 
-        if not _approved_reconciled:
-            # No stored row carries this tool_use_id (ephemeral/CLI, or a
-            # stateless resume where turn-1 wasn't persisted). "Not reconciled"
-            # therefore means the assembler reconstructs NOTHING for this call,
-            # so injecting the exchange live cannot duplicate it.
+        # Live-inject the approved exchange ONLY in the genuine stateless case:
+        # no stored row carries this tool_use_id, so the assembler reconstructs
+        # nothing and injection can't duplicate. A persisted client always sends
+        # the pending row's msgId, so msgId-present-but-reconcile-missed means a
+        # stale/duplicate approval of an already-reconciled row — the assembler
+        # already holds the real exchange, so skip injection (don't duplicate it
+        # or let the model answer a stale approval). A failed turn-1 save emits a
+        # null msg_id, correctly falling back to live injection here.
+        if not _approved_reconciled and not approved_tool.get("msgId"):
             at_args = approved_tool.get("args", {})
             at_id = approved_tool.get("toolUseId", str(uuid.uuid4()))
             at_result = approved_tool.get("result", {})

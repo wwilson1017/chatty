@@ -195,6 +195,20 @@ class ChatHistoryService:
             except Exception:
                 return []
 
+        def _is_placeholder(content) -> bool:
+            # The pending marker is json.dumps({"status": "pending_user_approval"})
+            # and is never delimiter-wrapped. Parse and match the field exactly —
+            # a substring check would treat a real result that merely *mentions*
+            # the phrase (e.g. an email body) as pending and let an approval
+            # overwrite it.
+            if not content:
+                return False
+            try:
+                obj = json.loads(content)
+            except Exception:
+                return False
+            return isinstance(obj, dict) and obj.get("status") == "pending_user_approval"
+
         def _is_pending(r) -> bool:
             if not any((tc.get("tool_use_id") or tc.get("id")) == tool_use_id for tc in _calls(r)):
                 return False
@@ -203,7 +217,7 @@ class ChatHistoryService:
             except Exception:
                 results = []
             res = next((x for x in results if x.get("tool_use_id") == tool_use_id), None)
-            return res is None or "pending_user_approval" in (res.get("content") or "")
+            return res is None or _is_placeholder(res.get("content"))
 
         # Explicit row id is authoritative — exact-and-pending, or nothing.
         if prefer_msg_id:
