@@ -1903,6 +1903,11 @@ async def run_sync(
                         log_security_event("write_budget_terminated", f"run_sync terminated after second budget violation: {tool_name}", severity="error", agent_slug=config.slug, source="interactive")
                     except Exception:
                         pass
+                    # Pair the terminating tool_use with its own error result before
+                    # persisting (mirrors chat() at the streaming terminate branch),
+                    # so the next assembly doesn't stub it "result not recorded".
+                    result_str = json.dumps({"error": "Turn terminated: write budget exceeded"})
+                    results.append({"tool_use_id": tool_use_id, "tool_name": tool_name, "content": result_str})
                     # Persist whatever executed before termination (mirrors chat()).
                     if iter_msg_id and persist and conversation_id and results:
                         try:

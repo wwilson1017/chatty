@@ -381,7 +381,10 @@ class TestCompactionIntegration:
         class _Client:
             def __init__(self, *a, **k): self.messages = _Messages()
         import anthropic
+        from core.agents.compaction import service as csvc
         monkeypatch.setattr(anthropic, "Anthropic", _Client)
+        # No credential store in tests → stub the key the summarizer fetches.
+        monkeypatch.setattr(csvc, "_fetch_anthropic_key", lambda: "test-key")
 
         mock_prov.context_window_value = 2000  # small window → easy threshold
         cid = chat_service.create_conversation()["id"]

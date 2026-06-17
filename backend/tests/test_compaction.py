@@ -51,6 +51,9 @@ def haiku_calls(monkeypatch):
 
     import anthropic
     monkeypatch.setattr(anthropic, "Anthropic", _Client)
+    # The summarizer falls back to the credential store for the key; in CI there
+    # is none, so stub it (else _summarize bails before the mocked client runs).
+    monkeypatch.setattr(csvc, "_fetch_anthropic_key", lambda: "test-key")
     return calls
 
 
@@ -234,6 +237,7 @@ class TestInjectionHardening:
             def __init__(self, *a, **k): self.messages = _Messages()
         import anthropic
         monkeypatch.setattr(anthropic, "Anthropic", _Client)
+        monkeypatch.setattr(csvc, "_fetch_anthropic_key", lambda: "test-key")
 
         cid = svc.create_conversation()["id"]
         _add_turns(svc, cid, 12, size=600)

@@ -163,7 +163,14 @@ class ChatHistoryService:
         approval reconciles only a genuinely-pending row. Requiring "still
         pending" matters because providers like Gemini regenerate ids (call_0,
         call_1) every turn, so id alone could match a completed/older row.
-        The frontend sends tool_use_id, not the DB msg_id, hence the lookup."""
+        The frontend sends tool_use_id, not the DB msg_id, hence the lookup.
+
+        Newest-pending-wins (ORDER BY seq DESC) is correct even when an id
+        repeats across turns: the confirmation flow halts the turn, so only the
+        actively-confirmed exchange is outstanding. Any older row with the same
+        id is either already reconciled (filtered out by the pending check) or
+        abandoned (the user moved on and isn't approving it), so it must not
+        absorb this approval."""
         db = self._db.get_db()
         rows = db.execute(
             "SELECT id, tool_calls, tool_results FROM messages "
