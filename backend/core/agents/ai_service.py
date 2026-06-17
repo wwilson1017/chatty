@@ -1228,16 +1228,17 @@ async def chat(
                   "content": json.dumps(at_result)}],
             )
 
-        # When the approval reconciled onto the stored row, context was rebuilt
-        # purely from the DB. With the confirm wrap-up now persisted, that DB tail
-        # can be the assistant "shall I send it?" narration — so the assembled
-        # array ends on an ASSISTANT turn. A turn must end on a user message:
-        # Gemini resends messages[-1] AS the user turn (google_provider sends the
-        # last message with role="user") and Anthropic treats a trailing assistant
-        # as a prefill. Append a transient (unpersisted) user ack so the model
-        # emits a fresh acknowledgment; the executed result is already
-        # reconstructed above for it to read.
-        if (_approved_reconciled and current_messages
+        # Any approved-tool turn that rebuilt context from the DB (reconciled, or
+        # a stale/duplicate approval whose reconcile became a no-op) can end on an
+        # ASSISTANT turn now that the confirm wrap-up ("shall I send it?") is
+        # persisted. A turn must end on a user message: Gemini resends messages[-1]
+        # AS the user turn (google_provider sends the last message with
+        # role="user") and Anthropic treats a trailing assistant as a prefill.
+        # Append a transient (unpersisted) user ack so the model emits a fresh
+        # response; the executed result is already reconstructed above. The
+        # live-injection branches always end on a user/tool turn, so this guard
+        # (tail is literally assistant) targets exactly the DB-rebuilt cases.
+        if (current_messages
                 and current_messages[-1].get("role") == "assistant"):
             current_messages = current_messages + [{
                 "role": "user",
@@ -1801,6 +1802,7 @@ async def run_sync(
 
     # Chat history — save user message
     persist = chat_service is not None
+    _user_row_saved = False
     if persist:
         try:
             if not conversation_id:
@@ -1816,6 +1818,7 @@ async def run_sync(
                     role="user",
                     content=last_user.get("content", ""),
                 )
+                _user_row_saved = True
         except Exception as e:
             logger.warning("run_sync: chat history save (user msg) failed: %s", e)
 
@@ -1830,6 +1833,13 @@ async def run_sync(
     # with full tool results — not just the recent client-passed window.
     if persist and conversation_id:
         current_messages = assemble_messages(chat_service, provider, conversation_id)
+        # Resilience (mirrors chat()): if the user-row save failed above, assembly
+        # won't include this message — splice the client's user turn back so the
+        # Telegram turn runs on it instead of answering the previous message.
+        if not _user_row_saved:
+            last_user = next((m for m in reversed(messages) if m.get("role") == "user"), None)
+            if last_user:
+                current_messages = current_messages + [dict(last_user)]
     else:
         current_messages = list(messages)
     accumulated_text = ""

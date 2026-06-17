@@ -476,6 +476,10 @@ class TestApprovalReconciliation:
         blob = json.dumps(seen["messages"])
         assert "REAL" in blob          # the assembler reconstructs the real result
         assert "DUPLICATE" not in blob  # the stale duplicate was NOT injected live
+        # Even on this no-op duplicate path the turn must end on a user message
+        # (the DB tail is the wrap-up assistant narration) — else Gemini resends
+        # it as the user turn / Anthropic prefills.
+        assert seen["messages"][-1]["role"] == "user"
         # DB still holds exactly one send_email result — the real one.
         send_rows = [r for r in _rows(chat_service, cid)
                      if r["tool_calls"] and json.loads(r["tool_calls"])[0]["tool"] == "send_email"]
@@ -644,3 +648,35 @@ class TestRunSyncPersistence:
         # Main-turn fullness persisted for the durable compaction trigger.
         ct, cw, _ = chat_service.get_turn_usage(cid)
         assert ct == 1234 + 2000  # cache-inclusive
+
+    async def test_run_sync_user_save_failure_still_answers_new_message(
+            self, fake_config, mock_prov, mock_registry, mock_ctx, chat_service, monkeypatch):
+        # Telegram routes through run_sync, which also rebuilds context from the
+        # DB. A failed user-row save must not make it answer the previous message
+        # (or error on an empty array) — the client message is spliced back in.
+        cid = chat_service.create_conversation()["id"]
+        orig_save = chat_service.save_message
+
+        def _save(*a, **k):
+            if k.get("role") == "user":
+                raise RuntimeError("disk full")
+            return orig_save(*a, **k)
+        monkeypatch.setattr(chat_service, "save_message", _save)
+
+        seen = {}
+        orig = mock_prov.stream_turn
+
+        async def _spy(messages, tools, system_prompt):
+            seen["messages"] = messages
+            async for ev in orig(messages, tools, system_prompt):
+                yield ev
+        mock_prov.stream_turn = _spy
+        mock_prov.set_responses([[{"type": "text", "text": "ok"},
+            {"type": "_turn_complete", "tool_calls": [], "stop_reason": "stop", "usage": {}}]])
+        await run_sync(
+            fake_config, mock_prov, mock_registry, mock_ctx,
+            [{"role": "user", "content": "ping the wombat"}],
+            chat_service=chat_service, conversation_id=cid, source="telegram")
+
+        assert "wombat" in json.dumps(seen["messages"])
+        assert seen["messages"][-1]["role"] == "user"
