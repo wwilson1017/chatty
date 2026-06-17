@@ -177,6 +177,41 @@ class TestChronology:
         assert "quokka" in json.dumps(seen["messages"])
         assert seen["messages"][-1]["role"] == "user"
 
+    async def test_user_save_failure_coalesces_with_orphaned_user_row(
+            self, fake_config, mock_prov, mock_registry, mock_ctx, chat_service, monkeypatch):
+        # Compound failure: a prior turn left an orphaned trailing user row AND
+        # this turn's user save also fails. The splice must coalesce, not emit two
+        # consecutive user turns (which Anthropic/Gemini reject).
+        cid = chat_service.create_conversation()["id"]
+        chat_service.save_message(cid, "orphan", "user", "orphaned earlier message")
+        orig_save = chat_service.save_message
+
+        def _save(*a, **k):
+            if k.get("role") == "user":
+                raise RuntimeError("disk full")
+            return orig_save(*a, **k)
+        monkeypatch.setattr(chat_service, "save_message", _save)
+
+        seen = {}
+        orig = mock_prov.stream_turn
+
+        async def _spy(messages, tools, system_prompt):
+            seen["messages"] = messages
+            async for ev in orig(messages, tools, system_prompt):
+                yield ev
+        mock_prov.stream_turn = _spy
+        mock_prov.set_responses([MockAIProvider._default_response()])
+        await collect_events(chat(
+            fake_config, mock_prov, mock_registry, mock_ctx,
+            [{"role": "user", "content": "the brand new message"}], tool_mode="power",
+            chat_service=chat_service, conversation_id=cid))
+
+        msgs = seen["messages"]
+        assert not any(msgs[i]["role"] == "user" and msgs[i + 1]["role"] == "user"
+                       for i in range(len(msgs) - 1))  # no consecutive user turns
+        blob = json.dumps(msgs)
+        assert "orphaned earlier message" in blob and "the brand new message" in blob
+
     async def test_each_row_holds_its_own_tool_calls_not_the_accumulator(
             self, fake_config, mock_prov, mock_registry, mock_ctx, chat_service):
         # Two tool iterations then a final answer. Each assistant row must hold

@@ -36,7 +36,7 @@ from zoneinfo import ZoneInfo
 from core.storage import upload_config, delete_config
 from core.providers.base import AIProvider, _sse
 from core.providers.windows import context_usage_event
-from .context_assembly import assemble_messages
+from .context_assembly import assemble_messages, _coalesce_consecutive
 from .compaction import maybe_compact
 from .config import AgentConfig
 from .context_manager import ContextManager, is_social_closer, _tokenize
@@ -1019,7 +1019,10 @@ async def chat(
         if not approved_tool and not _user_row_saved:
             last_user = next((m for m in reversed(messages) if m.get("role") == "user"), None)
             if last_user:
-                current_messages = current_messages + [dict(last_user)]
+                # Coalesce so a prior-turn-orphaned trailing user row can't make
+                # this the second of two consecutive user turns (Anthropic/Gemini
+                # reject that); _coalesce_consecutive merges them into one.
+                current_messages = _coalesce_consecutive(current_messages + [dict(last_user)])
     else:
         current_messages = list(messages)
 
@@ -1839,7 +1842,9 @@ async def run_sync(
         if not _user_row_saved:
             last_user = next((m for m in reversed(messages) if m.get("role") == "user"), None)
             if last_user:
-                current_messages = current_messages + [dict(last_user)]
+                # Coalesce (mirrors chat()) so an orphaned trailing user row from
+                # a prior crashed turn can't yield two consecutive user turns.
+                current_messages = _coalesce_consecutive(current_messages + [dict(last_user)])
     else:
         current_messages = list(messages)
     accumulated_text = ""
