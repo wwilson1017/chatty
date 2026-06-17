@@ -257,7 +257,7 @@ export type SSEEvent =
   | { type: 'tool_start'; tool: string; tool_use_id: string }
   | { type: 'tool_args'; tool: string; tool_use_id: string; args: Record<string, unknown>; description?: string }
   | { type: 'tool_end'; tool: string; tool_use_id: string; result: unknown; elapsed_ms?: number; duration_ms?: number }
-  | { type: 'confirm'; tool: string; args: Record<string, unknown>; tool_use_id: string; description: string }
+  | { type: 'confirm'; tool: string; args: Record<string, unknown>; tool_use_id: string; msg_id?: string; description: string }
   | { type: 'plan_ready'; plan: string }
   | { type: 'usage'; input_tokens: number; output_tokens: number; context_tokens: number; context_window: number }
   | { type: 'report'; report: { id: string; title: string; subtitle?: string; sections: unknown[]; created_at: string } }

@@ -43,6 +43,9 @@ export interface PendingConfirmation {
   tool: string;
   args: Record<string, unknown>;
   toolUseId: string;
+  // DB id of the pending assistant row, echoed back on approval so the backend
+  // reconciles the exact row even when a provider reuses tool ids (Gemini).
+  msgId?: string;
   status: 'pending' | 'approved' | 'denied';
   description?: string;
 }
@@ -151,6 +154,7 @@ export function useAgentChat(apiPrefix: string, options?: Options) {
     tool: string;
     args: Record<string, unknown>;
     toolUseId: string;
+    msgId?: string;
     result: unknown;
   }, overrides?: { tool_mode?: string; plan_mode?: boolean; hidden?: boolean; playbook?: { slug: string; name: string } }) => {
     const playbook = overrides?.playbook;
@@ -316,6 +320,7 @@ export function useAgentChat(apiPrefix: string, options?: Options) {
                   tool: event.tool,
                   args: event.args || {},
                   toolUseId: event.tool_use_id || '',
+                  msgId: event.msg_id,
                   status: 'pending',
                   description: event.description,
                 },
@@ -400,7 +405,10 @@ export function useAgentChat(apiPrefix: string, options?: Options) {
     const msg = messagesRef.current.find(m => m.id === msgId);
     if (!msg?.pendingConfirm || msg.pendingConfirm.status !== 'pending') return;
 
-    const { tool, args, toolUseId } = msg.pendingConfirm;
+    // pendingRowId is the BACKEND DB row id (distinct from msgId, the UI id) —
+    // round-tripped so reconcile targets this exact pending row under Gemini id
+    // reuse rather than the newest same-id row.
+    const { tool, args, toolUseId, msgId: pendingRowId } = msg.pendingConfirm;
 
     setMessages(prev => prev.map(m =>
       m.id === msgId && m.pendingConfirm
@@ -422,11 +430,11 @@ export function useAgentChat(apiPrefix: string, options?: Options) {
       if (!res.ok) throw new Error(`Execute failed: ${res.status}`);
       const result = await res.json();
 
-      sendMessage(`[Approved] ${tool}`, undefined, { tool, args, toolUseId, result });
+      sendMessage(`[Approved] ${tool}`, undefined, { tool, args, toolUseId, msgId: pendingRowId, result });
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : 'Unknown error';
       sendMessage(`[Action failed] ${tool}: ${errMsg}`, undefined, {
-        tool, args, toolUseId, result: { error: errMsg },
+        tool, args, toolUseId, msgId: pendingRowId, result: { error: errMsg },
       });
     }
   }, [apiPrefix, sendMessage]);

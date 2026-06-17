@@ -157,20 +157,24 @@ class ChatHistoryService:
             db.execute("UPDATE messages SET tool_results = ? WHERE id = ?", (tool_results, msg_id))
             db.commit()
 
-    def find_pending_tool_message(self, conversation_id: str, tool_use_id: str) -> str | None:
-        """Return the msg_id of the most recent assistant row that called
-        tool_use_id AND whose result for it is still pending/absent — so an
-        approval reconciles only a genuinely-pending row. Requiring "still
-        pending" matters because providers like Gemini regenerate ids (call_0,
-        call_1) every turn, so id alone could match a completed/older row.
-        The frontend sends tool_use_id, not the DB msg_id, hence the lookup.
+    def find_pending_tool_message(
+        self, conversation_id: str, tool_use_id: str, prefer_msg_id: str | None = None,
+    ) -> str | None:
+        """Return the msg_id of the assistant row whose result for tool_use_id is
+        still pending/absent — so an approval reconciles only a genuinely-pending
+        row. Requiring "still pending" matters because providers like Gemini
+        regenerate ids (call_0, call_1) every turn, so id alone could match a
+        completed/older row. The frontend sends tool_use_id, not the DB msg_id.
 
-        Newest-pending-wins (ORDER BY seq DESC) is correct even when an id
-        repeats across turns: the confirmation flow halts the turn, so only the
-        actively-confirmed exchange is outstanding. Any older row with the same
-        id is either already reconciled (filtered out by the pending check) or
-        abandoned (the user moved on and isn't approving it), so it must not
-        absorb this approval."""
+        ``prefer_msg_id`` disambiguates the Gemini id-reuse hazard: the confirm
+        SSE carries the exact DB row id of the pending assistant turn, and the
+        client echoes it back on approval. When TWO rows share a regenerated id
+        (e.g. the user abandons one pending `call_0` confirmation, sends another
+        message, then approves the FIRST via its still-live button), targeting
+        the exact confirmed row prevents the newer row from absorbing the older
+        row's result. We still verify that row is genuinely pending; if the
+        client sent no id (older build) or it's no longer pending, fall back to
+        newest-pending-wins (ORDER BY seq DESC)."""
         db = self._db.get_db()
         rows = db.execute(
             "SELECT id, tool_calls, tool_results FROM messages "
@@ -178,19 +182,27 @@ class ChatHistoryService:
             "ORDER BY seq DESC",
             (conversation_id,),
         ).fetchall()
-        for r in rows:
+
+        def _is_pending(r) -> bool:
             try:
                 tcs = json.loads(r["tool_calls"]) or []
             except Exception:
-                continue
+                return False
             if not any((tc.get("tool_use_id") or tc.get("id")) == tool_use_id for tc in tcs):
-                continue
+                return False
             try:
                 results = json.loads(r["tool_results"]) if r["tool_results"] else []
             except Exception:
                 results = []
             res = next((x for x in results if x.get("tool_use_id") == tool_use_id), None)
-            if res is None or "pending_user_approval" in (res.get("content") or ""):
+            return res is None or "pending_user_approval" in (res.get("content") or "")
+
+        if prefer_msg_id:
+            exact = next((r for r in rows if r["id"] == prefer_msg_id), None)
+            if exact is not None and _is_pending(exact):
+                return exact["id"]
+        for r in rows:
+            if _is_pending(r):
                 return r["id"]
         return None
 

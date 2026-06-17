@@ -328,6 +328,42 @@ class TestApprovalReconciliation:
         assert "bob" in by_id["tr"]["content"]                       # read preserved
         assert by_id["tw"]["content"] == json.dumps({"status": "sent"})  # write filled
 
+    async def test_reused_tool_id_approval_targets_the_confirmed_row(self, chat_service):
+        # Gemini regenerates call_0 every turn. Two pending writes both carry
+        # call_0: row A (the user abandoned its confirmation but its Approve
+        # button is still live) then a newer row B. Approving A must reconcile A
+        # — newest-pending-wins alone would let B absorb A's result, corrupting
+        # history. The confirm SSE round-trips A's DB id to disambiguate.
+        cid = chat_service.create_conversation()["id"]
+
+        def _pending(tool, tid):
+            return json.dumps([{"tool_use_id": tid, "tool_name": tool,
+                                "content": json.dumps({"status": "pending_user_approval"})}])
+
+        chat_service.save_message(
+            cid, "rowA", "assistant", "do X",
+            tool_calls=json.dumps([{"tool": "send_email", "tool_use_id": "call_0", "args": {"to": "x"}}]),
+            tool_results=_pending("send_email", "call_0"))
+        chat_service.save_message(
+            cid, "rowB", "assistant", "do Y",
+            tool_calls=json.dumps([{"tool": "create_event", "tool_use_id": "call_0", "args": {"title": "y"}}]),
+            tool_results=_pending("create_event", "call_0"))
+
+        # Legacy hazard: without the row id, newest-pending (rowB) wins.
+        assert chat_service.find_pending_tool_message(cid, "call_0") == "rowB"
+        # Disambiguated: the confirmed row's id targets the OLDER row.
+        assert chat_service.find_pending_tool_message(cid, "call_0", prefer_msg_id="rowA") == "rowA"
+
+        # Reconcile A; B must stay pending (its own write was never approved).
+        chat_service.merge_tool_result("rowA", "call_0", "send_email", json.dumps({"status": "sent"}))
+        rows = {r["id"]: r for r in _rows(chat_service, cid)}
+        assert json.loads(rows["rowA"]["tool_results"])[0]["content"] == json.dumps({"status": "sent"})
+        assert "pending_user_approval" in json.loads(rows["rowB"]["tool_results"])[0]["content"]
+        # A stale/forged prefer_msg_id (now-resolved or unknown) falls back to
+        # the genuine remaining pending row, never a non-pending or missing one.
+        assert chat_service.find_pending_tool_message(cid, "call_0", prefer_msg_id="rowA") == "rowB"
+        assert chat_service.find_pending_tool_message(cid, "call_0", prefer_msg_id="nope") == "rowB"
+
 
 # ---------------------------------------------------------------------------
 # Plan mode

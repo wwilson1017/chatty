@@ -961,7 +961,11 @@ async def chat(
                 # then reconstructs the completed tool exchange natively.
                 try:
                     _at_id = approved_tool.get("toolUseId", "")
-                    _pending_id = chat_service.find_pending_tool_message(conversation_id, _at_id)
+                    # Prefer the exact pending row the client confirmed (its DB
+                    # msg_id round-tripped via the confirm SSE) so a reused Gemini
+                    # tool id can't route this result onto a newer same-id row.
+                    _pending_id = chat_service.find_pending_tool_message(
+                        conversation_id, _at_id, prefer_msg_id=approved_tool.get("msgId") or None)
                     if _pending_id:
                         # Merge (not replace) so a read executed in the same
                         # iteration as the approved write keeps its result.
@@ -1513,6 +1517,10 @@ async def chat(
                     "tool": tool_name,
                     "args": tool_args,
                     "tool_use_id": tool_use_id,
+                    # The pending assistant row's DB id — the client echoes it back
+                    # on approval so reconcile targets THIS row, not a newer one
+                    # that reused the tool id (Gemini regenerates call_0/call_1).
+                    "msg_id": iter_msg_id,
                     "description": tool_desc,
                 })
 
