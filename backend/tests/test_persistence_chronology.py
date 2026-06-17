@@ -214,7 +214,7 @@ class TestChronology:
 # ---------------------------------------------------------------------------
 
 class TestApprovalReconciliation:
-    async def test_pending_confirmation_saves_null_results_no_wrapup_row(
+    async def test_pending_confirmation_persists_pending_row_and_wrapup(
             self, fake_config, mock_prov, mock_registry, mock_ctx, chat_service):
         cid = chat_service.create_conversation()["id"]
         mock_prov.set_responses([
@@ -232,15 +232,18 @@ class TestApprovalReconciliation:
 
         assert any(e["type"] == "confirm" for e in events)
         rows = _rows(chat_service, cid)
-        # user + the pending tool row only; the "confirm?" wrap-up is NOT persisted
-        # (it would contradict the approved result after reconciliation).
-        assert [r["role"] for r in rows] == ["user", "assistant"]
+        # user + the pending tool row + the "confirm?" wrap-up narration, so the
+        # next turn sees the agent's own question even if the user doesn't approve.
+        assert [r["role"] for r in rows] == ["user", "assistant", "assistant"]
         pending = rows[1]
         assert json.loads(pending["tool_calls"])[0]["tool"] == "send_email"
         # The pending placeholder IS persisted (so a non-approval next turn shows
         # "pending", not "result not recorded"); approval merges the real result.
         results = json.loads(pending["tool_results"])
         assert "pending_user_approval" in results[0]["content"]
+        # The wrap-up narration is its own assistant row, with no tool calls.
+        assert rows[2]["content"] == "I'll send it once you confirm."
+        assert not rows[2]["tool_calls"]
 
     async def test_approval_reconciles_pending_row_without_duplicate(
             self, fake_config, mock_prov, mock_registry, mock_ctx, chat_service):

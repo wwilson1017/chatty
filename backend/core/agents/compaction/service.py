@@ -109,6 +109,11 @@ def _maybe_compact(chat_service, provider, conversation_id, anthropic_api_key) -
     if not summary:
         return False
 
+    # set_compaction is a CAS (only advances the boundary forward), so two turns
+    # racing on the same conversation can't corrupt state — at worst the loser's
+    # summary is discarded. For a single-user app (turns serialize on web; only
+    # bursty Telegram could overlap) a rare wasted Haiku call is acceptable, so
+    # we deliberately avoid an external lock (no Redis/Postgres — see CLAUDE.md).
     chat_service.set_compaction(conversation_id, summary, first_kept_seq)
     logger.info("compacted %s: %d middle rows → gist, first_kept_seq=%d (fullness≈%d/%d → target %d)",
                 conversation_id, len(middle), first_kept_seq, fullness, budget,

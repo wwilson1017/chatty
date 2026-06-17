@@ -1449,8 +1449,8 @@ async def chat(
                             yield _sse(usage_event)
                         break
                 # Persist the plan-mode wrap-up narration so the thread keeps
-                # context after the plan is presented (no result contradiction
-                # here, unlike a pending write-confirmation wrap-up).
+                # context after the plan is presented (the pending write-confirm
+                # wrap-up is persisted the same way below).
                 if persist and conversation_id and wrapup_text:
                     try:
                         chat_service.save_message(
@@ -1593,9 +1593,11 @@ async def chat(
         # If we have a pending confirmation, do one more streaming turn
         # to let the AI describe the pending action, then stop
         if has_pending_confirmation:
+            wrapup_text = ""
             async for event in provider.stream_turn(current_messages, provider_tools, system_prompt):
                 etype = event.get("type")
                 if etype == "text":
+                    wrapup_text += event["text"]
                     accumulated_text += event["text"]
                     yield _sse({"type": "text", "text": event["text"]})
                 elif etype == "_turn_complete":
@@ -1607,6 +1609,17 @@ async def chat(
                     if usage_event:
                         yield _sse(usage_event)
                     break
+            # Persist the "shall I send it?" narration so the next turn sees the
+            # agent's own question. Mirrors the exit_plan_mode wrap-up. Saved as
+            # a separate assistant row AFTER the pending tool_use row, so the
+            # reconstructed order is tool_use → pending result → this narration.
+            if persist and conversation_id and wrapup_text:
+                try:
+                    chat_service.save_message(
+                        conversation_id=conversation_id, msg_id=str(uuid.uuid4()),
+                        role="assistant", content=wrapup_text, model=model_used)
+                except Exception as e:
+                    logger.warning("Chat history save (confirm wrap-up) failed: %s", e)
             _log_chat_completion(config.slug, conversation_id, "chat", "ok",
                                 accumulated_text, all_tool_calls, model_used,
                                 total_input_tokens, total_output_tokens, chat_start_time, provider_name)
