@@ -237,7 +237,10 @@ class TestApprovalReconciliation:
         assert [r["role"] for r in rows] == ["user", "assistant"]
         pending = rows[1]
         assert json.loads(pending["tool_calls"])[0]["tool"] == "send_email"
-        assert pending["tool_results"] is None  # stays NULL until approval
+        # The pending placeholder IS persisted (so a non-approval next turn shows
+        # "pending", not "result not recorded"); approval merges the real result.
+        results = json.loads(pending["tool_results"])
+        assert "pending_user_approval" in results[0]["content"]
 
     async def test_approval_reconciles_pending_row_without_duplicate(
             self, fake_config, mock_prov, mock_registry, mock_ctx, chat_service):
@@ -281,6 +284,49 @@ class TestApprovalReconciliation:
         assert results[0]["content"] == json.dumps({"status": "sent", "id": "e99"})
         # A fresh assistant reaction was appended.
         assert any(r["role"] == "assistant" and r["content"] == "Sent!" for r in rows)
+
+    async def test_approval_keeps_parallel_read_result_executed_same_iteration(
+            self, fake_config, mock_prov, mock_registry, mock_ctx, chat_service):
+        # One iteration issues a read (executes) AND a write (needs approval).
+        # The read result must survive the approval merge, not get clobbered.
+        cid = chat_service.create_conversation()["id"]
+        mock_registry.execute_tool = AsyncMock(return_value={"contacts": ["bob"]})
+        mock_prov.set_responses([
+            [{"type": "_turn_complete", "tool_calls": [
+                {"name": "list_context_files", "id": "tr", "args": {}},
+                {"name": "send_email", "id": "tw", "args": {"to": "a@b.com"}}],
+              "stop_reason": "tool_use", "usage": {}}],
+            [{"type": "text", "text": "Found bob — confirm send?"},
+             {"type": "_turn_complete", "tool_calls": [], "stop_reason": "stop", "usage": {}}],
+        ])
+        await collect_events(chat(
+            fake_config, mock_prov, mock_registry, mock_ctx,
+            [{"role": "user", "content": "email my contact"}], tool_mode="normal",
+            integration_tool_defs=_EMAIL_TOOL,
+            chat_service=chat_service, conversation_id=cid))
+
+        # Pending row holds the read result + the write placeholder.
+        pending = next(r for r in _rows(chat_service, cid) if r["tool_calls"])
+        by_id = {x["tool_use_id"]: x for x in json.loads(pending["tool_results"])}
+        assert "bob" in by_id["tr"]["content"]
+        assert "pending_user_approval" in by_id["tw"]["content"]
+
+        # Approve the write → merge keeps the read, fills the write.
+        mock_prov.set_responses([
+            [{"type": "text", "text": "Sent."},
+             {"type": "_turn_complete", "tool_calls": [], "stop_reason": "stop", "usage": {}}]])
+        await collect_events(chat(
+            fake_config, mock_prov, mock_registry, mock_ctx,
+            [{"role": "user", "content": "[Approved] send_email"}], tool_mode="normal",
+            integration_tool_defs=_EMAIL_TOOL,
+            approved_tool={"tool": "send_email", "args": {}, "toolUseId": "tw",
+                           "result": {"status": "sent"}},
+            chat_service=chat_service, conversation_id=cid))
+
+        pending = next(r for r in _rows(chat_service, cid) if r["tool_calls"])
+        by_id = {x["tool_use_id"]: x for x in json.loads(pending["tool_results"])}
+        assert "bob" in by_id["tr"]["content"]                       # read preserved
+        assert by_id["tw"]["content"] == json.dumps({"status": "sent"})  # write filled
 
 
 # ---------------------------------------------------------------------------

@@ -158,12 +158,15 @@ class ChatHistoryService:
             db.commit()
 
     def find_pending_tool_message(self, conversation_id: str, tool_use_id: str) -> str | None:
-        """Return the msg_id of the most recent assistant row whose tool_calls
-        include tool_use_id (used to reconcile an approved write-tool result by
-        tool_use_id, since the frontend sends tool_use_id not the DB msg_id)."""
+        """Return the msg_id of the most recent assistant row that called
+        tool_use_id AND whose result for it is still pending/absent — so an
+        approval reconciles only a genuinely-pending row. Requiring "still
+        pending" matters because providers like Gemini regenerate ids (call_0,
+        call_1) every turn, so id alone could match a completed/older row.
+        The frontend sends tool_use_id, not the DB msg_id, hence the lookup."""
         db = self._db.get_db()
         rows = db.execute(
-            "SELECT id, tool_calls FROM messages "
+            "SELECT id, tool_calls, tool_results FROM messages "
             "WHERE conversation_id = ? AND role = 'assistant' AND tool_calls IS NOT NULL "
             "ORDER BY seq DESC",
             (conversation_id,),
@@ -173,9 +176,36 @@ class ChatHistoryService:
                 tcs = json.loads(r["tool_calls"]) or []
             except Exception:
                 continue
-            if any((tc.get("tool_use_id") or tc.get("id")) == tool_use_id for tc in tcs):
+            if not any((tc.get("tool_use_id") or tc.get("id")) == tool_use_id for tc in tcs):
+                continue
+            try:
+                results = json.loads(r["tool_results"]) if r["tool_results"] else []
+            except Exception:
+                results = []
+            res = next((x for x in results if x.get("tool_use_id") == tool_use_id), None)
+            if res is None or "pending_user_approval" in (res.get("content") or ""):
                 return r["id"]
         return None
+
+    def merge_tool_result(self, msg_id: str, tool_use_id: str, tool_name: str, content: str) -> None:
+        """Set/replace one tool_use_id's result on an assistant row, preserving
+        sibling results (e.g. a read executed in the same iteration as a write
+        that was awaiting approval). Result order is irrelevant — reconstruction
+        pairs by id from tool_calls."""
+        db = self._db.get_db()
+        with self._db.write_lock():
+            row = db.execute("SELECT tool_results FROM messages WHERE id = ?", (msg_id,)).fetchone()
+            existing = []
+            if row and row["tool_results"]:
+                try:
+                    existing = json.loads(row["tool_results"]) or []
+                except Exception:
+                    existing = []
+            merged = [r for r in existing if r.get("tool_use_id") != tool_use_id]
+            merged.append({"tool_use_id": tool_use_id, "tool_name": tool_name, "content": content})
+            db.execute("UPDATE messages SET tool_results = ? WHERE id = ?",
+                       (json.dumps(merged), msg_id))
+            db.commit()
 
     def count_user_messages(self, conversation_id: str) -> int:
         """Count human user turns. DB user rows are always human — tool results
@@ -235,14 +265,20 @@ class ChatHistoryService:
         return (row["compaction_summary"], row["compaction_first_kept_seq"])
 
     def set_compaction(self, conversation_id: str, summary: str, first_kept_seq: int) -> None:
+        # CAS on the boundary: only advance it. If two turns on the same
+        # conversation compact concurrently, the slower summarizer must not
+        # regress a newer, farther boundary. Backup OUTSIDE the write lock so a
+        # slow GCS upload can't block all chat-history writes.
         db = self._db.get_db()
         with self._db.write_lock():
-            db.execute(
+            cur = db.execute(
                 "UPDATE conversations SET compaction_summary = ?, compaction_first_kept_seq = ? "
-                "WHERE id = ?",
-                (summary, first_kept_seq, conversation_id),
+                "WHERE id = ? AND COALESCE(compaction_first_kept_seq, -1) < ?",
+                (summary, first_kept_seq, conversation_id, first_kept_seq),
             )
             db.commit()
+            changed = cur.rowcount > 0
+        if changed:
             self._db.backup_to_gcs()
 
     def get_messages_on_date(self, date: str) -> list[dict]:

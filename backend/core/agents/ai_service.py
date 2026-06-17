@@ -963,13 +963,11 @@ async def chat(
                     _at_id = approved_tool.get("toolUseId", "")
                     _pending_id = chat_service.find_pending_tool_message(conversation_id, _at_id)
                     if _pending_id:
-                        chat_service.update_message_tool_results(
-                            _pending_id,
-                            json.dumps([{
-                                "tool_use_id": _at_id,
-                                "tool_name": approved_tool.get("tool", ""),
-                                "content": json.dumps(approved_tool.get("result", {})),
-                            }]),
+                        # Merge (not replace) so a read executed in the same
+                        # iteration as the approved write keeps its result.
+                        chat_service.merge_tool_result(
+                            _pending_id, _at_id, approved_tool.get("tool", ""),
+                            json.dumps(approved_tool.get("result", {})),
                         )
                         _approved_reconciled = True
                 except Exception as e:
@@ -1567,10 +1565,12 @@ async def chat(
         current_messages = provider.add_tool_results(current_messages, tool_calls_this_turn, results)
 
         # Attach this iteration's FULL tool results to its saved assistant row
-        # (true UPDATE — keeps seq/created_at/FTS intact). Skipped while a write
-        # confirmation is pending: that row's results stay NULL until the user
-        # approves and the next turn reconciles the real result onto this row.
-        if iter_msg_id and persist and conversation_id and results and not has_pending_confirmation:
+        # (true UPDATE — keeps seq/created_at/FTS intact). We persist even when a
+        # write confirmation is pending: the row then holds any read results
+        # executed this iteration plus the "pending_user_approval" placeholder
+        # (so a non-approval next turn shows "pending", not "result not
+        # recorded"); approval later merges the real result onto the same row.
+        if iter_msg_id and persist and conversation_id and results:
             try:
                 chat_service.update_message_tool_results(iter_msg_id, json.dumps(results))
             except Exception as e:
@@ -1903,6 +1903,12 @@ async def run_sync(
                         log_security_event("write_budget_terminated", f"run_sync terminated after second budget violation: {tool_name}", severity="error", agent_slug=config.slug, source="interactive")
                     except Exception:
                         pass
+                    # Persist whatever executed before termination (mirrors chat()).
+                    if iter_msg_id and persist and conversation_id and results:
+                        try:
+                            chat_service.update_message_tool_results(iter_msg_id, json.dumps(results))
+                        except Exception as e:
+                            logger.warning("run_sync: chat history attach (terminate) failed: %s", e)
                     _log_chat_completion(config.slug, conversation_id, source, "error",
                                         "Write budget exceeded — turn terminated", all_tool_calls, model_used,
                                         total_input_tokens, total_output_tokens, chat_start_time, provider_name)
