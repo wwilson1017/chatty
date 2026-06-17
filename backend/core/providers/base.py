@@ -97,3 +97,17 @@ class AIProvider(ABC):
     def provider_name(self) -> str:
         """e.g. "anthropic", "openai", "google" """
         ...
+
+    @property
+    def context_window(self) -> "int | None":
+        """Model's context window in tokens, or None if unknown.
+
+        Drives the chat composer's context-fullness meter. The default is None
+        (window unknown → meter hidden); providers that know their model's
+        window override this. When a turn's usage and this window are both
+        available, ai_service emits a `usage` SSE event whose `context_tokens`
+        is the cache-inclusive total the model read (input + cache_creation +
+        cache_read) and `context_window` is this value. The event's
+        `input_tokens` / `output_tokens` stay RAW for the CLI and cost log.
+        """
+        return None

@@ -13,6 +13,7 @@
 
 import { useState, useCallback, useRef, useEffect } from 'react';
 import { getToken } from '../../core/auth/tokenUtils';
+import type { ContextUsage } from '../../core/types';
 
 function uuid(): string {
   if (typeof crypto !== 'undefined' && crypto.randomUUID) return crypto.randomUUID();
@@ -76,10 +77,9 @@ export interface ChatMessage {
   playbook?: { slug: string; name: string };
 }
 
-export interface ContextUsage {
-  inputTokens: number;
-  contextWindow: number;
-}
+// ContextUsage lives in core/types as the single source of truth; re-exported
+// here so existing importers (AgentChatPanel) keep their import path.
+export type { ContextUsage };
 
 interface Options {
   onTitleUpdate?: (convId: string, title: string) => void;
@@ -324,9 +324,9 @@ export function useAgentChat(apiPrefix: string, options?: Options) {
                   status: 'pending',
                 },
               }));
-            } else if (event.type === 'usage' && event.input_tokens != null && event.context_window != null) {
+            } else if (event.type === 'usage' && event.context_tokens != null && event.context_window != null) {
               setContextUsage({
-                inputTokens: event.input_tokens,
+                contextTokens: event.context_tokens,
                 contextWindow: event.context_window,
               });
             } else if (event.type === 'report' && event.report) {
@@ -520,6 +520,10 @@ export function useAgentChat(apiPrefix: string, options?: Options) {
       clearInterval(streamInIntervalRef.current);
       streamInIntervalRef.current = null;
     }
+
+    // New conversation loaded — clear the previous conversation's context meter
+    // so it doesn't keep showing a stale fullness % until the next turn updates it.
+    setContextUsage(null);
 
     if (!streamIn || !msgs.length || msgs[msgs.length - 1].role !== 'assistant') {
       setMessages(msgs);

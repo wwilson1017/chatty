@@ -5,7 +5,7 @@
 
 ## Deploy & Infrastructure
 
-- `[0.90]` **When** running the backend from a git worktree → **do** use the absolute venv path (`/Users/willwilson/ai/chatty/.venv/bin/python`), not relative (`../../.venv/bin/python`) → **because** worktrees live under `.claude/worktrees/<name>/backend/` and the relative path resolves to a nonexistent location
+- `[0.95]` **When** running the backend from a git worktree → **do** use the absolute venv path (`/Users/willwilson/ai/chatty/.venv/bin/python`), not relative (`../../.venv/bin/python`) → **because** worktrees live under `.claude/worktrees/<name>/backend/` and the relative path resolves to a nonexistent location
 
 ## Git & Workflow
 
@@ -30,4 +30,5 @@
 - `[0.70]` **When** replacing `getattr(obj, "attr", fallback)` with an explicit parameter → **do** verify every call site passes the parameter, or keep the `getattr` fallback at the entry point → **because** the `_slug` UnboundLocalError was introduced by removing `getattr` in the outer function without ensuring callers pass the new arg
 - `[0.70]` **When** building a feature that reads historical data from an existing table → **do** check for retention/cleanup jobs that prune old rows → **because** the usage dashboard would have been silently capped at 30 days without discovering `cleanup_old()`'s pruning; the fresh-eyes agent caught this but the original plan missed it entirely
 - `[0.70]` **When** injecting stored user/legacy content into prompts via `sanitize_memory_content` → **do** check the content for legitimate `{{...}}`/`${...}` syntax first → **because** the sanitizer redacts template syntax to `[REDACTED]` at injection time — migrated skill-pack `{{param}}` playbooks were silently corrupted for the model while looking fine in the editor
+- `[0.70]` **When** changing a field on the chat SSE `usage` event (or any `ai_service` SSE event) → **do** account for BOTH consumers — the React `useAgentChat` hook AND the terminal CLI `StreamRenderer` (`backend/cli/output.py`), which sums every `usage` event's `input_tokens`/`output_tokens` into the session total → **because** redefining `input_tokens` to a cache-inclusive value silently inflated the CLI's running count; the fix was a `meter_only` flag that zeros raw fields on display-only emits plus a separate `context_tokens` field for the meter
 - `[0.60]` **When** adding a new FastAPI route that performs synchronous SQLite I/O → **do** use `def`, not `async def` → **because** FastAPI only offloads sync work to a thread pool for plain `def` routes; `async def` with blocking SQLite calls freezes the entire event loop for the duration of the query

@@ -13,6 +13,7 @@ from typing import AsyncGenerator
 import anthropic
 
 from core.providers.base import AIProvider
+from core.providers.windows import get_context_window
 
 logger = logging.getLogger(__name__)
 
@@ -51,6 +52,16 @@ class AnthropicProvider(AIProvider):
     @property
     def provider_name(self) -> str:
         return "anthropic"
+
+    @property
+    def context_window(self) -> "int | None":
+        win = get_context_window(self.model)
+        if win is not None:
+            return win
+        # 200K is the documented floor for every current Claude model; apply it
+        # only to recognizably-Anthropic ids so a newly-released Claude model
+        # still shows a (correct-to-floor) meter instead of vanishing.
+        return 200_000 if self.model.startswith("claude-") else None
 
     def _format_tools(self, tools: list[dict]) -> list[dict]:
         """Convert internal tool format to Anthropic format (same schema)."""
