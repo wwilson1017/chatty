@@ -70,7 +70,7 @@ AVAILABLE_INTEGRATIONS = {
     },
     "whatsapp": {
         "name": "WhatsApp",
-        "description": "WhatsApp — connect agents to WhatsApp via QR code scan",
+        "description": "WhatsApp — connect agents to WhatsApp via QR code scan (deprecated)",
         "icon": "💬",
         "auth_type": "qr_session",
     },

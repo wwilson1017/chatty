@@ -805,6 +805,11 @@ async def get_conversation(agent_id: str, conv_id: str, user=Depends(get_current
     result = chat_service.get_conversation(conv_id)
     if not result:
         raise HTTPException(status_code=404, detail="Conversation not found")
+    # Strip the uncapped full tool_results (persisted only for server-side
+    # context reconstruction) from the UI payload — the browser renders tool
+    # activity from the tool_calls previews and never needs the full results.
+    for m in result.get("messages", []):
+        m.pop("tool_results", None)
     return result
 
 

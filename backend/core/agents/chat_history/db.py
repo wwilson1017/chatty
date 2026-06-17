@@ -150,6 +150,23 @@ class ChatHistoryDB:
         msg_cols = {r[1] for r in conn.execute("PRAGMA table_info(messages)").fetchall()}
         if "model" not in msg_cols:
             conn.execute("ALTER TABLE messages ADD COLUMN model TEXT NOT NULL DEFAULT ''")
+        # Persistent context: full (uncapped) tool-result storage, kept out of FTS
+        # (the FTS triggers mirror only `content`). Forward-only: old rows are NULL.
+        if "tool_results" not in msg_cols:
+            conn.execute("ALTER TABLE messages ADD COLUMN tool_results TEXT")
+
+        # Persistent context: per-conversation compaction boundary + last-turn usage
+        # (drives the dual compaction trigger; works for web + Telegram).
+        if "last_context_tokens" not in conv_cols:
+            conn.execute("ALTER TABLE conversations ADD COLUMN last_context_tokens INTEGER")
+        if "last_context_window" not in conv_cols:
+            conn.execute("ALTER TABLE conversations ADD COLUMN last_context_window INTEGER")
+        if "last_model" not in conv_cols:
+            conn.execute("ALTER TABLE conversations ADD COLUMN last_model TEXT")
+        if "compaction_summary" not in conv_cols:
+            conn.execute("ALTER TABLE conversations ADD COLUMN compaction_summary TEXT")
+        if "compaction_first_kept_seq" not in conv_cols:
+            conn.execute("ALTER TABLE conversations ADD COLUMN compaction_first_kept_seq INTEGER")
 
         conn.commit()
 

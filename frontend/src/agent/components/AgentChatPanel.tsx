@@ -58,6 +58,8 @@ const TOOL_MODES: { key: ToolMode; label: string }[] = [
 
 const TIER_KEYS: ModelTier[] = ['auto', 'top', 'mid', 'light'];
 
+type QueuedMessage = { text: string; files: File[]; playbook: PlaybookSummary | null };
+
 export function AgentChatPanel({
   messages, isStreaming, onSend, onStop, onApprove, onDeny,
   onApprovePlan, onIteratePlan, scrollRef: externalScrollRef,
@@ -73,6 +75,12 @@ export function AgentChatPanel({
   const [alerts, setAlerts] = useState<AgentAlert[]>([]);
   const [stagedPlaybook, setStagedPlaybook] = useState<PlaybookSummary | null>(null);
   const [slashIndex, setSlashIndex] = useState(0);
+  // Type-ahead: a draft submitted while the agent is still streaming is held
+  // here and auto-sent the moment the turn ends. The ref lets the completion
+  // effect read it without re-subscribing; the state drives the "queued" pill.
+  const [queued, setQueued] = useState<QueuedMessage | null>(null);
+  const queuedRef = useRef<QueuedMessage | null>(null);
+  const stashQueue = (q: QueuedMessage | null) => { queuedRef.current = q; setQueued(q); };
   const internalScrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -216,20 +224,54 @@ export function AgentChatPanel({
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); }
   }
 
+  const dispatchSend = useCallback((text: string, files: File[], playbook: PlaybookSummary | null) => {
+    if (playbook) {
+      onSend(text, files.length > 0 ? files : undefined,
+        { playbook: { slug: playbook.slug, name: playbook.name } });
+    } else {
+      onSend(text || '(see attached files)', files.length > 0 ? files : undefined);
+    }
+  }, [onSend]);
+
+  // When the streaming turn ends, fire any queued type-ahead message. Natural
+  // completion only — handleStop clears the queue before isStreaming flips, so
+  // it never auto-sends after a manual interrupt.
+  useEffect(() => {
+    if (!isStreaming && queuedRef.current) {
+      const q = queuedRef.current;
+      stashQueue(null);
+      dispatchSend(q.text, q.files, q.playbook);
+    }
+  }, [isStreaming, dispatchSend]);
+
   function handleSend() {
     const text = input.trim();
     if (slashOpen) return; // Enter is handled by the menu
-    if ((!text && pendingFiles.length === 0 && !stagedPlaybook) || isStreaming) return;
-    setInput('');
-    if (stagedPlaybook) {
-      onSend(text, pendingFiles.length > 0 ? pendingFiles : undefined,
-        { playbook: { slug: stagedPlaybook.slug, name: stagedPlaybook.name } });
-      setStagedPlaybook(null);
+    if (!text && pendingFiles.length === 0 && !stagedPlaybook) return;
+    // Type-ahead: while a turn is streaming, stash this draft (replacing any
+    // earlier one) — the completion effect sends it the instant the turn ends.
+    if (isStreaming) {
+      stashQueue({ text, files: pendingFiles, playbook: stagedPlaybook });
     } else {
-      onSend(text || '(see attached files)', pendingFiles.length > 0 ? pendingFiles : undefined);
+      dispatchSend(text, pendingFiles, stagedPlaybook);
     }
+    setInput('');
     setPendingFiles([]);
+    setStagedPlaybook(null);
     if (textareaRef.current) textareaRef.current.style.height = 'auto';
+  }
+
+  function handleStop() {
+    onStop?.();
+    // A manual stop cancels the auto-send and restores the queued draft to the
+    // box (clearing it before isStreaming flips, so the effect won't fire it).
+    const q = queuedRef.current;
+    if (q) {
+      stashQueue(null);
+      setInput(q.text);
+      setPendingFiles(q.files);
+      setStagedPlaybook(q.playbook);
+    }
   }
 
   function autoResize(e: React.ChangeEvent<HTMLTextAreaElement>) {
@@ -330,6 +372,34 @@ export function AgentChatPanel({
               onManage={() => { setInput(''); onOpenPlaybooks?.(); }}
             />
           )}
+          {queued && (
+            <div style={{
+              display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10,
+              padding: '5px 10px', borderRadius: 6,
+              background: 'rgba(200,209,217,0.08)', border: '1px solid rgba(200,209,217,0.16)',
+            }}>
+              <span style={{
+                fontSize: 9, fontWeight: 600, letterSpacing: '0.12em', textTransform: 'uppercase',
+                color: 'var(--color-ch-accent, #C8D1D9)', whiteSpace: 'nowrap',
+              }}>Queued ↵</span>
+              <span style={{
+                flex: 1, minWidth: 0, fontSize: 13, color: 'rgba(237,240,244,0.7)',
+                overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+              }}>{queued.text || (queued.files.length > 0 ? `${queued.files.length} file(s)` : '(message)')}</span>
+              <span
+                onClick={() => {
+                  const q = queued;
+                  stashQueue(null);
+                  setInput(q.text);
+                  setPendingFiles(q.files);
+                  setStagedPlaybook(q.playbook);
+                  textareaRef.current?.focus();
+                }}
+                title="Cancel — move back to the message box"
+                style={{ cursor: 'pointer', color: 'rgba(237,240,244,0.45)', fontSize: 14, lineHeight: 1 }}
+              >✕</span>
+            </div>
+          )}
           <textarea
             ref={textareaRef}
             value={input}
@@ -337,15 +407,16 @@ export function AgentChatPanel({
             onKeyDown={handleKeyDown}
             placeholder={stagedPlaybook
               ? `Add details for “${stagedPlaybook.name}” (optional) — Enter to run`
-              : `Message ${agentName || 'agent'}…`}
-            disabled={isStreaming}
+              : isStreaming
+                ? `Type your next message — sends when ${agentName || 'the agent'} finishes…`
+                : `Message ${agentName || 'agent'}…`}
             rows={1}
             style={{
               width: '100%', boxSizing: 'border-box',
               background: 'transparent', color: '#EDF0F4',
               fontSize: 14, resize: 'none', border: 'none', outline: 'none',
               fontFamily: "'Inter Tight', system-ui, sans-serif",
-              marginBottom: 12, opacity: isStreaming ? 0.5 : 1,
+              marginBottom: 12,
             }}
           />
 
@@ -353,7 +424,7 @@ export function AgentChatPanel({
             <div style={{ display: 'flex', gap: 12, alignItems: 'center', color: '#EDF0F4' }}>
               <div
                 onClick={() => fileInputRef.current?.click()}
-                style={{ cursor: 'pointer', color: isStreaming ? 'rgba(237,240,244,0.2)' : 'rgba(237,240,244,0.62)' }}
+                style={{ cursor: 'pointer', color: 'rgba(237,240,244,0.62)' }}
               >
                 <IconAttach size={16} strokeWidth={1.85} />
               </div>
@@ -456,7 +527,7 @@ export function AgentChatPanel({
 
             {isStreaming ? (
               <button
-                onClick={onStop}
+                onClick={handleStop}
                 style={{
                   fontSize: 11, color: '#D97757',
                   border: '1px solid rgba(217,119,87,0.3)',
@@ -652,6 +723,20 @@ export function AgentChatPanel({
                 return (
                   <Fragment key={msg.id}>
                     {showDivider && <DateDivider timestamp={msg.timestamp} />}
+                    {displayMsg.compacted && (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 10, margin: '12px 0' }}>
+                        <div style={{ flex: 1, height: 1, background: 'rgba(200,209,217,0.12)' }} />
+                        <span
+                          title="Earlier messages were summarized to free up context"
+                          style={{
+                            fontSize: 10, fontWeight: 600, letterSpacing: '0.12em', textTransform: 'uppercase',
+                            color: 'var(--color-ch-accent, #C8D1D9)', whiteSpace: 'nowrap',
+                            display: 'inline-flex', alignItems: 'center', gap: 5,
+                          }}
+                        >✦ Compacted</span>
+                        <div style={{ flex: 1, height: 1, background: 'rgba(200,209,217,0.12)' }} />
+                      </div>
+                    )}
                     <AgentMessageBubble
                       message={displayMsg}
                       onApprove={onApprove}

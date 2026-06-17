@@ -111,12 +111,15 @@ class ChatHistoryService:
         seq: int | None = None,
         tool_calls: str | None = None,
         model: str = "",
+        tool_results: str | None = None,
     ) -> None:
         """Insert or replace a message and bump conversation updated_at.
 
         If seq is None, atomically computes the next sequence number under
         the write lock so concurrent callers never collide.
         tool_calls is an optional JSON string of tool call data for assistant messages.
+        tool_results is an optional JSON string of FULL tool-result content
+        ([{tool_use_id, content}]) used to rebuild tool exchanges across turns.
         model is the AI model ID that generated this message.
         """
         db = self._db.get_db()
@@ -129,15 +132,118 @@ class ChatHistoryService:
                 seq = row["next_seq"]
             db.execute(
                 """INSERT OR REPLACE INTO messages
-                   (id, conversation_id, role, content, seq, tool_calls, model)
-                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
-                (msg_id, conversation_id, role, content, seq, tool_calls, model),
+                   (id, conversation_id, role, content, seq, tool_calls, tool_results, model)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                (msg_id, conversation_id, role, content, seq, tool_calls, tool_results, model),
             )
             db.execute(
                 "UPDATE conversations SET updated_at = datetime('now') WHERE id = ?",
                 (conversation_id,),
             )
             db.commit()
+
+    # ── Persistent-context helpers ────────────────────────────────────────
+
+    def update_message_tool_results(self, msg_id: str, tool_results: str) -> None:
+        """Attach full tool-result JSON to an already-saved assistant row.
+
+        A true UPDATE (not the INSERT OR REPLACE save path) so seq/created_at
+        and FTS rows stay intact. Results are produced after the assistant row
+        is saved at _turn_complete, so they're attached here.
+        """
+        db = self._db.get_db()
+        with self._db.write_lock():
+            db.execute("UPDATE messages SET tool_results = ? WHERE id = ?", (tool_results, msg_id))
+            db.commit()
+
+    def find_pending_tool_message(self, conversation_id: str, tool_use_id: str) -> str | None:
+        """Return the msg_id of the most recent assistant row whose tool_calls
+        include tool_use_id (used to reconcile an approved write-tool result by
+        tool_use_id, since the frontend sends tool_use_id not the DB msg_id)."""
+        import json as _json
+        db = self._db.get_db()
+        rows = db.execute(
+            "SELECT id, tool_calls FROM messages "
+            "WHERE conversation_id = ? AND role = 'assistant' AND tool_calls IS NOT NULL "
+            "ORDER BY seq DESC",
+            (conversation_id,),
+        ).fetchall()
+        for r in rows:
+            try:
+                tcs = _json.loads(r["tool_calls"]) or []
+            except Exception:
+                continue
+            if any((tc.get("tool_use_id") or tc.get("id")) == tool_use_id for tc in tcs):
+                return r["id"]
+        return None
+
+    def count_user_messages(self, conversation_id: str) -> int:
+        """Count human user turns. DB user rows are always human — tool results
+        live on the assistant row's tool_results column, and synthetic
+        tool_result/gist messages exist only at assembly time, never in the DB."""
+        db = self._db.get_db()
+        row = db.execute(
+            "SELECT COUNT(*) AS n FROM messages WHERE conversation_id = ? AND role = 'user'",
+            (conversation_id,),
+        ).fetchone()
+        return row["n"] if row else 0
+
+    def get_clean_history(self, conversation_id: str, limit: int | None = None) -> list[dict]:
+        """Return the clean human/assistant TEXT transcript ([{role, content}])
+        for consumers (smart-title, knowledge checkpoint, fact extraction) that
+        must NOT see reconstructed provider-native blocks or synthetic messages."""
+        db = self._db.get_db()
+        rows = db.execute(
+            "SELECT role, content FROM messages WHERE conversation_id = ? ORDER BY seq",
+            (conversation_id,),
+        ).fetchall()
+        out = [{"role": r["role"], "content": r["content"]} for r in rows]
+        return out[-limit:] if limit else out
+
+    def set_turn_usage(self, conversation_id: str, context_tokens: int,
+                       context_window: int | None, model: str) -> None:
+        """Persist the latest main-turn context fullness so compaction can trigger
+        durably (and for Telegram, which has no SSE meter)."""
+        db = self._db.get_db()
+        with self._db.write_lock():
+            db.execute(
+                "UPDATE conversations SET last_context_tokens = ?, last_context_window = ?, "
+                "last_model = ? WHERE id = ?",
+                (context_tokens, context_window, model, conversation_id),
+            )
+            db.commit()
+
+    def get_turn_usage(self, conversation_id: str) -> tuple[int | None, int | None, str | None]:
+        db = self._db.get_db()
+        row = db.execute(
+            "SELECT last_context_tokens, last_context_window, last_model "
+            "FROM conversations WHERE id = ?",
+            (conversation_id,),
+        ).fetchone()
+        if not row:
+            return (None, None, None)
+        return (row["last_context_tokens"], row["last_context_window"], row["last_model"])
+
+    def get_compaction(self, conversation_id: str) -> tuple[str | None, int | None]:
+        db = self._db.get_db()
+        row = db.execute(
+            "SELECT compaction_summary, compaction_first_kept_seq FROM conversations WHERE id = ?",
+            (conversation_id,),
+        ).fetchone()
+        if not row:
+            return (None, None)
+        return (row["compaction_summary"], row["compaction_first_kept_seq"])
+
+    def set_compaction(self, conversation_id: str, summary: str, first_kept_seq: int) -> None:
+        db = self._db.get_db()
+        with self._db.write_lock():
+            db.execute(
+                "UPDATE conversations SET compaction_summary = ?, compaction_first_kept_seq = ? "
+                "WHERE id = ?",
+                (summary, first_kept_seq, conversation_id),
+            )
+            db.commit()
+            self._db.backup_to_gcs()
 
     def get_messages_on_date(self, date: str) -> list[dict]:
         """Return all messages from a given date (YYYY-MM-DD), ordered by conversation then sequence.

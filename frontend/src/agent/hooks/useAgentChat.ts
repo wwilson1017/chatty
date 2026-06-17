@@ -75,6 +75,7 @@ export interface ChatMessage {
   model?: string;
   tier?: string;
   playbook?: { slug: string; name: string };
+  compacted?: boolean;  // context was compacted just before this turn's response
 }
 
 // ContextUsage lives in core/types as the single source of truth; re-exported
@@ -178,8 +179,12 @@ export function useAgentChat(apiPrefix: string, options?: Options) {
     setMessages(prev => [...prev, userMsg, assistantMsg]);
     setIsStreaming(true);
 
-    // Use messagesRef for fresh snapshot (avoids stale closure)
-    const history = [...messagesRef.current, userMsg].map(m => ({ role: m.role, content: m.content }));
+    // Server-side assembly: the backend rebuilds the full conversation from the
+    // DB by conversation_id (with full tool results), so send ONLY the new
+    // message — not the whole transcript. For an approved write tool the new
+    // message is the "[Approved] <tool>" marker, which the backend reconciles
+    // onto the pending row rather than persisting as a user turn.
+    const history = [{ role: userMsg.role, content: userMsg.content }];
 
     // Effective tool mode: training forces power
     const effectiveMode = overrides?.tool_mode ?? (trainingMode ? 'power' : toolMode);
@@ -334,6 +339,10 @@ export function useAgentChat(apiPrefix: string, options?: Options) {
                 ...last,
                 reports: [...(last.reports || []), event.report],
               }));
+            } else if (event.type === 'compacted') {
+              // Compaction fired at the start of this turn — mark the in-progress
+              // assistant message so the UI shows a "compacted" chip before it.
+              updateLastAssistant(last => ({ ...last, compacted: true }));
             } else if (event.type === 'conversation_id' && event.id) {
               setConversationId(event.id);
             } else if (event.type === 'title_update' && event.title && event.conversation_id) {
