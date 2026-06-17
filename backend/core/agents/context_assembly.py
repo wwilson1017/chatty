@@ -21,7 +21,7 @@ needs. Old rows (pre-persistence) and interrupted finals (`tool_results IS
 NULL`) fall back to the per-call 2000-char preview; build_tool_turn stubs any
 result still missing so the model never sees an orphaned tool_use.
 
-Compaction (PR-B) is applied here: HEAD (opening exchange) verbatim, the aged
+Compaction is applied here: HEAD (opening exchange) verbatim, the aged
 middle replaced by a `<conversation_summary>` gist riding on the first
 retained human-user turn, then the TAIL verbatim. The gist is prepended to a
 real user row (never a synthetic standalone turn) so role alternation stays
@@ -64,8 +64,8 @@ def assemble_messages(chat_service, provider, conversation_id, compaction=None):
         provider: the active AIProvider (supplies build_tool_turn + context_window).
         conversation_id: the conversation to reconstruct.
         compaction: optional (summary, first_kept_seq) override. When None, the
-            stored compaction on the conversation row is used (so PR-B's
-            maybe_compact persists it and the assembler picks it up).
+            stored compaction on the conversation row is used (so the
+            compaction module persists it and the assembler picks it up).
 
     Returns the messages list ending with the latest persisted user turn
     (callers persist the new user row BEFORE assembling), ready for stream_turn.
@@ -129,7 +129,7 @@ def _as_blocks(content):
 def _apply_compaction(rows, summary, first_kept_seq):
     """Replace the aged middle with a gist. HEAD verbatim, gist folded into the
     first retained human-user turn, TAIL verbatim. No-op when there's nothing
-    valid to compact (so PR-A, which never sets a boundary, returns rows as-is)."""
+    valid to compact (callers with no stored boundary get the rows as-is)."""
     if not summary or first_kept_seq is None or len(rows) <= HEAD_MSGS:
         return rows
     head = rows[:HEAD_MSGS]

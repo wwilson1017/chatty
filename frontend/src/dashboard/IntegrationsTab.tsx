@@ -389,7 +389,7 @@ export function IntegrationsTab() {
                 <div>
                   <p style={{ fontSize: 14, color: '#EDF0F4', margin: 0, display: 'flex', alignItems: 'center', gap: 8 }}>
                     {integration.name}
-                    {integration.auth_type === 'qr_session' && (
+                    {integration.deprecated && (
                       <span style={{
                         fontSize: 10, fontWeight: 600, letterSpacing: 0.3, textTransform: 'uppercase',
                         color: '#E0A458', background: 'rgba(224,164,88,0.12)',

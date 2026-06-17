@@ -73,6 +73,7 @@ AVAILABLE_INTEGRATIONS = {
         "description": "WhatsApp — connect agents to WhatsApp via QR code scan (deprecated)",
         "icon": "💬",
         "auth_type": "qr_session",
+        "deprecated": True,
     },
     "paperclip": {
         "name": "Paperclip",

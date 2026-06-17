@@ -1484,6 +1484,13 @@ async def chat(
                         pass
                     result_str = json.dumps({"error": "Turn terminated: write budget exceeded"})
                     results.append({"tool_use_id": tool_use_id, "tool_name": tool_name, "content": result_str})
+                    # Persist whatever executed before termination so the next turn
+                    # reconstructs them instead of stubbing "result not recorded".
+                    if iter_msg_id and persist and conversation_id and results:
+                        try:
+                            chat_service.update_message_tool_results(iter_msg_id, json.dumps(results))
+                        except Exception as e:
+                            logger.warning("Chat history attach (terminate) failed: %s", e)
                     yield _sse({"type": "error", "error": "Write budget exceeded. Turn terminated."})
                     return
 

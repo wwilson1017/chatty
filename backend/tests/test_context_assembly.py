@@ -171,6 +171,20 @@ class TestToolReconstruction:
         stub = msgs[2]["content"][0]["content"]
         assert "not recorded" in stub
 
+    def test_parallel_tool_calls_each_missing_result_is_stubbed(self):
+        # An iteration with two parallel tool calls and no results — BOTH must be
+        # stubbed, or the provider sees an orphaned tool_use and rejects the turn.
+        rows = [
+            _row(0, "user", "go"),
+            _row(1, "assistant", "",
+                 tool_calls=[{"tool": "a", "tool_use_id": "t1", "args": {}},
+                             {"tool": "b", "tool_use_id": "t2", "args": {}}]),
+        ]
+        msgs = _assemble(rows)
+        results = msgs[2]["content"]
+        assert [b["tool_use_id"] for b in results] == ["t1", "t2"]
+        assert all("not recorded" in b["content"] for b in results)
+
     def test_malformed_tool_json_degrades_to_text(self):
         rows = [
             _row(0, "user", "go"),
@@ -179,6 +193,24 @@ class TestToolReconstruction:
         ]
         msgs = _assemble(rows)
         assert msgs[1] == {"role": "assistant", "content": "partial text"}
+
+    def test_malformed_tool_results_degrades_to_text(self):
+        # tool_calls parses but tool_results is corrupt — must degrade to plain
+        # text (no orphaned tool_use that the provider would reject next turn).
+        rows = [
+            _row(0, "user", "go"),
+            {"id": "m1", "conversation_id": "c1", "seq": 1, "role": "assistant",
+             "content": "did a thing",
+             "tool_calls": json.dumps([{"tool": "x", "tool_use_id": "t1", "args": {}}]),
+             "tool_results": "{bad json"},
+        ]
+        msgs = _assemble(rows)
+        assert msgs[1] == {"role": "assistant", "content": "did a thing"}
+        assert not any(
+            isinstance(m.get("content"), list)
+            and any(b.get("type") == "tool_use" for b in m["content"])
+            for m in msgs
+        )
 
     def test_openai_provider_reconstructs_native_shape(self):
         # Provider-neutrality: continued under OpenAI, the same row reconstructs

@@ -139,6 +139,7 @@ export interface Integration {
   enabled: boolean;
   configured: boolean;
   always_on?: boolean;
+  deprecated?: boolean;
   connection_status?: string;
   tool_mode?: string;
   email?: string;

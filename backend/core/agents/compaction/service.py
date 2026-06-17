@@ -25,7 +25,9 @@ import json
 import logging
 import re
 
-from core.agents.context_assembly import HEAD_MSGS
+from core.agents.context_assembly import (
+    HEAD_MSGS, _CHARS_PER_TOKEN, _DEFAULT_BUDGET_TOKENS,
+)
 from core.agents.security.delimiters import wrap_result
 from core.agents.security.scanner import sanitize_memory_content
 
@@ -40,8 +42,8 @@ logger = logging.getLogger(__name__)
 _COMPACT_AT = 0.70
 _TARGET_FULLNESS = 0.55
 _MIN_ROWS_TO_COMPACT = 6
-_DEFAULT_BUDGET_TOKENS = 128_000
-_CHARS_PER_TOKEN = 4
+# _CHARS_PER_TOKEN / _DEFAULT_BUDGET_TOKENS imported from context_assembly so the
+# trigger, the boundary, and the assembler's oversized-row guard never disagree.
 
 # Bound the middle handed to Haiku (truncate oldest-first) and the gist length.
 _MAX_MIDDLE_CHARS = 60_000
@@ -233,7 +235,7 @@ def _summarize(middle_rows, prev_summary, anthropic_api_key) -> str:
     if prev_summary:
         user_parts.append(
             "PRIOR SUMMARY (of even older messages — fold this in):\n"
-            f"{sanitize_memory_content(prev_summary)}\n"
+            f"{_DELIMITER_RE.sub('[removed]', sanitize_memory_content(prev_summary))}\n"
         )
     user_parts.append("MIDDLE MESSAGES TO COMPACT:\n" + transcript)
     user_message = "\n".join(user_parts)
@@ -255,7 +257,11 @@ def _summarize(middle_rows, prev_summary, anthropic_api_key) -> str:
         getattr(b, "text", "") for b in response.content
         if getattr(b, "type", None) == "text"
     ).strip()
-    return summary
+    # Defense-in-depth: the gist is embedded in a TRUSTED <conversation_summary>
+    # block, so scrub any delimiter tag the model echoed — it must not be able to
+    # close that block early or forge an <untrusted_tool_result> — and run the
+    # standard injection sanitizer over the output.
+    return _DELIMITER_RE.sub("[removed]", sanitize_memory_content(summary))
 
 
 def _build_middle_transcript(middle_rows) -> str:

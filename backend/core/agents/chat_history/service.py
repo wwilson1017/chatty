@@ -8,6 +8,7 @@ Each agent instantiates its own ChatHistoryService backed by a
 separate ChatHistoryDB instance, so conversations are fully isolated.
 """
 
+import json
 import logging
 import sqlite3
 import uuid
@@ -160,7 +161,6 @@ class ChatHistoryService:
         """Return the msg_id of the most recent assistant row whose tool_calls
         include tool_use_id (used to reconcile an approved write-tool result by
         tool_use_id, since the frontend sends tool_use_id not the DB msg_id)."""
-        import json as _json
         db = self._db.get_db()
         rows = db.execute(
             "SELECT id, tool_calls FROM messages "
@@ -170,7 +170,7 @@ class ChatHistoryService:
         ).fetchall()
         for r in rows:
             try:
-                tcs = _json.loads(r["tool_calls"]) or []
+                tcs = json.loads(r["tool_calls"]) or []
             except Exception:
                 continue
             if any((tc.get("tool_use_id") or tc.get("id")) == tool_use_id for tc in tcs):
