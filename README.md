@@ -96,6 +96,16 @@ You can tailor the export to fit the new agent's purpose. For example, if your e
 
 **No existing agent? Use any AI chat.** Open ChatGPT, Claude, or any AI assistant and ask it something like: *"Search your memory and our conversation history, then create a markdown knowledge file I can give to a new AI agent that explains who I am, what I do, what's important to me, and how I like to work."* Paste the result into Chatty and you've got a head start.
 
+## Scheduled Actions & Heartbeat
+
+Your agents can work on their own on a schedule. There are two kinds of background work, and they deliver results differently — by design:
+
+- **Scheduled actions (cron)** — *report* tasks, like a 5:15 AM "morning brief." These run on a cron schedule and their output is **always delivered to you** — via browser push, Telegram, WhatsApp, and the in-app notification log. Delivery is **guaranteed by Chatty itself, not by the model**: the agent just writes its report as its final response and the system sends it. (If a run genuinely has nothing to report, the agent can reply with exactly `[SILENT]` to skip that one delivery.)
+- **Heartbeat** — a *monitor* task that runs periodically (e.g. every 30 minutes) against a checklist in the agent's `HEARTBEAT.md`. It uses the **same delivery guarantee**: if the heartbeat finds something (`ACTION_TAKEN: …`), Chatty delivers it; if nothing new needs attention the agent replies `HEARTBEAT_OK` and stays silent. Cheap triage and the checklist skip most ticks before they ever run, and the agent reports only what's *new* — so you're not spammed.
+- **Reminders** — one-time or recurring nudges that trigger the agent to act or notify you.
+
+> **Why the guarantee matters:** a scheduled task's whole purpose is to reach you. Earlier versions relied on the AI choosing to call a notification tool, so a model change could silently swallow a brief. Chatty now delivers a scheduled action's output (cron *and* heartbeat) as a system step regardless of model behavior — the only suppressor is the agent explicitly going silent (`[SILENT]` / `HEARTBEAT_OK`). **Contributors:** keep delivery in the processor (`backend/core/agents/scheduled_actions/processor.py`) — don't move it back into model-prompt instructions. See `docs/solutions/architecture-patterns/scheduled-action-guaranteed-delivery.md`.
+
 ## Integrations
 
 Chatty connects to your existing business tools so your agents can answer questions, look up data, and take action on your behalf.

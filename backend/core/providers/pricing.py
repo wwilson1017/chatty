@@ -28,7 +28,9 @@ MODEL_PRICING: dict[str, tuple[float, float]] = {
     "gpt-5.4":           (2.50, 15.00),
     "gpt-5.4-mini":      (0.75, 4.50),
     "gpt-5.4-nano":      (0.20, 1.25),
-    # Google (Gemini 2.5 Pro = standard <=200K-prompt tier)
+    # Google (Gemini 2.5 Pro = standard <=200K-prompt tier).
+    # Gemini 2.0 models were shut down 2026-06-01 but are retained here so the
+    # usage dashboard can still price historical rows by model id.
     "gemini-2.5-pro":        (1.25, 10.00),
     "gemini-2.5-flash":      (0.30, 2.50),
     "gemini-2.5-flash-lite": (0.10, 0.40),
@@ -39,21 +41,21 @@ MODEL_PRICING: dict[str, tuple[float, float]] = {
 # model id -> (source_url, verified_date). Maintained by the price-check skill;
 # every MODEL_PRICING entry should have a corresponding source here.
 PRICING_SOURCES: dict[str, tuple[str, str]] = {
-    "claude-fable-5":    ("https://platform.claude.com/docs/en/about-claude/models/overview", "2026-05-26"),
-    "claude-opus-4-8":   ("https://platform.claude.com/docs/en/about-claude/models/overview", "2026-05-26"),
-    "claude-opus-4-7":   ("https://platform.claude.com/docs/en/about-claude/models/overview", "2026-05-26"),
-    "claude-opus-4-6":   ("https://platform.claude.com/docs/en/about-claude/models/overview", "2026-05-26"),
-    "claude-sonnet-4-6": ("https://platform.claude.com/docs/en/about-claude/models/overview", "2026-05-26"),
-    "claude-haiku-4-5":  ("https://platform.claude.com/docs/en/about-claude/models/overview", "2026-05-26"),
-    "gpt-5.5":           ("https://developers.openai.com/api/docs/pricing", "2026-06-13"),
-    "gpt-5.4":           ("https://developers.openai.com/api/docs/pricing", "2026-06-13"),
-    "gpt-5.4-mini":      ("https://developers.openai.com/api/docs/pricing", "2026-06-13"),
-    "gpt-5.4-nano":      ("https://developers.openai.com/api/docs/pricing", "2026-06-13"),
-    "gemini-2.5-pro":        ("https://ai.google.dev/gemini-api/docs/pricing", "2026-06-13"),
-    "gemini-2.5-flash":      ("https://ai.google.dev/gemini-api/docs/pricing", "2026-06-13"),
-    "gemini-2.5-flash-lite": ("https://ai.google.dev/gemini-api/docs/pricing", "2026-06-13"),
-    "gemini-2.0-flash":      ("https://ai.google.dev/gemini-api/docs/pricing", "2026-06-13"),
-    "gemini-2.0-flash-lite": ("https://ai.google.dev/gemini-api/docs/pricing", "2026-06-13"),
+    "claude-fable-5":    ("https://platform.claude.com/docs/en/about-claude/models/overview", "2026-06-16"),
+    "claude-opus-4-8":   ("https://platform.claude.com/docs/en/about-claude/models/overview", "2026-06-16"),
+    "claude-opus-4-7":   ("https://platform.claude.com/docs/en/about-claude/models/overview", "2026-06-16"),
+    "claude-opus-4-6":   ("https://platform.claude.com/docs/en/about-claude/models/overview", "2026-06-16"),
+    "claude-sonnet-4-6": ("https://platform.claude.com/docs/en/about-claude/models/overview", "2026-06-16"),
+    "claude-haiku-4-5":  ("https://platform.claude.com/docs/en/about-claude/models/overview", "2026-06-16"),
+    "gpt-5.5":           ("https://developers.openai.com/api/docs/pricing", "2026-06-16"),
+    "gpt-5.4":           ("https://developers.openai.com/api/docs/pricing", "2026-06-16"),
+    "gpt-5.4-mini":      ("https://developers.openai.com/api/docs/pricing", "2026-06-16"),
+    "gpt-5.4-nano":      ("https://developers.openai.com/api/docs/pricing", "2026-06-16"),
+    "gemini-2.5-pro":        ("https://ai.google.dev/gemini-api/docs/pricing", "2026-06-16"),
+    "gemini-2.5-flash":      ("https://ai.google.dev/gemini-api/docs/pricing", "2026-06-16"),
+    "gemini-2.5-flash-lite": ("https://ai.google.dev/gemini-api/docs/pricing", "2026-06-16"),
+    "gemini-2.0-flash":      ("https://ai.google.dev/gemini-api/docs/pricing", "2026-06-16"),
+    "gemini-2.0-flash-lite": ("https://ai.google.dev/gemini-api/docs/pricing", "2026-06-16"),
 }
 
 
