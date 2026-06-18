@@ -35,9 +35,6 @@ from .group import build_group_prefix
 
 logger = logging.getLogger(__name__)
 
-# Maximum recent messages to include for context
-MAX_CONTEXT_MESSAGES = 20
-
 
 async def save_message_only(
     agent_id: str,
@@ -222,13 +219,12 @@ async def process_message(
         except Exception as e:
             logger.warning("Failed to create chat history conversation: %s", e)
 
-    # 7. Load recent messages for context
-    messages = _load_recent_messages(chat_service, chatty_conv_id)
+    # 7. run_sync reconstructs the full conversation from chat_history.db by
+    # conversation_id (with compaction + full tool results), so pass ONLY the
+    # new inbound message. Prior turns — including any busy-skipped messages
+    # saved via save_message_only — are assembled server-side.
     platform_prefix = f"[via Telegram from {sender_name}] "
-    if not messages:
-        messages = [{"role": "user", "content": platform_prefix + message_text}]
-    else:
-        messages.append({"role": "user", "content": platform_prefix + message_text})
+    messages = [{"role": "user", "content": platform_prefix + message_text}]
 
     # 8. Run the agent (non-streaming)
     response = await ai_service.run_sync(
@@ -325,12 +321,10 @@ async def process_group_message(
         except Exception as e:
             logger.warning("Failed to create group chat conversation: %s", e)
 
-    messages = _load_recent_messages(chat_service, chatty_conv_id)
+    # run_sync rebuilds the full conversation from the DB — pass only the new
+    # message (prior turns are assembled server-side).
     prefix = build_group_prefix(group_name, sender_name, sender_is_bot)
-    if not messages:
-        messages = [{"role": "user", "content": prefix + message_text}]
-    else:
-        messages.append({"role": "user", "content": prefix + message_text})
+    messages = [{"role": "user", "content": prefix + message_text}]
 
     response = await ai_service.run_sync(
         config=config,
@@ -346,25 +340,3 @@ async def process_group_message(
     )
 
     return response or "I had trouble generating a response. Please try again."
-
-
-def _load_recent_messages(chat_service, conversation_id: str | None) -> list[dict]:
-    """Load recent messages from chat history for conversation context."""
-    if not chat_service or not conversation_id:
-        return []
-
-    try:
-        conv = chat_service.get_conversation(conversation_id)
-        if not conv or "messages" not in conv:
-            return []
-
-        messages = []
-        for msg in conv["messages"][-MAX_CONTEXT_MESSAGES:]:
-            role = msg.get("role")
-            content = msg.get("content", "")
-            if role in ("user", "assistant") and content:
-                messages.append({"role": role, "content": content})
-        return messages
-    except Exception as e:
-        logger.warning("Failed to load chat history messages: %s", e)
-        return []

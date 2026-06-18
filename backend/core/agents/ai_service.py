@@ -36,6 +36,8 @@ from zoneinfo import ZoneInfo
 from core.storage import upload_config, delete_config
 from core.providers.base import AIProvider, _sse
 from core.providers.windows import context_usage_event
+from .context_assembly import assemble_messages, _coalesce_consecutive
+from .compaction import maybe_compact
 from .config import AgentConfig
 from .context_manager import ContextManager, is_social_closer, _tokenize
 from .tool_registry import ToolRegistry
@@ -933,6 +935,8 @@ async def chat(
         kind_map["find_tools"] = "meta"
 
     # ── Chat history persistence ──────────────────────────────────────
+    _approved_reconciled = False
+    _user_row_saved = False
     if persist:
         try:
             if not conversation_id:
@@ -949,19 +953,78 @@ async def chat(
             yield _sse({"type": "conversation_id", "id": conversation_id})
             registry._current_conversation_id = conversation_id
 
-            last_user = next((m for m in reversed(messages) if m.get("role") == "user"), None)
-            if last_user:
-                chat_service.save_message(
-                    conversation_id=conversation_id,
-                    msg_id=str(uuid.uuid4()),
-                    role="user",
-                    content=last_user.get("content", ""),
-                )
+            if approved_tool:
+                # The user clicked "approve" — there is no new human turn. Don't
+                # persist the frontend "[Approved] <tool>" placeholder as a user
+                # row; instead reconcile the real result onto the PENDING
+                # assistant row saved last turn (located by tool_use_id, since
+                # the frontend sends toolUseId, not the DB msg_id). The assembler
+                # then reconstructs the completed tool exchange natively.
+                try:
+                    _at_id = approved_tool.get("toolUseId", "")
+                    # Prefer the exact pending row the client confirmed (its DB
+                    # msg_id round-tripped via the confirm SSE) so a reused Gemini
+                    # tool id can't route this result onto a newer same-id row.
+                    _pending_id = chat_service.find_pending_tool_message(
+                        conversation_id, _at_id,
+                        prefer_msg_id=approved_tool.get("msgId") or None,
+                        prefer_tool=approved_tool.get("tool") or None)
+                    if _pending_id:
+                        # Merge (not replace) so a read executed in the same
+                        # iteration as the approved write keeps its result.
+                        chat_service.merge_tool_result(
+                            _pending_id, _at_id, approved_tool.get("tool", ""),
+                            json.dumps(approved_tool.get("result", {})),
+                        )
+                        _approved_reconciled = True
+                except Exception as e:
+                    logger.warning("Approved-tool reconcile failed: %s", e)
+            else:
+                last_user = next((m for m in reversed(messages) if m.get("role") == "user"), None)
+                if last_user:
+                    chat_service.save_message(
+                        conversation_id=conversation_id,
+                        msg_id=str(uuid.uuid4()),
+                        role="user",
+                        content=last_user.get("content", ""),
+                    )
+                    _user_row_saved = True
         except Exception as e:
             logger.warning("Chat history save (user msg) failed: %s", e)
 
-    # ── Maybe inject knowledge checkpoint ────────────────────────────
-    current_messages = list(messages)
+    # ── Compaction: fade the aged middle if the thread is over budget ─
+    # Runs BEFORE assembly so the boundary it persists is applied this turn.
+    # Synchronous (a Haiku summarization) — run off the event loop. No-op
+    # below ~70% of the window or when nothing new has aged (idempotent).
+    # When it fires, signal the UI so it can show a "compacted" chip.
+    if persist and conversation_id:
+        _did_compact = await asyncio.to_thread(
+            maybe_compact, chat_service, provider, conversation_id, anthropic_api_key)
+        if _did_compact:
+            yield _sse({"type": "compacted"})
+
+    # ── Reconstruct the conversation server-side from the DB ─────────
+    # Context BUILDS and PERSISTS across turns: full tool results carried
+    # forward in the active provider's native format, instead of the thin
+    # client transcript (which dropped tool results between turns). The new
+    # user row was persisted above, so the assembled list ends with it.
+    # Ephemeral/CLI runs (no persistence) fall back to the client messages.
+    if persist and conversation_id:
+        current_messages = assemble_messages(chat_service, provider, conversation_id)
+        # Resilience: assembly rebuilds from the DB, so if persisting the new user
+        # row failed above (logged, not raised) the assembled context wouldn't
+        # include this turn's message — empty for a fresh conversation (an empty
+        # stream_turn errors) or, worse, silently answering the PREVIOUS message.
+        # Splice the client's user message back in so the turn still runs on it.
+        if not approved_tool and not _user_row_saved:
+            last_user = next((m for m in reversed(messages) if m.get("role") == "user"), None)
+            if last_user:
+                # Coalesce so a prior-turn-orphaned trailing user row can't make
+                # this the second of two consecutive user turns (Anthropic/Gemini
+                # reject that); _coalesce_consecutive merges them into one.
+                current_messages = _coalesce_consecutive(current_messages + [dict(last_user)])
+    else:
+        current_messages = list(messages)
 
     # Playbook invocation: the persisted user message keeps the compact
     # [playbook:slug] marker; only the provider-bound copy gets the full
@@ -972,19 +1035,28 @@ async def chat(
                 current_messages[i] = {**current_messages[i], "content": playbook_expansion}
                 break
     if not training_mode:
-        user_count = sum(1 for m in current_messages if m.get("role") == "user")
+        # Count human turns from the DB (rows with role='user' are always human;
+        # reconstructed tool_result/gist messages exist only at assembly time).
+        user_count = (chat_service.count_user_messages(conversation_id)
+                      if persist and conversation_id
+                      else sum(1 for m in messages if m.get("role") == "user"))
         if user_count > 0 and user_count % KNOWLEDGE_CHECKPOINT_EVERY == 0:
             last = current_messages[-1] if current_messages else None
-            if last and last.get("role") == "user":
+            # Only append to a real human user turn (string content) — never a
+            # reconstructed tool_result/gist user message (list content).
+            if last and last.get("role") == "user" and isinstance(last.get("content"), str):
                 current_messages[-1] = {
                     **last,
-                    "content": last.get("content", "") + "\n\n[KNOWLEDGE CHECKPOINT]",
+                    "content": last["content"] + "\n\n[KNOWLEDGE CHECKPOINT]",
                 }
-                # Fire background fact extraction
+                # Fire background fact extraction over the CLEAN human/assistant
+                # transcript — never the reconstructed provider-native blocks.
                 try:
                     from core.agents.memory.extractor import extract_facts_from_messages
+                    _fact_msgs = (chat_service.get_clean_history(conversation_id)
+                                  if persist and conversation_id else list(messages))
                     asyncio.ensure_future(extract_facts_from_messages(
-                        messages=list(current_messages),
+                        messages=_fact_msgs,
                         data_dir=config.context_dir,
                         gcs_prefix=config.gcs_prefix,
                         agent_config=dict(config.__dict__),
@@ -1119,14 +1191,14 @@ async def chat(
 
     accumulated_text = ""
 
-    # ── Reconstruct approved tool in message history ──────────────────
+    # ── Approved write tool: make its definition available ────────────
+    # The completed exchange is reconstructed by the assembler from the DB row
+    # reconciled above (find_pending_tool_message + update_message_tool_results),
+    # so no live message injection is needed on the persisted path. We still
+    # ensure the (possibly deferred) tool definition is loaded so the model can
+    # reference or re-invoke the tool after the approved write.
     if approved_tool:
         at_tool = approved_tool.get("tool", "")
-        at_args = approved_tool.get("args", {})
-        at_id = approved_tool.get("toolUseId", str(uuid.uuid4()))
-        at_result = approved_tool.get("result", {})
-
-        # Auto-load deferred tool if needed for reconstruction
         if at_tool in deferred_names:
             match = [t for t in deferred_tools if t["name"] == at_tool]
             if match:
@@ -1136,33 +1208,57 @@ async def chat(
                 )
                 provider_tools = build_provider_tools(tool_defs)
 
-        # Build fake tool_calls and results for provider reconstruction
-        fake_tc = [{"name": at_tool, "id": at_id, "args": at_args}]
-        fake_results = [{
-            "tool_use_id": at_id,
-            "tool_name": at_tool,
-            "content": json.dumps(at_result),
-        }]
+        # Live-inject the approved exchange ONLY in the genuine stateless case:
+        # no stored row carries this tool_use_id, so the assembler reconstructs
+        # nothing and injection can't duplicate. A persisted client always sends
+        # the pending row's msgId, so msgId-present-but-reconcile-missed means a
+        # stale/duplicate approval of an already-reconciled row — the assembler
+        # already holds the real exchange, so skip injection (don't duplicate it
+        # or let the model answer a stale approval). A failed turn-1 save emits a
+        # null msg_id, correctly falling back to live injection here.
+        if not _approved_reconciled and not approved_tool.get("msgId"):
+            at_args = approved_tool.get("args", {})
+            at_id = approved_tool.get("toolUseId", str(uuid.uuid4()))
+            at_result = approved_tool.get("result", {})
+            if (current_messages
+                and current_messages[-1].get("role") == "user"
+                and str(current_messages[-1].get("content", "")).startswith("[Approved]")):
+                current_messages = current_messages[:-1]
+            current_messages = provider.add_tool_results(
+                current_messages,
+                [{"name": at_tool, "id": at_id, "args": at_args}],
+                [{"tool_use_id": at_id, "tool_name": at_tool,
+                  "content": json.dumps(at_result)}],
+            )
 
-        # Remove the "[Approved]" user message (last in the list) since the
-        # provider needs tool_use/tool_result blocks instead
+        # Any approved-tool turn that rebuilt context from the DB (reconciled, or
+        # a stale/duplicate approval whose reconcile became a no-op) can end on an
+        # ASSISTANT turn now that the confirm wrap-up ("shall I send it?") is
+        # persisted. A turn must end on a user message: Gemini resends messages[-1]
+        # AS the user turn (google_provider sends the last message with
+        # role="user") and Anthropic treats a trailing assistant as a prefill.
+        # Append a transient (unpersisted) user ack so the model emits a fresh
+        # response; the executed result is already reconstructed above. The
+        # live-injection branches always end on a user/tool turn, so this guard
+        # (tail is literally assistant) targets exactly the DB-rebuilt cases.
         if (current_messages
-            and current_messages[-1].get("role") == "user"
-            and str(current_messages[-1].get("content", "")).startswith("[Approved]")):
-            current_messages = current_messages[:-1]
-
-        # Reconstruct via provider abstraction
-        current_messages = provider.add_tool_results(current_messages, fake_tc, fake_results)
+                and current_messages[-1].get("role") == "assistant"):
+            current_messages = current_messages + [{
+                "role": "user",
+                "content": f"[Approved — {at_tool} executed; its result is shown above.]",
+            }]
 
     # ── Tool execution loop ───────────────────────────────────────────
     max_iterations = 20
     iteration = 0
-    all_tool_calls: list[dict] = []  # Accumulate across iterations for persistence
+    all_tool_calls: list[dict] = []  # Accumulate across iterations for the activity log
+    _max_ctx_tokens = 0  # Max main-turn context fullness, persisted for compaction
 
     while iteration < max_iterations:
         iteration += 1
         tool_calls_this_turn: list[dict] = []
         turn_text = ""
+        iter_msg_id = None  # this iteration's saved assistant row (results attached post-exec)
 
         # Stream one turn from the provider
         async for event in provider.stream_turn(current_messages, provider_tools, system_prompt):
@@ -1208,26 +1304,52 @@ async def chat(
                 usage_event = context_usage_event(usage, provider.context_window)
                 if usage_event:
                     yield _sse(usage_event)
+                    # Persist the MAX main-turn fullness so compaction can trigger
+                    # durably next turn (and for channels with no SSE meter).
+                    # Wrap-up turns use meter_only=True and never reach here.
+                    if persist and conversation_id:
+                        _ct = usage_event.get("context_tokens") or 0
+                        if _ct > _max_ctx_tokens:
+                            _max_ctx_tokens = _ct
+                            try:
+                                chat_service.set_turn_usage(
+                                    conversation_id, _ct,
+                                    usage_event.get("context_window"), model_used)
+                            except Exception as e:
+                                logger.debug("set_turn_usage failed: %s", e)
 
-                # Save assistant turn to history (with tool calls if any)
-                if persist and turn_text and conversation_id:
+                # Persist this model iteration faithfully — one assistant row per
+                # iteration that produced text or tool calls, carrying THIS
+                # iteration's own tool_calls (full args). Results are attached
+                # after execution via a true UPDATE. (The old path gated on
+                # turn_text and stored the turn-global accumulator, dropping
+                # tool-only iterations and misattributing calls to later rows.)
+                if persist and conversation_id and (turn_text or tool_calls_this_turn):
                     try:
-                        tc_json = json.dumps(all_tool_calls) if all_tool_calls else None
+                        iter_calls = [
+                            {"tool": tc.get("name"), "tool_use_id": tc.get("id"),
+                             "args": tc.get("args", {})}
+                            for tc in tool_calls_this_turn
+                        ]
+                        iter_msg_id = str(uuid.uuid4())
                         chat_service.save_message(
                             conversation_id=conversation_id,
-                            msg_id=str(uuid.uuid4()),
+                            msg_id=iter_msg_id,
                             role="assistant",
                             content=turn_text,
-                            tool_calls=tc_json,
+                            tool_calls=json.dumps(iter_calls) if iter_calls else None,
                             model=model_used,
                         )
                     except Exception as e:
-                        logger.warning("Chat history save (assistant) failed: %s", e)
+                        logger.warning("Chat history save (assistant iteration) failed: %s", e)
+                        iter_msg_id = None
 
-                # Check for smart title
+                # Check for smart title (over the clean human/assistant transcript,
+                # never the reconstructed provider-native messages)
                 if persist and conversation_id:
                     title_sse = await _maybe_smart_title(
-                        persist, conversation_id, current_messages,
+                        persist, conversation_id,
+                        chat_service.get_clean_history(conversation_id),
                         accumulated_text, chat_service, anthropic_api_key
                     )
                     if title_sse:
@@ -1240,7 +1362,9 @@ async def chat(
                                         total_input_tokens, total_output_tokens, chat_start_time, provider_name)
                     if not training_mode and not plan_mode and not import_mode:
                         from core.agents.playbooks.review import maybe_schedule_review
-                        maybe_schedule_review(config, conversation_id, messages,
+                        _review_msgs = (chat_service.get_clean_history(conversation_id)
+                                        if persist and conversation_id else messages)
+                        maybe_schedule_review(config, conversation_id, _review_msgs,
                                               accumulated_text, all_tool_calls, iteration)
                     done_event = {"type": "done", "model": model_used}
                     if triage_info:
@@ -1262,7 +1386,9 @@ async def chat(
                                 total_input_tokens, total_output_tokens, chat_start_time, provider_name)
             if not training_mode and not plan_mode and not import_mode:
                 from core.agents.playbooks.review import maybe_schedule_review
-                maybe_schedule_review(config, conversation_id, messages,
+                _review_msgs = (chat_service.get_clean_history(conversation_id)
+                                if persist and conversation_id else messages)
+                maybe_schedule_review(config, conversation_id, _review_msgs,
                                       accumulated_text, all_tool_calls, iteration)
             done_event = {"type": "done", "model": model_used}
             if triage_info:
@@ -1328,11 +1454,20 @@ async def chat(
                     "tool_name": tool_name,
                     "content": json.dumps({"ok": True, "message": "Plan presented to user for approval."}),
                 })
+                # Attach the exit_plan_mode result to this iteration's saved row
+                # so the assembler reconstructs the completed plan exchange.
+                if iter_msg_id and persist and conversation_id:
+                    try:
+                        chat_service.update_message_tool_results(iter_msg_id, json.dumps(results))
+                    except Exception as e:
+                        logger.warning("Chat history attach (exit_plan_mode) failed: %s", e)
                 # Let the AI do one more turn to narrate, then stop
                 current_messages = provider.add_tool_results(current_messages, tool_calls_this_turn, results)
+                wrapup_text = ""
                 async for event in provider.stream_turn(current_messages, provider_tools, system_prompt):
                     etype = event.get("type")
                     if etype == "text":
+                        wrapup_text += event["text"]
                         accumulated_text += event["text"]
                         yield _sse({"type": "text", "text": event["text"]})
                     elif etype == "_turn_complete":
@@ -1344,6 +1479,16 @@ async def chat(
                         if usage_event:
                             yield _sse(usage_event)
                         break
+                # Persist the plan-mode wrap-up narration so the thread keeps
+                # context after the plan is presented (the pending write-confirm
+                # wrap-up is persisted the same way below).
+                if persist and conversation_id and wrapup_text:
+                    try:
+                        chat_service.save_message(
+                            conversation_id=conversation_id, msg_id=str(uuid.uuid4()),
+                            role="assistant", content=wrapup_text, model=model_used)
+                    except Exception as e:
+                        logger.warning("Chat history save (plan wrap-up) failed: %s", e)
                 _log_chat_completion(config.slug, conversation_id, "chat", "ok",
                                     accumulated_text, all_tool_calls, model_used,
                                     total_input_tokens, total_output_tokens, chat_start_time, provider_name)
@@ -1378,6 +1523,13 @@ async def chat(
                         pass
                     result_str = json.dumps({"error": "Turn terminated: write budget exceeded"})
                     results.append({"tool_use_id": tool_use_id, "tool_name": tool_name, "content": result_str})
+                    # Persist whatever executed before termination so the next turn
+                    # reconstructs them instead of stubbing "result not recorded".
+                    if iter_msg_id and persist and conversation_id and results:
+                        try:
+                            chat_service.update_message_tool_results(iter_msg_id, json.dumps(results))
+                        except Exception as e:
+                            logger.warning("Chat history attach (terminate) failed: %s", e)
                     yield _sse({"type": "error", "error": "Write budget exceeded. Turn terminated."})
                     return
 
@@ -1402,6 +1554,10 @@ async def chat(
                     "tool": tool_name,
                     "args": tool_args,
                     "tool_use_id": tool_use_id,
+                    # The pending assistant row's DB id — the client echoes it back
+                    # on approval so reconcile targets THIS row, not a newer one
+                    # that reused the tool id (Gemini regenerates call_0/call_1).
+                    "msg_id": iter_msg_id,
                     "description": tool_desc,
                 })
 
@@ -1453,12 +1609,26 @@ async def chat(
         # Append tool results to messages for next turn
         current_messages = provider.add_tool_results(current_messages, tool_calls_this_turn, results)
 
+        # Attach this iteration's FULL tool results to its saved assistant row
+        # (true UPDATE — keeps seq/created_at/FTS intact). We persist even when a
+        # write confirmation is pending: the row then holds any read results
+        # executed this iteration plus the "pending_user_approval" placeholder
+        # (so a non-approval next turn shows "pending", not "result not
+        # recorded"); approval later merges the real result onto the same row.
+        if iter_msg_id and persist and conversation_id and results:
+            try:
+                chat_service.update_message_tool_results(iter_msg_id, json.dumps(results))
+            except Exception as e:
+                logger.warning("Chat history attach tool_results failed: %s", e)
+
         # If we have a pending confirmation, do one more streaming turn
         # to let the AI describe the pending action, then stop
         if has_pending_confirmation:
+            wrapup_text = ""
             async for event in provider.stream_turn(current_messages, provider_tools, system_prompt):
                 etype = event.get("type")
                 if etype == "text":
+                    wrapup_text += event["text"]
                     accumulated_text += event["text"]
                     yield _sse({"type": "text", "text": event["text"]})
                 elif etype == "_turn_complete":
@@ -1470,6 +1640,17 @@ async def chat(
                     if usage_event:
                         yield _sse(usage_event)
                     break
+            # Persist the "shall I send it?" narration so the next turn sees the
+            # agent's own question. Mirrors the exit_plan_mode wrap-up. Saved as
+            # a separate assistant row AFTER the pending tool_use row, so the
+            # reconstructed order is tool_use → pending result → this narration.
+            if persist and conversation_id and wrapup_text:
+                try:
+                    chat_service.save_message(
+                        conversation_id=conversation_id, msg_id=str(uuid.uuid4()),
+                        role="assistant", content=wrapup_text, model=model_used)
+                except Exception as e:
+                    logger.warning("Chat history save (confirm wrap-up) failed: %s", e)
             _log_chat_completion(config.slug, conversation_id, "chat", "ok",
                                 accumulated_text, all_tool_calls, model_used,
                                 total_input_tokens, total_output_tokens, chat_start_time, provider_name)
@@ -1624,6 +1805,7 @@ async def run_sync(
 
     # Chat history — save user message
     persist = chat_service is not None
+    _user_row_saved = False
     if persist:
         try:
             if not conversation_id:
@@ -1639,20 +1821,44 @@ async def run_sync(
                     role="user",
                     content=last_user.get("content", ""),
                 )
+                _user_row_saved = True
         except Exception as e:
             logger.warning("run_sync: chat history save (user msg) failed: %s", e)
 
-    current_messages = list(messages)
+    # Compaction (same as chat()): fade the aged middle before assembling.
+    # No anthropic_api_key param here — the summarizer fetches it from the
+    # credential store (works even for a non-Anthropic agent on Telegram).
+    if persist and conversation_id:
+        await asyncio.to_thread(maybe_compact, chat_service, provider, conversation_id)
+
+    # Reconstruct full history server-side from the DB (same as chat()) so
+    # messaging channels (Telegram) build and persist context across turns
+    # with full tool results — not just the recent client-passed window.
+    if persist and conversation_id:
+        current_messages = assemble_messages(chat_service, provider, conversation_id)
+        # Resilience (mirrors chat()): if the user-row save failed above, assembly
+        # won't include this message — splice the client's user turn back so the
+        # Telegram turn runs on it instead of answering the previous message.
+        if not _user_row_saved:
+            last_user = next((m for m in reversed(messages) if m.get("role") == "user"), None)
+            if last_user:
+                # Coalesce (mirrors chat()) so an orphaned trailing user row from
+                # a prior crashed turn can't yield two consecutive user turns.
+                current_messages = _coalesce_consecutive(current_messages + [dict(last_user)])
+    else:
+        current_messages = list(messages)
     accumulated_text = ""
     all_tool_calls: list[dict] = []
     total_input_tokens = 0
     total_output_tokens = 0
+    _max_ctx_tokens = 0  # Max main-turn context fullness, persisted for compaction
     max_iterations = 20
 
     for iteration in range(max_iterations):
         tool_calls_this_turn: list[dict] = []
         turn_text = ""
         stop_reason = "stop"
+        iter_msg_id = None  # this iteration's saved assistant row
 
         # Stream one turn, collecting all events
         async for event in provider.stream_turn(current_messages, provider_tools, system_prompt):
@@ -1668,6 +1874,20 @@ async def run_sync(
                 usage = event.get("usage", {})
                 total_input_tokens += usage.get("input_tokens") or 0
                 total_output_tokens += usage.get("output_tokens") or 0
+                # Persist MAX main-turn fullness for the durable compaction
+                # trigger (messaging has no SSE meter — this is the only signal).
+                if persist and conversation_id:
+                    _ue = context_usage_event(usage, provider.context_window)
+                    if _ue:
+                        _ct = _ue.get("context_tokens") or 0
+                        if _ct > _max_ctx_tokens:
+                            _max_ctx_tokens = _ct
+                            try:
+                                chat_service.set_turn_usage(
+                                    conversation_id, _ct,
+                                    _ue.get("context_window"), model_used)
+                            except Exception as e:
+                                logger.debug("run_sync: set_turn_usage failed: %s", e)
 
             elif etype == "error":
                 logger.error("run_sync: provider error: %s", event.get("error"))
@@ -1676,20 +1896,28 @@ async def run_sync(
                                     total_input_tokens, total_output_tokens, chat_start_time, provider_name)
                 return accumulated_text or "I encountered an error. Please try again."
 
-        # Save assistant turn to history (with tool calls)
-        if persist and turn_text and conversation_id:
+        # Persist this iteration faithfully — one assistant row per iteration
+        # with text or tool calls, carrying THIS iteration's own tool_calls
+        # (full args). Results are attached after execution via a true UPDATE.
+        if persist and conversation_id and (turn_text or tool_calls_this_turn):
             try:
-                tc_json = json.dumps(all_tool_calls) if all_tool_calls else None
+                iter_calls = [
+                    {"tool": tc.get("name"), "tool_use_id": tc.get("id"),
+                     "args": tc.get("args", {})}
+                    for tc in tool_calls_this_turn
+                ]
+                iter_msg_id = str(uuid.uuid4())
                 chat_service.save_message(
                     conversation_id=conversation_id,
-                    msg_id=str(uuid.uuid4()),
+                    msg_id=iter_msg_id,
                     role="assistant",
                     content=turn_text,
-                    tool_calls=tc_json,
+                    tool_calls=json.dumps(iter_calls) if iter_calls else None,
                     model=model_used,
                 )
             except Exception as e:
-                logger.warning("run_sync: chat history save (assistant) failed: %s", e)
+                logger.warning("run_sync: chat history save (assistant iteration) failed: %s", e)
+                iter_msg_id = None
 
         # If no tool calls, we're done
         if stop_reason != "tool_use" or not tool_calls_this_turn:
@@ -1744,6 +1972,17 @@ async def run_sync(
                         log_security_event("write_budget_terminated", f"run_sync terminated after second budget violation: {tool_name}", severity="error", agent_slug=config.slug, source="interactive")
                     except Exception:
                         pass
+                    # Pair the terminating tool_use with its own error result before
+                    # persisting (mirrors chat() at the streaming terminate branch),
+                    # so the next assembly doesn't stub it "result not recorded".
+                    result_str = json.dumps({"error": "Turn terminated: write budget exceeded"})
+                    results.append({"tool_use_id": tool_use_id, "tool_name": tool_name, "content": result_str})
+                    # Persist whatever executed before termination (mirrors chat()).
+                    if iter_msg_id and persist and conversation_id and results:
+                        try:
+                            chat_service.update_message_tool_results(iter_msg_id, json.dumps(results))
+                        except Exception as e:
+                            logger.warning("run_sync: chat history attach (terminate) failed: %s", e)
                     _log_chat_completion(config.slug, conversation_id, source, "error",
                                         "Write budget exceeded — turn terminated", all_tool_calls, model_used,
                                         total_input_tokens, total_output_tokens, chat_start_time, provider_name)
@@ -1789,6 +2028,15 @@ async def run_sync(
 
         # Append tool results for next turn
         current_messages = provider.add_tool_results(current_messages, tool_calls_this_turn, results)
+
+        # Attach this iteration's FULL tool results to its saved assistant row
+        # (true UPDATE — keeps seq/created_at/FTS intact) so the next turn
+        # reconstructs the complete tool exchange from the DB.
+        if iter_msg_id and persist and conversation_id and results:
+            try:
+                chat_service.update_message_tool_results(iter_msg_id, json.dumps(results))
+            except Exception as e:
+                logger.warning("run_sync: chat history attach tool_results failed: %s", e)
     else:
         _log_chat_completion(config.slug, conversation_id, source, "error",
                             "Tool loop exceeded maximum iterations", all_tool_calls, model_used,

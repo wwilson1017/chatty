@@ -55,8 +55,8 @@ These auto-generate if not set. You can override them for extra control:
 | `OAUTH_REDIRECT_URI` | Override the OAuth callback URL. Defaults to `https://auth.mechatty.com/callback` (the shared OAuth proxy). Only set this if you run your own proxy or want direct-to-instance OAuth. |
 | `QUICKBOOKS_CLIENT_ID` | QuickBooks OAuth client ID |
 | `QUICKBOOKS_CLIENT_SECRET` | QuickBooks OAuth client secret |
-| `WHATSAPP_BRIDGE_URL` | WhatsApp Baileys bridge URL (advanced) |
-| `WHATSAPP_BRIDGE_API_KEY` | WhatsApp bridge API key |
+| `WHATSAPP_BRIDGE_URL` | WhatsApp Baileys bridge URL (advanced). **WhatsApp is deprecated and frozen** — no new development; use Telegram instead. Existing setups keep working. |
+| `WHATSAPP_BRIDGE_API_KEY` | WhatsApp bridge API key (deprecated — see above) |
 | `WEBBY_GITHUB_TOKEN` | GitHub token for Webby website builder |
 | `WEBBY_GITHUB_REPO` | GitHub repo for Webby (e.g. `user/repo`) |
 

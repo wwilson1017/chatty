@@ -8,6 +8,7 @@ Each agent instantiates its own ChatHistoryService backed by a
 separate ChatHistoryDB instance, so conversations are fully isolated.
 """
 
+import json
 import logging
 import sqlite3
 import uuid
@@ -111,12 +112,15 @@ class ChatHistoryService:
         seq: int | None = None,
         tool_calls: str | None = None,
         model: str = "",
+        tool_results: str | None = None,
     ) -> None:
         """Insert or replace a message and bump conversation updated_at.
 
         If seq is None, atomically computes the next sequence number under
         the write lock so concurrent callers never collide.
         tool_calls is an optional JSON string of tool call data for assistant messages.
+        tool_results is an optional JSON string of FULL tool-result content
+        ([{tool_use_id, content}]) used to rebuild tool exchanges across turns.
         model is the AI model ID that generated this message.
         """
         db = self._db.get_db()
@@ -129,15 +133,203 @@ class ChatHistoryService:
                 seq = row["next_seq"]
             db.execute(
                 """INSERT OR REPLACE INTO messages
-                   (id, conversation_id, role, content, seq, tool_calls, model)
-                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
-                (msg_id, conversation_id, role, content, seq, tool_calls, model),
+                   (id, conversation_id, role, content, seq, tool_calls, tool_results, model)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                (msg_id, conversation_id, role, content, seq, tool_calls, tool_results, model),
             )
             db.execute(
                 "UPDATE conversations SET updated_at = datetime('now') WHERE id = ?",
                 (conversation_id,),
             )
             db.commit()
+
+    # ── Persistent-context helpers ────────────────────────────────────────
+
+    def update_message_tool_results(self, msg_id: str, tool_results: str) -> None:
+        """Attach full tool-result JSON to an already-saved assistant row.
+
+        A true UPDATE (not the INSERT OR REPLACE save path) so seq/created_at
+        and FTS rows stay intact. Results are produced after the assistant row
+        is saved at _turn_complete, so they're attached here.
+        """
+        db = self._db.get_db()
+        with self._db.write_lock():
+            db.execute("UPDATE messages SET tool_results = ? WHERE id = ?", (tool_results, msg_id))
+            db.commit()
+
+    def find_pending_tool_message(
+        self, conversation_id: str, tool_use_id: str,
+        prefer_msg_id: str | None = None, prefer_tool: str | None = None,
+    ) -> str | None:
+        """Return the msg_id of the assistant row whose result for tool_use_id is
+        still pending/absent — so an approval reconciles only a genuinely-pending
+        row. Requiring "still pending" matters because providers like Gemini
+        regenerate ids (call_0, call_1) every turn, so id alone could match a
+        completed/older row. The frontend sends tool_use_id, not the DB msg_id.
+
+        ``prefer_msg_id`` disambiguates the Gemini id-reuse hazard: the confirm
+        SSE carries the exact DB row id of the pending assistant turn, and the
+        client echoes it back on approval. When a row id is supplied it is
+        AUTHORITATIVE — return that exact row iff it is still genuinely pending,
+        otherwise return None. We deliberately do NOT fall back to another row in
+        that case: a stale or duplicated approval (double-click, retry, replay)
+        for an already-reconciled row must be a no-op, never silently redirected
+        onto a newer row that reused the id.
+
+        ``prefer_tool`` only hardens the no-row-id path (older clients that
+        predate this field): among pending rows sharing the id, prefer one whose
+        call is for the same tool, so two same-id pending writes for *different*
+        tools still disambiguate. With neither hint we fall back to
+        newest-pending-wins (ORDER BY seq DESC)."""
+        db = self._db.get_db()
+        rows = db.execute(
+            "SELECT id, tool_calls, tool_results FROM messages "
+            "WHERE conversation_id = ? AND role = 'assistant' AND tool_calls IS NOT NULL "
+            "ORDER BY seq DESC",
+            (conversation_id,),
+        ).fetchall()
+
+        def _calls(r) -> list:
+            try:
+                return json.loads(r["tool_calls"]) or []
+            except Exception:
+                return []
+
+        def _is_placeholder(content) -> bool:
+            # The pending marker is json.dumps({"status": "pending_user_approval"})
+            # and is never delimiter-wrapped. Parse and match the field exactly —
+            # a substring check would treat a real result that merely *mentions*
+            # the phrase (e.g. an email body) as pending and let an approval
+            # overwrite it.
+            if not content:
+                return False
+            try:
+                obj = json.loads(content)
+            except Exception:
+                return False
+            return isinstance(obj, dict) and obj.get("status") == "pending_user_approval"
+
+        def _is_pending(r) -> bool:
+            if not any((tc.get("tool_use_id") or tc.get("id")) == tool_use_id for tc in _calls(r)):
+                return False
+            try:
+                results = json.loads(r["tool_results"]) if r["tool_results"] else []
+            except Exception:
+                results = []
+            res = next((x for x in results if x.get("tool_use_id") == tool_use_id), None)
+            return res is None or _is_placeholder(res.get("content"))
+
+        # Explicit row id is authoritative — exact-and-pending, or nothing.
+        if prefer_msg_id:
+            exact = next((r for r in rows if r["id"] == prefer_msg_id), None)
+            return exact["id"] if (exact is not None and _is_pending(exact)) else None
+
+        # No row id (older client): prefer a pending row matching the tool too.
+        if prefer_tool:
+            for r in rows:
+                if _is_pending(r) and any(
+                    (tc.get("tool_use_id") or tc.get("id")) == tool_use_id
+                    and tc.get("tool") == prefer_tool for tc in _calls(r)
+                ):
+                    return r["id"]
+        for r in rows:
+            if _is_pending(r):
+                return r["id"]
+        return None
+
+    def merge_tool_result(self, msg_id: str, tool_use_id: str, tool_name: str, content: str) -> None:
+        """Set/replace one tool_use_id's result on an assistant row, preserving
+        sibling results (e.g. a read executed in the same iteration as a write
+        that was awaiting approval). Result order is irrelevant — reconstruction
+        pairs by id from tool_calls."""
+        db = self._db.get_db()
+        with self._db.write_lock():
+            row = db.execute("SELECT tool_results FROM messages WHERE id = ?", (msg_id,)).fetchone()
+            existing = []
+            if row and row["tool_results"]:
+                try:
+                    existing = json.loads(row["tool_results"]) or []
+                except Exception:
+                    existing = []
+            merged = [r for r in existing if r.get("tool_use_id") != tool_use_id]
+            merged.append({"tool_use_id": tool_use_id, "tool_name": tool_name, "content": content})
+            db.execute("UPDATE messages SET tool_results = ? WHERE id = ?",
+                       (json.dumps(merged), msg_id))
+            db.commit()
+
+    def count_user_messages(self, conversation_id: str) -> int:
+        """Count human user turns. DB user rows are always human — tool results
+        live on the assistant row's tool_results column, and synthetic
+        tool_result/gist messages exist only at assembly time, never in the DB."""
+        db = self._db.get_db()
+        row = db.execute(
+            "SELECT COUNT(*) AS n FROM messages WHERE conversation_id = ? AND role = 'user'",
+            (conversation_id,),
+        ).fetchone()
+        return row["n"] if row else 0
+
+    def get_clean_history(self, conversation_id: str, limit: int | None = None) -> list[dict]:
+        """Return the clean human/assistant TEXT transcript ([{role, content}])
+        for consumers (smart-title, knowledge checkpoint, fact extraction) that
+        must NOT see reconstructed provider-native blocks or synthetic messages."""
+        db = self._db.get_db()
+        rows = db.execute(
+            "SELECT role, content FROM messages WHERE conversation_id = ? ORDER BY seq",
+            (conversation_id,),
+        ).fetchall()
+        out = [{"role": r["role"], "content": r["content"]} for r in rows]
+        return out[-limit:] if limit else out
+
+    def set_turn_usage(self, conversation_id: str, context_tokens: int,
+                       context_window: int | None, model: str) -> None:
+        """Persist the latest main-turn context fullness so compaction can trigger
+        durably (and for Telegram, which has no SSE meter)."""
+        db = self._db.get_db()
+        with self._db.write_lock():
+            db.execute(
+                "UPDATE conversations SET last_context_tokens = ?, last_context_window = ?, "
+                "last_model = ? WHERE id = ?",
+                (context_tokens, context_window, model, conversation_id),
+            )
+            db.commit()
+
+    def get_turn_usage(self, conversation_id: str) -> tuple[int | None, int | None, str | None]:
+        db = self._db.get_db()
+        row = db.execute(
+            "SELECT last_context_tokens, last_context_window, last_model "
+            "FROM conversations WHERE id = ?",
+            (conversation_id,),
+        ).fetchone()
+        if not row:
+            return (None, None, None)
+        return (row["last_context_tokens"], row["last_context_window"], row["last_model"])
+
+    def get_compaction(self, conversation_id: str) -> tuple[str | None, int | None]:
+        db = self._db.get_db()
+        row = db.execute(
+            "SELECT compaction_summary, compaction_first_kept_seq FROM conversations WHERE id = ?",
+            (conversation_id,),
+        ).fetchone()
+        if not row:
+            return (None, None)
+        return (row["compaction_summary"], row["compaction_first_kept_seq"])
+
+    def set_compaction(self, conversation_id: str, summary: str, first_kept_seq: int) -> None:
+        # CAS on the boundary: only advance it. If two turns on the same
+        # conversation compact concurrently, the slower summarizer must not
+        # regress a newer, farther boundary. Backup OUTSIDE the write lock so a
+        # slow GCS upload can't block all chat-history writes.
+        db = self._db.get_db()
+        with self._db.write_lock():
+            cur = db.execute(
+                "UPDATE conversations SET compaction_summary = ?, compaction_first_kept_seq = ? "
+                "WHERE id = ? AND COALESCE(compaction_first_kept_seq, -1) < ?",
+                (summary, first_kept_seq, conversation_id, first_kept_seq),
+            )
+            db.commit()
+            changed = cur.rowcount > 0
+        if changed:
+            self._db.backup_to_gcs()
 
     def get_messages_on_date(self, date: str) -> list[dict]:
         """Return all messages from a given date (YYYY-MM-DD), ordered by conversation then sequence.

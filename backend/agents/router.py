@@ -798,6 +798,39 @@ async def create_conversation(agent_id: str, user=Depends(get_current_user)):
     return chat_service.create_conversation()
 
 
+_UI_RESULT_PREVIEW_CAP = 2000  # matches the activity-log preview cap
+
+
+def _merge_tool_result_previews(message: dict) -> None:
+    """Fold a capped preview of each full tool_result into the message's
+    tool_calls entries (keyed by tool_use_id), so the UI can show results on
+    reload. In-place; leaves rows without one or both columns untouched. Only
+    fills a `result` that isn't already present (older rows kept their own)."""
+    raw_calls = message.get("tool_calls")
+    raw_results = message.get("tool_results")
+    if not raw_calls or not raw_results:
+        return
+    try:
+        calls = _json_mod.loads(raw_calls)
+        results = _json_mod.loads(raw_results)
+    except (ValueError, TypeError):
+        return
+    if not isinstance(calls, list) or not isinstance(results, list):
+        return
+    by_id = {r.get("tool_use_id"): r.get("content") for r in results
+             if isinstance(r, dict)}
+    changed = False
+    for tc in calls:
+        if not isinstance(tc, dict) or tc.get("result") is not None:
+            continue
+        content = by_id.get(tc.get("tool_use_id") or tc.get("id"))
+        if isinstance(content, str):
+            tc["result"] = content[:_UI_RESULT_PREVIEW_CAP]
+            changed = True
+    if changed:
+        message["tool_calls"] = _json_mod.dumps(calls)
+
+
 @router.get("/{agent_id}/conversations/{conv_id}")
 async def get_conversation(agent_id: str, conv_id: str, user=Depends(get_current_user)):
     agent = _get_agent_or_404(agent_id)
@@ -805,6 +838,15 @@ async def get_conversation(agent_id: str, conv_id: str, user=Depends(get_current
     result = chat_service.get_conversation(conv_id)
     if not result:
         raise HTTPException(status_code=404, detail="Conversation not found")
+    # The browser renders historical tool activity from each tool_call's `result`
+    # preview, but per-iteration rows store full results in the separate
+    # tool_results column (uncapped — server-side context reconstruction only).
+    # Merge a capped preview back into the matching tool_calls entries, then drop
+    # the heavy column so the UI shows results on reload without shipping the
+    # uncapped payload.
+    for m in result.get("messages", []):
+        _merge_tool_result_previews(m)
+        m.pop("tool_results", None)
     return result
 
 

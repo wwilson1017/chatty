@@ -104,7 +104,10 @@ class GoogleProvider(AIProvider):
             content = m.get("content", "")
 
             if isinstance(content, list):
-                # Structured parts: function calls or function responses
+                # Structured parts: function calls/responses, plus any text blocks
+                # the provider-neutral assembler coalesced in (e.g. a compaction
+                # gist folded onto a tool_result user turn). Text blocks carry no
+                # `_type` and would otherwise be silently dropped here.
                 parts = []
                 for part_data in content:
                     if not isinstance(part_data, dict):
@@ -123,6 +126,8 @@ class GoogleProvider(AIProvider):
                                 response=part_data.get("response", {}),
                             )
                         ))
+                    elif part_data.get("type") == "text" and part_data.get("text"):
+                        parts.append(protos.Part(text=part_data["text"]))
                 if parts:
                     gemini_role = "model" if role == "assistant" else "user"
                     history.append(protos.Content(role=gemini_role, parts=parts))
@@ -146,16 +151,22 @@ class GoogleProvider(AIProvider):
         # Last user message — may be plain text or structured function responses
         last_content = messages[-1].get("content", "") if messages else ""
         if isinstance(last_content, list):
-            # Structured parts (function responses after tool execution)
+            # Structured parts (function responses after tool execution), plus any
+            # coalesced text blocks (e.g. an approval ack or gist folded onto a
+            # tool_result turn) so they aren't dropped from the sent message.
             parts = []
             for part_data in last_content:
-                if isinstance(part_data, dict) and part_data.get("_type") == "function_response":
+                if not isinstance(part_data, dict):
+                    continue
+                if part_data.get("_type") == "function_response":
                     parts.append(protos.Part(
                         function_response=protos.FunctionResponse(
                             name=part_data["name"],
                             response=part_data.get("response", {}),
                         )
                     ))
+                elif part_data.get("type") == "text" and part_data.get("text"):
+                    parts.append(protos.Part(text=part_data["text"]))
             send_msg = protos.Content(role="user", parts=parts) if parts else ""
         else:
             send_msg = last_content

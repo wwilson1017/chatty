@@ -193,3 +193,55 @@ def test_tool_execute_rejects_non_write(chat_client, email_tool):
         json={"tool": "lookup_thing", "args": {}},
     )
     assert resp.status_code == 400
+
+
+def test_conversation_fetch_merges_result_previews_and_strips_full(
+        chat_client, mock_provider, email_tool):
+    # On reload the UI reads each tool_call's `result` preview, but per-iteration
+    # rows keep full results in a separate column that the UI fetch strips. The
+    # fetch must fold a capped preview back into tool_calls so results still show.
+    import json
+    agent = make_agent(chat_client)
+    mock_provider.set_responses([
+        [{"type": "_turn_complete",
+          "tool_calls": [{"name": "lookup_thing", "id": "tu1", "args": {"q": "x"}}],
+          "stop_reason": "tool_use", "usage": {}}],
+        MockAIProvider._default_response(),
+    ])
+    events = parse_sse(chat(chat_client, agent, tool_mode="power"))
+    cid = next(e["id"] for e in events if e["type"] == "conversation_id")
+
+    data = chat_client.get(f"/api/agents/{agent['id']}/conversations/{cid}").json()
+    tool_row = next(m for m in data["messages"] if m.get("tool_calls"))
+    # The uncapped full-results column never reaches the browser…
+    assert "tool_results" not in tool_row
+    # …and the executed result is merged into the matching tool_call as a preview.
+    calls = json.loads(tool_row["tool_calls"])
+    assert calls[0]["tool_use_id"] == "tu1"
+    assert calls[0]["result"] and "ok" in calls[0]["result"]
+
+
+def test_merge_tool_result_previews_unit():
+    from agents.router import _merge_tool_result_previews, _UI_RESULT_PREVIEW_CAP
+    import json
+    big = "Z" * (_UI_RESULT_PREVIEW_CAP + 500)
+    msg = {
+        "tool_calls": json.dumps([
+            {"tool": "a", "tool_use_id": "t1", "args": {}},
+            {"tool": "b", "tool_use_id": "t2", "args": {}, "result": "kept"},
+        ]),
+        "tool_results": json.dumps([
+            {"tool_use_id": "t1", "tool_name": "a", "content": big},
+            {"tool_use_id": "t2", "tool_name": "b", "content": "ignored"},
+        ]),
+    }
+    _merge_tool_result_previews(msg)
+    calls = json.loads(msg["tool_calls"])
+    assert len(calls[0]["result"]) == _UI_RESULT_PREVIEW_CAP   # capped
+    assert calls[1]["result"] == "kept"                        # existing preserved
+    # A row missing tool_results is a no-op (no result invented).
+    only_calls = {"tool_calls": json.dumps([{"tool": "a", "tool_use_id": "t1", "args": {}}])}
+    _merge_tool_result_previews(only_calls)
+    assert "result" not in json.loads(only_calls["tool_calls"])[0]
+    # Malformed JSON must not raise.
+    _merge_tool_result_previews({"tool_calls": "not json", "tool_results": "[]"})

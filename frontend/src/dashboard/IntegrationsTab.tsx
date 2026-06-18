@@ -387,7 +387,16 @@ export function IntegrationsTab() {
                   <Icon size={16} strokeWidth={1.75} />
                 </div>
                 <div>
-                  <p style={{ fontSize: 14, color: '#EDF0F4', margin: 0 }}>{integration.name}</p>
+                  <p style={{ fontSize: 14, color: '#EDF0F4', margin: 0, display: 'flex', alignItems: 'center', gap: 8 }}>
+                    {integration.name}
+                    {integration.deprecated && (
+                      <span style={{
+                        fontSize: 10, fontWeight: 600, letterSpacing: 0.3, textTransform: 'uppercase',
+                        color: '#E0A458', background: 'rgba(224,164,88,0.12)',
+                        border: '1px solid rgba(224,164,88,0.3)', borderRadius: 4, padding: '1px 6px',
+                      }}>Deprecated · Frozen</span>
+                    )}
+                  </p>
                   <p style={{ fontSize: 11, color: 'rgba(237,240,244,0.38)', marginTop: 2 }}>{integration.description}</p>
                 </div>
               </div>
