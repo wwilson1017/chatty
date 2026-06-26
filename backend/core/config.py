@@ -73,11 +73,30 @@ DRIVE_SCOPE_LEVELS = {
     "full": ["https://www.googleapis.com/auth/drive"],
 }
 
+# Bundled Workspace service: Docs + Sheets + Slides. "read" grants the
+# read-only variant of each API; "edit" grants full create/read/update.
+# Deleting a Workspace file is a Drive operation (delete_drive_file), gated
+# on Drive write — not on these scopes.
+WORKSPACE_SCOPE_LEVELS = {
+    "none": [],
+    "read": [
+        "https://www.googleapis.com/auth/documents.readonly",
+        "https://www.googleapis.com/auth/spreadsheets.readonly",
+        "https://www.googleapis.com/auth/presentations.readonly",
+    ],
+    "edit": [
+        "https://www.googleapis.com/auth/documents",
+        "https://www.googleapis.com/auth/spreadsheets",
+        "https://www.googleapis.com/auth/presentations",
+    ],
+}
+
 
 def build_google_scopes(
     gmail_level: str = "none",
     calendar_level: str = "none",
     drive_level: str = "none",
+    workspace_level: str = "none",
     include_ai: bool = False,
 ) -> list[str]:
     """Build the Google OAuth scope list for a user-chosen access profile.
@@ -91,6 +110,7 @@ def build_google_scopes(
     scopes.extend(GMAIL_SCOPE_LEVELS.get(gmail_level, []))
     scopes.extend(CALENDAR_SCOPE_LEVELS.get(calendar_level, []))
     scopes.extend(DRIVE_SCOPE_LEVELS.get(drive_level, []))
+    scopes.extend(WORKSPACE_SCOPE_LEVELS.get(workspace_level, []))
     # De-duplicate while preserving order
     seen: set[str] = set()
     deduped = []

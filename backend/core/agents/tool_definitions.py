@@ -1018,6 +1018,286 @@ DRIVE_WRITE_TOOLS = [
         "kind": "drive",
         "writes": True,
     },
+    {
+        "name": "delete_drive_file",
+        "description": "Delete a Google Drive file (including a Google Doc, Sheet, or Slides deck) by ID. Moves it to Trash (recoverable) by default; set permanent=true for an irreversible hard delete. To delete an arbitrary existing file the Drive scope must be 'full' (the 'app files only' scope can only delete files this app created).",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "file_id": {"type": "string", "description": "ID of the file to delete"},
+                "permanent": {"type": "boolean", "description": "True to permanently delete instead of trashing (default false)"},
+            },
+            "required": ["file_id"],
+        },
+        "kind": "drive",
+        "writes": True,
+    },
+]
+
+
+# ── Workspace tools (Docs / Sheets / Slides) ──────────────────────────────────
+# Bundled "workspace" service. Reads/edits operate on a known file ID; find a
+# file's ID with search_drive_files and delete it with delete_drive_file.
+
+WORKSPACE_READ_TOOLS = [
+    {
+        "name": "read_google_doc",
+        "description": "Read the title and plain-text body of a Google Doc by document ID.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "document_id": {"type": "string", "description": "Google Doc document ID"},
+                "max_chars": {"type": "integer", "description": "Max characters of body to return (default 50000)"},
+            },
+            "required": ["document_id"],
+        },
+        "kind": "workspace",
+        "writes": False,
+    },
+    {
+        "name": "read_sheet_range",
+        "description": "Read cell values from a Google Sheet over an A1 range, e.g. \"Sheet1!A1:D20\". Returns a 2D array of rows.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "spreadsheet_id": {"type": "string", "description": "Google Sheets spreadsheet ID"},
+                "range": {"type": "string", "description": "A1 notation range, e.g. 'Sheet1!A1:D20'"},
+            },
+            "required": ["spreadsheet_id", "range"],
+        },
+        "kind": "workspace",
+        "writes": False,
+    },
+    {
+        "name": "read_sheet_metadata",
+        "description": "Get a spreadsheet's title and the list of its sheets/tabs (name, sheetId, dimensions). Use before reading/writing to discover tab names.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "spreadsheet_id": {"type": "string", "description": "Google Sheets spreadsheet ID"},
+            },
+            "required": ["spreadsheet_id"],
+        },
+        "kind": "workspace",
+        "writes": False,
+    },
+    {
+        "name": "read_presentation",
+        "description": "Read a Google Slides presentation's title and the plain text of each slide, by presentation ID.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "presentation_id": {"type": "string", "description": "Google Slides presentation ID"},
+                "max_chars": {"type": "integer", "description": "Max characters of text to return (default 50000)"},
+            },
+            "required": ["presentation_id"],
+        },
+        "kind": "workspace",
+        "writes": False,
+    },
+]
+
+_SHEET_VALUES_SCHEMA = {
+    "type": "array",
+    "description": "2D array of rows; each row is an array of cell values",
+    "items": {
+        "type": "array",
+        "items": {"type": ["string", "number", "boolean", "null"]},
+    },
+}
+
+WORKSPACE_WRITE_TOOLS = [
+    # Docs
+    {
+        "name": "create_google_doc",
+        "description": "Create a new Google Doc, optionally seeded with initial body text. Returns the new document ID and web link.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "title": {"type": "string", "description": "Title for the new document"},
+                "content": {"type": "string", "description": "Optional initial body text"},
+            },
+            "required": ["title"],
+        },
+        "kind": "workspace",
+        "writes": True,
+    },
+    {
+        "name": "insert_doc_text",
+        "description": "Insert text into a Google Doc at a 1-based character index (default 1 = start of the body).",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "document_id": {"type": "string", "description": "Google Doc document ID"},
+                "text": {"type": "string", "description": "Text to insert"},
+                "index": {"type": "integer", "description": "1-based insertion index (default 1)"},
+            },
+            "required": ["document_id", "text"],
+        },
+        "kind": "workspace",
+        "writes": True,
+    },
+    {
+        "name": "append_doc_text",
+        "description": "Append text to the end of a Google Doc's body (adds a leading newline if the text does not start with one).",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "document_id": {"type": "string", "description": "Google Doc document ID"},
+                "text": {"type": "string", "description": "Text to append"},
+            },
+            "required": ["document_id", "text"],
+        },
+        "kind": "workspace",
+        "writes": True,
+    },
+    {
+        "name": "replace_doc_text",
+        "description": "Find and replace all occurrences of a string in a Google Doc. Returns how many occurrences changed. Great for filling templates.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "document_id": {"type": "string", "description": "Google Doc document ID"},
+                "find": {"type": "string", "description": "Text to find"},
+                "replace": {"type": "string", "description": "Replacement text"},
+                "match_case": {"type": "boolean", "description": "Case-sensitive match (default false)"},
+            },
+            "required": ["document_id", "find", "replace"],
+        },
+        "kind": "workspace",
+        "writes": True,
+    },
+    # Sheets
+    {
+        "name": "write_sheet_range",
+        "description": "Overwrite a Google Sheet A1 range with a 2D array of values (USER_ENTERED, so formulas and dates are parsed).",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "spreadsheet_id": {"type": "string", "description": "Google Sheets spreadsheet ID"},
+                "range": {"type": "string", "description": "A1 range to write, e.g. 'Sheet1!A1'"},
+                "values": _SHEET_VALUES_SCHEMA,
+            },
+            "required": ["spreadsheet_id", "range", "values"],
+        },
+        "kind": "workspace",
+        "writes": True,
+    },
+    {
+        "name": "append_sheet_rows",
+        "description": "Append rows after the last row of data in a Google Sheet (INSERT_ROWS, USER_ENTERED).",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "spreadsheet_id": {"type": "string", "description": "Google Sheets spreadsheet ID"},
+                "range": {"type": "string", "description": "A1 range identifying the table, e.g. 'Sheet1!A:C'"},
+                "values": _SHEET_VALUES_SCHEMA,
+            },
+            "required": ["spreadsheet_id", "range", "values"],
+        },
+        "kind": "workspace",
+        "writes": True,
+    },
+    {
+        "name": "clear_sheet_range",
+        "description": "Clear all values in a Google Sheet A1 range (keeps formatting).",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "spreadsheet_id": {"type": "string", "description": "Google Sheets spreadsheet ID"},
+                "range": {"type": "string", "description": "A1 range to clear, e.g. 'Sheet1!A2:Z'"},
+            },
+            "required": ["spreadsheet_id", "range"],
+        },
+        "kind": "workspace",
+        "writes": True,
+    },
+    {
+        "name": "create_spreadsheet",
+        "description": "Create a new Google Sheets spreadsheet. Returns the new spreadsheet ID and web link.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "title": {"type": "string", "description": "Title for the new spreadsheet"},
+            },
+            "required": ["title"],
+        },
+        "kind": "workspace",
+        "writes": True,
+    },
+    {
+        "name": "add_sheet_tab",
+        "description": "Add a new sheet/tab to an existing Google Sheets spreadsheet.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "spreadsheet_id": {"type": "string", "description": "Google Sheets spreadsheet ID"},
+                "title": {"type": "string", "description": "Title for the new tab"},
+            },
+            "required": ["spreadsheet_id", "title"],
+        },
+        "kind": "workspace",
+        "writes": True,
+    },
+    # Slides
+    {
+        "name": "create_presentation",
+        "description": "Create a new Google Slides presentation. Returns the presentation ID, first slide object ID, and web link.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "title": {"type": "string", "description": "Title for the new presentation"},
+            },
+            "required": ["title"],
+        },
+        "kind": "workspace",
+        "writes": True,
+    },
+    {
+        "name": "add_slide",
+        "description": "Add a new slide to a Google Slides presentation using a predefined layout (e.g. BLANK, TITLE, TITLE_AND_BODY). Returns the new slide's object ID.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "presentation_id": {"type": "string", "description": "Google Slides presentation ID"},
+                "layout": {"type": "string", "description": "Predefined layout name (default BLANK)"},
+            },
+            "required": ["presentation_id"],
+        },
+        "kind": "workspace",
+        "writes": True,
+    },
+    {
+        "name": "insert_slide_text",
+        "description": "Add a text box to a specific slide and insert text into it. Use a slide_object_id from read_presentation, create_presentation, or add_slide.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "presentation_id": {"type": "string", "description": "Google Slides presentation ID"},
+                "slide_object_id": {"type": "string", "description": "Object ID of the target slide/page"},
+                "text": {"type": "string", "description": "Text to place in the new text box"},
+            },
+            "required": ["presentation_id", "slide_object_id", "text"],
+        },
+        "kind": "workspace",
+        "writes": True,
+    },
+    {
+        "name": "replace_presentation_text",
+        "description": "Find and replace all occurrences of a string across an entire Google Slides presentation. Returns how many occurrences changed. Great for filling templates.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "presentation_id": {"type": "string", "description": "Google Slides presentation ID"},
+                "find": {"type": "string", "description": "Text to find"},
+                "replace": {"type": "string", "description": "Replacement text"},
+                "match_case": {"type": "boolean", "description": "Case-sensitive match (default false)"},
+            },
+            "required": ["presentation_id", "find", "replace"],
+        },
+        "kind": "workspace",
+        "writes": True,
+    },
 ]
 
 
@@ -1676,9 +1956,12 @@ def get_tool_definitions(
     integration_tools: list[dict] | None = None,
     dynamic_real_tools: list[dict] | None = None,
     import_mode: bool = False,
+    workspace_read_enabled: bool = False,
+    workspace_write_enabled: bool = False,
     multi_gmail: bool = False,
     multi_calendar: bool = False,
     multi_drive: bool = False,
+    multi_workspace: bool = False,
     background_mode: bool = False,
 ) -> list[dict]:
     """Return the full list of tool definitions for the given feature flags.
@@ -1726,6 +2009,12 @@ def get_tool_definitions(
     if drive_write_enabled:
         tools.extend(DRIVE_WRITE_TOOLS)
 
+    # Workspace (Docs / Sheets / Slides)
+    if workspace_read_enabled:
+        tools.extend(WORKSPACE_READ_TOOLS)
+    if workspace_write_enabled:
+        tools.extend(WORKSPACE_WRITE_TOOLS)
+
     if web_enabled:
         tools.extend(WEB_TOOLS)
     if real_tools_enabled:
@@ -1754,6 +2043,8 @@ def get_tool_definitions(
         multi_services.add("calendar")
     if multi_drive:
         multi_services.add("drive")
+    if multi_workspace:
+        multi_services.add("workspace")
     if multi_services:
         import copy
         _ACCOUNT_PROP = {

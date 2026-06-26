@@ -138,7 +138,8 @@ def _normalize_agent(row: dict) -> dict:
     except (json.JSONDecodeError, TypeError):
         logger.warning("Malformed google_accounts for agent %s, treating as empty", d.get("id"))
         parsed = {}
-    for svc in ("gmail", "calendar", "drive"):
+    from integrations.google.policy import GOOGLE_SERVICES
+    for svc in GOOGLE_SERVICES:
         val = parsed.get(svc)
         if isinstance(val, str):
             parsed[svc] = [val] if val else []

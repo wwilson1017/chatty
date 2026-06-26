@@ -177,13 +177,14 @@ def _fire_broken_alerts(account_id: str, email: str) -> None:
     try:
         from agents.db import list_agents
         from core.agents.alerts.service import create_alert
+        from integrations.google.policy import GOOGLE_SERVICES
         for agent in list_agents():
             ga = agent.get("google_accounts", {})
             if not isinstance(ga, dict):
                 continue
             uses_account = any(
                 account_id in (ga.get(svc) or [])
-                for svc in ("gmail", "calendar", "drive")
+                for svc in GOOGLE_SERVICES
             )
             if uses_account:
                 create_alert(
@@ -191,7 +192,7 @@ def _fire_broken_alerts(account_id: str, email: str) -> None:
                     title=f"Google connection broken: {email}",
                     message=(
                         f"The Google account {email} has lost its connection. "
-                        f"Email, calendar, and drive tools for this account are disabled. "
+                        f"Email, calendar, drive, and workspace tools for this account are disabled. "
                         f"Reconnect at Settings → Integrations → Google."
                     ),
                     source="google_connection",
@@ -268,6 +269,24 @@ def get_drive_service(account_id: str):
     """Return an authenticated Drive v3 service for the given account."""
     access = _ensure_fresh_token(account_id)
     return _build_service("drive", "v3", access)
+
+
+def get_docs_service(account_id: str):
+    """Return an authenticated Docs v1 service for the given account."""
+    access = _ensure_fresh_token(account_id)
+    return _build_service("docs", "v1", access)
+
+
+def get_sheets_service(account_id: str):
+    """Return an authenticated Sheets v4 service for the given account."""
+    access = _ensure_fresh_token(account_id)
+    return _build_service("sheets", "v4", access)
+
+
+def get_slides_service(account_id: str):
+    """Return an authenticated Slides v1 service for the given account."""
+    access = _ensure_fresh_token(account_id)
+    return _build_service("slides", "v1", access)
 
 
 # ── Retry wrapper for tool handlers ──────────────────────────────────────────

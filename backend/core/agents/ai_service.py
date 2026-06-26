@@ -256,10 +256,11 @@ When you've naturally covered the key topics:
 
 def _google_accounts_context(account_info_map: dict[str, dict], google_accounts: dict) -> str:
     """Build system prompt section listing available and broken Google accounts."""
+    from integrations.google.policy import GOOGLE_SERVICES
     # Collect broken accounts across all assigned services
     broken_emails = []
     seen_broken = set()
-    for svc in ("gmail", "calendar", "drive"):
+    for svc in GOOGLE_SERVICES:
         for aid in google_accounts.get(svc, []):
             if aid in seen_broken:
                 continue
@@ -270,7 +271,7 @@ def _google_accounts_context(account_info_map: dict[str, dict], google_accounts:
 
     # Multi-account context (existing behavior)
     sections = []
-    for service in ("gmail", "calendar", "drive"):
+    for service in GOOGLE_SERVICES:
         ids = google_accounts.get(service, [])
         if len(ids) <= 1:
             continue
@@ -289,7 +290,7 @@ def _google_accounts_context(account_info_map: dict[str, dict], google_accounts:
         parts.append(
             "## Google Accounts\n\n"
             "You have multiple Google accounts available. Use the `account` parameter "
-            "in Gmail/Calendar/Drive tools to specify which account to use.\n"
+            "in Gmail/Calendar/Drive/Workspace tools to specify which account to use.\n"
             "- For read operations: the first listed connected account is used by default.\n"
             "- For write operations (send email, create event, etc.): the first connected "
             "account with write access is used by default.\n"
@@ -301,7 +302,7 @@ def _google_accounts_context(account_info_map: dict[str, dict], google_accounts:
         parts.append(
             "## Google Connection Issues\n\n"
             "The following Google accounts have broken connections. "
-            "Their tools (Gmail, Calendar, Drive) are unavailable until reconnected. "
+            "Their tools (Gmail, Calendar, Drive, Workspace) are unavailable until reconnected. "
             "If the user asks, direct them to Settings → Integrations → Google to reconnect.\n\n"
             + "\n".join(f"- {email}" for email in broken_emails)
         )
@@ -316,7 +317,7 @@ def _google_accounts_context(account_info_map: dict[str, dict], google_accounts:
         email = info.get("email", aid)
         grants = info.get("scope_grants", {})
         missing_services = []
-        for svc in ("gmail", "calendar", "drive"):
+        for svc in GOOGLE_SERVICES:
             has_grant = grants.get(svc, "none") != "none"
             is_assigned = aid in google_accounts.get(svc, [])
             if has_grant and not is_assigned:
@@ -331,7 +332,7 @@ def _google_accounts_context(account_info_map: dict[str, dict], google_accounts:
             "have assigned, let them know it's available and how to assign it:\n\n"
             "**How to assign:** Go to Settings (gear icon) → Integrations tab → "
             "scroll down to the Google card → under \"Agent Assignments\" check the boxes "
-            "next to your name for each service (Gmail, Calendar, Drive) they want you to have.\n\n"
+            "next to your name for each service (Gmail, Calendar, Drive, Workspace) they want you to have.\n\n"
             + "\n".join(unassigned)
         )
 
@@ -868,27 +869,19 @@ async def chat(
     real_tools_dir = str(Path(config.context_dir).parent / "real_tools")
     dynamic_real_tools = load_all_real_tools(real_tools_dir)
 
-    from integrations.google.policy import google_capabilities_union
+    from integrations.google.policy import google_tool_flags
     ga = config.google_accounts
-    gmail_ids = ga.get("gmail", [])
-    cal_ids = ga.get("calendar", [])
-    drive_ids = ga.get("drive", [])
-    gmail_caps = google_capabilities_union(gmail_ids)
-    cal_caps = google_capabilities_union(cal_ids)
-    drive_caps = google_capabilities_union(drive_ids)
+    google_flags = google_tool_flags({
+        "gmail": ga.get("gmail", []),
+        "calendar": ga.get("calendar", []),
+        "drive": ga.get("drive", []),
+        "workspace": ga.get("workspace", []),
+    })
     tool_defs = get_tool_definitions(
         integration_tools=integration_tool_defs,
         dynamic_real_tools=dynamic_real_tools or None,
         import_mode=import_mode,
-        gmail_read_enabled=gmail_caps["gmail_read_enabled"],
-        gmail_send_enabled=gmail_caps["gmail_send_enabled"],
-        calendar_read_enabled=cal_caps["calendar_read_enabled"],
-        calendar_write_enabled=cal_caps["calendar_write_enabled"],
-        drive_read_enabled=drive_caps["drive_read_enabled"],
-        drive_write_enabled=drive_caps["drive_write_enabled"],
-        multi_gmail=len(gmail_ids) > 1,
-        multi_calendar=len(cal_ids) > 1,
-        multi_drive=len(drive_ids) > 1,
+        **google_flags,
     )
     kind_map = _build_kind_map(tool_defs)
     writes_map = build_writes_map(tool_defs)
@@ -1698,26 +1691,18 @@ async def run_sync(
     real_tools_dir = str(Path(config.context_dir).parent / "real_tools")
     dynamic_real_tools = load_all_real_tools(real_tools_dir)
 
-    from integrations.google.policy import google_capabilities_union
+    from integrations.google.policy import google_tool_flags
     ga = config.google_accounts
-    gmail_ids = ga.get("gmail", [])
-    cal_ids = ga.get("calendar", [])
-    drive_ids = ga.get("drive", [])
-    gmail_caps = google_capabilities_union(gmail_ids)
-    cal_caps = google_capabilities_union(cal_ids)
-    drive_caps = google_capabilities_union(drive_ids)
+    google_flags = google_tool_flags({
+        "gmail": ga.get("gmail", []),
+        "calendar": ga.get("calendar", []),
+        "drive": ga.get("drive", []),
+        "workspace": ga.get("workspace", []),
+    })
     tool_defs = get_tool_definitions(
         integration_tools=integration_tool_defs,
         dynamic_real_tools=dynamic_real_tools or None,
-        gmail_read_enabled=gmail_caps["gmail_read_enabled"],
-        gmail_send_enabled=gmail_caps["gmail_send_enabled"],
-        calendar_read_enabled=cal_caps["calendar_read_enabled"],
-        calendar_write_enabled=cal_caps["calendar_write_enabled"],
-        drive_read_enabled=drive_caps["drive_read_enabled"],
-        drive_write_enabled=drive_caps["drive_write_enabled"],
-        multi_gmail=len(gmail_ids) > 1,
-        multi_calendar=len(cal_ids) > 1,
-        multi_drive=len(drive_ids) > 1,
+        **google_flags,
     )
 
     # Apply integration permission ceilings — messaging channels have no approval UI,

@@ -85,7 +85,8 @@ def create_agent_router(
         gmail_ids = ga.get("gmail", [])
         calendar_ids = ga.get("calendar", [])
         drive_ids = ga.get("drive", [])
-        google_connected = bool(gmail_ids or calendar_ids or drive_ids)
+        workspace_ids = ga.get("workspace", [])
+        google_connected = bool(gmail_ids or calendar_ids or drive_ids or workspace_ids)
 
         from integrations.registry import list_google_accounts as _list_ga
         all_ga = _list_ga()
@@ -100,6 +101,7 @@ def create_agent_router(
             gmail_account_ids=gmail_ids,
             calendar_account_ids=calendar_ids,
             drive_account_ids=drive_ids,
+            workspace_account_ids=workspace_ids,
             account_info_map=account_info_map,
         )
 

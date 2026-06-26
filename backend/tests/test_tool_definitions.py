@@ -59,6 +59,26 @@ class TestGoogleFlagGating:
         assert "search_emails" in names
         assert "send_email" not in names
 
+    def test_workspace_read_write_gating(self):
+        read_names = _tool_names(get_tool_definitions(workspace_read_enabled=True))
+        assert "read_google_doc" in read_names
+        assert "read_sheet_range" in read_names
+        assert "read_presentation" in read_names
+        assert "create_google_doc" not in read_names
+
+        write_names = _tool_names(get_tool_definitions(workspace_write_enabled=True))
+        assert {"create_google_doc", "replace_doc_text", "write_sheet_range",
+                "add_sheet_tab", "create_presentation", "add_slide"} <= write_names
+
+    def test_workspace_disabled_by_default(self):
+        names = _tool_names(get_tool_definitions())
+        assert "read_google_doc" not in names
+        assert "create_presentation" not in names
+
+    def test_delete_drive_file_gated_on_drive_write(self):
+        assert "delete_drive_file" not in _tool_names(get_tool_definitions(drive_read_enabled=True))
+        assert "delete_drive_file" in _tool_names(get_tool_definitions(drive_write_enabled=True))
+
 
 class TestPlaybookTools:
     def test_playbook_tools_present(self):
@@ -121,6 +141,19 @@ class TestMultiAccountInjection:
         for tool in gmail_tools:
             props = tool["input_schema"]["properties"]
             assert "account" not in props
+
+    def test_multi_workspace_injects_account_param(self):
+        defs = get_tool_definitions(workspace_write_enabled=True, multi_workspace=True)
+        ws_tools = [t for t in defs if t.get("kind") == "workspace"]
+        assert ws_tools
+        for tool in ws_tools:
+            assert "account" in tool["input_schema"]["properties"], f"{tool['name']} missing account param"
+
+    def test_single_workspace_no_injection(self):
+        defs = get_tool_definitions(workspace_write_enabled=True, multi_workspace=False)
+        ws_tools = [t for t in defs if t.get("kind") == "workspace"]
+        for tool in ws_tools:
+            assert "account" not in tool["input_schema"]["properties"]
 
 
 class TestToolMerging:

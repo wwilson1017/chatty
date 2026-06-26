@@ -266,3 +266,23 @@ def copy_file_op(
         fields="id,name,mimeType,modifiedTime,webViewLink",
     ).execute()
     return {"ok": True, **_format_file(copied)}
+
+
+def delete_file_op(service, file_id: str, permanent: bool = False) -> dict:
+    """Delete a Drive file. Trashes (recoverable) by default; permanent=True is
+    an irreversible hard delete. Trashing requires the file to be owned by the
+    user; this also covers deleting Docs/Sheets/Slides created via Workspace."""
+    if permanent:
+        service.files().delete(fileId=file_id).execute()
+        return {"ok": True, "file_id": file_id, "permanently_deleted": True}
+    updated = service.files().update(
+        fileId=file_id,
+        body={"trashed": True},
+        fields="id,name,trashed",
+    ).execute()
+    return {
+        "ok": True,
+        "file_id": updated.get("id", file_id),
+        "name": updated.get("name", ""),
+        "trashed": updated.get("trashed", True),
+    }

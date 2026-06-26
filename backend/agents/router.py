@@ -265,9 +265,10 @@ async def update_agent(agent_id: str, body: UpdateAgentRequest, user=Depends(get
 
     if "google_accounts" in updates:
         ga = updates["google_accounts"]
-        _ALLOWED_GA_KEYS = {"gmail", "calendar", "drive"}
+        from integrations.google.policy import GOOGLE_SERVICES
+        _ALLOWED_GA_KEYS = set(GOOGLE_SERVICES)
         if not isinstance(ga, dict) or not set(ga.keys()).issubset(_ALLOWED_GA_KEYS):
-            raise HTTPException(status_code=400, detail="google_accounts keys must be a subset of {gmail, calendar, drive}")
+            raise HTTPException(status_code=400, detail=f"google_accounts keys must be a subset of {{{', '.join(GOOGLE_SERVICES)}}}")
         for svc, ids in ga.items():
             if not isinstance(ids, list) or not all(isinstance(i, str) and i for i in ids):
                 raise HTTPException(status_code=400, detail=f"google_accounts[{svc}] must be a list of non-empty strings")
@@ -520,7 +521,8 @@ def _stream_chat(agent: dict, messages: list, training_mode: bool, conversation_
     gmail_ids = ga.get("gmail", [])
     calendar_ids = ga.get("calendar", [])
     drive_ids = ga.get("drive", [])
-    google_connected = bool(gmail_ids or calendar_ids or drive_ids)
+    workspace_ids = ga.get("workspace", [])
+    google_connected = bool(gmail_ids or calendar_ids or drive_ids or workspace_ids)
 
     from integrations.registry import list_google_accounts as _list_ga
     all_ga = _list_ga()
@@ -545,6 +547,7 @@ def _stream_chat(agent: dict, messages: list, training_mode: bool, conversation_
         gmail_account_ids=gmail_ids,
         calendar_account_ids=calendar_ids,
         drive_account_ids=drive_ids,
+        workspace_account_ids=workspace_ids,
         account_info_map=account_info_map,
         integration_executors=integration_executors,
         agent_slug=agent["slug"],
@@ -1048,7 +1051,8 @@ async def tool_execute(agent_id: str, req: ToolExecuteRequest, user=Depends(get_
     gmail_ids = ga.get("gmail", [])
     calendar_ids = ga.get("calendar", [])
     drive_ids = ga.get("drive", [])
-    google_connected = bool(gmail_ids or calendar_ids or drive_ids)
+    workspace_ids = ga.get("workspace", [])
+    google_connected = bool(gmail_ids or calendar_ids or drive_ids or workspace_ids)
 
     from integrations.registry import list_google_accounts as _list_ga
     all_ga = _list_ga()
@@ -1067,6 +1071,7 @@ async def tool_execute(agent_id: str, req: ToolExecuteRequest, user=Depends(get_
         gmail_account_ids=gmail_ids,
         calendar_account_ids=calendar_ids,
         drive_account_ids=drive_ids,
+        workspace_account_ids=workspace_ids,
         account_info_map=account_info_map,
         integration_executors=integration_executors,
         agent_slug=agent["slug"],
@@ -1075,18 +1080,14 @@ async def tool_execute(agent_id: str, req: ToolExecuteRequest, user=Depends(get_
     )
 
     from core.agents.tool_definitions import get_tool_definitions, build_writes_map
-    from integrations.google.policy import google_capabilities_union
-    gmail_caps = google_capabilities_union(gmail_ids)
-    cal_caps = google_capabilities_union(calendar_ids)
-    drive_caps = google_capabilities_union(drive_ids)
+    from integrations.google.policy import google_tool_flags
+    google_flags = google_tool_flags({
+        "gmail": gmail_ids, "calendar": calendar_ids,
+        "drive": drive_ids, "workspace": workspace_ids,
+    })
     tool_defs = get_tool_definitions(
         integration_tools=integration_tool_defs,
-        gmail_read_enabled=gmail_caps["gmail_read_enabled"],
-        gmail_send_enabled=gmail_caps["gmail_send_enabled"],
-        calendar_read_enabled=cal_caps["calendar_read_enabled"],
-        calendar_write_enabled=cal_caps["calendar_write_enabled"],
-        drive_read_enabled=drive_caps["drive_read_enabled"],
-        drive_write_enabled=drive_caps["drive_write_enabled"],
+        **google_flags,
     )
     writes_map = build_writes_map(tool_defs)
     if not writes_map.get(req.tool, False):

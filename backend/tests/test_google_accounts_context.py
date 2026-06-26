@@ -3,11 +3,11 @@
 from core.agents.ai_service import _google_accounts_context
 
 
-def _make_info(email, *, status="ok", gmail="send", calendar="full", drive="full"):
+def _make_info(email, *, status="ok", gmail="send", calendar="full", drive="full", workspace="none"):
     return {
         "email": email,
         "connection_status": status,
-        "scope_grants": {"gmail": gmail, "calendar": calendar, "drive": drive},
+        "scope_grants": {"gmail": gmail, "calendar": calendar, "drive": drive, "workspace": workspace},
     }
 
 
@@ -62,3 +62,27 @@ class TestUnassignedAccounts:
     def test_empty_account_info_map(self):
         result = _google_accounts_context({}, {})
         assert result == ""
+
+
+class TestWorkspaceService:
+    def test_workspace_grant_unassigned_is_surfaced(self):
+        info_map = {"a1": _make_info("alice@example.com", workspace="edit")}
+        ga = {"gmail": ["a1"], "calendar": ["a1"], "drive": ["a1"]}
+        result = _google_accounts_context(info_map, ga)
+        assert "Workspace not assigned" in result
+
+    def test_workspace_fully_assigned_not_listed(self):
+        info_map = {"a1": _make_info("alice@example.com", workspace="edit")}
+        ga = {"gmail": ["a1"], "calendar": ["a1"], "drive": ["a1"], "workspace": ["a1"]}
+        result = _google_accounts_context(info_map, ga)
+        assert "Not Assigned" not in result
+
+    def test_multi_workspace_section_uses_account_param_copy(self):
+        info_map = {
+            "a1": _make_info("w1@example.com", gmail="none", calendar="none", drive="none", workspace="edit"),
+            "a2": _make_info("w2@example.com", gmail="none", calendar="none", drive="none", workspace="edit"),
+        }
+        ga = {"workspace": ["a1", "a2"]}
+        result = _google_accounts_context(info_map, ga)
+        assert "Workspace" in result
+        assert "w1@example.com" in result and "w2@example.com" in result
