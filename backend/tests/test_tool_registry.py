@@ -69,6 +69,11 @@ class TestDriveDeleteGating:
         reg = _ws_registry(str(tmp_path), drive_level="full")
         assert reg._resolve_account("drive", None, "delete_drive_file") == "d1"
 
+    def test_delete_allowed_with_file_scope(self, tmp_path):
+        # drive.file can delete app-created files, so the gate must allow it
+        reg = _ws_registry(str(tmp_path), drive_level="file")
+        assert reg._resolve_account("drive", None, "delete_drive_file") == "d1"
+
 
 # ── Context tools: real filesystem ──────────────────────────────────────────
 

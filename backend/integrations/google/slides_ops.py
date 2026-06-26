@@ -24,15 +24,23 @@ def _new_id(prefix: str) -> str:
     return f"{prefix}_{secrets.token_hex(8)}"
 
 
+def _text_runs(text: dict) -> list[str]:
+    return [te["textRun"]["content"]
+            for te in text.get("textElements", [])
+            if te.get("textRun", {}).get("content")]
+
+
 def _extract_slide_text(page: dict) -> str:
-    """Flatten all text runs on a single slide/page into plain text."""
+    """Flatten all text runs on a single slide/page into plain text.
+
+    Covers both shape text and table cells (the two common text containers).
+    """
     parts: list[str] = []
     for el in page.get("pageElements", []):
-        text = el.get("shape", {}).get("text", {})
-        for te in text.get("textElements", []):
-            run = te.get("textRun", {})
-            if run.get("content"):
-                parts.append(run["content"])
+        parts.extend(_text_runs(el.get("shape", {}).get("text", {})))
+        for row in el.get("table", {}).get("tableRows", []):
+            for cell in row.get("tableCells", []):
+                parts.extend(_text_runs(cell.get("text", {})))
     return "".join(parts)
 
 

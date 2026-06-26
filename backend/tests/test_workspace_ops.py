@@ -136,6 +136,23 @@ class TestSlidesOps:
         assert out["title"] == "Deck"
         assert out["slides"][0] == {"slide_object_id": "s1", "text": "Title"}
 
+    def test_get_presentation_extracts_table_cell_text(self):
+        service = MagicMock()
+        service.presentations.return_value.get.return_value.execute.return_value = {
+            "presentationId": "P1", "title": "Deck",
+            "slides": [
+                {"objectId": "s1", "pageElements": [
+                    {"table": {"tableRows": [
+                        {"tableCells": [
+                            {"text": {"textElements": [{"textRun": {"content": "Cell"}}]}},
+                        ]},
+                    ]}},
+                ]},
+            ],
+        }
+        out = slides_ops.get_presentation_op(service, "P1")
+        assert out["slides"][0]["text"] == "Cell"
+
     def test_add_slide_creates_slide_with_layout(self):
         service = MagicMock()
         service.presentations.return_value.batchUpdate.return_value.execute.return_value = {}

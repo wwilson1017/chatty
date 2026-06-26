@@ -15,8 +15,6 @@ export interface Agent {
   calendar_write_enabled?: boolean;
   drive_enabled?: boolean;
   drive_write_enabled?: boolean;
-  workspace_read_enabled?: boolean;
-  workspace_write_enabled?: boolean;
   google_accounts?: { gmail?: string[]; calendar?: string[]; drive?: string[]; workspace?: string[] };
   whatsapp_session_id?: string;
   telegram_enabled: boolean;

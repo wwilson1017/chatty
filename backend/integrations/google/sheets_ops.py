@@ -29,13 +29,15 @@ def get_values_op(service, spreadsheet_id: str, range_a1: str) -> dict:
     truncated = False
     cells = sum(len(row) for row in values)
     if cells > _MAX_READ_CELLS:
+        # Keep whole rows up to the cap, but always return at least the first
+        # row so a very wide first row doesn't yield "truncated but 0 rows".
         kept: list[list] = []
         running = 0
         for row in values:
-            running += len(row)
-            if running > _MAX_READ_CELLS:
+            if kept and running + len(row) > _MAX_READ_CELLS:
                 break
             kept.append(row)
+            running += len(row)
         values = kept
         truncated = True
     return {
