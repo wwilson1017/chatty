@@ -533,7 +533,9 @@ class ToolRegistry:
                 folder_id=args.get("folder_id"),
             )
         elif tool_name == "delete_drive_file":
-            permanent = args.get("permanent", False)
+            # Strict True only: a stray string like "false" must NOT trigger an
+            # irreversible delete — anything non-True falls back to safe trashing.
+            permanent = args.get("permanent", False) is True
             if permanent:
                 # Irreversible hard-delete requires full Drive access; 'file' scope
                 # may only trash (recoverable). Blocks a prompt-injected agent from

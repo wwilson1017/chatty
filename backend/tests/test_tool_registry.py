@@ -104,6 +104,13 @@ class TestDriveDeleteGating:
         res = _run(reg.execute_tool("delete_drive_file", {"file_id": "F", "permanent": True}, "drive"))
         assert "Full access" not in res.get("error", "")
 
+    def test_permanent_string_false_is_not_permanent(self, tmp_path):
+        # A non-True value (e.g. the string "false") must fall back to safe trash,
+        # so the permanent-scope gate is skipped even on a file-scoped account.
+        reg = _ws_registry(str(tmp_path), drive_level="file")
+        res = _run(reg.execute_tool("delete_drive_file", {"file_id": "F", "permanent": "false"}, "drive"))
+        assert "Full access" not in res.get("error", "")
+
 
 # ── Context tools: real filesystem ──────────────────────────────────────────
 
