@@ -13,9 +13,15 @@ logger = logging.getLogger(__name__)
 
 _SHEET_URL = "https://docs.google.com/spreadsheets/d/{}/edit"
 
-# Soft cap on the number of cells returned by a single read so a huge range
-# can't blow up tool output / context. Rows past the cap are dropped.
+# Soft caps on a single read so a huge range — or a small range of very large
+# cell strings — can't blow up tool output / context. Whole rows past either
+# cap are dropped (at least the first row is always returned).
 _MAX_READ_CELLS = 20000
+_MAX_READ_CHARS = 200_000
+
+
+def _row_chars(row: list) -> int:
+    return sum(len(str(c)) for c in row)
 
 
 # ── Read ─────────────────────────────────────────────────────────────────────
@@ -28,16 +34,19 @@ def get_values_op(service, spreadsheet_id: str, range_a1: str) -> dict:
     values = resp.get("values", [])
     truncated = False
     cells = sum(len(row) for row in values)
-    if cells > _MAX_READ_CELLS:
-        # Keep whole rows up to the cap, but always return at least the first
-        # row so a very wide first row doesn't yield "truncated but 0 rows".
+    chars = sum(_row_chars(row) for row in values)
+    if cells > _MAX_READ_CELLS or chars > _MAX_READ_CHARS:
+        # Keep whole rows up to both the cell and character caps, but always
+        # return at least the first row so we never yield "truncated but 0 rows".
         kept: list[list] = []
-        running = 0
+        run_cells = run_chars = 0
         for row in values:
-            if kept and running + len(row) > _MAX_READ_CELLS:
+            rc, rch = len(row), _row_chars(row)
+            if kept and (run_cells + rc > _MAX_READ_CELLS or run_chars + rch > _MAX_READ_CHARS):
                 break
             kept.append(row)
-            running += len(row)
+            run_cells += rc
+            run_chars += rch
         values = kept
         truncated = True
     return {

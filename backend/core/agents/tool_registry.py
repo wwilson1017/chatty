@@ -538,10 +538,24 @@ class ToolRegistry:
                 # Irreversible hard-delete requires full Drive access; 'file' scope
                 # may only trash (recoverable). Blocks a prompt-injected agent from
                 # permanently destroying app-created files under a narrow grant.
-                level = self.account_info_map.get(aid, {}).get("scope_grants", {}).get("drive", "none")
-                if level != "full":
-                    return {"error": "Permanent deletion requires 'Full access' Drive scope. "
-                                     "Use permanent=false to move the file to Trash (recoverable)."}
+                def _drive_level(a):
+                    return self.account_info_map.get(a, {}).get("scope_grants", {}).get("drive", "none")
+                if _drive_level(aid) != "full":
+                    # The auto-selected account may be 'file'-scoped while another
+                    # assigned account is 'full'; prefer that one — unless the model
+                    # pinned a specific account by email.
+                    if not email:
+                        full_aid = next(
+                            (a for a in self.drive_account_ids
+                             if self.account_info_map.get(a, {}).get("connection_status") != "broken"
+                             and _drive_level(a) == "full"),
+                            None,
+                        )
+                        if full_aid:
+                            aid = full_aid
+                    if _drive_level(aid) != "full":
+                        return {"error": "Permanent deletion requires 'Full access' Drive scope. "
+                                         "Use permanent=false to move the file to Trash (recoverable)."}
             return delete_drive_file(aid, file_id=args["file_id"], permanent=permanent)
         return {"error": f"Unknown drive tool: {tool_name}"}
 

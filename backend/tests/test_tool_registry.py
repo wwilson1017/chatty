@@ -86,6 +86,24 @@ class TestDriveDeleteGating:
         res = _run(reg.execute_tool("delete_drive_file", {"file_id": "F", "permanent": True}, "drive"))
         assert isinstance(res, dict) and "Full access" in res.get("error", "")
 
+    def test_permanent_delete_prefers_full_account_among_many(self, tmp_path):
+        # First write-capable account is 'file'; a later one is 'full' — permanent
+        # must select the full account rather than failing on the default.
+        reg = ToolRegistry(
+            context_dir=str(tmp_path),
+            drive_account_ids=["d_file", "d_full"],
+            account_info_map={
+                "d_file": {"email": "f@x.com", "connection_status": "ok",
+                           "scope_grants": {"drive": "file"}},
+                "d_full": {"email": "u@x.com", "connection_status": "ok",
+                           "scope_grants": {"drive": "full"}},
+            },
+        )
+        # No real tokens, so the handler resolves to d_full then fails at the API
+        # layer (needs_reconnect) — NOT with the 'Full access' scope error.
+        res = _run(reg.execute_tool("delete_drive_file", {"file_id": "F", "permanent": True}, "drive"))
+        assert "Full access" not in res.get("error", "")
+
 
 # ── Context tools: real filesystem ──────────────────────────────────────────
 

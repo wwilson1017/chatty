@@ -273,12 +273,13 @@ def delete_file_op(service, file_id: str, permanent: bool = False) -> dict:
     an irreversible hard delete. Trashing requires the file to be owned by the
     user; this also covers deleting Docs/Sheets/Slides created via Workspace."""
     if permanent:
-        service.files().delete(fileId=file_id).execute()
+        service.files().delete(fileId=file_id, supportsAllDrives=True).execute()
         return {"ok": True, "file_id": file_id, "permanently_deleted": True}
     updated = service.files().update(
         fileId=file_id,
         body={"trashed": True},
         fields="id,name,trashed",
+        supportsAllDrives=True,
     ).execute()
     return {
         "ok": True,

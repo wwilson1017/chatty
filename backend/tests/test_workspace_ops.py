@@ -103,6 +103,23 @@ class TestDocsOps:
         assert out["content"] == "abcde"
         assert out["truncated"] is True
 
+    def test_get_document_reads_table_cell_text(self):
+        service = MagicMock()
+        service.documents.return_value.get.return_value.execute.return_value = {
+            "documentId": "D", "title": "T",
+            "body": {"content": [
+                {"paragraph": {"elements": [{"textRun": {"content": "Intro "}}]}},
+                {"table": {"tableRows": [
+                    {"tableCells": [
+                        {"content": [{"paragraph": {"elements": [{"textRun": {"content": "C1"}}]}}]},
+                        {"content": [{"paragraph": {"elements": [{"textRun": {"content": "C2"}}]}}]},
+                    ]},
+                ]}},
+            ]},
+        }
+        out = docs_ops.get_document_op(service, "D")
+        assert out["content"] == "Intro C1C2"
+
 
 # ── Sheets ───────────────────────────────────────────────────────────────────
 
@@ -116,6 +133,18 @@ class TestSheetsOps:
         out = sheets_ops.get_values_op(service, "SS", "S!A1:B3")
         assert out["truncated"] is True
         assert out["row_count"] == 1  # first 2-cell row kept; next would exceed cap
+
+    def test_get_values_truncates_on_char_cap(self, monkeypatch):
+        # Few cells, but huge cell strings -> char cap (not cell cap) truncates
+        monkeypatch.setattr(sheets_ops, "_MAX_READ_CELLS", 10000)
+        monkeypatch.setattr(sheets_ops, "_MAX_READ_CHARS", 5)
+        service = MagicMock()
+        service.spreadsheets.return_value.values.return_value.get.return_value.execute.return_value = {
+            "range": "S!A1:A2", "values": [["abc"], ["defghij"]],
+        }
+        out = sheets_ops.get_values_op(service, "SS", "S!A1:A2")
+        assert out["truncated"] is True
+        assert out["row_count"] == 1  # first row kept; second exceeds char cap
 
     def test_update_values_uses_user_entered(self):
         service = MagicMock()
@@ -280,11 +309,12 @@ class TestDriveDelete:
         out = drive_ops.delete_file_op(service, "F")
         _, kwargs = service.files.return_value.update.call_args
         assert kwargs["body"] == {"trashed": True}
+        assert kwargs["supportsAllDrives"] is True  # shared-drive safe
         assert out["trashed"] is True
         service.files.return_value.delete.assert_not_called()
 
     def test_delete_permanent_hard_deletes(self):
         service = MagicMock()
         out = drive_ops.delete_file_op(service, "F", permanent=True)
-        service.files.return_value.delete.assert_called_once_with(fileId="F")
+        service.files.return_value.delete.assert_called_once_with(fileId="F", supportsAllDrives=True)
         assert out["permanently_deleted"] is True

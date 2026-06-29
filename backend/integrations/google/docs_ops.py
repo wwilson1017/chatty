@@ -18,16 +18,32 @@ _DOC_URL = "https://docs.google.com/document/d/{}/edit"
 _MAX_READ_CHARS = 200_000
 
 
-def _extract_doc_text(doc: dict) -> str:
-    """Flatten a Docs document's structured body into plain text."""
+def _structural_text(elements: list) -> list[str]:
+    """Recursively flatten Docs structural elements (paragraphs + table cells)."""
     parts: list[str] = []
-    for element in doc.get("body", {}).get("content", []):
-        paragraph = element.get("paragraph", {})
-        for pe in paragraph.get("elements", []):
-            run = pe.get("textRun", {})
-            if run.get("content"):
-                parts.append(run["content"])
-    return "".join(parts)
+    for element in elements:
+        paragraph = element.get("paragraph")
+        if paragraph:
+            for pe in paragraph.get("elements", []):
+                run = pe.get("textRun", {})
+                if run.get("content"):
+                    parts.append(run["content"])
+            continue
+        table = element.get("table")
+        if table:
+            for row in table.get("tableRows", []):
+                for cell in row.get("tableCells", []):
+                    parts.extend(_structural_text(cell.get("content", [])))
+    return parts
+
+
+def _extract_doc_text(doc: dict) -> str:
+    """Flatten a Docs document's structured body into plain text.
+
+    Walks paragraphs and table cells. Reads the document's primary body (tab 1);
+    additional tabs in multi-tab documents are not included.
+    """
+    return "".join(_structural_text(doc.get("body", {}).get("content", [])))
 
 
 def _end_index(doc: dict) -> int:
