@@ -84,7 +84,12 @@ def google_capabilities(account_id: str = "") -> dict[str, bool]:
 
 
 def google_capabilities_union(account_ids: list[str]) -> dict[str, bool]:
-    """Return capability flags as the union across multiple accounts."""
+    """Return capability flags as the union across multiple accounts.
+
+    Internal helper for google_tool_flags(). New tool-building call sites should
+    use google_tool_flags() instead, which scopes flags per service and emits
+    the multi_* flags ready to spread into get_tool_definitions().
+    """
     if not account_ids:
         return dict(_ALL_DISABLED)
     result = dict(_ALL_DISABLED)

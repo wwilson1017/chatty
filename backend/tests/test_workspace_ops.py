@@ -73,6 +73,36 @@ class TestDocsOps:
         assert req["replaceText"] == "bar"
         assert out["occurrences_changed"] == 3
 
+    def test_insert_text_clamps_index_below_one(self):
+        service = MagicMock()
+        docs_ops.insert_text_op(service, "DOC1", "x", index=0)
+        _, kwargs = service.documents.return_value.batchUpdate.call_args
+        assert kwargs["body"]["requests"][0]["insertText"]["location"]["index"] == 1
+
+    def test_insert_text_passes_positive_index(self):
+        service = MagicMock()
+        docs_ops.insert_text_op(service, "DOC1", "x", index=5)
+        _, kwargs = service.documents.return_value.batchUpdate.call_args
+        assert kwargs["body"]["requests"][0]["insertText"]["location"]["index"] == 5
+
+    def test_append_to_empty_doc_inserts_at_index_one(self):
+        service = MagicMock()
+        service.documents.return_value.get.return_value.execute.return_value = {"body": {"content": []}}
+        docs_ops.append_text_op(service, "DOC1", "hi")
+        _, kwargs = service.documents.return_value.batchUpdate.call_args
+        assert kwargs["body"]["requests"][0]["insertText"]["location"]["index"] == 1
+
+    def test_get_document_clamps_max_chars(self, monkeypatch):
+        monkeypatch.setattr(docs_ops, "_MAX_READ_CHARS", 5)
+        service = MagicMock()
+        service.documents.return_value.get.return_value.execute.return_value = {
+            "documentId": "D", "title": "T",
+            "body": {"content": [{"paragraph": {"elements": [{"textRun": {"content": "abcdefghij"}}]}}]},
+        }
+        out = docs_ops.get_document_op(service, "D", max_chars=10_000_000)
+        assert out["content"] == "abcde"
+        assert out["truncated"] is True
+
 
 # ── Sheets ───────────────────────────────────────────────────────────────────
 
@@ -117,6 +147,45 @@ class TestSheetsOps:
         _, kwargs = service.spreadsheets.return_value.batchUpdate.call_args
         assert kwargs["body"]["requests"][0]["addSheet"]["properties"]["title"] == "Q3"
         assert out["sheet_id"] == 5
+
+    def test_get_metadata_lists_sheets(self):
+        service = MagicMock()
+        service.spreadsheets.return_value.get.return_value.execute.return_value = {
+            "properties": {"title": "Book"},
+            "sheets": [{"properties": {"sheetId": 0, "title": "Tab1",
+                                       "gridProperties": {"rowCount": 100, "columnCount": 26}}}],
+        }
+        out = sheets_ops.get_metadata_op(service, "SS")
+        assert out["title"] == "Book"
+        assert out["sheets"][0] == {"sheet_id": 0, "title": "Tab1", "row_count": 100, "column_count": 26}
+
+    def test_create_spreadsheet_returns_id(self):
+        service = MagicMock()
+        service.spreadsheets.return_value.create.return_value.execute.return_value = {
+            "spreadsheetId": "NEW", "properties": {"title": "Book"},
+        }
+        out = sheets_ops.create_spreadsheet_op(service, "Book")
+        assert out["spreadsheet_id"] == "NEW"
+        assert out["title"] == "Book"
+        assert out["web_link"].endswith("/NEW/edit")
+
+    def test_clear_range_echoes_cleared_range(self):
+        service = MagicMock()
+        service.spreadsheets.return_value.values.return_value.clear.return_value.execute.return_value = {
+            "clearedRange": "S!A2:Z",
+        }
+        out = sheets_ops.clear_values_op(service, "SS", "S!A2:Z")
+        assert out["cleared_range"] == "S!A2:Z"
+
+    def test_get_values_keeps_oversized_first_row(self, monkeypatch):
+        monkeypatch.setattr(sheets_ops, "_MAX_READ_CELLS", 2)
+        service = MagicMock()
+        service.spreadsheets.return_value.values.return_value.get.return_value.execute.return_value = {
+            "range": "S!A1:C1", "values": [["a", "b", "c"]],
+        }
+        out = sheets_ops.get_values_op(service, "SS", "S!A1:C1")
+        assert out["row_count"] == 1  # never returns "truncated but 0 rows"
+        assert out["truncated"] is True
 
 
 # ── Slides ───────────────────────────────────────────────────────────────────
@@ -182,6 +251,22 @@ class TestSlidesOps:
         }
         out = slides_ops.replace_all_text_op(service, "P1", "{{name}}", "Ada")
         assert out["occurrences_changed"] == 2
+
+    def test_get_presentation_truncates_across_slides(self):
+        service = MagicMock()
+        service.presentations.return_value.get.return_value.execute.return_value = {
+            "presentationId": "P1", "title": "Deck",
+            "slides": [
+                {"objectId": "s1", "pageElements": [
+                    {"shape": {"text": {"textElements": [{"textRun": {"content": "AAAAA"}}]}}}]},
+                {"objectId": "s2", "pageElements": [
+                    {"shape": {"text": {"textElements": [{"textRun": {"content": "BBBBB"}}]}}}]},
+            ],
+        }
+        out = slides_ops.get_presentation_op(service, "P1", max_chars=3)
+        assert out["truncated"] is True
+        # first slide truncated to the cap; no trailing empty-text slide entry
+        assert out["slides"] == [{"slide_object_id": "s1", "text": "AAA"}]
 
 
 # ── Drive delete ─────────────────────────────────────────────────────────────

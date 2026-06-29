@@ -13,6 +13,10 @@ logger = logging.getLogger(__name__)
 
 _DOC_URL = "https://docs.google.com/document/d/{}/edit"
 
+# Hard ceiling on returned characters so an agent (or injected document content)
+# can't request an arbitrarily large read and stuff the model context.
+_MAX_READ_CHARS = 200_000
+
 
 def _extract_doc_text(doc: dict) -> str:
     """Flatten a Docs document's structured body into plain text."""
@@ -44,6 +48,7 @@ def _end_index(doc: dict) -> int:
 
 def get_document_op(service, document_id: str, max_chars: int = 50000) -> dict:
     """Read a Google Doc's title and plain-text body (truncated to max_chars)."""
+    max_chars = max(1, min(max_chars, _MAX_READ_CHARS))
     doc = service.documents().get(documentId=document_id).execute()
     body = _extract_doc_text(doc)
     return {

@@ -155,6 +155,14 @@ class TestMultiAccountInjection:
         for tool in ws_tools:
             assert "account" not in tool["input_schema"]["properties"]
 
+    def test_multi_workspace_injects_into_read_tools(self):
+        # injection is keyed on kind, so read tools must get the account param too
+        defs = get_tool_definitions(workspace_read_enabled=True, multi_workspace=True)
+        read_tools = [t for t in defs if t.get("kind") == "workspace" and not t.get("writes")]
+        assert read_tools
+        for tool in read_tools:
+            assert "account" in tool["input_schema"]["properties"], f"{tool['name']} missing account param"
+
 
 class TestToolMerging:
     def test_integration_tools_appended(self):

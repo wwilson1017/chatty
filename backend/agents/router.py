@@ -266,8 +266,7 @@ async def update_agent(agent_id: str, body: UpdateAgentRequest, user=Depends(get
     if "google_accounts" in updates:
         ga = updates["google_accounts"]
         from integrations.google.policy import GOOGLE_SERVICES
-        _ALLOWED_GA_KEYS = set(GOOGLE_SERVICES)
-        if not isinstance(ga, dict) or not set(ga.keys()).issubset(_ALLOWED_GA_KEYS):
+        if not isinstance(ga, dict) or not set(ga.keys()).issubset(GOOGLE_SERVICES):
             raise HTTPException(status_code=400, detail=f"google_accounts keys must be a subset of {{{', '.join(GOOGLE_SERVICES)}}}")
         for svc, ids in ga.items():
             if not isinstance(ids, list) or not all(isinstance(i, str) and i for i in ids):

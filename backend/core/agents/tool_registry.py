@@ -533,10 +533,16 @@ class ToolRegistry:
                 folder_id=args.get("folder_id"),
             )
         elif tool_name == "delete_drive_file":
-            return delete_drive_file(
-                aid, file_id=args["file_id"],
-                permanent=args.get("permanent", False),
-            )
+            permanent = args.get("permanent", False)
+            if permanent:
+                # Irreversible hard-delete requires full Drive access; 'file' scope
+                # may only trash (recoverable). Blocks a prompt-injected agent from
+                # permanently destroying app-created files under a narrow grant.
+                level = self.account_info_map.get(aid, {}).get("scope_grants", {}).get("drive", "none")
+                if level != "full":
+                    return {"error": "Permanent deletion requires 'Full access' Drive scope. "
+                                     "Use permanent=false to move the file to Trash (recoverable)."}
+            return delete_drive_file(aid, file_id=args["file_id"], permanent=permanent)
         return {"error": f"Unknown drive tool: {tool_name}"}
 
     def _execute_workspace(self, tool_name: str, args: dict) -> dict:

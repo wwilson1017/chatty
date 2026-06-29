@@ -1020,12 +1020,12 @@ DRIVE_WRITE_TOOLS = [
     },
     {
         "name": "delete_drive_file",
-        "description": "Delete a Google Drive file (including a Google Doc, Sheet, or Slides deck) by ID. Moves it to Trash (recoverable) by default; set permanent=true for an irreversible hard delete. To delete an arbitrary existing file the Drive scope must be 'full' (the 'app files only' scope can only delete files this app created).",
+        "description": "Delete a Google Drive file (including a Google Doc, Sheet, or Slides deck) by ID. Moves it to Trash (recoverable) by default; set permanent=true for an irreversible hard delete (which requires the 'Full access' Drive scope). To delete an arbitrary existing file the Drive scope must be 'full' (the 'app files only' scope can only act on files this app created).",
         "input_schema": {
             "type": "object",
             "properties": {
                 "file_id": {"type": "string", "description": "ID of the file to delete"},
-                "permanent": {"type": "boolean", "description": "True to permanently delete instead of trashing (default false)"},
+                "permanent": {"type": "boolean", "description": "True to permanently delete instead of trashing (default false). Requires 'Full access' Drive scope."},
             },
             "required": ["file_id"],
         },

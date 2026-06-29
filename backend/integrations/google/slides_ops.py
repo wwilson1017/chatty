@@ -14,6 +14,9 @@ logger = logging.getLogger(__name__)
 
 _SLIDES_URL = "https://docs.google.com/presentation/d/{}/edit"
 
+# Hard ceiling on returned characters (see docs_ops._MAX_READ_CHARS).
+_MAX_READ_CHARS = 200_000
+
 # Default text-box geometry (EMU). A standard slide is 9144000 x 6858000 EMU.
 _BOX_W, _BOX_H = 6858000, 1200000
 _BOX_X, _BOX_Y = 1143000, 1000000
@@ -48,14 +51,18 @@ def _extract_slide_text(page: dict) -> str:
 
 def get_presentation_op(service, presentation_id: str, max_chars: int = 50000) -> dict:
     """Read a presentation's title and per-slide plain text."""
+    max_chars = max(1, min(max_chars, _MAX_READ_CHARS))
     pres = service.presentations().get(presentationId=presentation_id).execute()
     slides = []
     total = 0
     truncated = False
     for page in pres.get("slides", []):
+        if total >= max_chars:
+            truncated = True
+            break
         text = _extract_slide_text(page)
         if total + len(text) > max_chars:
-            text = text[: max(max_chars - total, 0)]
+            text = text[: max_chars - total]
             truncated = True
         total += len(text)
         slides.append({"slide_object_id": page.get("objectId", ""), "text": text})

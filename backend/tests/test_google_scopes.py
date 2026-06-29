@@ -100,3 +100,23 @@ class TestGoogleCapabilitiesWorkspace:
         assert flags["multi_workspace"] is True
         assert flags["multi_gmail"] is False
         assert flags["gmail_read_enabled"] is False
+
+    def test_shared_account_flags_scoped_per_service(self, monkeypatch):
+        from integrations.google import policy
+        import integrations.registry as registry
+
+        # One account granted BOTH gmail-send and workspace-edit.
+        accounts = {"shared": {"connection_status": "ok",
+                               "scope_grants": {"gmail": "send", "workspace": "edit"}}}
+        monkeypatch.setattr(registry, "get_google_account", lambda aid: accounts.get(aid))
+
+        # Assigned to gmail only: its workspace grant must NOT leak into workspace flags.
+        gmail_only = policy.google_tool_flags({"gmail": ["shared"]})
+        assert gmail_only["gmail_send_enabled"] is True
+        assert gmail_only["workspace_read_enabled"] is False
+        assert gmail_only["workspace_write_enabled"] is False
+
+        # Assigned to both services: each service's own flags turn on.
+        both = policy.google_tool_flags({"gmail": ["shared"], "workspace": ["shared"]})
+        assert both["gmail_send_enabled"] is True
+        assert both["workspace_write_enabled"] is True

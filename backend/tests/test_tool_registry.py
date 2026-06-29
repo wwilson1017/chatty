@@ -58,6 +58,12 @@ class TestWorkspaceResolution:
         res = _run(reg.execute_tool("bogus_ws_tool", {}, "workspace"))
         assert res == {"error": "Unknown workspace tool: bogus_ws_tool"}
 
+    def test_email_path_blocks_write_on_read_account(self, tmp_path):
+        # The explicit-email branch of _resolve_account must also enforce write scope
+        reg = _ws_registry(str(tmp_path), workspace_level="read")
+        res = reg._resolve_account("workspace", "w@x.com", "create_google_doc")
+        assert isinstance(res, dict) and "error" in res
+
 
 class TestDriveDeleteGating:
     def test_delete_needs_full_drive(self, tmp_path):
@@ -70,9 +76,15 @@ class TestDriveDeleteGating:
         assert reg._resolve_account("drive", None, "delete_drive_file") == "d1"
 
     def test_delete_allowed_with_file_scope(self, tmp_path):
-        # drive.file can delete app-created files, so the gate must allow it
+        # drive.file can trash app-created files, so the gate must allow it
         reg = _ws_registry(str(tmp_path), drive_level="file")
         assert reg._resolve_account("drive", None, "delete_drive_file") == "d1"
+
+    def test_permanent_delete_requires_full_drive(self, tmp_path):
+        # file scope may trash but NOT permanently delete (irreversible)
+        reg = _ws_registry(str(tmp_path), drive_level="file")
+        res = _run(reg.execute_tool("delete_drive_file", {"file_id": "F", "permanent": True}, "drive"))
+        assert isinstance(res, dict) and "Full access" in res.get("error", "")
 
 
 # ── Context tools: real filesystem ──────────────────────────────────────────

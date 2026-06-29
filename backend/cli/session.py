@@ -44,7 +44,7 @@ def create_session(slug: str, tool_mode: str = "normal",
     from core.providers.credentials import CredentialStore
     from agents.tool_loader import load_integration_tools, build_agent_handlers, INTEGRATION_MODULES
     from integrations.registry import get_tool_mode
-    from integrations.google.policy import google_capabilities
+    from integrations.google.policy import google_tool_flags
     from core.agents.tool_definitions import get_tool_definitions, build_writes_map
     from core.agents.ai_service import _build_kind_map
     from core.agents.tools.real_tools import load_all_real_tools
@@ -116,11 +116,14 @@ def create_session(slug: str, tool_mode: str = "normal",
 
     real_tools_dir = str(Path(config.context_dir).parent / "real_tools")
     dynamic_real_tools = load_all_real_tools(real_tools_dir)
-    google_caps = google_capabilities()
+    google_flags = google_tool_flags({
+        "gmail": gmail_ids, "calendar": calendar_ids,
+        "drive": drive_ids, "workspace": workspace_ids,
+    })
     tool_defs = get_tool_definitions(
         integration_tools=integration_tool_defs or None,
         dynamic_real_tools=dynamic_real_tools or None,
-        **google_caps,
+        **google_flags,
     )
     kind_map = _build_kind_map(tool_defs)
     writes_map = build_writes_map(tool_defs)
@@ -163,15 +166,19 @@ async def execute_approved_tool(session: Session, tool_name: str,
     from core.agents.ai_service import _sync_context_after_tool, _build_kind_map
     from core.agents.tool_definitions import get_tool_definitions, build_writes_map
     from core.agents.tools.real_tools import load_all_real_tools
-    from integrations.google.policy import google_capabilities
+    from integrations.google.policy import google_tool_flags
 
     real_tools_dir = str(Path(session.config.context_dir).parent / "real_tools")
     dynamic_real_tools = load_all_real_tools(real_tools_dir)
-    google_caps = google_capabilities()
+    _ga = session.config.google_accounts
+    google_flags = google_tool_flags({
+        "gmail": _ga.get("gmail", []), "calendar": _ga.get("calendar", []),
+        "drive": _ga.get("drive", []), "workspace": _ga.get("workspace", []),
+    })
     tool_defs = get_tool_definitions(
         integration_tools=session.integration_tool_defs,
         dynamic_real_tools=dynamic_real_tools or None,
-        **google_caps,
+        **google_flags,
     )
     session.kind_map = _build_kind_map(tool_defs)
     session.writes_map = build_writes_map(tool_defs)

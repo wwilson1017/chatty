@@ -172,7 +172,8 @@ export function GoogleIntegrationCard({ integration, onChanged }: Props) {
       if (service === 'gmail') return g.gmail !== 'none';
       if (service === 'calendar') return g.calendar !== 'none';
       if (service === 'workspace') return !!g.workspace && g.workspace !== 'none';
-      return g.drive !== 'none';
+      if (service === 'drive') return g.drive !== 'none';
+      return false;
     });
   }
 
