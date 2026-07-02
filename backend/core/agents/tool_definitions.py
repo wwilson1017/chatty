@@ -1124,7 +1124,7 @@ WORKSPACE_WRITE_TOOLS = [
     },
     {
         "name": "insert_doc_text",
-        "description": "Insert text into a Google Doc at a 1-based character index (default 1 = start of the body).",
+        "description": "Insert text into a Google Doc at a Docs API index (UTF-16 based; 1 = start of the body). Indexes cannot be reliably derived by counting characters in read_google_doc output — for targeted edits prefer replace_doc_text or append_doc_text; use index 1 only to insert at the start.",
         "input_schema": {
             "type": "object",
             "properties": {
@@ -1153,7 +1153,7 @@ WORKSPACE_WRITE_TOOLS = [
     },
     {
         "name": "replace_doc_text",
-        "description": "Find and replace all occurrences of a string in a Google Doc. Returns how many occurrences changed. Great for filling templates.",
+        "description": "Find and replace all occurrences of a string in a Google Doc. Returns how many occurrences changed. Great for filling templates. Note: applies to ALL tabs of a multi-tab document, while read_google_doc shows only the first tab.",
         "input_schema": {
             "type": "object",
             "properties": {
@@ -1170,7 +1170,7 @@ WORKSPACE_WRITE_TOOLS = [
     # Sheets
     {
         "name": "write_sheet_range",
-        "description": "Overwrite a Google Sheet A1 range with a 2D array of values (USER_ENTERED, so formulas and dates are parsed).",
+        "description": "Overwrite a Google Sheet A1 range with a 2D array of values (USER_ENTERED, so formulas and dates are parsed). null cells are SKIPPED (existing value kept) — use an empty string \"\" to clear a cell.",
         "input_schema": {
             "type": "object",
             "properties": {
@@ -1269,7 +1269,7 @@ WORKSPACE_WRITE_TOOLS = [
     },
     {
         "name": "insert_slide_text",
-        "description": "Add a text box to a specific slide and insert text into it. Use a slide_object_id from read_presentation, create_presentation, or add_slide.",
+        "description": "Add a text box to a specific slide and insert text into it. Use a slide_object_id from read_presentation, create_presentation, or add_slide. Each call places a new box at the same default position — multiple calls on one slide will overlap, so put all the slide's text in ONE call (use newlines).",
         "input_schema": {
             "type": "object",
             "properties": {

@@ -43,6 +43,17 @@ class TestDocsOps:
         assert req["text"] == "seed"
         assert out["document_id"] == "NEW"
 
+    def test_create_document_seed_failure_returns_id_with_warning(self):
+        service = MagicMock()
+        service.documents.return_value.create.return_value.execute.return_value = {
+            "documentId": "NEW", "title": "T",
+        }
+        service.documents.return_value.batchUpdate.return_value.execute.side_effect = RuntimeError("quota")
+        out = docs_ops.create_document_op(service, "T", content="seed")
+        assert out["ok"] is True
+        assert out["document_id"] == "NEW"
+        assert "failed to insert" in out["warning"]
+
     def test_create_document_no_content_skips_batch_update(self):
         service = MagicMock()
         service.documents.return_value.create.return_value.execute.return_value = {"documentId": "NEW", "title": "T"}
@@ -294,8 +305,12 @@ class TestSlidesOps:
         }
         out = slides_ops.get_presentation_op(service, "P1", max_chars=3)
         assert out["truncated"] is True
-        # first slide truncated to the cap; no trailing empty-text slide entry
-        assert out["slides"] == [{"slide_object_id": "s1", "text": "AAA"}]
+        # first slide truncated to the cap; later slides keep their IDs (text
+        # dropped) so insert_slide_text can still target them
+        assert out["slides"] == [
+            {"slide_object_id": "s1", "text": "AAA"},
+            {"slide_object_id": "s2", "text": ""},
+        ]
 
 
 # ── Drive delete ─────────────────────────────────────────────────────────────

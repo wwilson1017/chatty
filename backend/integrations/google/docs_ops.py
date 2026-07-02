@@ -83,17 +83,27 @@ def create_document_op(service, title: str, content: str = "") -> dict:
     """Create a new Google Doc, optionally seeded with initial body text."""
     doc = service.documents().create(body={"title": title}).execute()
     doc_id = doc.get("documentId", "")
-    if content and doc_id:
-        service.documents().batchUpdate(
-            documentId=doc_id,
-            body={"requests": [{"insertText": {"location": {"index": 1}, "text": content}}]},
-        ).execute()
-    return {
+    result = {
         "ok": True,
         "document_id": doc_id,
         "title": doc.get("title", title),
         "web_link": _DOC_URL.format(doc_id),
     }
+    if content and doc_id:
+        # Create + seed are two API calls; if the seed fails the doc still
+        # exists, so return its ID rather than an opaque error (a blind retry
+        # would litter Drive with duplicate empty docs).
+        try:
+            service.documents().batchUpdate(
+                documentId=doc_id,
+                body={"requests": [{"insertText": {"location": {"index": 1}, "text": content}}]},
+            ).execute()
+        except Exception as exc:
+            result["warning"] = (
+                f"Document created but initial content failed to insert: {exc}. "
+                "Use append_doc_text to add it."
+            )
+    return result
 
 
 def insert_text_op(service, document_id: str, text: str, index: int = 1) -> dict:

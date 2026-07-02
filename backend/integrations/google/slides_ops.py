@@ -57,17 +57,16 @@ def get_presentation_op(service, presentation_id: str, max_chars: int = 50000) -
     total = 0
     truncated = False
     for page in pres.get("slides", []):
-        if total >= max_chars:
-            truncated = True
-            break
-        text = _extract_slide_text(page)
-        if total + len(text) > max_chars:
-            text = text[: max_chars - total]
-            truncated = True
-        total += len(text)
+        # Past the char cap, keep emitting slides with empty text: the IDs are
+        # tiny and downstream tools (insert_slide_text) need every slide's ID.
+        text = ""
+        if not truncated:
+            text = _extract_slide_text(page)
+            if total + len(text) > max_chars:
+                text = text[: max_chars - total]
+                truncated = True
+            total += len(text)
         slides.append({"slide_object_id": page.get("objectId", ""), "text": text})
-        if truncated:
-            break
     return {
         "presentation_id": pres.get("presentationId", presentation_id),
         "title": pres.get("title", ""),

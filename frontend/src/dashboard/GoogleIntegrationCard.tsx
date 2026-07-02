@@ -38,7 +38,7 @@ const DRIVE_OPTIONS: { value: DriveScopeLevel; label: string; hint: string }[] =
 
 const WORKSPACE_OPTIONS: { value: WorkspaceScopeLevel; label: string; hint: string }[] = [
   { value: 'none', label: 'Off', hint: 'Don\'t request Docs / Sheets / Slides access' },
-  { value: 'read', label: 'Read only', hint: 'Read Google Docs, Sheets & Slides by ID. Add Drive (read) to find files.' },
+  { value: 'read', label: 'Read only', hint: 'Read Google Docs, Sheets & Slides by ID. Add Drive (Read only) to find files.' },
   { value: 'edit', label: 'Read + edit', hint: 'Create and edit Docs, Sheets & Slides. To find files add Drive (readonly/full); to delete them add Drive (full).' },
 ];
 
