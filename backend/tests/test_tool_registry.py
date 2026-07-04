@@ -16,6 +16,102 @@ def _run(coro):
     return asyncio.run(coro)
 
 
+# ── Workspace + Drive-delete account resolution / dispatch ───────────────────
+
+
+def _ws_registry(ctx_dir, *, workspace_level="edit", drive_level="full"):
+    return ToolRegistry(
+        context_dir=ctx_dir,
+        workspace_account_ids=["w1"],
+        drive_account_ids=["d1"],
+        account_info_map={
+            "w1": {"email": "w@x.com", "connection_status": "ok",
+                   "scope_grants": {"workspace": workspace_level}},
+            "d1": {"email": "d@x.com", "connection_status": "ok",
+                   "scope_grants": {"drive": drive_level}},
+        },
+    )
+
+
+class TestWorkspaceResolution:
+    def test_edit_resolves_for_write_tool(self, tmp_path):
+        reg = _ws_registry(str(tmp_path))
+        assert reg._resolve_account("workspace", None, "create_google_doc") == "w1"
+
+    def test_read_level_blocks_write_tool(self, tmp_path):
+        reg = _ws_registry(str(tmp_path), workspace_level="read")
+        res = reg._resolve_account("workspace", None, "create_google_doc")
+        assert isinstance(res, dict) and "error" in res
+
+    def test_read_level_allows_read_tool(self, tmp_path):
+        reg = _ws_registry(str(tmp_path), workspace_level="read")
+        assert reg._resolve_account("workspace", None, "read_google_doc") == "w1"
+
+    def test_no_workspace_account_returns_error(self, tmp_path):
+        reg = ToolRegistry(context_dir=str(tmp_path))
+        res = reg._resolve_account("workspace", None, "read_google_doc")
+        assert isinstance(res, dict) and res.get("needs_reconnect")
+
+    def test_unknown_workspace_tool_routes_to_dispatcher(self, tmp_path):
+        # Routing reaches _execute_workspace (resolve succeeds, then unknown name)
+        reg = _ws_registry(str(tmp_path))
+        res = _run(reg.execute_tool("bogus_ws_tool", {}, "workspace"))
+        assert res == {"error": "Unknown workspace tool: bogus_ws_tool"}
+
+    def test_email_path_blocks_write_on_read_account(self, tmp_path):
+        # The explicit-email branch of _resolve_account must also enforce write scope
+        reg = _ws_registry(str(tmp_path), workspace_level="read")
+        res = reg._resolve_account("workspace", "w@x.com", "create_google_doc")
+        assert isinstance(res, dict) and "error" in res
+
+
+class TestDriveDeleteGating:
+    def test_delete_needs_full_drive(self, tmp_path):
+        reg = _ws_registry(str(tmp_path), drive_level="readonly")
+        res = reg._resolve_account("drive", None, "delete_drive_file")
+        assert isinstance(res, dict) and "error" in res
+
+    def test_delete_allowed_with_full_drive(self, tmp_path):
+        reg = _ws_registry(str(tmp_path), drive_level="full")
+        assert reg._resolve_account("drive", None, "delete_drive_file") == "d1"
+
+    def test_delete_allowed_with_file_scope(self, tmp_path):
+        # drive.file can trash app-created files, so the gate must allow it
+        reg = _ws_registry(str(tmp_path), drive_level="file")
+        assert reg._resolve_account("drive", None, "delete_drive_file") == "d1"
+
+    def test_permanent_delete_requires_full_drive(self, tmp_path):
+        # file scope may trash but NOT permanently delete (irreversible)
+        reg = _ws_registry(str(tmp_path), drive_level="file")
+        res = _run(reg.execute_tool("delete_drive_file", {"file_id": "F", "permanent": True}, "drive"))
+        assert isinstance(res, dict) and "Full access" in res.get("error", "")
+
+    def test_permanent_delete_prefers_full_account_among_many(self, tmp_path):
+        # First write-capable account is 'file'; a later one is 'full' — permanent
+        # must select the full account rather than failing on the default.
+        reg = ToolRegistry(
+            context_dir=str(tmp_path),
+            drive_account_ids=["d_file", "d_full"],
+            account_info_map={
+                "d_file": {"email": "f@x.com", "connection_status": "ok",
+                           "scope_grants": {"drive": "file"}},
+                "d_full": {"email": "u@x.com", "connection_status": "ok",
+                           "scope_grants": {"drive": "full"}},
+            },
+        )
+        # No real tokens, so the handler resolves to d_full then fails at the API
+        # layer (needs_reconnect) — NOT with the 'Full access' scope error.
+        res = _run(reg.execute_tool("delete_drive_file", {"file_id": "F", "permanent": True}, "drive"))
+        assert "Full access" not in res.get("error", "")
+
+    def test_permanent_string_false_is_not_permanent(self, tmp_path):
+        # A non-True value (e.g. the string "false") must fall back to safe trash,
+        # so the permanent-scope gate is skipped even on a file-scoped account.
+        reg = _ws_registry(str(tmp_path), drive_level="file")
+        res = _run(reg.execute_tool("delete_drive_file", {"file_id": "F", "permanent": "false"}, "drive"))
+        assert "Full access" not in res.get("error", "")
+
+
 # ── Context tools: real filesystem ──────────────────────────────────────────
 
 

@@ -9,6 +9,7 @@ import type {
   GmailScopeLevel,
   CalendarScopeLevel,
   DriveScopeLevel,
+  WorkspaceScopeLevel,
 } from '../core/types';
 
 interface Props {
@@ -35,11 +36,18 @@ const DRIVE_OPTIONS: { value: DriveScopeLevel; label: string; hint: string }[] =
   { value: 'full',      label: 'Full access', hint: 'Read, write, and delete any Drive file. Most powerful; requires verification.' },
 ];
 
+const WORKSPACE_OPTIONS: { value: WorkspaceScopeLevel; label: string; hint: string }[] = [
+  { value: 'none', label: 'Off', hint: 'Don\'t request Docs / Sheets / Slides access' },
+  { value: 'read', label: 'Read only', hint: 'Read Google Docs, Sheets & Slides by ID. Add Drive (Read only) to find files.' },
+  { value: 'edit', label: 'Read + edit', hint: 'Create and edit Docs, Sheets & Slides. To find files add Drive (readonly/full); to delete them add Drive (full).' },
+];
+
 function scopeSummary(grants: GoogleAccount['scope_grants']) {
   return [
     grants.gmail !== 'none' && `Gmail: ${grants.gmail === 'send' ? 'read+send' : grants.gmail}`,
     grants.calendar !== 'none' && `Calendar: ${grants.calendar}`,
     grants.drive !== 'none' && `Drive: ${grants.drive}`,
+    grants.workspace && grants.workspace !== 'none' && `Workspace: ${grants.workspace}`,
   ].filter(Boolean).join(' \u00b7 ');
 }
 
@@ -49,6 +57,7 @@ export function GoogleIntegrationCard({ integration, onChanged }: Props) {
   const [gmail, setGmail]       = useState<GmailScopeLevel>('none');
   const [calendar, setCalendar] = useState<CalendarScopeLevel>('none');
   const [drive, setDrive]       = useState<DriveScopeLevel>('none');
+  const [workspace, setWorkspace] = useState<WorkspaceScopeLevel>('none');
   const [disconnecting, setDisconnecting] = useState('');
   const [localError, setLocalError] = useState('');
   const [showCredForm, setShowCredForm] = useState(false);
@@ -93,16 +102,17 @@ export function GoogleIntegrationCard({ integration, onChanged }: Props) {
     setGmail(acct?.scope_grants?.gmail ?? 'none');
     setCalendar(acct?.scope_grants?.calendar ?? 'none');
     setDrive(acct?.scope_grants?.drive ?? 'none');
+    setWorkspace(acct?.scope_grants?.workspace ?? 'none');
     setPickerOpen(true);
     setLocalError('');
   }
 
-  const anyGranted = gmail !== 'none' || calendar !== 'none' || drive !== 'none';
+  const anyGranted = gmail !== 'none' || calendar !== 'none' || drive !== 'none' || workspace !== 'none';
 
   async function connect() {
     setLocalError('');
     if (!anyGranted) {
-      setLocalError('Enable at least one of Gmail, Calendar, or Drive.');
+      setLocalError('Enable at least one of Gmail, Calendar, Drive, or Workspace.');
       return;
     }
     const base = editingAccountId
@@ -113,7 +123,7 @@ export function GoogleIntegrationCard({ integration, onChanged }: Props) {
       : '/api/integrations/google/setup/complete';
     await oauth.start({
       setupUrl: base,
-      setupBody: { gmail_level: gmail, calendar_level: calendar, drive_level: drive },
+      setupBody: { gmail_level: gmail, calendar_level: calendar, drive_level: drive, workspace_level: workspace },
       completeUrl: complete,
     });
   }
@@ -133,7 +143,7 @@ export function GoogleIntegrationCard({ integration, onChanged }: Props) {
     }
   }
 
-  async function toggleAgentAccount(agentId: string, service: 'gmail' | 'calendar' | 'drive', accountId: string) {
+  async function toggleAgentAccount(agentId: string, service: 'gmail' | 'calendar' | 'drive' | 'workspace', accountId: string) {
     setSavingAgent(agentId);
     const agent = agents.find(a => a.id === agentId);
     const current = agent?.google_accounts || {};
@@ -156,12 +166,14 @@ export function GoogleIntegrationCard({ integration, onChanged }: Props) {
     }
   }
 
-  function accountsForService(service: 'gmail' | 'calendar' | 'drive') {
+  function accountsForService(service: 'gmail' | 'calendar' | 'drive' | 'workspace') {
     return accounts.filter(a => {
       const g = a.scope_grants;
       if (service === 'gmail') return g.gmail !== 'none';
       if (service === 'calendar') return g.calendar !== 'none';
-      return g.drive !== 'none';
+      if (service === 'workspace') return !!g.workspace && g.workspace !== 'none';
+      if (service === 'drive') return g.drive !== 'none';
+      return false;
     });
   }
 
@@ -283,14 +295,14 @@ export function GoogleIntegrationCard({ integration, onChanged }: Props) {
                 return (
                   <div key={agent.id} className="bg-gray-900/30 rounded-lg px-3 py-2">
                     <p className="text-white text-xs font-medium mb-1.5">{agent.agent_name}</p>
-                    <div className="grid grid-cols-3 gap-2">
-                      {(['gmail', 'calendar', 'drive'] as const).map(svc => {
+                    <div className="grid grid-cols-2 gap-2">
+                      {(['gmail', 'calendar', 'drive', 'workspace'] as const).map(svc => {
                         const available = accountsForService(svc);
                         const selected = ga[svc] || [];
                         return (
                           <div key={svc}>
                             <label className="text-gray-500 text-[10px] uppercase tracking-wide block mb-0.5">
-                              {svc === 'gmail' ? 'Gmail' : svc === 'calendar' ? 'Calendar' : 'Drive'}
+                              {svc === 'gmail' ? 'Gmail' : svc === 'calendar' ? 'Calendar' : svc === 'drive' ? 'Drive' : 'Workspace'}
                             </label>
                             {available.length === 0 && (
                               <span className="text-gray-600 text-[10px]">No accounts</span>
@@ -335,6 +347,8 @@ export function GoogleIntegrationCard({ integration, onChanged }: Props) {
             onChange={(v) => setCalendar(v as CalendarScopeLevel)} />
           <ScopeGroup title="Google Drive" options={DRIVE_OPTIONS} value={drive}
             onChange={(v) => setDrive(v as DriveScopeLevel)} />
+          <ScopeGroup title="Workspace (Docs, Sheets & Slides)" options={WORKSPACE_OPTIONS} value={workspace}
+            onChange={(v) => setWorkspace(v as WorkspaceScopeLevel)} />
 
           <div className="flex gap-2 pt-2">
             <button onClick={() => { setPickerOpen(false); setEditingAccountId(''); }} disabled={isRunning}

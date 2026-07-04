@@ -3,10 +3,6 @@
 > Instincts extracted from development sessions. Scores reflect real-world effectiveness.
 > Format: `[score]` **When** trigger → **do** action → **because** reason
 
-## Deploy & Infrastructure
-
-- `[0.95]` **When** running the backend from a git worktree → **do** use the absolute venv path (`/Users/willwilson/ai/chatty/.venv/bin/python`), not relative (`../../.venv/bin/python`) → **because** worktrees live under `.claude/worktrees/<name>/backend/` and the relative path resolves to a nonexistent location
-
 ## Git & Workflow
 
 - `[0.85]` **When** resolving merge conflicts → **do** use `git add <specific files>`, never `git add -A` → **because** `-A` pulled `.claude/fresh-eyes/context.md` (216 lines of session research notes) into the merge commit, which then shipped in the PR
@@ -23,6 +19,7 @@
 
 ## Code & Architecture
 
+- `[0.70]` **When** adding a tool `input_schema` that uses JSON Schema constructs beyond single-typed properties (union `type` lists, `anyOf`, `additionalProperties`) → **do** confirm `_clean_schema` in `core/providers/google_provider.py` normalizes the construct (extend it if not) and smoke-test with `FunctionDeclaration(parameters=_clean_schema(schema))` → **because** schemas feed 5 providers and the classic Gemini SDK's Schema proto crashes on type lists (`'list' object has no attribute 'upper'`) at tool-formatting time, killing ALL tools for every Gemini agent while the other 4 providers accept the same schema fine (see docs/solutions/integration-issues/gemini-tool-schema-union-types.md)
 - `[0.70]` **When** building the provider `messages` array from stored history in Chatty (server-side reconstruction in `context_assembly`, approved-tool reconcile, compaction) → **do** ensure the array ends on a user turn, on every path including those that save no new user row → **because** Google's `stream_turn` resends `messages[-1]` AS the user turn (hardcoded `role="user"`) and Anthropic treats a trailing assistant as a prefill, so a persisted assistant wrap-up tail makes Gemini answer its own question and Anthropic continue mid-thought — and a fix that persists a new assistant row can silently flip the tail (Opus caught this on #130; assert `messages[-1]["role"] == "user"` in tests)
 - `[0.80]` **When** reading per-agent MemoryDB data inside `_build_system_prompt` (e.g. observations) → **do** use `ensure_memory_db(slug)`, not `get_instance(data_dir)` → **because** the Telegram and Paperclip entry points don't pre-initialize MemoryDB, so `get_instance` returns None and the data silently never appears on non-web channels
 - `[0.75]` **When** adding new admin settings to Chatty → **do** add them to `core/admin_settings.py` (not `setup/router.py`) → **because** admin settings were extracted to a dedicated cached module; adding to the old location creates conflicts and bypasses the mtime cache

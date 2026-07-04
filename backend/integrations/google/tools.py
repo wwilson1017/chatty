@@ -16,10 +16,13 @@ from .client import (
     GoogleAuthError,
     call_with_refresh,
     get_calendar_service,
+    get_docs_service,
     get_drive_service,
     get_gmail_service,
+    get_sheets_service,
+    get_slides_service,
 )
-from . import gmail_ops, calendar_ops, drive_ops
+from . import gmail_ops, calendar_ops, drive_ops, docs_ops, sheets_ops, slides_ops
 
 logger = logging.getLogger(__name__)
 
@@ -468,3 +471,97 @@ def rename_drive_file(account_id: str, file_id: str, new_name: str) -> dict:
 def copy_drive_file(account_id: str, file_id: str, new_name: str | None = None, folder_id: str | None = None) -> dict:
     return _wrap(account_id, get_drive_service, drive_ops.copy_file_op,
                  file_id=file_id, new_name=new_name, folder_id=folder_id)
+
+
+def delete_drive_file(account_id: str, file_id: str, permanent: bool = False) -> dict:
+    return _wrap(account_id, get_drive_service, drive_ops.delete_file_op,
+                 file_id=file_id, permanent=permanent)
+
+
+# ── Workspace: Docs ──────────────────────────────────────────────────────────
+
+def read_google_doc(account_id: str, document_id: str, max_chars: int = 50000) -> dict:
+    return _wrap(account_id, get_docs_service, docs_ops.get_document_op,
+                 document_id=document_id, max_chars=max_chars)
+
+
+def create_google_doc(account_id: str, title: str, content: str = "") -> dict:
+    return _wrap(account_id, get_docs_service, docs_ops.create_document_op,
+                 title=title, content=content)
+
+
+def insert_doc_text(account_id: str, document_id: str, text: str, index: int = 1) -> dict:
+    return _wrap(account_id, get_docs_service, docs_ops.insert_text_op,
+                 document_id=document_id, text=text, index=index)
+
+
+def append_doc_text(account_id: str, document_id: str, text: str) -> dict:
+    return _wrap(account_id, get_docs_service, docs_ops.append_text_op,
+                 document_id=document_id, text=text)
+
+
+def replace_doc_text(account_id: str, document_id: str, find: str, replace: str, match_case: bool = False) -> dict:
+    return _wrap(account_id, get_docs_service, docs_ops.replace_text_op,
+                 document_id=document_id, find=find, replace=replace, match_case=match_case)
+
+
+# ── Workspace: Sheets ────────────────────────────────────────────────────────
+
+def read_sheet_range(account_id: str, spreadsheet_id: str, range: str) -> dict:
+    return _wrap(account_id, get_sheets_service, sheets_ops.get_values_op,
+                 spreadsheet_id=spreadsheet_id, range_a1=range)
+
+
+def read_sheet_metadata(account_id: str, spreadsheet_id: str) -> dict:
+    return _wrap(account_id, get_sheets_service, sheets_ops.get_metadata_op,
+                 spreadsheet_id=spreadsheet_id)
+
+
+def write_sheet_range(account_id: str, spreadsheet_id: str, range: str, values: list[list]) -> dict:
+    return _wrap(account_id, get_sheets_service, sheets_ops.update_values_op,
+                 spreadsheet_id=spreadsheet_id, range_a1=range, values=values)
+
+
+def append_sheet_rows(account_id: str, spreadsheet_id: str, range: str, values: list[list]) -> dict:
+    return _wrap(account_id, get_sheets_service, sheets_ops.append_rows_op,
+                 spreadsheet_id=spreadsheet_id, range_a1=range, values=values)
+
+
+def clear_sheet_range(account_id: str, spreadsheet_id: str, range: str) -> dict:
+    return _wrap(account_id, get_sheets_service, sheets_ops.clear_values_op,
+                 spreadsheet_id=spreadsheet_id, range_a1=range)
+
+
+def create_spreadsheet(account_id: str, title: str) -> dict:
+    return _wrap(account_id, get_sheets_service, sheets_ops.create_spreadsheet_op, title=title)
+
+
+def add_sheet_tab(account_id: str, spreadsheet_id: str, title: str) -> dict:
+    return _wrap(account_id, get_sheets_service, sheets_ops.add_sheet_op,
+                 spreadsheet_id=spreadsheet_id, title=title)
+
+
+# ── Workspace: Slides ────────────────────────────────────────────────────────
+
+def read_presentation(account_id: str, presentation_id: str, max_chars: int = 50000) -> dict:
+    return _wrap(account_id, get_slides_service, slides_ops.get_presentation_op,
+                 presentation_id=presentation_id, max_chars=max_chars)
+
+
+def create_presentation(account_id: str, title: str) -> dict:
+    return _wrap(account_id, get_slides_service, slides_ops.create_presentation_op, title=title)
+
+
+def add_slide(account_id: str, presentation_id: str, layout: str = "BLANK") -> dict:
+    return _wrap(account_id, get_slides_service, slides_ops.add_slide_op,
+                 presentation_id=presentation_id, layout=layout)
+
+
+def insert_slide_text(account_id: str, presentation_id: str, slide_object_id: str, text: str) -> dict:
+    return _wrap(account_id, get_slides_service, slides_ops.insert_text_op,
+                 presentation_id=presentation_id, slide_object_id=slide_object_id, text=text)
+
+
+def replace_presentation_text(account_id: str, presentation_id: str, find: str, replace: str, match_case: bool = False) -> dict:
+    return _wrap(account_id, get_slides_service, slides_ops.replace_all_text_op,
+                 presentation_id=presentation_id, find=find, replace=replace, match_case=match_case)

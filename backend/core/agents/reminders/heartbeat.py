@@ -77,7 +77,7 @@ def _process_self_reminder(reminder: dict) -> None:
     from agents.tool_loader import load_integration_tools, build_agent_handlers, INTEGRATION_MODULES
     from agents.engine import build_agent_config
     from integrations.registry import get_tool_mode, list_google_accounts as _list_ga
-    from integrations.google.policy import google_capabilities_union
+    from integrations.google.policy import google_tool_flags
     from core.agents.tool_registry import ToolRegistry
     from core.agents.tool_definitions import get_tool_definitions
     from core.agents.tools.real_tools import load_all_real_tools
@@ -88,7 +88,12 @@ def _process_self_reminder(reminder: dict) -> None:
     gmail_ids = ga.get("gmail", [])
     calendar_ids = ga.get("calendar", [])
     drive_ids = ga.get("drive", [])
-    google_connected = bool(gmail_ids or calendar_ids or drive_ids)
+    workspace_ids = ga.get("workspace", [])
+    google_connected = bool(gmail_ids or calendar_ids or drive_ids or workspace_ids)
+    google_flags = google_tool_flags({
+        "gmail": gmail_ids, "calendar": calendar_ids,
+        "drive": drive_ids, "workspace": workspace_ids,
+    })
 
     all_ga = _list_ga()
     account_info_map = {
@@ -97,9 +102,6 @@ def _process_self_reminder(reminder: dict) -> None:
     }
 
     integration_tool_defs, integration_executors = load_integration_tools()
-    gmail_caps = google_capabilities_union(gmail_ids)
-    cal_caps = google_capabilities_union(calendar_ids)
-    drive_caps = google_capabilities_union(drive_ids)
     reminder_handlers, sa_handlers = build_agent_handlers(agent["slug"])
 
     real_tools_dir = str(Path(config.context_dir).parent / "real_tools")
@@ -109,15 +111,7 @@ def _process_self_reminder(reminder: dict) -> None:
         integration_tools=integration_tool_defs,
         dynamic_real_tools=dynamic_real_tools or None,
         web_enabled=True,
-        gmail_read_enabled=gmail_caps["gmail_read_enabled"],
-        gmail_send_enabled=gmail_caps["gmail_send_enabled"],
-        calendar_read_enabled=cal_caps["calendar_read_enabled"],
-        calendar_write_enabled=cal_caps["calendar_write_enabled"],
-        drive_read_enabled=drive_caps["drive_read_enabled"],
-        drive_write_enabled=drive_caps["drive_write_enabled"],
-        multi_gmail=len(gmail_ids) > 1,
-        multi_calendar=len(calendar_ids) > 1,
-        multi_drive=len(drive_ids) > 1,
+        **google_flags,
         background_mode=True,
     )
 
@@ -140,6 +134,7 @@ def _process_self_reminder(reminder: dict) -> None:
         gmail_account_ids=gmail_ids,
         calendar_account_ids=calendar_ids,
         drive_account_ids=drive_ids,
+        workspace_account_ids=workspace_ids,
         account_info_map=account_info_map,
     )
 

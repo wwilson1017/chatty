@@ -22,6 +22,13 @@ def _clean_schema(schema: dict) -> dict:
     if not isinstance(schema, dict):
         return schema
     result = {k: v for k, v in schema.items() if k not in _UNSUPPORTED_SCHEMA_FIELDS}
+    # Gemini's Schema proto requires a single type; JSON Schema allows a list.
+    # Map union types to the first concrete type + nullable (proto has no anyOf).
+    if isinstance(result.get("type"), list):
+        types = [t for t in result["type"] if t != "null"]
+        result["type"] = types[0] if types else "string"
+        if len(types) != len(schema["type"]):
+            result["nullable"] = True
     if "properties" in result:
         result["properties"] = {
             k: _clean_schema(v) for k, v in result["properties"].items()

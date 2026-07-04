@@ -43,12 +43,33 @@ from integrations.google.tools import (
     copy_drive_file,
     create_drive_file,
     create_drive_folder,
+    delete_drive_file,
     get_drive_file_info,
     list_drive_folder,
     move_drive_file,
     read_drive_file_content,
     rename_drive_file,
     search_drive_files,
+    # Workspace: Docs
+    read_google_doc,
+    create_google_doc,
+    insert_doc_text,
+    append_doc_text,
+    replace_doc_text,
+    # Workspace: Sheets
+    read_sheet_range,
+    read_sheet_metadata,
+    write_sheet_range,
+    append_sheet_rows,
+    clear_sheet_range,
+    create_spreadsheet,
+    add_sheet_tab,
+    # Workspace: Slides
+    read_presentation,
+    create_presentation,
+    add_slide,
+    insert_slide_text,
+    replace_presentation_text,
 )
 from core.agents.tools.web_tools import web_search, web_fetch
 from core.agents.tools.real_tools import (
@@ -76,13 +97,20 @@ class ToolRegistry:
                   "mark_all_emails_as_read"},
         "calendar": {"create_calendar_event", "update_calendar_event", "delete_calendar_event"},
         "drive": {"create_drive_folder", "create_drive_file", "move_drive_file",
-                  "rename_drive_file", "copy_drive_file"},
+                  "rename_drive_file", "copy_drive_file", "delete_drive_file"},
+        "workspace": {"create_google_doc", "insert_doc_text", "append_doc_text", "replace_doc_text",
+                      "write_sheet_range", "append_sheet_rows", "clear_sheet_range",
+                      "create_spreadsheet", "add_sheet_tab",
+                      "create_presentation", "add_slide", "insert_slide_text",
+                      "replace_presentation_text"},
     }
-    _WRITE_SCOPE_KEY = {"gmail": "gmail", "calendar": "calendar", "drive": "drive"}
+    _WRITE_SCOPE_KEY = {"gmail": "gmail", "calendar": "calendar", "drive": "drive",
+                        "workspace": "workspace"}
     _WRITE_SCOPE_LEVELS = {
         "gmail": {"send"},
         "calendar": {"full"},
         "drive": {"file", "full"},
+        "workspace": {"edit"},
     }
 
     def __init__(
@@ -93,6 +121,7 @@ class ToolRegistry:
         gmail_account_ids: list[str] | None = None,
         calendar_account_ids: list[str] | None = None,
         drive_account_ids: list[str] | None = None,
+        workspace_account_ids: list[str] | None = None,
         account_info_map: dict[str, dict] | None = None,
         integration_executors: dict | None = None,
         agent_slug: str = "",
@@ -106,6 +135,7 @@ class ToolRegistry:
         self.gmail_account_ids = gmail_account_ids or []
         self.calendar_account_ids = calendar_account_ids or []
         self.drive_account_ids = drive_account_ids or []
+        self.workspace_account_ids = workspace_account_ids or []
         self.account_info_map: dict[str, dict] = account_info_map or {}
         self.integration_executors: dict = integration_executors or {}
         self.agent_slug = agent_slug
@@ -153,6 +183,8 @@ class ToolRegistry:
                 return self._execute_calendar(tool_name, tool_args)
             elif kind == "drive":
                 return self._execute_drive(tool_name, tool_args)
+            elif kind == "workspace":
+                return self._execute_workspace(tool_name, tool_args)
             elif kind == "web":
                 return self._execute_web(tool_name, tool_args)
             elif kind == "real_tool":
@@ -500,7 +532,85 @@ class ToolRegistry:
                 new_name=args.get("new_name"),
                 folder_id=args.get("folder_id"),
             )
+        elif tool_name == "delete_drive_file":
+            # Strict True only: a stray string like "false" must NOT trigger an
+            # irreversible delete — anything non-True falls back to safe trashing.
+            permanent = args.get("permanent", False) is True
+            if permanent:
+                # Irreversible hard-delete requires full Drive access; 'file' scope
+                # may only trash (recoverable). Blocks a prompt-injected agent from
+                # permanently destroying app-created files under a narrow grant.
+                def _drive_level(a):
+                    return self.account_info_map.get(a, {}).get("scope_grants", {}).get("drive", "none")
+                if _drive_level(aid) != "full":
+                    # The auto-selected account may be 'file'-scoped while another
+                    # assigned account is 'full'; prefer that one — unless the model
+                    # pinned a specific account by email.
+                    if not email:
+                        full_aid = next(
+                            (a for a in self.drive_account_ids
+                             if self.account_info_map.get(a, {}).get("connection_status") != "broken"
+                             and _drive_level(a) == "full"),
+                            None,
+                        )
+                        if full_aid:
+                            aid = full_aid
+                    if _drive_level(aid) != "full":
+                        return {"error": "Permanent deletion requires 'Full access' Drive scope. "
+                                         "Use permanent=false to move the file to Trash (recoverable)."}
+            return delete_drive_file(aid, file_id=args["file_id"], permanent=permanent)
         return {"error": f"Unknown drive tool: {tool_name}"}
+
+    def _execute_workspace(self, tool_name: str, args: dict) -> dict:
+        """Dispatch Docs / Sheets / Slides tools. All resolve against the single
+        bundled 'workspace' account assignment, then route by tool name."""
+        email = args.get("account")
+        args = {k: v for k, v in args.items() if k != "account"}
+        aid = self._resolve_account("workspace", email, tool_name)
+        if isinstance(aid, dict):
+            return aid
+
+        # Docs
+        if tool_name == "read_google_doc":
+            return read_google_doc(aid, document_id=args["document_id"], max_chars=args.get("max_chars", 50000))
+        elif tool_name == "create_google_doc":
+            return create_google_doc(aid, title=args["title"], content=args.get("content", ""))
+        elif tool_name == "insert_doc_text":
+            return insert_doc_text(aid, document_id=args["document_id"], text=args["text"], index=args.get("index", 1))
+        elif tool_name == "append_doc_text":
+            return append_doc_text(aid, document_id=args["document_id"], text=args["text"])
+        elif tool_name == "replace_doc_text":
+            return replace_doc_text(aid, document_id=args["document_id"], find=args["find"],
+                                    replace=args["replace"], match_case=args.get("match_case", False))
+        # Sheets
+        elif tool_name == "read_sheet_range":
+            return read_sheet_range(aid, spreadsheet_id=args["spreadsheet_id"], range=args["range"])
+        elif tool_name == "read_sheet_metadata":
+            return read_sheet_metadata(aid, spreadsheet_id=args["spreadsheet_id"])
+        elif tool_name == "write_sheet_range":
+            return write_sheet_range(aid, spreadsheet_id=args["spreadsheet_id"], range=args["range"], values=args["values"])
+        elif tool_name == "append_sheet_rows":
+            return append_sheet_rows(aid, spreadsheet_id=args["spreadsheet_id"], range=args["range"], values=args["values"])
+        elif tool_name == "clear_sheet_range":
+            return clear_sheet_range(aid, spreadsheet_id=args["spreadsheet_id"], range=args["range"])
+        elif tool_name == "create_spreadsheet":
+            return create_spreadsheet(aid, title=args["title"])
+        elif tool_name == "add_sheet_tab":
+            return add_sheet_tab(aid, spreadsheet_id=args["spreadsheet_id"], title=args["title"])
+        # Slides
+        elif tool_name == "read_presentation":
+            return read_presentation(aid, presentation_id=args["presentation_id"], max_chars=args.get("max_chars", 50000))
+        elif tool_name == "create_presentation":
+            return create_presentation(aid, title=args["title"])
+        elif tool_name == "add_slide":
+            return add_slide(aid, presentation_id=args["presentation_id"], layout=args.get("layout", "BLANK"))
+        elif tool_name == "insert_slide_text":
+            return insert_slide_text(aid, presentation_id=args["presentation_id"],
+                                     slide_object_id=args["slide_object_id"], text=args["text"])
+        elif tool_name == "replace_presentation_text":
+            return replace_presentation_text(aid, presentation_id=args["presentation_id"], find=args["find"],
+                                             replace=args["replace"], match_case=args.get("match_case", False))
+        return {"error": f"Unknown workspace tool: {tool_name}"}
 
     def _execute_web(self, tool_name: str, args: dict) -> dict:
         if tool_name == "web_search":

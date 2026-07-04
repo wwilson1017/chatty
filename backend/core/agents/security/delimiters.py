@@ -8,7 +8,7 @@ inside these tags as untrusted data that may contain adversarial instructions.
 import secrets
 
 _EXTERNAL_KINDS: frozenset[str] = frozenset({
-    "gmail", "calendar", "drive", "web",
+    "gmail", "calendar", "drive", "workspace", "web",
 })
 
 _UNWRAPPED_INTEGRATION_PREFIXES: tuple[str, ...] = ("crm_",)

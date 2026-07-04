@@ -278,13 +278,11 @@ def migrate_google_json() -> None:
 
     try:
         from agents.db import list_agents, update_agent
+        from integrations.google.policy import GOOGLE_SERVICES
         ga: dict[str, list[str]] = {}
-        if scope_grants.get("gmail", "none") != "none":
-            ga["gmail"] = [account_id]
-        if scope_grants.get("calendar", "none") != "none":
-            ga["calendar"] = [account_id]
-        if scope_grants.get("drive", "none") != "none":
-            ga["drive"] = [account_id]
+        for svc in GOOGLE_SERVICES:
+            if scope_grants.get(svc, "none") != "none":
+                ga[svc] = [account_id]
 
         if ga:
             import json as _json
@@ -305,6 +303,7 @@ def migrate_agent_google_accounts_to_arrays() -> None:
     except Exception:
         return
     try:
+        from integrations.google.policy import GOOGLE_SERVICES
         db = _get_db()
         rows = db.execute("SELECT id, google_accounts FROM agents").fetchall()
         for row in rows:
@@ -314,7 +313,7 @@ def migrate_agent_google_accounts_to_arrays() -> None:
             except (ValueError, TypeError):
                 continue
             changed = False
-            for svc in ("gmail", "calendar", "drive"):
+            for svc in GOOGLE_SERVICES:
                 val = parsed.get(svc)
                 if isinstance(val, str):
                     parsed[svc] = [val] if val else []

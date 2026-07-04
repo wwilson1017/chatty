@@ -181,6 +181,8 @@ Non-trivial problems solved in past sessions are written up in `docs/solutions/`
 
 Worktrees live in `.claude/worktrees/` within the repo. Use `/wt <feature name>` to create one, `/dwt` to clean up. Branch from `master`, PR back to `master`.
 
+When running the backend from a worktree, invoke the main checkout's venv by absolute path (e.g. `~/ai/chatty/.venv/bin/python`) — worktrees sit two levels deep under `.claude/worktrees/`, so relative paths like `../.venv/bin/python` don't resolve.
+
 ## Blueprints
 
 | Blueprint | Location | What to use it for |

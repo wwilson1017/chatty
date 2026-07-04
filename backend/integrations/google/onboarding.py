@@ -127,12 +127,13 @@ def _clear_stale_assignments(account_id: str, scope_grants: dict) -> None:
     """Clear agent assignments for services that were downgraded to 'none'."""
     try:
         from agents.db import list_agents, update_agent
+        from .policy import GOOGLE_SERVICES
         for agent in list_agents():
             ga = agent.get("google_accounts", {})
             if not isinstance(ga, dict):
                 continue
             changed = False
-            for svc in ("gmail", "calendar", "drive"):
+            for svc in GOOGLE_SERVICES:
                 val = ga.get(svc)
                 if scope_grants.get(svc, "none") == "none":
                     if isinstance(val, list) and account_id in val:
@@ -172,13 +173,14 @@ def _clear_agent_references(account_id: str = "") -> None:
     """Clear google_accounts on agents that reference a removed account."""
     try:
         from agents.db import list_agents, update_agent
+        from .policy import GOOGLE_SERVICES
         for agent in list_agents():
             ga = agent.get("google_accounts", {})
             if not isinstance(ga, dict):
                 continue
             changed = False
             if account_id:
-                for svc in ("gmail", "calendar", "drive"):
+                for svc in GOOGLE_SERVICES:
                     val = ga.get(svc)
                     if isinstance(val, list) and account_id in val:
                         ga[svc] = [a for a in val if a != account_id]
@@ -188,7 +190,7 @@ def _clear_agent_references(account_id: str = "") -> None:
                         changed = True
             else:
                 if any(v for v in ga.values()):
-                    ga = {"gmail": [], "calendar": [], "drive": []}
+                    ga = {svc: [] for svc in GOOGLE_SERVICES}
                     changed = True
             if changed:
                 update_agent(agent["id"], google_accounts=json.dumps(ga))

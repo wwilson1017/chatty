@@ -128,6 +128,7 @@ def _no_caps(ids):
         "gmail_read_enabled": False, "gmail_send_enabled": False,
         "calendar_read_enabled": False, "calendar_write_enabled": False,
         "drive_read_enabled": False, "drive_write_enabled": False,
+        "workspace_read_enabled": False, "workspace_write_enabled": False,
     }
 
 

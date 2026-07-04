@@ -238,6 +238,7 @@ class GoogleSetupRequest(BaseModel):
     gmail_level: Literal["none", "read", "send"] = "none"
     calendar_level: Literal["none", "read", "full"] = "none"
     drive_level: Literal["none", "file", "readonly", "full"] = "none"
+    workspace_level: Literal["none", "read", "edit"] = "none"
 
 
 @router.post("/google/setup")
@@ -252,14 +253,15 @@ async def setup_google(body: GoogleSetupRequest, user=Depends(get_current_user))
     from core.config import build_google_scopes
 
     # Reject "all none" — user must grant at least one capability
-    if body.gmail_level == "none" and body.calendar_level == "none" and body.drive_level == "none":
+    if (body.gmail_level == "none" and body.calendar_level == "none"
+            and body.drive_level == "none" and body.workspace_level == "none"):
         raise HTTPException(
             status_code=400,
-            detail="At least one of Gmail, Calendar, or Drive must be enabled",
+            detail="At least one of Gmail, Calendar, Drive, or Workspace must be enabled",
         )
 
     # Include Gemini AI scope if Google is already the active AI provider, so
-    # we don't break Gemini when the user connects Gmail/Calendar/Drive.
+    # we don't break Gemini when the user connects Gmail/Calendar/Drive/Workspace.
     from core.providers.credentials import CredentialStore
     store = CredentialStore()
     include_ai = store.data.get("active_provider") == "google"
@@ -268,6 +270,7 @@ async def setup_google(body: GoogleSetupRequest, user=Depends(get_current_user))
         gmail_level=body.gmail_level,
         calendar_level=body.calendar_level,
         drive_level=body.drive_level,
+        workspace_level=body.workspace_level,
         include_ai=include_ai,
     )
 
@@ -279,6 +282,7 @@ async def setup_google(body: GoogleSetupRequest, user=Depends(get_current_user))
                 "gmail_level": body.gmail_level,
                 "calendar_level": body.calendar_level,
                 "drive_level": body.drive_level,
+                "workspace_level": body.workspace_level,
                 "include_ai": include_ai,
             },
             prompt="consent select_account",
@@ -309,6 +313,7 @@ def _google_complete_common(flow, require_refresh_token: bool = True):
         "gmail": meta.get("gmail_level", "none"),
         "calendar": meta.get("calendar_level", "none"),
         "drive": meta.get("drive_level", "none"),
+        "workspace": meta.get("workspace_level", "none"),
     }
 
     return tokens, scope_grants
@@ -378,7 +383,8 @@ async def setup_google_account(account_id: str, body: GoogleSetupRequest, user=D
     if not existing:
         raise HTTPException(status_code=404, detail="Google account not found")
 
-    if body.gmail_level == "none" and body.calendar_level == "none" and body.drive_level == "none":
+    if (body.gmail_level == "none" and body.calendar_level == "none"
+            and body.drive_level == "none" and body.workspace_level == "none"):
         raise HTTPException(status_code=400, detail="At least one scope must be enabled")
 
     from core.providers.credentials import CredentialStore
@@ -389,6 +395,7 @@ async def setup_google_account(account_id: str, body: GoogleSetupRequest, user=D
         gmail_level=body.gmail_level,
         calendar_level=body.calendar_level,
         drive_level=body.drive_level,
+        workspace_level=body.workspace_level,
         include_ai=include_ai,
     )
 
@@ -400,6 +407,7 @@ async def setup_google_account(account_id: str, body: GoogleSetupRequest, user=D
                 "gmail_level": body.gmail_level,
                 "calendar_level": body.calendar_level,
                 "drive_level": body.drive_level,
+                "workspace_level": body.workspace_level,
                 "include_ai": include_ai,
                 "account_id": account_id,
             },

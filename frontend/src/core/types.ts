@@ -15,7 +15,7 @@ export interface Agent {
   calendar_write_enabled?: boolean;
   drive_enabled?: boolean;
   drive_write_enabled?: boolean;
-  google_accounts?: { gmail?: string[]; calendar?: string[]; drive?: string[] };
+  google_accounts?: { gmail?: string[]; calendar?: string[]; drive?: string[]; workspace?: string[] };
   whatsapp_session_id?: string;
   telegram_enabled: boolean;
   telegram_bot_token?: string;
@@ -80,11 +80,13 @@ export interface Commitment {
 export type GmailScopeLevel = 'none' | 'read' | 'send';
 export type CalendarScopeLevel = 'none' | 'read' | 'full';
 export type DriveScopeLevel = 'none' | 'file' | 'readonly' | 'full';
+export type WorkspaceScopeLevel = 'none' | 'read' | 'edit';
 
 export interface GoogleScopeGrants {
   gmail: GmailScopeLevel;
   calendar: CalendarScopeLevel;
   drive: DriveScopeLevel;
+  workspace?: WorkspaceScopeLevel;
 }
 
 export interface GoogleAccount {
