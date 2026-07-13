@@ -21,6 +21,7 @@ MODEL_PRICING: dict[str, tuple[float, float]] = {
     "claude-opus-4-8":   (5.00, 25.00),
     "claude-opus-4-7":   (5.00, 25.00),
     "claude-opus-4-6":   (5.00, 25.00),
+    "claude-sonnet-5":   (3.00, 15.00),  # standard rate; intro pricing $2/$10 runs through 2026-08-31
     "claude-sonnet-4-6": (3.00, 15.00),
     "claude-haiku-4-5":  (1.00, 5.00),
     # OpenAI
@@ -41,22 +42,64 @@ MODEL_PRICING: dict[str, tuple[float, float]] = {
 # model id -> (source_url, verified_date). Maintained by the price-check skill;
 # every MODEL_PRICING entry should have a corresponding source here.
 PRICING_SOURCES: dict[str, tuple[str, str]] = {
-    "claude-fable-5":    ("https://platform.claude.com/docs/en/about-claude/models/overview", "2026-06-16"),
-    "claude-opus-4-8":   ("https://platform.claude.com/docs/en/about-claude/models/overview", "2026-06-16"),
-    "claude-opus-4-7":   ("https://platform.claude.com/docs/en/about-claude/models/overview", "2026-06-16"),
-    "claude-opus-4-6":   ("https://platform.claude.com/docs/en/about-claude/models/overview", "2026-06-16"),
-    "claude-sonnet-4-6": ("https://platform.claude.com/docs/en/about-claude/models/overview", "2026-06-16"),
-    "claude-haiku-4-5":  ("https://platform.claude.com/docs/en/about-claude/models/overview", "2026-06-16"),
-    "gpt-5.5":           ("https://developers.openai.com/api/docs/pricing", "2026-06-16"),
-    "gpt-5.4":           ("https://developers.openai.com/api/docs/pricing", "2026-06-16"),
-    "gpt-5.4-mini":      ("https://developers.openai.com/api/docs/pricing", "2026-06-16"),
-    "gpt-5.4-nano":      ("https://developers.openai.com/api/docs/pricing", "2026-06-16"),
-    "gemini-2.5-pro":        ("https://ai.google.dev/gemini-api/docs/pricing", "2026-06-16"),
-    "gemini-2.5-flash":      ("https://ai.google.dev/gemini-api/docs/pricing", "2026-06-16"),
-    "gemini-2.5-flash-lite": ("https://ai.google.dev/gemini-api/docs/pricing", "2026-06-16"),
-    "gemini-2.0-flash":      ("https://ai.google.dev/gemini-api/docs/pricing", "2026-06-16"),
-    "gemini-2.0-flash-lite": ("https://ai.google.dev/gemini-api/docs/pricing", "2026-06-16"),
+    "claude-fable-5":    ("https://platform.claude.com/docs/en/about-claude/models/overview", "2026-07-13"),
+    "claude-opus-4-8":   ("https://platform.claude.com/docs/en/about-claude/models/overview", "2026-07-13"),
+    "claude-opus-4-7":   ("https://platform.claude.com/docs/en/about-claude/models/overview", "2026-07-13"),
+    "claude-opus-4-6":   ("https://platform.claude.com/docs/en/about-claude/models/overview", "2026-07-13"),
+    "claude-sonnet-5":   ("https://platform.claude.com/docs/en/about-claude/models/overview", "2026-07-13"),
+    "claude-sonnet-4-6": ("https://platform.claude.com/docs/en/about-claude/models/overview", "2026-07-13"),
+    "claude-haiku-4-5":  ("https://platform.claude.com/docs/en/about-claude/models/overview", "2026-07-13"),
+    "gpt-5.5":           ("https://developers.openai.com/api/docs/pricing", "2026-07-13"),
+    "gpt-5.4":           ("https://developers.openai.com/api/docs/pricing", "2026-07-13"),
+    "gpt-5.4-mini":      ("https://developers.openai.com/api/docs/pricing", "2026-07-13"),
+    "gpt-5.4-nano":      ("https://developers.openai.com/api/docs/pricing", "2026-07-13"),
+    "gemini-2.5-pro":        ("https://ai.google.dev/gemini-api/docs/pricing", "2026-07-13"),
+    "gemini-2.5-flash":      ("https://ai.google.dev/gemini-api/docs/pricing", "2026-07-13"),
+    "gemini-2.5-flash-lite": ("https://ai.google.dev/gemini-api/docs/pricing", "2026-07-13"),
+    "gemini-2.0-flash":      ("https://ai.google.dev/gemini-api/docs/pricing", "2026-07-13"),
+    "gemini-2.0-flash-lite": ("https://ai.google.dev/gemini-api/docs/pricing", "2026-07-13"),
 }
+
+
+# Audio transcription pricing, USD per audio MINUTE (transcription APIs bill
+# by duration, not tokens). OpenAI publishes per-minute "estimated cost"
+# figures directly. The Gemini rate is derived from documented primitives:
+# audio input $1.00/Mtok (pricing page) × 32 tokens per second of audio
+# (audio-understanding docs) × 60 s; the transcript's output tokens are
+# added separately via MODEL_PRICING (see estimate_transcription_cost).
+TRANSCRIPTION_PRICING: dict[str, float] = {
+    "gpt-4o-transcribe":      0.006,
+    "gpt-4o-mini-transcribe": 0.003,
+    "gemini-2.5-flash":       0.00192,
+}
+
+TRANSCRIPTION_PRICING_SOURCES: dict[str, tuple[str, str]] = {
+    "gpt-4o-transcribe":      ("https://developers.openai.com/api/docs/pricing", "2026-07-13"),
+    "gpt-4o-mini-transcribe": ("https://developers.openai.com/api/docs/pricing", "2026-07-13"),
+    "gemini-2.5-flash":       ("https://ai.google.dev/gemini-api/docs/pricing", "2026-07-13"),
+}
+
+
+def estimate_transcription_cost(model: str, audio_seconds: int, output_tokens: int = 0) -> float:
+    """Estimated USD cost of one transcription. 0.0 when pricing is unknown.
+
+    Duration is billed per minute from TRANSCRIPTION_PRICING; output tokens
+    (the transcript text, relevant for Gemini) are added from MODEL_PRICING.
+    """
+    per_minute = TRANSCRIPTION_PRICING.get(model)
+    if per_minute is None:
+        return 0.0
+    cost = (audio_seconds / 60.0) * per_minute
+    if output_tokens:
+        pricing = get_model_pricing(model)
+        if pricing is not None:
+            cost += output_tokens * pricing[1] / 1_000_000
+    return cost
+
+
+def is_transcription_priced(model: str) -> bool:
+    """True if we have a published per-minute price for this transcription model."""
+    return model in TRANSCRIPTION_PRICING
 
 
 def get_model_pricing(model: str) -> tuple[float, float] | None:
