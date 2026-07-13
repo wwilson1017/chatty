@@ -124,6 +124,7 @@ class ContextManager:
         self.data_dir = data_dir
         self.tools_dir = data_dir / "tools"
         self.daily_dir = data_dir / "daily"
+        self.meetings_dir = data_dir / "meetings"
         self.gcs_prefix = gcs_prefix
 
     def ensure_dir(self):
@@ -380,6 +381,129 @@ class ContextManager:
                 continue
             headline = sanitize_memory_content(e["headline"]) if e["headline"] else "(no summary yet)"
             lines.append(f"- {e['date']} · {headline}")
+        return "\n".join(lines)
+
+    # ------------------------------------------------------------------
+    # Meetings — transcribed recordings (like daily/, never loaded whole
+    # into the system prompt; surfaced via manifest + read_meeting tool)
+    # ------------------------------------------------------------------
+
+    def ensure_meetings_dir(self):
+        self.meetings_dir.mkdir(parents=True, exist_ok=True)
+
+    @staticmethod
+    def _slugify_title(title: str) -> str:
+        slug = re.sub(r"[^a-z0-9]+", "-", (title or "").lower()).strip("-")
+        return slug[:60] or "meeting"
+
+    @staticmethod
+    def _fmt_duration(seconds: float) -> str:
+        s = int(seconds or 0)
+        return f"{s // 3600}:{(s % 3600) // 60:02d}:{s % 60:02d}"
+
+    def save_meeting_transcript(
+        self,
+        title: str,
+        transcript: str,
+        *,
+        duration_seconds: float = 0,
+        source_filename: str = "",
+        transcribed_by: str = "",
+    ) -> dict:
+        """Save a meeting transcript under meetings/ with YAML frontmatter.
+
+        Returns {"filename": ..., "title": ..., "date": ...}. Filenames embed
+        date+time so same-title meetings never collide.
+        """
+        self.ensure_meetings_dir()
+        now = datetime.now(CT_TZ)
+        date = now.strftime("%Y-%m-%d")
+        filename = f"{date}-{now.strftime('%H%M%S')}-{self._slugify_title(title)}.md"
+        path = self.meetings_dir / filename
+
+        content = (
+            "---\n"
+            "type: meeting\n"
+            f"title: {title}\n"
+            f"date: {date}\n"
+            f"time: {now.strftime('%H:%M')} CT\n"
+            f"duration: {self._fmt_duration(duration_seconds)}\n"
+            f"duration_seconds: {int(duration_seconds or 0)}\n"
+            f"source: {source_filename}\n"
+            f"transcribed_by: {transcribed_by}\n"
+            "---\n\n"
+            f"# {title}\n\n"
+            f"{transcript.strip()}\n"
+        )
+        atomic_write(path, content)
+        try:
+            upload_config(path, f"meetings/{filename}", prefix=self.gcs_prefix)
+        except Exception:
+            logger.warning("GCS upload failed for meetings/%s", filename, exc_info=True)
+        logger.info("Meeting transcript saved: %s (%d chars)", filename, len(content))
+        return {"filename": filename, "title": title, "date": date}
+
+    @staticmethod
+    def _parse_meeting_frontmatter(content: str) -> dict:
+        """Parse the simple flat YAML frontmatter written by save_meeting_transcript."""
+        meta: dict = {}
+        lines = content.splitlines()
+        if not lines or lines[0].strip() != "---":
+            return meta
+        for line in lines[1:40]:
+            if line.strip() == "---":
+                break
+            if ":" in line:
+                key, _, value = line.partition(":")
+                meta[key.strip()] = value.strip()
+        return meta
+
+    def read_meeting(self, filename: str) -> str:
+        """Return a meeting transcript's full content ('' if missing/invalid)."""
+        name = Path(filename or "").name
+        if not name.endswith(".md"):
+            return ""
+        path = self.meetings_dir / name
+        if not path.exists():
+            return ""
+        return path.read_text(encoding="utf-8")
+
+    def list_meetings(self, limit: int = 20) -> list[dict]:
+        """List meeting transcripts, newest first, with frontmatter metadata."""
+        self.ensure_meetings_dir()
+        entries: list[dict] = []
+        for f in sorted(self.meetings_dir.glob("*.md"), reverse=True):
+            try:
+                content = f.read_text(encoding="utf-8")
+            except Exception:
+                continue
+            meta = self._parse_meeting_frontmatter(content)
+            entries.append({
+                "name": f.name,
+                "title": meta.get("title") or f.stem,
+                "date": meta.get("date", ""),
+                "duration": meta.get("duration", ""),
+                "source": meta.get("source", ""),
+                "size_bytes": f.stat().st_size,
+            })
+            if len(entries) >= limit:
+                break
+        return entries
+
+    def meetings_manifest(self, limit: int = 15) -> str:
+        """Render the meetings manifest for system prompt injection.
+
+        One line per meeting: `- <filename> · <title> · <date> · <duration>`.
+        Returns empty string when no meetings exist.
+        """
+        entries = self.list_meetings(limit=limit)
+        if not entries:
+            return ""
+        lines = []
+        for e in entries:
+            title = sanitize_memory_content(e["title"]) if e["title"] else "(untitled)"
+            duration = f" · {e['duration']}" if e.get("duration") else ""
+            lines.append(f"- {e['name']} · {title} · {e['date']}{duration}")
         return "\n".join(lines)
 
     # ------------------------------------------------------------------

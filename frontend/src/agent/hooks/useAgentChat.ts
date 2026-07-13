@@ -79,6 +79,9 @@ export interface ChatMessage {
   tier?: string;
   playbook?: { slug: string; name: string };
   compacted?: boolean;  // context was compacted just before this turn's response
+  // Live audio-transcription progress (pre-stream phase of an upload turn).
+  // Not persisted — present only while/after this session's turn streamed.
+  transcription?: { filename: string; stage: string; message: string; percent: number | null };
 }
 
 // ContextUsage lives in core/types as the single source of truth; re-exported
@@ -312,6 +315,16 @@ export function useAgentChat(apiPrefix: string, options?: Options) {
               if (event.tool === 'mark_onboarding_complete') {
                 options?.onOnboardingComplete?.();
               }
+            } else if (event.type === 'transcription') {
+              updateLastAssistant(last => ({
+                ...last,
+                transcription: {
+                  filename: event.filename || '',
+                  stage: event.stage || '',
+                  message: event.message || '',
+                  percent: typeof event.percent === 'number' ? event.percent : null,
+                },
+              }));
             } else if (event.type === 'confirm' && event.tool) {
               flushPendingText();
               updateLastAssistant(last => ({

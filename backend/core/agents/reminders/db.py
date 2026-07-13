@@ -191,6 +191,11 @@ def _setup_connection() -> None:
         # Lets the usage dashboard treat only local Ollama rows as free and
         # flag unpriced PAID models instead of silently reporting $0.
         _connection.execute("ALTER TABLE execution_history ADD COLUMN provider TEXT")
+    if "audio_seconds" not in eh_cols:
+        # Recording length for event_type='transcription' rows — transcription
+        # bills per audio minute, not per token, so the usage dashboard needs
+        # the duration to price these rows.
+        _connection.execute("ALTER TABLE execution_history ADD COLUMN audio_seconds INTEGER DEFAULT 0")
     _connection.execute("CREATE INDEX IF NOT EXISTS idx_eh_event_type ON execution_history(event_type, started_at DESC)")
     _connection.commit()
 

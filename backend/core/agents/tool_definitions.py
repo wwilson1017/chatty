@@ -174,6 +174,40 @@ MEMORY_TOOLS = [
         "context_memory": True,
     },
     {
+        "name": "list_meetings",
+        "description": "List transcribed meeting recordings (newest first) with title, date, and duration. Use before read_meeting to find the right transcript.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "limit": {
+                    "type": "integer",
+                    "description": "Max meetings to return (default 20)",
+                },
+            },
+            "required": [],
+        },
+        "kind": "memory",
+        "writes": False,
+        "context_memory": True,
+    },
+    {
+        "name": "read_meeting",
+        "description": "Read the full transcript of a transcribed meeting recording. Get filenames from list_meetings or the meetings manifest.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "filename": {
+                    "type": "string",
+                    "description": "The meeting transcript filename (e.g. 2026-07-13-140500-weekly-standup.md)",
+                },
+            },
+            "required": ["filename"],
+        },
+        "kind": "memory",
+        "writes": False,
+        "context_memory": True,
+    },
+    {
         "name": "read_memory",
         "description": "Read the current MEMORY.md — your living snapshot of key facts.",
         "input_schema": {

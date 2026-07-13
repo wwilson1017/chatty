@@ -15,8 +15,17 @@ import { SlashCommandMenu } from '../playbooks/SlashCommandMenu';
 import { integrationLabel, type PlaybookSummary } from '../playbooks/types';
 
 const ALLOWED_EXTENSIONS = new Set(['csv', 'xlsx', 'md', 'txt', 'pdf', 'docx']);
+// Meeting recordings — transcribed server-side (audio or video; only the
+// audio track is used). Mirrors AUDIO_EXTENSIONS in the backend.
+const AUDIO_EXTENSIONS = new Set([
+  'mp3', 'm4a', 'wav', 'ogg', 'oga', 'opus', 'flac', 'aac', 'aiff',
+  'mp4', 'mov', 'webm', 'mpga', 'mpeg',
+]);
 const MAX_FILE_SIZE = 1 * 1024 * 1024;
 const MAX_PDF_SIZE = 10 * 1024 * 1024;
+// Soft sanity cap for recordings (~4h meeting as MP4). The backend chunks
+// arbitrarily long audio; this just catches obviously wrong drops.
+const MAX_AUDIO_SIZE = 2 * 1024 * 1024 * 1024;
 const MAX_FILES = 5;
 
 function getExtension(name: string): string {
@@ -130,10 +139,14 @@ export function AgentChatPanel({
 
     for (const f of incoming) {
       const ext = getExtension(f.name);
-      const allowed = importMode ? new Set([...ALLOWED_EXTENSIONS, 'zip']) : ALLOWED_EXTENSIONS;
+      const allowed = importMode
+        ? new Set([...ALLOWED_EXTENSIONS, ...AUDIO_EXTENSIONS, 'zip'])
+        : new Set([...ALLOWED_EXTENSIONS, ...AUDIO_EXTENSIONS]);
       if (!allowed.has(ext)) { errors.push(`${f.name}: unsupported type (.${ext})`); continue; }
-      const maxSize = ext === 'zip' ? 25 * 1024 * 1024 : (ext === 'pdf' || ext === 'docx') ? MAX_PDF_SIZE : MAX_FILE_SIZE;
-      const maxLabel = ext === 'zip' ? '25 MB' : (ext === 'pdf' || ext === 'docx') ? '10 MB' : '1 MB';
+      const maxSize = AUDIO_EXTENSIONS.has(ext) ? MAX_AUDIO_SIZE
+        : ext === 'zip' ? 25 * 1024 * 1024 : (ext === 'pdf' || ext === 'docx') ? MAX_PDF_SIZE : MAX_FILE_SIZE;
+      const maxLabel = AUDIO_EXTENSIONS.has(ext) ? '2 GB'
+        : ext === 'zip' ? '25 MB' : (ext === 'pdf' || ext === 'docx') ? '10 MB' : '1 MB';
       if (f.size > maxSize) { errors.push(`${f.name}: exceeds ${maxLabel}`); continue; }
       if (f.size === 0) { errors.push(`${f.name}: empty file`); continue; }
       if (pendingFiles.some(p => p.name === f.name)) { errors.push(`${f.name}: already attached`); continue; }
@@ -436,7 +449,7 @@ export function AgentChatPanel({
                 ref={fileInputRef}
                 type="file"
                 multiple
-                accept=".csv,.xlsx,.md,.txt,.pdf,.docx"
+                accept=".csv,.xlsx,.md,.txt,.pdf,.docx,.mp3,.m4a,.wav,.ogg,.oga,.opus,.flac,.aac,.aiff,.mp4,.mov,.webm,.mpga,.mpeg"
                 style={{ display: 'none' }}
                 onChange={e => {
                   if (e.target.files?.length) {

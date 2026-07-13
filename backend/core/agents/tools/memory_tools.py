@@ -131,6 +131,57 @@ def list_daily_notes(data_dir: str, gcs_prefix: str, limit: int = 30) -> dict:
     return {"notes": notes}
 
 
+def list_meetings(data_dir: str, gcs_prefix: str, limit: int = 20) -> dict:
+    """List transcribed meeting recordings (newest first) with metadata."""
+    try:
+        limit = max(1, min(int(limit), 200))
+    except (TypeError, ValueError):
+        limit = 20
+    return {"meetings": _make_cm(data_dir, gcs_prefix).list_meetings(limit=limit)}
+
+
+def read_meeting(data_dir: str, gcs_prefix: str, filename: str) -> dict:
+    """Read a meeting transcript's full content by filename."""
+    if not filename:
+        return {"error": "filename is required"}
+    content = _make_cm(data_dir, gcs_prefix).read_meeting(filename)
+    if not content:
+        return {"filename": filename, "content": "", "exists": False}
+    return {"filename": filename, "content": content, "exists": True}
+
+
+def save_meeting_transcript(
+    data_dir: str,
+    gcs_prefix: str,
+    title: str,
+    transcript: str,
+    *,
+    duration_seconds: float = 0,
+    source_filename: str = "",
+    transcribed_by: str = "",
+) -> dict:
+    """Persist a transcript under meetings/ and index it for memory search."""
+    cm = _make_cm(data_dir, gcs_prefix)
+    result = cm.save_meeting_transcript(
+        title, transcript,
+        duration_seconds=duration_seconds,
+        source_filename=source_filename,
+        transcribed_by=transcribed_by,
+    )
+    # Fire-and-forget FTS5 indexing so search_memory finds meeting content
+    try:
+        from core.agents.memory.db import get_instance
+        db = get_instance(data_dir)
+        if db:
+            db.index_document(
+                "meeting", result["filename"], result["title"],
+                cm.read_meeting(result["filename"]), date=result.get("date"),
+            )
+    except Exception:
+        logger.debug("FTS5 index update for meeting failed", exc_info=True)
+    return result
+
+
 def read_memory(data_dir: str, gcs_prefix: str) -> dict:
     """Return the current MEMORY.md content."""
     return {"content": _make_cm(data_dir, gcs_prefix).read_memory()}
