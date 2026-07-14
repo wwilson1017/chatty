@@ -7,6 +7,7 @@ All .md files in data_dir are loaded into the system prompt.
 import json
 import logging
 import re
+import secrets
 from datetime import datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -40,6 +41,18 @@ _STOPWORDS = {
 }
 
 _TOKEN_RE = re.compile(r"[a-z0-9]+")
+
+_CONTROL_CHARS_RE = re.compile(r"[\x00-\x1f\x7f]+")
+
+
+def _safe_oneline(s: str, maxlen: int = 120) -> str:
+    """Strip control chars (incl. newlines/tabs), collapse whitespace, and
+    truncate — so an untrusted filename/title can't inject newlines/corrupt
+    structure when interpolated into trusted prompt text or YAML frontmatter.
+    """
+    s = _CONTROL_CHARS_RE.sub(" ", s or "")
+    s = re.sub(r"\s+", " ", s).strip()
+    return s[:maxlen]
 
 
 def _tokenize(text: str) -> list[str]:
@@ -416,10 +429,16 @@ class ContextManager:
         date+time so same-title meetings never collide.
         """
         self.ensure_meetings_dir()
+        title = _safe_oneline(title)
+        source_filename = _safe_oneline(source_filename)
         now = datetime.now(CT_TZ)
         date = now.strftime("%Y-%m-%d")
-        filename = f"{date}-{now.strftime('%H%M%S')}-{self._slugify_title(title)}.md"
+        slug = self._slugify_title(title)
+        filename = f"{date}-{now.strftime('%H%M%S')}-{slug}.md"
         path = self.meetings_dir / filename
+        while path.exists():
+            filename = f"{date}-{now.strftime('%H%M%S')}-{secrets.token_hex(2)}-{slug}.md"
+            path = self.meetings_dir / filename
 
         content = (
             "---\n"

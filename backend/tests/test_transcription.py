@@ -69,6 +69,31 @@ def test_transcribe_file_without_provider_raises(monkeypatch):
         asyncio.run(run())
 
 
+def test_transcribe_file_rejects_overlong_duration(monkeypatch, tmp_path):
+    """FIX B: a probed duration over the 6h cap must fail closed before any
+    transcription API call — even for a byte size well under the 2GB cap."""
+    import asyncio
+    import core.agents.transcription.service as svc
+    from core.agents.transcription.service import TranscriptionError, transcribe_file
+
+    monkeypatch.setattr(svc, "pick_backend", lambda: ("openai", "fake-key"))
+    monkeypatch.setattr(svc, "probe_duration_seconds", lambda path: 7 * 3600)
+
+    fake_file = tmp_path / "long.mp3"
+    fake_file.write_bytes(b"x")
+
+    async def run():
+        async for _ in transcribe_file(fake_file, "long.mp3"):
+            pass
+
+    with pytest.raises(TranscriptionError, match="6-hour limit"):
+        asyncio.run(run())
+
+    # Fail-closed variant (duration unknown + file > 500MB) needs a real
+    # oversized file to exercise path.stat().st_size — not worth faking here;
+    # applied but left untested.
+
+
 def test_fmt_offset():
     from core.agents.transcription.service import _fmt_offset
     assert _fmt_offset(0) == "0:00:00"
@@ -97,6 +122,60 @@ def test_should_wrap_meeting_tools():
     assert should_wrap("read_meeting", "memory") is True
     assert should_wrap("list_meetings", "memory") is True
     assert should_wrap("read_memory", "memory") is False
+
+
+def test_transcribe_gemini_detects_truncation(monkeypatch, tmp_path):
+    """FIX F: a MAX_TOKENS finish_reason must append a visible truncation
+    marker to the transcript instead of silently returning a partial one."""
+    import asyncio
+    import sys
+    import types as _types
+
+    import core.agents.transcription.service as svc
+
+    fake_genai = _types.ModuleType("google.generativeai")
+
+    class FakeFile:
+        def __init__(self, name="files/abc"):
+            self.name = name
+            self.state = _types.SimpleNamespace(name="ACTIVE")
+
+    class FakeCandidate:
+        finish_reason = _types.SimpleNamespace(name="MAX_TOKENS")
+
+    class FakeResponse:
+        text = "partial transcript"
+        candidates = [FakeCandidate()]
+        usage_metadata = _types.SimpleNamespace(prompt_token_count=10, candidates_token_count=20)
+
+    class FakeModel:
+        def __init__(self, name):
+            pass
+
+        def generate_content(self, contents, generation_config=None, request_options=None):
+            return FakeResponse()
+
+    fake_genai.configure = lambda api_key=None: None
+    fake_genai.upload_file = lambda path, mime_type=None: FakeFile()
+    fake_genai.get_file = lambda name: FakeFile(name)
+    fake_genai.delete_file = lambda name: None
+    fake_genai.GenerativeModel = FakeModel
+
+    monkeypatch.setitem(sys.modules, "google.generativeai", fake_genai)
+
+    audio_path = tmp_path / "rec.mp3"
+    audio_path.write_bytes(b"fake")
+
+    async def run():
+        events = []
+        async for event in svc._transcribe_gemini(audio_path, "rec.mp3", "fake-key", 30.0):
+            events.append(event)
+        return events
+
+    events = asyncio.run(run())
+    done = next(e for e in events if e.get("done"))
+    assert "Transcript truncated" in done["transcript"]
+    assert "partial transcript" in done["transcript"]
 
 
 # ---------------------------------------------------------------------------
@@ -158,6 +237,54 @@ def test_slugify_title():
     assert ContextManager._slugify_title("Weekly Standup!") == "weekly-standup"
     assert ContextManager._slugify_title("") == "meeting"
     assert len(ContextManager._slugify_title("x" * 200)) <= 60
+
+
+def test_save_meeting_sanitizes_control_chars(cm):
+    """FIX A: a crafted title/filename with embedded newlines + a fake '---'
+    frontmatter terminator must not break YAML frontmatter structure."""
+    evil_title = "Weekly\nStandup\n---\ninjected: pwned"
+    evil_source = "evil\nname.mp3"
+    saved = cm.save_meeting_transcript(
+        evil_title, "notes here",
+        duration_seconds=60, source_filename=evil_source,
+    )
+    content = cm.read_meeting(saved["filename"])
+    lines = content.splitlines()
+    title_line = next(l for l in lines if l.startswith("title:"))
+    source_line = next(l for l in lines if l.startswith("source:"))
+    assert "\n" not in title_line
+    assert "\n" not in source_line
+
+    meta = ContextManager._parse_meeting_frontmatter(content)
+    # Frontmatter parsed cleanly all the way through — proves the injected
+    # "---" never landed on its own line to fake an early terminator.
+    assert meta["duration_seconds"] == "60"
+    assert meta["transcribed_by"] == ""
+    assert "Weekly Standup" in meta["title"]
+
+
+def test_save_meeting_filename_collision_suffix(cm, monkeypatch):
+    """FIX D: two saves that resolve to the same date+time+slug filename
+    (simulated via a frozen clock) must not collide — the second gets a
+    random suffix and both transcripts are kept."""
+    import core.agents.context_manager as ctx_mod
+
+    class _FixedDateTime(ctx_mod.datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return cls(2026, 7, 13, 12, 0, 0, tzinfo=tz)
+
+    monkeypatch.setattr(ctx_mod, "datetime", _FixedDateTime)
+
+    first = cm.save_meeting_transcript("Standup", "first content")
+    second = cm.save_meeting_transcript("Standup", "second content")
+
+    assert first["filename"] == "2026-07-13-120000-standup.md"
+    assert second["filename"] != first["filename"]
+    assert second["filename"].endswith("-standup.md")
+
+    assert "first content" in cm.read_meeting(first["filename"])
+    assert "second content" in cm.read_meeting(second["filename"])
 
 
 # ---------------------------------------------------------------------------
@@ -471,3 +598,118 @@ def test_upload_two_audio_partial_failure_keeps_first(transcribing_client, monke
 
     meetings = list((tmp_path / agent["slug"] / "context" / "meetings").glob("*.md"))
     assert len(meetings) == 1
+
+
+def test_upload_audio_with_playbook_includes_transcript(transcribing_client, monkeypatch):
+    """FIX E: an audio upload that ALSO invokes a playbook must build the
+    playbook expansion AFTER the transcript is prepended, not before — the
+    model must actually see the recording, not a transcript-less expansion."""
+    import json
+
+    import agents.router as router_mod
+
+    captured = {}
+
+    def fake_expansion(agent_slug, messages, playbook_slug):
+        captured["messages_content"] = messages[-1]["content"]
+        captured["playbook_slug"] = playbook_slug
+        return "[EXPANDED]\n" + messages[-1]["content"]
+
+    monkeypatch.setattr(router_mod, "_build_playbook_expansion", fake_expansion)
+
+    from tests.test_http_agents import make_agent
+    agent = make_agent(transcribing_client)
+    payload = {
+        "messages": [{"role": "user", "content": "here it is"}],
+        "playbook_slug": "some-playbook",
+    }
+    resp = transcribing_client.post(
+        f"/api/agents/{agent['id']}/chat/upload",
+        data={"payload": json.dumps(payload)},
+        files=[("files", ("team_standup.mp3", b"fake-audio-bytes", "audio/mpeg"))],
+    )
+    assert resp.status_code == 200
+
+    # Expansion was built with the transcript already in the last user
+    # message — proves it ran after pre_stream, not before it.
+    assert "quarterly numbers look great" in captured["messages_content"]
+    assert captured["playbook_slug"] == "some-playbook"
+
+    seen = transcribing_client._provider.seen_messages[0][-1]["content"]
+    assert seen.startswith("[EXPANDED]")
+    assert "quarterly numbers look great" in seen
+
+
+def test_upload_two_audio_save_failure_salvages_first(transcribing_client, monkeypatch, tmp_path):
+    """FIX C: when the first recording transcribes+saves successfully but the
+    second's SAVE step fails, the AI turn still runs with the first
+    transcript intact (mirrors the existing transcription-failure salvage)."""
+    import json
+
+    import core.agents.transcription.service as svc
+    import core.agents.tools.memory_tools as memory_tools_mod
+    from tests.conftest import parse_sse
+    from tests.test_http_agents import make_agent
+
+    async def fake_transcribe(path, filename):
+        yield {"stage": "transcribing", "message": "Transcribing…", "percent": 50}
+        yield {
+            "done": True,
+            "transcript": f"Speaker 1: notes for {filename}",
+            "duration_seconds": 60,
+            "model": "gpt-4o-transcribe",
+            "provider": "openai",
+            "input_tokens": 0,
+            "output_tokens": 10,
+            "processing_ms": 500,
+        }
+
+    monkeypatch.setattr(svc, "transcribe_file", fake_transcribe)
+
+    real_save = memory_tools_mod.save_meeting_transcript
+
+    def flaky_save(data_dir, gcs_prefix, title, transcript, **kw):
+        if kw.get("source_filename") == "bad.mp3":
+            raise RuntimeError("disk full")
+        return real_save(data_dir, gcs_prefix, title, transcript, **kw)
+
+    monkeypatch.setattr(memory_tools_mod, "save_meeting_transcript", flaky_save)
+
+    agent = make_agent(transcribing_client)
+    payload = {"messages": [{"role": "user", "content": "here are two"}]}
+    resp = transcribing_client.post(
+        f"/api/agents/{agent['id']}/chat/upload",
+        data={"payload": json.dumps(payload)},
+        files=[
+            ("files", ("good.mp3", b"fake-audio-bytes", "audio/mpeg")),
+            ("files", ("bad.mp3", b"fake-audio-bytes", "audio/mpeg")),
+        ],
+    )
+    assert resp.status_code == 200
+    events = parse_sse(resp)
+    types = [e["type"] for e in events]
+    assert "text" in types and "done" in types
+
+    seen = transcribing_client._provider.seen_messages[0][-1]["content"]
+    assert "notes for good.mp3" in seen
+    assert "saving the transcript" in seen and "bad.mp3" in seen
+
+    meetings = list((tmp_path / agent["slug"] / "context" / "meetings").glob("*.md"))
+    assert len(meetings) == 1
+
+
+def test_upload_too_many_files_rejected(client):
+    """FIX G: more than _MAX_FILES uploads must be rejected up front."""
+    import json
+
+    from tests.test_http_agents import make_agent
+
+    agent = make_agent(client)
+    payload = {"messages": [{"role": "user", "content": "hi"}]}
+    files = [("files", (f"f{i}.txt", b"hello", "text/plain")) for i in range(6)]
+    resp = client.post(
+        f"/api/agents/{agent['id']}/chat/upload",
+        data={"payload": json.dumps(payload)},
+        files=files,
+    )
+    assert resp.status_code == 400

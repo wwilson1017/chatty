@@ -35,8 +35,10 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from core.auth import get_current_user
+from core.agents.context_manager import _safe_oneline
 from core.storage import atomic_write, atomic_write_bytes
 from core.providers import get_ai_provider
+from core.providers.base import _sse
 from core.providers.credentials import CredentialStore
 from core.agents.tool_registry import ToolRegistry
 from .tool_loader import INTEGRATION_MODULES, load_integration_tools, build_agent_handlers
@@ -483,7 +485,8 @@ def _stream_chat(agent: dict, messages: list, training_mode: bool, conversation_
                   training_type: str | None = None, plan_mode: bool = False,
                   tool_mode: str = "normal", approved_tool: dict | None = None,
                   import_mode: bool = False, has_attachments: bool = False,
-                  playbook_expansion: str | None = None, pre_stream=None):
+                  playbook_expansion: str | None = None, pre_stream=None,
+                  playbook_slug: str | None = None):
     """Build provider, registry, and return a StreamingResponse for agent chat."""
     config = build_agent_config(agent)
     ctx_manager = get_context_manager(agent["slug"])
@@ -579,6 +582,20 @@ def _stream_chat(agent: dict, messages: list, training_mode: bool, conversation_
             if not completed:
                 return
 
+        # Playbook invocation: normally expanded before this function is
+        # called, but when an audio upload is present the caller defers
+        # expansion (playbook_expansion=None, playbook_slug set) until now —
+        # AFTER pre_stream has prepended the transcript to the last user
+        # message — so the expansion actually includes the recording instead
+        # of replacing it with a transcript-less activation message.
+        effective_expansion = playbook_expansion
+        if playbook_slug and effective_expansion is None:
+            try:
+                effective_expansion = _build_playbook_expansion(agent["slug"], messages, playbook_slug)
+            except HTTPException as e:
+                yield _sse({"type": "error", "error": e.detail})
+                return
+
         # Run auto-triage if tier is "auto" and we haven't resolved yet
         if not triage_info and config.model_tier == "auto" and not config.model_override:
             skip_triage = training_mode or plan_mode or approved_tool is not None
@@ -630,7 +647,7 @@ def _stream_chat(agent: dict, messages: list, training_mode: bool, conversation_
             approved_tool=approved_tool,
             integration_tool_modes=integration_tool_modes,
             triage_info=triage_info,
-            playbook_expansion=playbook_expansion,
+            playbook_expansion=effective_expansion,
         ):
             yield event
 
@@ -905,6 +922,7 @@ _MAX_INLINE_TRANSCRIPT = 60_000
 def _meeting_title_from_filename(filename: str) -> str:
     stem = Path(filename).stem.lstrip(".")
     title = re.sub(r"[_\-]+", " ", stem).strip()
+    title = _safe_oneline(title)
     return title or "Meeting recording"
 
 
@@ -984,6 +1002,13 @@ def _build_transcription_pre_stream(agent: dict, messages: list, audio_items: li
                     )
                 except Exception:
                     logger.exception("Saving transcript failed for %s", orig_name)
+                    if blocks:
+                        blocks.append(
+                            f"[Note: saving the transcript for '{orig_name}' failed and it "
+                            "was skipped. The recording(s) above were transcribed successfully.]")
+                        _merge_blocks()
+                        yield _PRE_STREAM_OK
+                        return
                     yield _sse({"type": "error",
                                 "error": f"Saving the transcript for '{orig_name}' failed. Please try again."})
                     return
@@ -1019,7 +1044,7 @@ def _build_transcription_pre_stream(agent: dict, messages: list, audio_items: li
                     "percent": 100,
                 })
                 blocks.append(
-                    f"[Meeting recording transcribed: {orig_name} — duration {duration_label}, "
+                    f"[Meeting recording transcribed: {_safe_oneline(orig_name)} — duration {duration_label}, "
                     f"saved as {saved['filename']} (retrievable anytime via read_meeting)]\n"
                     f"{wrap_result('meeting_transcript', transcript + truncated_note)}\n"
                     "If the user gave no specific request with this upload, briefly note "
@@ -1045,6 +1070,9 @@ async def agent_chat_upload(
 ):
     """Chat with file attachments. Reads file contents and prepends to the user message."""
     agent = _get_agent_or_404(agent_id)
+
+    if len(files) > _MAX_FILES:
+        raise HTTPException(status_code=400, detail=f"Too many files (max {_MAX_FILES})")
 
     try:
         body = _json_mod.loads(payload)
@@ -1227,11 +1255,19 @@ async def agent_chat_upload(
                 audio_temp_dir = None
 
         # Playbook invocation: expand after file prepending so attachments land
-        # inside the activation message's "User request" section.
+        # inside the activation message's "User request" section. When an
+        # audio upload is present, defer expansion until _stream_chat's
+        # pre_stream has prepended the transcript — otherwise ai_service
+        # would replace the last user message with a transcript-less
+        # expansion and the model would never see the recording.
         playbook_expansion = None
+        playbook_slug = None
         if body.get("playbook_slug"):
-            playbook_expansion = _build_playbook_expansion(
-                agent["slug"], messages, body["playbook_slug"])
+            if audio_items:
+                playbook_slug = body["playbook_slug"]
+            else:
+                playbook_expansion = _build_playbook_expansion(
+                    agent["slug"], messages, body["playbook_slug"])
 
         pre_stream = None
         if audio_items:
@@ -1244,6 +1280,7 @@ async def agent_chat_upload(
             tool_mode=body.get("tool_mode", "normal"), approved_tool=body.get("approved_tool"),
             import_mode=import_mode, has_attachments=bool(files),
             playbook_expansion=playbook_expansion, pre_stream=pre_stream,
+            playbook_slug=playbook_slug,
         )
     except Exception:
         if audio_temp_dir:

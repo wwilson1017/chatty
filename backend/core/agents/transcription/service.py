@@ -47,6 +47,14 @@ OPENAI_TRANSCRIBE_MODEL = "gpt-4o-transcribe"
 # for multipart overhead.
 _WHISPER_MAX_BYTES = 24 * 1024 * 1024
 
+# 6 h — generous for meetings; caps runaway transcription cost from a
+# highly-compressed multi-hour recording (the 2 GB byte cap isn't a duration
+# cap) and keeps the single process from being tied up for hours.
+_MAX_DURATION_SECONDS = 6 * 3600
+# Reject very large files whose duration we can't verify (no ffprobe) —
+# fail closed rather than let an unbounded-length file through.
+_FAILCLOSED_UNKNOWN_DURATION_BYTES = 500 * 1024 * 1024
+
 _GEMINI_PROMPT = (
     "Transcribe this meeting recording verbatim.\n"
     "- Label distinct speakers as **Speaker 1**, **Speaker 2**, etc. "
@@ -117,6 +125,15 @@ async def transcribe_file(path: Path, filename: str):
     started = time.monotonic()
     duration = await asyncio.to_thread(probe_duration_seconds, path)
 
+    if duration and duration > _MAX_DURATION_SECONDS:
+        raise TranscriptionError(
+            f"This recording is about {int(duration // 3600)}h long, over the "
+            f"{_MAX_DURATION_SECONDS // 3600}-hour limit. Split it into shorter recordings.")
+    elif duration is None and path.stat().st_size > _FAILCLOSED_UNKNOWN_DURATION_BYTES:
+        raise TranscriptionError(
+            "This recording is very large and its length couldn't be verified. "
+            "Please upload a shorter recording or one in a standard format (MP3/WAV/M4A).")
+
     if provider == "google":
         gen = _transcribe_gemini(path, filename, api_key, duration)
     else:
@@ -142,6 +159,9 @@ async def _transcribe_gemini(path: Path, filename: str, api_key: str,
     except ImportError:
         raise TranscriptionError("google-generativeai package not installed")
 
+    # ponytail: single-user app => one google key, so global configure() is safe.
+    # If MULTI_USER_ENABLED is ever turned on, switch to a per-request
+    # genai.Client(api_key=...) to avoid cross-tenant key races.
     genai.configure(api_key=api_key)
     ext = filename.rsplit(".", 1)[-1].lower()
 
@@ -194,6 +214,16 @@ async def _transcribe_gemini(path: Path, filename: str, api_key: str,
             transcript = (response.text or "").strip()
             if not transcript:
                 raise TranscriptionError("Gemini returned an empty transcript")
+
+            cand = (getattr(response, "candidates", None) or [None])[0]
+            finish = getattr(cand, "finish_reason", None)
+            if finish is not None and str(getattr(finish, "name", finish)).upper() in ("MAX_TOKENS", "2"):
+                transcript += (
+                    "\n\n[⚠️ Transcript truncated: the recording exceeded the "
+                    "transcription model's output limit; it may be longer than "
+                    "captured here.]"
+                )
+                logger.warning("Gemini transcript truncated (finish_reason=%s)", finish)
 
             usage = getattr(response, "usage_metadata", None)
             yield {
