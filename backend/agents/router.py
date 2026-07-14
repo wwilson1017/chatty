@@ -954,7 +954,10 @@ def _build_transcription_pre_stream(agent: dict, messages: list, audio_items: li
 
         try:
             for item in audio_items:
-                orig_name = item["name"]
+                # Sanitize once here so every downstream use — the trusted
+                # metadata line, the salvage/failure notes, and the SSE
+                # progress fields — is free of injected newlines/control chars.
+                orig_name = _safe_oneline(item["name"])
                 result = None
                 try:
                     async for event in transcribe_file(Path(item["path"]), orig_name):
@@ -1044,7 +1047,7 @@ def _build_transcription_pre_stream(agent: dict, messages: list, audio_items: li
                     "percent": 100,
                 })
                 blocks.append(
-                    f"[Meeting recording transcribed: {_safe_oneline(orig_name)} — duration {duration_label}, "
+                    f"[Meeting recording transcribed: {orig_name} — duration {duration_label}, "
                     f"saved as {saved['filename']} (retrievable anytime via read_meeting)]\n"
                     f"{wrap_result('meeting_transcript', transcript + truncated_note)}\n"
                     "If the user gave no specific request with this upload, briefly note "

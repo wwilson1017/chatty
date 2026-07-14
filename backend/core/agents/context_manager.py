@@ -436,6 +436,9 @@ class ContextManager:
         slug = self._slugify_title(title)
         filename = f"{date}-{now.strftime('%H%M%S')}-{slug}.md"
         path = self.meetings_dir / filename
+        # ponytail: check-then-write; enough for a single-user app. A sub-second
+        # race between two concurrent same-title saves could still collide — if
+        # concurrency ever matters, always append token_hex here (uglier names).
         while path.exists():
             filename = f"{date}-{now.strftime('%H%M%S')}-{secrets.token_hex(2)}-{slug}.md"
             path = self.meetings_dir / filename
