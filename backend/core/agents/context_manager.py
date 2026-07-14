@@ -13,6 +13,7 @@ from zoneinfo import ZoneInfo
 
 from core.storage import atomic_write, upload_config, delete_config
 from core.agents.security.scanner import sanitize_memory_content
+from core.agents.transcription.audio import format_hms
 
 logger = logging.getLogger(__name__)
 
@@ -398,8 +399,7 @@ class ContextManager:
 
     @staticmethod
     def _fmt_duration(seconds: float) -> str:
-        s = int(seconds or 0)
-        return f"{s // 3600}:{(s % 3600) // 60:02d}:{s % 60:02d}"
+        return format_hms(seconds)
 
     def save_meeting_transcript(
         self,

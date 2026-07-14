@@ -29,7 +29,9 @@ from pathlib import Path
 from core.agents.transcription.audio import (
     GEMINI_NATIVE_EXTENSIONS,
     SEGMENT_SECONDS,
+    WHISPER_NATIVE_EXTENSIONS,
     ffmpeg_available,
+    format_hms,
     probe_duration_seconds,
     segment_to_mp3,
     transcode_to_mp3,
@@ -84,8 +86,7 @@ def pick_backend() -> tuple[str, str] | None:
 
 
 def _fmt_offset(seconds: float) -> str:
-    s = int(seconds)
-    return f"{s // 3600}:{(s % 3600) // 60:02d}:{s % 60:02d}"
+    return format_hms(seconds)
 
 
 async def _tick_while_running(task: asyncio.Task, stage: str, message: str):
@@ -225,7 +226,7 @@ async def _transcribe_whisper(path: Path, filename: str, api_key: str,
     needs_split = (
         size > _WHISPER_MAX_BYTES
         or (duration or 0) > SEGMENT_SECONDS
-        or ext in ("mov",)  # container Whisper doesn't accept directly
+        or ext not in WHISPER_NATIVE_EXTENSIONS  # convert anything Whisper won't accept directly
     )
 
     with tempfile.TemporaryDirectory(prefix="chatty-transcribe-") as tmp:

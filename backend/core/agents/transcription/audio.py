@@ -26,6 +26,14 @@ AUDIO_EXTENSIONS = {
 # Containers Gemini's File API accepts as audio without conversion.
 GEMINI_NATIVE_EXTENSIONS = {"mp3", "wav", "aac", "ogg", "flac", "aiff"}
 
+# Formats OpenAI's audio API accepts natively: flac, mp3, mp4, mpeg, mpga,
+# m4a, ogg, wav, webm (https://platform.openai.com/docs/guides/speech-to-text).
+# Anything else in AUDIO_EXTENSIONS (oga, opus, aac, aiff, mov) must be
+# converted with ffmpeg before it's sent to Whisper.
+WHISPER_NATIVE_EXTENSIONS = {
+    "flac", "mp3", "mp4", "mpeg", "mpga", "m4a", "ogg", "wav", "webm",
+}
+
 # 10-minute segments at 48 kbps mono ≈ 3.6 MB — comfortably under the
 # Whisper API's 25 MB per-request cap even with container overhead.
 SEGMENT_SECONDS = 600
@@ -35,6 +43,12 @@ _TRANSCODE_ARGS = ["-vn", "-ac", "1", "-ar", "16000", "-b:a", "48k"]
 
 def ffmpeg_available() -> bool:
     return shutil.which("ffmpeg") is not None
+
+
+def format_hms(seconds: float) -> str:
+    """Format a duration in seconds as H:MM:SS (e.g. 3723 -> "1:02:03")."""
+    s = int(seconds or 0)
+    return f"{s // 3600}:{(s % 3600) // 60:02d}:{s % 60:02d}"
 
 
 def _run(cmd: list[str], timeout: int = 3600) -> subprocess.CompletedProcess:

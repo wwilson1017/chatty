@@ -449,7 +449,7 @@ export function AgentChatPanel({
                 ref={fileInputRef}
                 type="file"
                 multiple
-                accept=".csv,.xlsx,.md,.txt,.pdf,.docx,.mp3,.m4a,.wav,.ogg,.oga,.opus,.flac,.aac,.aiff,.mp4,.mov,.webm,.mpga,.mpeg"
+                accept={[...ALLOWED_EXTENSIONS, ...AUDIO_EXTENSIONS].map(e => '.' + e).join(',')}
                 style={{ display: 'none' }}
                 onChange={e => {
                   if (e.target.files?.length) {
