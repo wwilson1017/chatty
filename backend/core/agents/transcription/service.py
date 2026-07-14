@@ -107,18 +107,26 @@ async def _tick_while_running(task: asyncio.Task, stage: str, message: str):
     """Yield elapsed-time progress events every few seconds until task finishes.
 
     Keeps the SSE stream alive through proxies during multi-minute API calls.
+    On early close (client disconnect → CancelledError at a yield) the finally
+    cancels the still-running task so it doesn't leak or log an unretrieved
+    exception. (For asyncio.to_thread the OS thread can't be preempted, but the
+    task state is cleared and the generator exits cleanly.)
     """
     start = time.monotonic()
-    while True:
-        done, _ = await asyncio.wait({task}, timeout=5)
-        if done:
-            return
-        elapsed = int(time.monotonic() - start)
-        yield {
-            "stage": stage,
-            "message": f"{message} ({elapsed // 60}:{elapsed % 60:02d} elapsed)",
-            "percent": None,
-        }
+    try:
+        while True:
+            done, _ = await asyncio.wait({task}, timeout=5)
+            if done:
+                return
+            elapsed = int(time.monotonic() - start)
+            yield {
+                "stage": stage,
+                "message": f"{message} ({elapsed // 60}:{elapsed % 60:02d} elapsed)",
+                "percent": None,
+            }
+    finally:
+        if not task.done():
+            task.cancel()
 
 
 async def transcribe_file(path: Path, filename: str):
