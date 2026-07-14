@@ -945,6 +945,8 @@ def _build_transcription_pre_stream(agent: dict, messages: list, audio_items: li
             return f"data: {_json_mod.dumps(data)}\n\n"
 
         blocks: list[str] = []
+        succeeded = 0
+        first_error: str | None = None
 
         def _merge_blocks() -> None:
             if blocks:
@@ -972,27 +974,14 @@ def _build_transcription_pre_stream(agent: dict, messages: list, audio_items: li
                                 "percent": event.get("percent"),
                             })
                 except TranscriptionError as e:
-                    if blocks:
-                        blocks.append(
-                            f"[Note: transcription of '{orig_name}' failed and was skipped. "
-                            "The recording(s) above were transcribed successfully.]")
-                        _merge_blocks()
-                        yield _PRE_STREAM_OK
-                        return
-                    yield _sse({"type": "error", "error": str(e)})
-                    return
+                    first_error = first_error or str(e)
+                    blocks.append(f"[Note: transcription of '{orig_name}' failed and was skipped.]")
+                    continue
                 except Exception:
                     logger.exception("Transcription failed for %s", orig_name)
-                    if blocks:
-                        blocks.append(
-                            f"[Note: transcription of '{orig_name}' failed and was skipped. "
-                            "The recording(s) above were transcribed successfully.]")
-                        _merge_blocks()
-                        yield _PRE_STREAM_OK
-                        return
-                    yield _sse({"type": "error",
-                                "error": f"Transcription of '{orig_name}' failed unexpectedly. Please try again."})
-                    return
+                    first_error = first_error or f"Transcription of '{orig_name}' failed unexpectedly. Please try again."
+                    blocks.append(f"[Note: transcription of '{orig_name}' failed and was skipped.]")
+                    continue
 
                 try:
                     title = _meeting_title_from_filename(orig_name)
@@ -1005,16 +994,9 @@ def _build_transcription_pre_stream(agent: dict, messages: list, audio_items: li
                     )
                 except Exception:
                     logger.exception("Saving transcript failed for %s", orig_name)
-                    if blocks:
-                        blocks.append(
-                            f"[Note: saving the transcript for '{orig_name}' failed and it "
-                            "was skipped. The recording(s) above were transcribed successfully.]")
-                        _merge_blocks()
-                        yield _PRE_STREAM_OK
-                        return
-                    yield _sse({"type": "error",
-                                "error": f"Saving the transcript for '{orig_name}' failed. Please try again."})
-                    return
+                    first_error = first_error or f"Saving the transcript for '{orig_name}' failed. Please try again."
+                    blocks.append(f"[Note: saving the transcript for '{orig_name}' failed and it was skipped.]")
+                    continue
                 try:
                     log_transcription_event(
                         agent["slug"],
@@ -1055,7 +1037,11 @@ def _build_transcription_pre_stream(agent: dict, messages: list, audio_items: li
                     "a simple \"yes\": a structured summary, extracting action items into "
                     "reminders, or saving key decisions to memory. Keep the offer short."
                 )
+                succeeded += 1
 
+            if succeeded == 0:
+                yield _sse({"type": "error", "error": first_error or "Transcription failed. Please try again."})
+                return
             _merge_blocks()
             yield _PRE_STREAM_OK
         finally:

@@ -94,6 +94,14 @@ def test_transcribe_file_rejects_overlong_duration(monkeypatch, tmp_path):
     # applied but left untested.
 
 
+def test_gemini_sdk_lock_exists():
+    """FIX 1 (Gemini review): concurrent Gemini transcriptions must serialize
+    around the process-global genai SDK state via a module-level lock."""
+    import asyncio
+    import core.agents.transcription.service as svc
+    assert isinstance(svc._GEMINI_SDK_LOCK, asyncio.Lock)
+
+
 def test_fmt_offset():
     from core.agents.transcription.service import _fmt_offset
     assert _fmt_offset(0) == "0:00:00"
@@ -595,6 +603,59 @@ def test_upload_two_audio_partial_failure_keeps_first(transcribing_client, monke
     seen = transcribing_client._provider.seen_messages[0][-1]["content"]
     assert "Speaker 1: good meeting notes" in seen
     assert "bad.mp3" in seen  # failure note names the skipped file
+
+    meetings = list((tmp_path / agent["slug"] / "context" / "meetings").glob("*.md"))
+    assert len(meetings) == 1
+
+
+def test_upload_two_audio_first_fails_second_succeeds(transcribing_client, monkeypatch, tmp_path):
+    """FIX 3 (Gemini review): a mid-batch failure must not silently drop the
+    files AFTER the failed one. First upload fails; second succeeds — the AI
+    turn must still run, carrying the second transcript, with a note about
+    the skipped first file."""
+    import json
+
+    import core.agents.transcription.service as svc
+    from tests.conftest import parse_sse
+    from tests.test_http_agents import make_agent
+
+    async def fake_transcribe(path, filename):
+        if filename == "bad.mp3":
+            raise svc.TranscriptionError("boom: bad file")
+            yield  # pragma: no cover — makes this an async generator
+        yield {"stage": "transcribing", "message": "Transcribing…", "percent": 50}
+        yield {
+            "done": True,
+            "transcript": "Speaker 1: good meeting notes",
+            "duration_seconds": 60,
+            "model": "gpt-4o-transcribe",
+            "provider": "openai",
+            "input_tokens": 0,
+            "output_tokens": 10,
+            "processing_ms": 500,
+        }
+
+    monkeypatch.setattr(svc, "transcribe_file", fake_transcribe)
+
+    agent = make_agent(transcribing_client)
+    payload = {"messages": [{"role": "user", "content": "here are two"}]}
+    resp = transcribing_client.post(
+        f"/api/agents/{agent['id']}/chat/upload",
+        data={"payload": json.dumps(payload)},
+        files=[
+            ("files", ("bad.mp3", b"fake-audio-bytes", "audio/mpeg")),
+            ("files", ("good.mp3", b"fake-audio-bytes", "audio/mpeg")),
+        ],
+    )
+    assert resp.status_code == 200
+    events = parse_sse(resp)
+    types = [e["type"] for e in events]
+    assert "text" in types and "done" in types
+
+    assert transcribing_client._provider.seen_messages != []
+    seen = transcribing_client._provider.seen_messages[0][-1]["content"]
+    assert "Speaker 1: good meeting notes" in seen
+    assert "bad.mp3" in seen  # failure note names the skipped first file
 
     meetings = list((tmp_path / agent["slug"] / "context" / "meetings").glob("*.md"))
     assert len(meetings) == 1
