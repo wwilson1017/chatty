@@ -1018,7 +1018,8 @@ def _build_transcription_pre_stream(agent: dict, messages: list, audio_items: li
                     transcript = transcript[:_MAX_INLINE_TRANSCRIPT]
                     truncated_note = (
                         "\n(… transcript truncated here — read the full text with "
-                        f"read_meeting(\"{saved['filename']}\"))"
+                        f"read_meeting(\"{saved['filename']}\") — it returns pages of "
+                        "~60k chars; follow next_offset for the rest)"
                     )
                 duration_label = format_hms(result.get("duration_seconds", 0) or 0)
                 yield _sse({
@@ -1217,6 +1218,31 @@ async def agent_chat_upload(
     # stream). From here on, any failure must clean the temp dir — on
     # success the pre_stream generator owns cleanup.
     try:
+        # Playbook invocation: expand after file prepending so attachments land
+        # inside the activation message's "User request" section. When an
+        # audio upload is present, defer expansion until _stream_chat's
+        # pre_stream has prepended the transcript — otherwise ai_service
+        # would replace the last user message with a transcript-less
+        # expansion and the model would never see the recording. Still,
+        # validate the slug itself here — cheaply, before spooling/
+        # transcribing the audio below — so an invalid/archived slug fails
+        # fast instead of only erroring after the (minutes-long, paid)
+        # transcription completes.
+        playbook_expansion = None
+        playbook_slug = None
+        if body.get("playbook_slug"):
+            if audio_uploads:
+                from core.agents.playbooks.service import is_safe_slug, read_playbook
+                slug = body["playbook_slug"]
+                if not is_safe_slug(slug):
+                    raise HTTPException(status_code=400, detail="invalid playbook_slug")
+                if read_playbook(agent["slug"], slug) is None:
+                    raise HTTPException(status_code=404, detail="Playbook not found or archived")
+                playbook_slug = slug
+            else:
+                playbook_expansion = _build_playbook_expansion(
+                    agent["slug"], messages, body["playbook_slug"])
+
         if audio_uploads:
             import tempfile
             audio_temp_dir = tempfile.mkdtemp(prefix="chatty-upload-")
@@ -1242,21 +1268,6 @@ async def agent_chat_upload(
             if audio_temp_dir and not audio_items:
                 shutil.rmtree(audio_temp_dir, ignore_errors=True)
                 audio_temp_dir = None
-
-        # Playbook invocation: expand after file prepending so attachments land
-        # inside the activation message's "User request" section. When an
-        # audio upload is present, defer expansion until _stream_chat's
-        # pre_stream has prepended the transcript — otherwise ai_service
-        # would replace the last user message with a transcript-less
-        # expansion and the model would never see the recording.
-        playbook_expansion = None
-        playbook_slug = None
-        if body.get("playbook_slug"):
-            if audio_items:
-                playbook_slug = body["playbook_slug"]
-            else:
-                playbook_expansion = _build_playbook_expansion(
-                    agent["slug"], messages, body["playbook_slug"])
 
         pre_stream = None
         if audio_items:

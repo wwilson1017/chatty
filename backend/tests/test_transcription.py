@@ -316,6 +316,30 @@ def test_memory_tool_handlers(tmp_path):
     assert read_meeting(str(tmp_path), "", "")["error"]
 
 
+def test_read_meeting_paging(tmp_path):
+    """FIX 2: read_meeting caps each response and returns an offset to page
+    through a long transcript instead of returning the whole file at once."""
+    from core.agents.tools.memory_tools import read_meeting, save_meeting_transcript
+
+    saved = save_meeting_transcript(str(tmp_path), "", "Long Meeting", "y" * 80_000)
+
+    first = read_meeting(str(tmp_path), "", saved["filename"], offset=0)
+    assert first["exists"] is True
+    assert first["truncated"] is True
+    assert len(first["content"]) == 60_000
+    assert first["next_offset"] == 60_000
+    total = first["total_chars"]
+    # Frontmatter + title push the file past the 80k body but well under a
+    # second full page, so the remainder fits in one more read.
+    assert 60_000 < total < 120_000
+
+    second = read_meeting(str(tmp_path), "", saved["filename"], offset=first["next_offset"])
+    assert second["truncated"] is False
+    assert second["next_offset"] is None
+    assert len(second["content"]) == total - 60_000
+    assert second["total_chars"] == total
+
+
 # ---------------------------------------------------------------------------
 # Pricing
 # ---------------------------------------------------------------------------
@@ -393,6 +417,57 @@ def test_usage_summary_flags_unknown_transcription_model(reminders_db):
     summary = get_usage_summary(days=7)
     assert summary["totals"]["cost"] == 0.0
     assert "whisper-99" in summary["unknown_pricing_models"]
+
+
+def test_usage_transcription_counts_as_chat(reminders_db):
+    """FIX 3: a transcription event is chat-initiated (source='chat') and must
+    land in the chat series/events, not background — and its model must not
+    pollute primary_model (a separate tally from chat/background usage)."""
+    from datetime import datetime, timezone
+
+    from core.agents.activity_log import log_transcription_event
+    from core.agents.usage.service import get_usage_summary
+
+    log_transcription_event(
+        "test-agent",
+        provider="openai",
+        model_used="gpt-4o-transcribe",
+        audio_seconds=600,
+    )
+    summary = get_usage_summary(days=7)
+
+    agent = next(a for a in summary["agents"] if a["slug"] == "test-agent")
+    assert agent["chat_events"] == 1
+    assert agent["background_events"] == 0
+    assert agent["primary_model"] == ""
+
+    today_key = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    day = next(d for d in summary["daily"] if d["date"] == today_key)
+    assert day["chat_cost"] > 0
+    assert day["background_cost"] == 0
+
+
+def test_usage_transcription_zero_duration_flags_unknown(reminders_db):
+    """FIX 5: a paid transcription model with audio_seconds=0 (duration lost,
+    e.g. no ffprobe) must be flagged pricing-unknown, not silently priced at
+    a genuine $0 — mirrors CLAUDE.md's "never silently report $0 for a paid
+    model" rule."""
+    from core.agents.activity_log import log_transcription_event
+    from core.agents.usage.service import get_usage_summary
+
+    log_transcription_event(
+        "test-agent",
+        provider="openai",
+        model_used="gpt-4o-transcribe",
+        audio_seconds=0,
+    )
+    summary = get_usage_summary(days=7)
+    assert summary["totals"]["cost"] == 0.0
+    assert "gpt-4o-transcribe" in summary["unknown_pricing_models"]
+
+    agent = next(a for a in summary["agents"] if a["slug"] == "test-agent")
+    assert agent["has_unknown_pricing"] is True
+    assert "gpt-4o-transcribe" in agent["unknown_pricing_models"]
 
 
 # ---------------------------------------------------------------------------
@@ -664,7 +739,10 @@ def test_upload_two_audio_first_fails_second_succeeds(transcribing_client, monke
 def test_upload_audio_with_playbook_includes_transcript(transcribing_client, monkeypatch):
     """FIX E: an audio upload that ALSO invokes a playbook must build the
     playbook expansion AFTER the transcript is prepended, not before — the
-    model must actually see the recording, not a transcript-less expansion."""
+    model must actually see the recording, not a transcript-less expansion.
+
+    FIX 4 added an up-front existence check for the slug, so this now seeds
+    a real playbook via the CRUD endpoint before uploading."""
     import json
 
     import agents.router as router_mod
@@ -680,6 +758,18 @@ def test_upload_audio_with_playbook_includes_transcript(transcribing_client, mon
 
     from tests.test_http_agents import make_agent
     agent = make_agent(transcribing_client)
+    put_resp = transcribing_client.put(
+        f"/api/agents/{agent['id']}/playbooks/some-playbook",
+        json={
+            "name": "Some Playbook",
+            "description": "A test playbook",
+            "content": "## Procedure\n1. Do the thing.",
+            "integrations": [],
+            "chip": False,
+        },
+    )
+    assert put_resp.status_code == 200
+
     payload = {
         "messages": [{"role": "user", "content": "here it is"}],
         "playbook_slug": "some-playbook",
@@ -774,3 +864,43 @@ def test_upload_too_many_files_rejected(client):
         files=files,
     )
     assert resp.status_code == 400
+
+
+def test_upload_audio_invalid_playbook_slug_fails_fast(client, monkeypatch):
+    """FIX 4: an audio+playbook upload with an invalid slug must 400 BEFORE
+    transcription is attempted — is_safe_slug rejects it before spooling even
+    starts, so the (minutes-long, paid) transcribe_file is never called.
+    Only the invalid-slug case is covered here (needs no seeded playbook);
+    the not-found/archived-slug case is applied but left untested."""
+    import json
+
+    import core.agents.transcription.service as svc
+    from tests.test_http_agents import make_agent
+
+    monkeypatch.setattr(svc, "pick_backend", lambda: ("openai", "fake-key"))
+
+    called = {"transcribe": False}
+
+    async def fake_transcribe(path, filename):
+        called["transcribe"] = True
+        yield {  # pragma: no cover — must never run
+            "done": True, "transcript": "x", "duration_seconds": 1,
+            "model": "gpt-4o-transcribe", "provider": "openai",
+            "input_tokens": 0, "output_tokens": 0, "processing_ms": 1,
+        }
+
+    monkeypatch.setattr(svc, "transcribe_file", fake_transcribe)
+
+    agent = make_agent(client)
+    payload = {
+        "messages": [{"role": "user", "content": "here it is"}],
+        "playbook_slug": "Not A Valid Slug!",
+    }
+    resp = client.post(
+        f"/api/agents/{agent['id']}/chat/upload",
+        data={"payload": json.dumps(payload)},
+        files=[("files", ("standup.mp3", b"fake-audio-bytes", "audio/mpeg"))],
+    )
+    assert resp.status_code == 400
+    assert "invalid playbook_slug" in resp.json()["detail"]
+    assert called["transcribe"] is False

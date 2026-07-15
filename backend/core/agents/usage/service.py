@@ -96,12 +96,17 @@ def get_usage_summary(days: int = 7, tz: str = "UTC") -> dict:
             # the per-minute rate already covers the audio input.
             if is_transcription_priced(model):
                 cost = estimate_transcription_cost(model, row["audio_seconds"] or 0, out_tok)
-                unknown = False
+                # A genuinely priced transcription is never truly $0 — a $0
+                # result means the duration was lost (e.g. ffprobe
+                # unavailable), so flag it pricing-unknown rather than
+                # silently reporting $0 for a paid model. Gemini still has
+                # an output-token cost so it stays known/cost>0.
+                unknown = (cost == 0.0)
             else:
                 cost, unknown = 0.0, bool(model)
         else:
             cost, unknown = _cost_and_unknown(provider, model, in_tok, out_tok)
-        kind = "chat" if row["event_type"] == "chat" else "background"
+        kind = "chat" if row["event_type"] in ("chat", "transcription") else "background"
 
         totals["cost"] += cost
         totals["input_tokens"] += in_tok
@@ -130,7 +135,7 @@ def get_usage_summary(days: int = 7, tz: str = "UTC") -> dict:
         agent["events"] += 1
         agent[f"{kind}_events"] += 1
         agent["cost"] += cost
-        if model:
+        if model and row["event_type"] != "transcription":
             agent_models.setdefault(slug, Counter())[model] += 1
         if unknown and model:
             agent_unknown.setdefault(slug, set()).add(model)

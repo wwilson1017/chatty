@@ -74,6 +74,14 @@ NO_PROVIDER_MESSAGE = (
 # client); this lock serializes all Gemini SDK work so two concurrent
 # transcriptions can't have one request's configure()/upload reset the
 # global client out from under the other's in-flight call.
+#
+# NOTE: this only serializes transcription-vs-transcription. google_provider.py
+# (every Google chat turn) and triage.py also call genai.configure() on the
+# same global state WITHOUT this lock — not extended to them deliberately,
+# since that would serialize every Google chat turn behind a multi-minute
+# transcription. This is currently safe only because all callers share the
+# one google:default api_key; if a user rotates their Google key mid-
+# transcription, an in-flight get_file poll could 403.
 _GEMINI_SDK_LOCK = asyncio.Lock()
 
 

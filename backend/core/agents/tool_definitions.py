@@ -200,6 +200,10 @@ MEMORY_TOOLS = [
                     "type": "string",
                     "description": "The meeting transcript filename (e.g. 2026-07-13-140500-weekly-standup.md)",
                 },
+                "offset": {
+                    "type": "integer",
+                    "description": "Start character offset for paging through a long transcript; use next_offset from a previous truncated read. Default 0.",
+                },
             },
             "required": ["filename"],
         },

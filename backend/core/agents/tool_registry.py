@@ -227,7 +227,7 @@ class ToolRegistry:
         elif tool_name == "list_meetings":
             return list_meetings(ctx_dir, prefix, limit=args.get("limit", 20))
         elif tool_name == "read_meeting":
-            return read_meeting(ctx_dir, prefix, args.get("filename", ""))
+            return read_meeting(ctx_dir, prefix, args.get("filename", ""), offset=args.get("offset", 0))
         elif tool_name == "read_memory":
             return read_memory(ctx_dir, prefix)
         elif tool_name == "update_memory":

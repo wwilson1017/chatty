@@ -140,14 +140,33 @@ def list_meetings(data_dir: str, gcs_prefix: str, limit: int = 20) -> dict:
     return {"meetings": _make_cm(data_dir, gcs_prefix).list_meetings(limit=limit)}
 
 
-def read_meeting(data_dir: str, gcs_prefix: str, filename: str) -> dict:
-    """Read a meeting transcript's full content by filename."""
+_READ_MEETING_CAP = 60_000
+
+
+def read_meeting(data_dir: str, gcs_prefix: str, filename: str, offset: int = 0) -> dict:
+    """Read a page of a meeting transcript's content by filename.
+
+    Caps each response at _READ_MEETING_CAP chars so a multi-hour transcript
+    doesn't overflow a single tool result; pass the returned next_offset to
+    fetch the next page.
+    """
     if not filename:
         return {"error": "filename is required"}
     content = _make_cm(data_dir, gcs_prefix).read_meeting(filename)
     if not content:
         return {"filename": filename, "content": "", "exists": False}
-    return {"filename": filename, "content": content, "exists": True}
+    offset = max(0, offset)
+    chunk = content[offset:offset + _READ_MEETING_CAP]
+    truncated = (offset + _READ_MEETING_CAP) < len(content)
+    return {
+        "filename": filename,
+        "content": chunk,
+        "exists": True,
+        "offset": offset,
+        "truncated": truncated,
+        "next_offset": (offset + _READ_MEETING_CAP) if truncated else None,
+        "total_chars": len(content),
+    }
 
 
 def save_meeting_transcript(
@@ -160,7 +179,7 @@ def save_meeting_transcript(
     source_filename: str = "",
     transcribed_by: str = "",
 ) -> dict:
-    """Persist a transcript under meetings/ and index it for memory search."""
+    """Persist a transcript under meetings/."""
     cm = _make_cm(data_dir, gcs_prefix)
     result = cm.save_meeting_transcript(
         title, transcript,
@@ -168,17 +187,11 @@ def save_meeting_transcript(
         source_filename=source_filename,
         transcribed_by=transcribed_by,
     )
-    # Fire-and-forget FTS5 indexing so search_memory finds meeting content
-    try:
-        from core.agents.memory.db import get_instance
-        db = get_instance(data_dir)
-        if db:
-            db.index_document(
-                "meeting", result["filename"], result["title"],
-                cm.read_meeting(result["filename"]), date=result.get("date"),
-            )
-    except Exception:
-        logger.debug("FTS5 index update for meeting failed", exc_info=True)
+    # NOTE: meeting transcripts are surfaced to the agent via the meetings
+    # manifest (system prompt) + read_meeting/list_meetings — NOT via
+    # search_memory. Full-text search of transcript bodies would require
+    # adding 'meeting' to the memory_documents CHECK constraint (a table
+    # rebuild) and a meetings scan in reindex_all; deferred.
     return result
 
 
