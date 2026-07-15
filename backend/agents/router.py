@@ -1236,7 +1236,11 @@ async def agent_chat_upload(
                 slug = body["playbook_slug"]
                 if not is_safe_slug(slug):
                     raise HTTPException(status_code=400, detail="invalid playbook_slug")
-                if read_playbook(agent["slug"], slug) is None:
+                # read_playbook returns an archived playbook as {archived: True}
+                # (only None when missing/unsafe); reject archived too, matching
+                # build_activation_message, so a stale chip fails fast.
+                pb = read_playbook(agent["slug"], slug)
+                if pb is None or pb.get("archived"):
                     raise HTTPException(status_code=404, detail="Playbook not found or archived")
                 playbook_slug = slug
             else:

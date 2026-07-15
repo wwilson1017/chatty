@@ -155,7 +155,10 @@ def read_meeting(data_dir: str, gcs_prefix: str, filename: str, offset: int = 0)
     content = _make_cm(data_dir, gcs_prefix).read_meeting(filename)
     if not content:
         return {"filename": filename, "content": "", "exists": False}
-    offset = max(0, offset)
+    try:
+        offset = max(0, int(offset))  # the model may pass offset as a string
+    except (TypeError, ValueError):
+        offset = 0
     chunk = content[offset:offset + _READ_MEETING_CAP]
     truncated = (offset + _READ_MEETING_CAP) < len(content)
     return {
