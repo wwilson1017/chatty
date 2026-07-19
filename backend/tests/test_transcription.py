@@ -258,8 +258,8 @@ def test_save_meeting_sanitizes_control_chars(cm):
     )
     content = cm.read_meeting(saved["filename"])
     lines = content.splitlines()
-    title_line = next(l for l in lines if l.startswith("title:"))
-    source_line = next(l for l in lines if l.startswith("source:"))
+    title_line = next(line for line in lines if line.startswith("title:"))
+    source_line = next(line for line in lines if line.startswith("source:"))
     assert "\n" not in title_line
     assert "\n" not in source_line
 
