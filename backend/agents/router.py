@@ -1030,10 +1030,15 @@ def _build_transcription_pre_stream(agent: dict, messages: list, audio_items: li
                     "percent": 100,
                 })
                 blocks.append(
-                    f"[Meeting recording transcribed: {orig_name} — duration {duration_label}, "
+                    f"[You just transcribed the attached meeting recording as part of handling "
+                    f"this message: {orig_name} — duration {duration_label}, "
                     f"saved as {saved['filename']} (retrievable anytime via read_meeting)]\n"
                     f"{wrap_result('meeting_transcript', transcript + truncated_note)}\n"
-                    "If the user gave no specific request with this upload, briefly note "
+                    "Present this as work YOU just completed in response to the user's "
+                    "message — never describe the transcription as automatic, already "
+                    "done, or separate from your own actions. If they asked for a "
+                    "transcription or summary, that request is now fulfilled: deliver "
+                    "the result directly. If they gave no specific request, briefly note "
                     "what the recording covers, then offer the next steps you can take on "
                     "a simple \"yes\": a structured summary, extracting action items into "
                     "reminders, or saving key decisions to memory. Keep the offer short."
