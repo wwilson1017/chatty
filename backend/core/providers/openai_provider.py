@@ -68,7 +68,8 @@ def _is_reasoning_effort_tool_conflict(e: Exception) -> bool:
     """Detect OpenAI's 400 for reasoning models that reject tools + reasoning_effort together."""
     body = getattr(e, "body", None)
     if isinstance(body, dict):
-        param = body.get("param") or body.get("error", {}).get("param")
+        nested = body.get("error")
+        param = body.get("param") or (nested.get("param") if isinstance(nested, dict) else None)
         if param == "reasoning_effort":
             return True
     low = str(e).lower()
@@ -173,7 +174,6 @@ class OpenAIProvider(AIProvider):
                     # runs and the model isn't wrongly marked as needing
                     # reasoning_effort="none".
                     _NEEDS_REASONING_NONE.add(self.model)
-                    kwargs = retry_kwargs
                 else:
                     raise
 
