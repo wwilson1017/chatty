@@ -73,8 +73,12 @@ class TestEncryptDecryptValue:
         from core.encryption import decrypt_value, encrypt_value
 
         encrypted = encrypt_value("real-secret")
-        # Corrupt a byte in the Fernet token portion
-        tampered = encrypted[:20] + "X" + encrypted[21:]
+        # Corrupt a byte in the Fernet token portion. The token embeds a
+        # random IV, so a fixed replacement char matches the original ~1/64
+        # runs and the "tampered" token decrypts fine — pick a replacement
+        # guaranteed to differ.
+        replacement = "X" if encrypted[20] != "X" else "Y"
+        tampered = encrypted[:20] + replacement + encrypted[21:]
         assert decrypt_value(tampered) == ""
 
     def test_wrong_key_returns_empty(self, env_key):

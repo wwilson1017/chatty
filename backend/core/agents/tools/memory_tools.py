@@ -131,6 +131,73 @@ def list_daily_notes(data_dir: str, gcs_prefix: str, limit: int = 30) -> dict:
     return {"notes": notes}
 
 
+def list_meetings(data_dir: str, gcs_prefix: str, limit: int = 20) -> dict:
+    """List transcribed meeting recordings (newest first) with metadata."""
+    try:
+        limit = max(1, min(int(limit), 200))
+    except (TypeError, ValueError):
+        limit = 20
+    return {"meetings": _make_cm(data_dir, gcs_prefix).list_meetings(limit=limit)}
+
+
+_READ_MEETING_CAP = 60_000
+
+
+def read_meeting(data_dir: str, gcs_prefix: str, filename: str, offset: int = 0) -> dict:
+    """Read a page of a meeting transcript's content by filename.
+
+    Caps each response at _READ_MEETING_CAP chars so a multi-hour transcript
+    doesn't overflow a single tool result; pass the returned next_offset to
+    fetch the next page.
+    """
+    if not filename:
+        return {"error": "filename is required"}
+    content = _make_cm(data_dir, gcs_prefix).read_meeting(filename)
+    if not content:
+        return {"filename": filename, "content": "", "exists": False}
+    try:
+        offset = max(0, int(offset))  # the model may pass offset as a string
+    except (TypeError, ValueError):
+        offset = 0
+    chunk = content[offset:offset + _READ_MEETING_CAP]
+    truncated = (offset + _READ_MEETING_CAP) < len(content)
+    return {
+        "filename": filename,
+        "content": chunk,
+        "exists": True,
+        "offset": offset,
+        "truncated": truncated,
+        "next_offset": (offset + _READ_MEETING_CAP) if truncated else None,
+        "total_chars": len(content),
+    }
+
+
+def save_meeting_transcript(
+    data_dir: str,
+    gcs_prefix: str,
+    title: str,
+    transcript: str,
+    *,
+    duration_seconds: float = 0,
+    source_filename: str = "",
+    transcribed_by: str = "",
+) -> dict:
+    """Persist a transcript under meetings/."""
+    cm = _make_cm(data_dir, gcs_prefix)
+    result = cm.save_meeting_transcript(
+        title, transcript,
+        duration_seconds=duration_seconds,
+        source_filename=source_filename,
+        transcribed_by=transcribed_by,
+    )
+    # NOTE: meeting transcripts are surfaced to the agent via the meetings
+    # manifest (system prompt) + read_meeting/list_meetings — NOT via
+    # search_memory. Full-text search of transcript bodies would require
+    # adding 'meeting' to the memory_documents CHECK constraint (a table
+    # rebuild) and a meetings scan in reindex_all; deferred.
+    return result
+
+
 def read_memory(data_dir: str, gcs_prefix: str) -> dict:
     """Return the current MEMORY.md content."""
     return {"content": _make_cm(data_dir, gcs_prefix).read_memory()}

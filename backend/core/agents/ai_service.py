@@ -406,14 +406,16 @@ def _build_system_prompt(
     # Manifests of everything else (always injected)
     topic_manifest = ctx_manager.topic_files_manifest()
     daily_manifest = ctx_manager.daily_notes_manifest(limit=30)
-    if topic_manifest or daily_manifest:
+    meetings_manifest = ctx_manager.meetings_manifest(limit=15)
+    if topic_manifest or daily_manifest or meetings_manifest:
         parts.append("# Your Other Knowledge (read on demand)")
         parts.append("")
         parts.append(
             "These files exist but are not currently loaded in full. "
-            "Call `read_context_file(filename)` to fetch a topic file or "
-            "`read_daily_note(date)` to fetch a past daily note when the "
-            "conversation references something listed here."
+            "Call `read_context_file(filename)` to fetch a topic file, "
+            "`read_daily_note(date)` to fetch a past daily note, or "
+            "`read_meeting(filename)` to fetch a meeting transcript when "
+            "the conversation references something listed here."
         )
         parts.append("")
         if topic_manifest:
@@ -423,6 +425,10 @@ def _build_system_prompt(
         if daily_manifest:
             parts.append("## Recent daily notes")
             parts.append(daily_manifest)
+            parts.append("")
+        if meetings_manifest:
+            parts.append("## Meeting transcripts")
+            parts.append(meetings_manifest)
             parts.append("")
 
     # Shared team context manifest

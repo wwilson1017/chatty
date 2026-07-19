@@ -116,6 +116,7 @@ def mock_ctx():
     ctx.load_all_context.return_value = ""
     ctx.topic_files_manifest.return_value = ""
     ctx.daily_notes_manifest.return_value = ""
+    ctx.meetings_manifest.return_value = ""
     ctx.today_daily_note_text.return_value = ""
     ctx.relevance_prefetch.return_value = ""
     ctx.data_dir = "/tmp/fake"

@@ -204,6 +204,7 @@ class ToolRegistry:
     async def _execute_memory(self, tool_name: str, args: dict) -> dict:
         from core.agents.tools.memory_tools import (
             append_daily_note, read_daily_note, list_daily_notes,
+            list_meetings, read_meeting,
             read_memory, update_memory, consolidate_memory,
         )
         from core.agents.memory.search_tools import (
@@ -223,6 +224,10 @@ class ToolRegistry:
             return read_daily_note(ctx_dir, prefix, args["date"])
         elif tool_name == "list_daily_notes":
             return list_daily_notes(ctx_dir, prefix, limit=args.get("limit", 30))
+        elif tool_name == "list_meetings":
+            return list_meetings(ctx_dir, prefix, limit=args.get("limit", 20))
+        elif tool_name == "read_meeting":
+            return read_meeting(ctx_dir, prefix, args.get("filename", ""), offset=args.get("offset", 0))
         elif tool_name == "read_memory":
             return read_memory(ctx_dir, prefix)
         elif tool_name == "update_memory":

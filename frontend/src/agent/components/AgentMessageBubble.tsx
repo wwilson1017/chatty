@@ -422,6 +422,30 @@ function AgentMessageBubbleInner({ message, onApprove, onDeny, onApprovePlan, on
           )}
         </div>
 
+        {/* Audio transcription progress (pre-stream phase of an upload turn) */}
+        {message.transcription && (
+          <div style={{
+            marginBottom: 10, padding: '8px 12px', borderRadius: 8,
+            background: 'rgba(212,168,90,0.08)', border: '1px solid rgba(212,168,90,0.25)',
+            display: 'flex', alignItems: 'center', gap: 8,
+          }}>
+            <span style={{ fontSize: 13 }}>
+              {message.transcription.stage === 'saved' ? '✓' : '🎙️'}
+            </span>
+            <span style={{ fontSize: 12.5, color: 'rgba(237,240,244,0.75)', flex: 1 }}>
+              {message.transcription.message || `Transcribing ${message.transcription.filename}…`}
+            </span>
+            {message.transcription.percent != null && message.transcription.stage !== 'saved' && (
+              <span style={{
+                fontFamily: "'JetBrains Mono', ui-monospace, monospace",
+                fontSize: 11, color: '#D4A85A',
+              }}>
+                {message.transcription.percent}%
+              </span>
+            )}
+          </div>
+        )}
+
         {/* Tool calls */}
         {message.toolCalls && message.toolCalls.length > 0 && (
           <div style={{ marginBottom: 12, display: 'flex', flexDirection: 'column', gap: 6 }}>

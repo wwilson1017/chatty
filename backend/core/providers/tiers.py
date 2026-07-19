@@ -83,9 +83,19 @@ def infer_tier_models(provider: str, available: list[str]) -> dict[str, str]:
         mid = _best([m for m in av if "sonnet" in m.lower()])
         light = _best([m for m in av if "haiku" in m.lower()])
     elif provider == "google":
-        top = _best([m for m in av if "pro" in m.lower()])
-        light = _best([m for m in av if "lite" in m.lower()])
-        mid = _best([m for m in av if "flash" in m.lower() and "lite" not in m.lower()])
+        # Only real Gemini chat models. The live catalog also lists specialty
+        # models whose names collide with the tier keywords — deep-research-pro,
+        # lyria-3-pro (music), nano-banana-pro (image), TTS/image/robotics/
+        # computer-use variants — some of which claim generateContent support
+        # in metadata but reject it at call time ("only supports Interactions
+        # API"), which would brick every chat turn routed to that tier.
+        _specialty = ("image", "tts", "robotics", "computer-use", "customtools")
+        g = [m for m in av
+             if m.lower().startswith("gemini-")
+             and not any(t in m.lower() for t in _specialty)]
+        top = _best([m for m in g if "pro" in m.lower()])
+        light = _best([m for m in g if "lite" in m.lower()])
+        mid = _best([m for m in g if "flash" in m.lower() and "lite" not in m.lower()])
     elif provider == "openai":
         light = _best([m for m in av if "-nano" in m.lower()])
         mid = _best([m for m in av if "-mini" in m.lower()])

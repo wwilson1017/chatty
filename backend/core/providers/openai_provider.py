@@ -291,12 +291,21 @@ class OpenAIProvider(AIProvider):
     async def validate(self) -> bool:
         try:
             client = openai.OpenAI(**self._build_client_kwargs())
-            model = "gpt-5.4-nano"
-            client.chat.completions.create(
-                model=model,
-                messages=[{"role": "user", "content": "hi"}],
-                max_completion_tokens=1,
-            )
+            if self.use_chatgpt_api:
+                # The ChatGPT proxy is chat-only (may not implement /models),
+                # so probe with a chat call. Reasoning models burn thinking
+                # tokens before any output, so the budget must be well above 1
+                # or the API 400s ("output limit reached") on a valid token.
+                client.chat.completions.create(
+                    model=self.model,
+                    messages=[{"role": "user", "content": "hi"}],
+                    max_completion_tokens=16,
+                )
+            else:
+                # Cheapest authenticated call: zero tokens, model-agnostic.
+                # (A 1-token chat probe against a reasoning model 400'd and
+                # made every VALID key read as "Invalid OpenAI API key".)
+                client.models.list()
             return True
         except Exception:
             return False

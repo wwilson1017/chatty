@@ -140,13 +140,20 @@ class CredentialStore:
         self._save()
 
     def set_api_key(self, provider: str, key: str, model: str | None = None):
-        """Store an API key for the given provider and set it as active."""
+        """Store an API key for the given provider.
+
+        Becomes the active provider only when none is set yet (first-run
+        setup). Adding an additional provider's key — e.g. a Gemini key just
+        for meeting transcription — must not hijack the active chat provider;
+        switching providers is an explicit action (the set-active endpoint).
+        """
         profile_name = f"{provider}:default"
         if "profiles" not in self.data:
             self.data["profiles"] = {}
         self.data["profiles"][profile_name] = {"type": "api_key", "key": key}
-        self.data["active_provider"] = provider
-        self.data["active_model"] = model or _resolved_default_model(provider)
+        if not self.data.get("active_provider"):
+            self.data["active_provider"] = provider
+            self.data["active_model"] = model or _resolved_default_model(provider)
         self._save()
 
     def set_oauth_tokens(
