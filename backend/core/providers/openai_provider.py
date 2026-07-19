@@ -58,6 +58,23 @@ def _is_openai_chat_model(model_id: str) -> bool:
     return not any(token in low for token in _OPENAI_EXCLUDE)
 
 
+# Models observed to reject function tools + an implicit reasoning_effort on
+# /v1/chat/completions. Populated lazily, only after a retry with
+# reasoning_effort="none" has actually succeeded for that model.
+_NEEDS_REASONING_NONE: set[str] = set()
+
+
+def _is_reasoning_effort_tool_conflict(e: Exception) -> bool:
+    """Detect OpenAI's 400 for reasoning models that reject tools + reasoning_effort together."""
+    body = getattr(e, "body", None)
+    if isinstance(body, dict):
+        param = body.get("param") or body.get("error", {}).get("param")
+        if param == "reasoning_effort":
+            return True
+    low = str(e).lower()
+    return "reasoning_effort" in low and "function tools" in low
+
+
 class OpenAIProvider(AIProvider):
     def __init__(self, access_token: str, model: str = "gpt-5.4", use_chatgpt_api: bool = False):
         super().__init__(model=model)
@@ -138,8 +155,27 @@ class OpenAIProvider(AIProvider):
             }
             if openai_tools:
                 kwargs["tools"] = openai_tools
+                if self.model in _NEEDS_REASONING_NONE:
+                    kwargs["reasoning_effort"] = "none"
 
-            stream = await client.chat.completions.create(**kwargs)
+            try:
+                stream = await client.chat.completions.create(**kwargs)
+            except openai.BadRequestError as e:
+                if (
+                    openai_tools
+                    and "reasoning_effort" not in kwargs
+                    and _is_reasoning_effort_tool_conflict(e)
+                ):
+                    retry_kwargs = {**kwargs, "reasoning_effort": "none"}
+                    stream = await client.chat.completions.create(**retry_kwargs)
+                    # Only cache the workaround once the retry has actually
+                    # succeeded — if the retry itself raises, this line never
+                    # runs and the model isn't wrongly marked as needing
+                    # reasoning_effort="none".
+                    _NEEDS_REASONING_NONE.add(self.model)
+                    kwargs = retry_kwargs
+                else:
+                    raise
 
             async for chunk in stream:
                 delta = chunk.choices[0].delta if chunk.choices else None
