@@ -155,6 +155,7 @@ async def test_cache_not_populated_when_retry_also_fails(monkeypatch):
     events = await _drain(provider, TOOLS)
 
     assert any(e.get("type") == "error" for e in events)
+    assert create_mock.await_count == 2
     assert "gpt-5.6-sol" not in op._NEEDS_REASONING_NONE
 
 
