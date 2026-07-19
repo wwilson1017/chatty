@@ -245,7 +245,18 @@ export function useAgentChat(apiPrefix: string, options?: Options) {
         window.location.href = '/login';
         return;
       }
-      if (!res.ok) throw new Error(`API error ${res.status}`);
+      if (!res.ok) {
+        // Surface the backend's error detail (e.g. the transcription
+        // fail-fast "needs an OpenAI or Google Gemini API key") instead of
+        // a generic failure — the whole point of a pre-stream 400.
+        let detail = '';
+        try { detail = (await res.json())?.detail || ''; } catch { /* not JSON */ }
+        updateLastAssistant(last => ({
+          ...last,
+          content: last.content || `**Error:** ${detail || `Request failed (${res.status})`}`,
+        }));
+        return;
+      }
 
       const reader = res.body?.getReader();
       if (!reader) throw new Error('No response body');
