@@ -11,7 +11,12 @@ from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 from core.agents.reminders import db
-from core.providers.pricing import estimate_cost, is_priced
+from core.providers.pricing import (
+    estimate_cost,
+    estimate_transcription_cost,
+    is_priced,
+    is_transcription_priced,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -52,7 +57,7 @@ def get_usage_summary(days: int = 7, tz: str = "UTC") -> dict:
         )
         cutoff_utc = start_day.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S")
 
-    query = """SELECT started_at, agent, event_type, model_used, provider, input_tokens, output_tokens
+    query = """SELECT started_at, agent, event_type, model_used, provider, input_tokens, output_tokens, audio_seconds
                FROM execution_history
                WHERE status != 'running'"""
     params: tuple = ()
@@ -85,8 +90,23 @@ def get_usage_summary(days: int = 7, tz: str = "UTC") -> dict:
         out_tok = row["output_tokens"] or 0
         model = row["model_used"] or ""
         provider = row["provider"] or ""  # column added by migration; NULL on legacy rows
-        cost, unknown = _cost_and_unknown(provider, model, in_tok, out_tok)
-        kind = "chat" if row["event_type"] == "chat" else "background"
+        if row["event_type"] == "transcription":
+            # Transcription bills per audio minute (+ output tokens on Gemini),
+            # not via the token table. Input tokens are informational only —
+            # the per-minute rate already covers the audio input.
+            if is_transcription_priced(model):
+                cost = estimate_transcription_cost(model, row["audio_seconds"] or 0, out_tok)
+                # A genuinely priced transcription is never truly $0 — a $0
+                # result means the duration was lost (e.g. ffprobe
+                # unavailable), so flag it pricing-unknown rather than
+                # silently reporting $0 for a paid model. Gemini still has
+                # an output-token cost so it stays known/cost>0.
+                unknown = (cost == 0.0)
+            else:
+                cost, unknown = 0.0, bool(model)
+        else:
+            cost, unknown = _cost_and_unknown(provider, model, in_tok, out_tok)
+        kind = "chat" if row["event_type"] in ("chat", "transcription") else "background"
 
         totals["cost"] += cost
         totals["input_tokens"] += in_tok
@@ -115,7 +135,7 @@ def get_usage_summary(days: int = 7, tz: str = "UTC") -> dict:
         agent["events"] += 1
         agent[f"{kind}_events"] += 1
         agent["cost"] += cost
-        if model:
+        if model and row["event_type"] != "transcription":
             agent_models.setdefault(slug, Counter())[model] += 1
         if unknown and model:
             agent_unknown.setdefault(slug, set()).add(model)

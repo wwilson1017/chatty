@@ -128,6 +128,23 @@ class TestProviderManagement:
         store.set_active_provider("anthropic")
         assert store.data["active_provider"] == "anthropic"
 
+    def test_first_api_key_becomes_active(self, store_env):
+        store = store_env
+        store.set_api_key("anthropic", "sk-ant-key")
+        assert store.data["active_provider"] == "anthropic"
+
+    def test_additional_api_key_does_not_hijack_active(self, store_env):
+        """Adding a second provider's key (e.g. Gemini for transcription)
+        must not silently switch the active chat provider."""
+        store = store_env
+        store.set_api_key("anthropic", "sk-ant-key")
+        active_model = store.data["active_model"]
+        store.set_api_key("google", "goog-key", model="gemini-2.5-flash")
+        assert store.data["active_provider"] == "anthropic"
+        assert store.data["active_model"] == active_model
+        # the key is still stored and usable (e.g. by transcription)
+        assert store.data["profiles"]["google:default"]["key"] == "goog-key"
+
     def test_remove_active_provider_clears_active(self, store_env):
         store = store_env
         store.set_api_key("anthropic", "sk-ant-key")
@@ -142,11 +159,11 @@ class TestProviderManagement:
         store = store_env
         store.set_api_key("anthropic", "sk-ant-key")
         store.set_api_key("openai", "sk-openai-key")
-        # openai is now active (last set_api_key call)
+        # anthropic is active (first key); openai is connected but inactive
 
-        store.remove_provider("anthropic")
-        assert store.data["active_provider"] == "openai"
-        assert "anthropic:default" not in store.data["profiles"]
+        store.remove_provider("openai")
+        assert store.data["active_provider"] == "anthropic"
+        assert "openai:default" not in store.data["profiles"]
 
 
 # ---------------------------------------------------------------------------

@@ -16,9 +16,11 @@ RUN npm ci --production
 FROM python:3.12-slim
 WORKDIR /app
 
-# Install Node.js runtime (for whatsapp-bridge sidecar)
+# Install Node.js runtime (for whatsapp-bridge sidecar) and ffmpeg
+# (meeting-recording transcription: duration probe, audio normalization,
+# and splitting long recordings for the Whisper API's 25 MB request cap)
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends curl ca-certificates && \
+    apt-get install -y --no-install-recommends curl ca-certificates ffmpeg && \
     curl -fsSL https://deb.nodesource.com/setup_22.x | bash - && \
     apt-get install -y --no-install-recommends nodejs && \
     apt-get purge -y curl && apt-get autoremove -y && \

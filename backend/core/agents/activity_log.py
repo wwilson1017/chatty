@@ -71,3 +71,47 @@ def log_chat_event(
         )
         conn.commit()
     return event_id
+
+
+def log_transcription_event(
+    agent: str,
+    *,
+    conversation_id: str = "",
+    source_filename: str = "",
+    provider: str = "",
+    model_used: str = "",
+    audio_seconds: int = 0,
+    input_tokens: int = 0,
+    output_tokens: int = 0,
+    duration_ms: int = 0,
+    status: str = "ok",
+) -> str:
+    """Record a completed audio transcription in the unified activity log.
+
+    Transcription bills per audio minute (see pricing.TRANSCRIPTION_PRICING),
+    so the row carries audio_seconds; the usage dashboard prices
+    event_type='transcription' rows from duration + output tokens rather
+    than the token table alone.
+    """
+    event_id = str(uuid.uuid4())
+    now = _now_utc()
+
+    conn = db.get_db()
+    with db.write_lock():
+        conn.execute(
+            """INSERT INTO execution_history
+               (id, action_id, agent, action_type, event_type, source,
+                conversation_id, started_at, completed_at, status,
+                result_summary, model_used, provider,
+                input_tokens, output_tokens, duration_ms, audio_seconds)
+               VALUES (?, ?, ?, 'transcription', 'transcription', 'chat',
+                       ?, ?, ?, ?,
+                       ?, ?, ?,
+                       ?, ?, ?, ?)""",
+            (event_id, event_id, agent,
+             conversation_id, now, now, status,
+             f"Transcribed {source_filename}"[:500], model_used, provider,
+             input_tokens, output_tokens, duration_ms, audio_seconds),
+        )
+        conn.commit()
+    return event_id

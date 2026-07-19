@@ -35,8 +35,10 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from core.auth import get_current_user
+from core.agents.context_manager import _safe_oneline
 from core.storage import atomic_write, atomic_write_bytes
 from core.providers import get_ai_provider
+from core.providers.base import _sse
 from core.providers.credentials import CredentialStore
 from core.agents.tool_registry import ToolRegistry
 from .tool_loader import INTEGRATION_MODULES, load_integration_tools, build_agent_handlers
@@ -483,7 +485,8 @@ def _stream_chat(agent: dict, messages: list, training_mode: bool, conversation_
                   training_type: str | None = None, plan_mode: bool = False,
                   tool_mode: str = "normal", approved_tool: dict | None = None,
                   import_mode: bool = False, has_attachments: bool = False,
-                  playbook_expansion: str | None = None):
+                  playbook_expansion: str | None = None, pre_stream=None,
+                  playbook_slug: str | None = None):
     """Build provider, registry, and return a StreamingResponse for agent chat."""
     config = build_agent_config(agent)
     ctx_manager = get_context_manager(agent["slug"])
@@ -565,6 +568,34 @@ def _stream_chat(agent: dict, messages: list, training_mode: bool, conversation_
     async def event_generator():
         nonlocal triage_info, provider
 
+        # Pre-stream phase (e.g. audio transcription): yields SSE progress
+        # events and mutates `messages` before the AI turn starts. A yielded
+        # error event aborts the turn (the generator returns without setting
+        # its completion flag).
+        if pre_stream is not None:
+            completed = False
+            async for chunk in pre_stream:
+                if chunk is _PRE_STREAM_OK:
+                    completed = True
+                    continue
+                yield chunk
+            if not completed:
+                return
+
+        # Playbook invocation: normally expanded before this function is
+        # called, but when an audio upload is present the caller defers
+        # expansion (playbook_expansion=None, playbook_slug set) until now —
+        # AFTER pre_stream has prepended the transcript to the last user
+        # message — so the expansion actually includes the recording instead
+        # of replacing it with a transcript-less activation message.
+        effective_expansion = playbook_expansion
+        if playbook_slug and effective_expansion is None:
+            try:
+                effective_expansion = _build_playbook_expansion(agent["slug"], messages, playbook_slug)
+            except HTTPException as e:
+                yield _sse({"type": "error", "error": e.detail})
+                return
+
         # Run auto-triage if tier is "auto" and we haven't resolved yet
         if not triage_info and config.model_tier == "auto" and not config.model_override:
             skip_triage = training_mode or plan_mode or approved_tool is not None
@@ -616,7 +647,7 @@ def _stream_chat(agent: dict, messages: list, training_mode: bool, conversation_
             approved_tool=approved_tool,
             integration_tool_modes=integration_tool_modes,
             triage_info=triage_info,
-            playbook_expansion=playbook_expansion,
+            playbook_expansion=effective_expansion,
         ):
             yield event
 
@@ -876,6 +907,153 @@ async def update_title(
 _ALLOWED_EXTENSIONS = {"csv", "xlsx", "md", "txt", "pdf", "docx"}
 _MAX_FILE_SIZE = 10 * 1024 * 1024  # 10 MB
 _MAX_FILES = 5
+# ponytail: 2GB x _MAX_FILES ceiling; tighten if disk pressure shows up
+_MAX_AUDIO_SIZE = 2 * 1024 * 1024 * 1024  # 2 GB per recording; mirrors the frontend cap
+
+# Sentinel yielded by a pre_stream generator to signal successful completion
+# (anything else it yields is forwarded to the client as SSE).
+_PRE_STREAM_OK = object()
+
+# Meeting transcripts longer than this are truncated in the inline chat
+# message; the full text is always available via the read_meeting tool.
+_MAX_INLINE_TRANSCRIPT = 60_000
+
+
+def _meeting_title_from_filename(filename: str) -> str:
+    stem = Path(filename).stem.lstrip(".")
+    title = re.sub(r"[_\-]+", " ", stem).strip()
+    title = _safe_oneline(title)
+    return title or "Meeting recording"
+
+
+def _build_transcription_pre_stream(agent: dict, messages: list, audio_items: list[dict],
+                                    temp_dir: str, conversation_id: str | None):
+    """Async generator: transcribe uploaded recordings, stream SSE progress,
+    save transcripts under meetings/, prepend them to the user message, and
+    log usage. Yields _PRE_STREAM_OK last on success; on failure yields an
+    SSE error event instead (which aborts the AI turn)."""
+
+    async def pre_stream():
+        import shutil as _shutil
+        from core.agents.activity_log import log_transcription_event
+        from core.agents.security.delimiters import wrap_result
+        from core.agents.tools.memory_tools import save_meeting_transcript
+        from core.agents.transcription.audio import format_hms
+        from core.agents.transcription.service import TranscriptionError, transcribe_file
+
+        def _sse(data: dict) -> str:
+            return f"data: {_json_mod.dumps(data)}\n\n"
+
+        blocks: list[str] = []
+        succeeded = 0
+        first_error: str | None = None
+
+        def _merge_blocks() -> None:
+            if blocks:
+                last_msg = messages[-1]
+                prefix = "\n\n".join(blocks)
+                last_msg["content"] = prefix + "\n\n" + (last_msg.get("content") or "")
+
+        try:
+            for item in audio_items:
+                # Sanitize once here so every downstream use — the trusted
+                # metadata line, the salvage/failure notes, and the SSE
+                # progress fields — is free of injected newlines/control chars.
+                orig_name = _safe_oneline(item["name"])
+                result = None
+                try:
+                    async for event in transcribe_file(Path(item["path"]), orig_name):
+                        if event.get("done"):
+                            result = event
+                        else:
+                            yield _sse({
+                                "type": "transcription",
+                                "filename": orig_name,
+                                "stage": event.get("stage", ""),
+                                "message": event.get("message", ""),
+                                "percent": event.get("percent"),
+                            })
+                except TranscriptionError as e:
+                    first_error = first_error or str(e)
+                    blocks.append(f"[Note: transcription of '{orig_name}' failed and was skipped.]")
+                    continue
+                except Exception:
+                    logger.exception("Transcription failed for %s", orig_name)
+                    first_error = first_error or f"Transcription of '{orig_name}' failed unexpectedly. Please try again."
+                    blocks.append(f"[Note: transcription of '{orig_name}' failed and was skipped.]")
+                    continue
+
+                try:
+                    title = _meeting_title_from_filename(orig_name)
+                    saved = save_meeting_transcript(
+                        str(DATA_DIR / agent["slug"] / "context"), f"agents/{agent['slug']}/context/",
+                        title, result["transcript"],
+                        duration_seconds=result.get("duration_seconds", 0),
+                        source_filename=orig_name,
+                        transcribed_by=result.get("model", ""),
+                    )
+                except Exception:
+                    logger.exception("Saving transcript failed for %s", orig_name)
+                    first_error = first_error or f"Saving the transcript for '{orig_name}' failed. Please try again."
+                    blocks.append(f"[Note: saving the transcript for '{orig_name}' failed and it was skipped.]")
+                    continue
+                try:
+                    log_transcription_event(
+                        agent["slug"],
+                        conversation_id=conversation_id or "",
+                        source_filename=orig_name,
+                        provider=result.get("provider", ""),
+                        model_used=result.get("model", ""),
+                        audio_seconds=int(result.get("duration_seconds", 0) or 0),
+                        input_tokens=result.get("input_tokens", 0),
+                        output_tokens=result.get("output_tokens", 0),
+                        duration_ms=result.get("processing_ms", 0),
+                    )
+                except Exception:
+                    logger.warning("Failed to log transcription usage", exc_info=True)
+
+                transcript = result["transcript"]
+                truncated_note = ""
+                if len(transcript) > _MAX_INLINE_TRANSCRIPT:
+                    transcript = transcript[:_MAX_INLINE_TRANSCRIPT]
+                    truncated_note = (
+                        "\n(… transcript truncated here — read the full text with "
+                        f"read_meeting(\"{saved['filename']}\") — it returns pages of "
+                        "~60k chars; follow next_offset for the rest)"
+                    )
+                duration_label = format_hms(result.get("duration_seconds", 0) or 0)
+                yield _sse({
+                    "type": "transcription",
+                    "filename": orig_name,
+                    "stage": "saved",
+                    "message": f"Transcript saved ({duration_label})",
+                    "percent": 100,
+                })
+                blocks.append(
+                    f"[You just transcribed the attached meeting recording as part of handling "
+                    f"this message: {orig_name} — duration {duration_label}, "
+                    f"saved as {saved['filename']} (retrievable anytime via read_meeting)]\n"
+                    f"{wrap_result('meeting_transcript', transcript + truncated_note)}\n"
+                    "Present this as work YOU just completed in response to the user's "
+                    "message — never describe the transcription as automatic, already "
+                    "done, or separate from your own actions. If they asked for a "
+                    "transcription or summary, that request is now fulfilled: deliver "
+                    "the result directly. If they gave no specific request, briefly note "
+                    "what the recording covers, then offer the next steps you can take on "
+                    "a simple \"yes\": a structured summary, extracting action items into "
+                    "reminders, or saving key decisions to memory. Keep the offer short."
+                )
+                succeeded += 1
+
+            if succeeded == 0:
+                yield _sse({"type": "error", "error": first_error or "Transcription failed. Please try again."})
+                return
+            _merge_blocks()
+            yield _PRE_STREAM_OK
+        finally:
+            _shutil.rmtree(temp_dir, ignore_errors=True)
+
+    return pre_stream()
 
 
 @router.post("/{agent_id}/chat/upload")
@@ -887,6 +1065,9 @@ async def agent_chat_upload(
 ):
     """Chat with file attachments. Reads file contents and prepends to the user message."""
     agent = _get_agent_or_404(agent_id)
+
+    if len(files) > _MAX_FILES:
+        raise HTTPException(status_code=400, detail=f"Too many files (max {_MAX_FILES})")
 
     try:
         body = _json_mod.loads(payload)
@@ -906,14 +1087,32 @@ async def agent_chat_upload(
         if conv and conv.get("mode") == "import":
             import_mode = True
 
-    allowed_ext = _ALLOWED_EXTENSIONS | ({"zip"} if import_mode else set())
+    from core.agents.transcription.audio import AUDIO_EXTENSIONS
 
-    # Process uploaded files
+    allowed_ext = _ALLOWED_EXTENSIONS | AUDIO_EXTENSIONS | ({"zip"} if import_mode else set())
+
+    # Process uploaded files. Audio/video recordings are spooled to a temp
+    # dir and transcribed inside the SSE stream (they can take minutes and
+    # need progress events); everything else is extracted inline as before.
     file_texts = []
+    audio_uploads: list[UploadFile] = []
+    audio_items: list[dict] = []
+    audio_temp_dir: str | None = None
     for f in files[:_MAX_FILES]:
         ext = (f.filename or "").rsplit(".", 1)[-1].lower()
         if ext not in allowed_ext:
             raise HTTPException(status_code=400, detail=f"File type '.{ext}' not allowed")
+
+        if ext in AUDIO_EXTENSIONS:
+            # Fail fast (before the SSE stream starts) if no provider can
+            # transcribe — a plain 400 renders better than a mid-stream error.
+            from core.agents.transcription.service import NO_PROVIDER_MESSAGE, pick_backend
+            if not pick_backend():
+                raise HTTPException(status_code=400, detail=NO_PROVIDER_MESSAGE)
+            # Spooled to disk AFTER this loop so no temp dir exists yet if a
+            # later file fails validation.
+            audio_uploads.append(f)
+            continue
 
         content_bytes = await f.read()
         max_size = 25 * 1024 * 1024 if (ext == "zip" and import_mode) else _MAX_FILE_SIZE
@@ -1020,20 +1219,82 @@ async def agent_chat_upload(
         prefix = "\n\n".join(file_texts)
         last_msg["content"] = prefix + "\n\n" + (last_msg.get("content") or "")
 
-    # Playbook invocation: expand after file prepending so attachments land
-    # inside the activation message's "User request" section.
-    playbook_expansion = None
-    if body.get("playbook_slug"):
-        playbook_expansion = _build_playbook_expansion(
-            agent["slug"], messages, body["playbook_slug"])
+    # Spool audio recordings to a temp dir (transcribed inside the SSE
+    # stream). From here on, any failure must clean the temp dir — on
+    # success the pre_stream generator owns cleanup.
+    try:
+        # Playbook invocation: expand after file prepending so attachments land
+        # inside the activation message's "User request" section. When an
+        # audio upload is present, defer expansion until _stream_chat's
+        # pre_stream has prepended the transcript — otherwise ai_service
+        # would replace the last user message with a transcript-less
+        # expansion and the model would never see the recording. Still,
+        # validate the slug itself here — cheaply, before spooling/
+        # transcribing the audio below — so an invalid/archived slug fails
+        # fast instead of only erroring after the (minutes-long, paid)
+        # transcription completes.
+        playbook_expansion = None
+        playbook_slug = None
+        if body.get("playbook_slug"):
+            if audio_uploads:
+                from core.agents.playbooks.service import is_safe_slug, read_playbook
+                slug = body["playbook_slug"]
+                if not is_safe_slug(slug):
+                    raise HTTPException(status_code=400, detail="invalid playbook_slug")
+                # read_playbook returns an archived playbook as {archived: True}
+                # (only None when missing/unsafe); reject archived too, matching
+                # build_activation_message, so a stale chip fails fast.
+                pb = read_playbook(agent["slug"], slug)
+                if pb is None or pb.get("archived"):
+                    raise HTTPException(status_code=404, detail="Playbook not found or archived")
+                playbook_slug = slug
+            else:
+                playbook_expansion = _build_playbook_expansion(
+                    agent["slug"], messages, body["playbook_slug"])
 
-    return _stream_chat(
-        agent, messages, body.get("training_mode", False), body.get("conversation_id"),
-        training_type=body.get("training_type"), plan_mode=body.get("plan_mode", False),
-        tool_mode=body.get("tool_mode", "normal"), approved_tool=body.get("approved_tool"),
-        import_mode=import_mode, has_attachments=bool(files),
-        playbook_expansion=playbook_expansion,
-    )
+        if audio_uploads:
+            import tempfile
+            audio_temp_dir = tempfile.mkdtemp(prefix="chatty-upload-")
+            for f in audio_uploads:
+                ext = (f.filename or "").rsplit(".", 1)[-1].lower()
+                safe_name = Path((f.filename or f"recording.{ext}").replace("\\", "/")).name
+                dest = Path(audio_temp_dir) / f"{len(audio_items):02d}-{safe_name}"
+                size = 0
+                with open(dest, "wb") as out:
+                    while chunk := await f.read(1 << 20):
+                        out.write(chunk)
+                        size += len(chunk)
+                        if size > _MAX_AUDIO_SIZE:
+                            dest.unlink(missing_ok=True)
+                            raise HTTPException(
+                                status_code=413,
+                                detail=f"Recording '{safe_name}' exceeds the 2 GB limit")
+                if size == 0:
+                    dest.unlink(missing_ok=True)
+                    continue
+                audio_items.append({"path": str(dest), "name": safe_name})
+
+            if audio_temp_dir and not audio_items:
+                shutil.rmtree(audio_temp_dir, ignore_errors=True)
+                audio_temp_dir = None
+
+        pre_stream = None
+        if audio_items:
+            pre_stream = _build_transcription_pre_stream(
+                agent, messages, audio_items, audio_temp_dir, body.get("conversation_id"))
+
+        return _stream_chat(
+            agent, messages, body.get("training_mode", False), body.get("conversation_id"),
+            training_type=body.get("training_type"), plan_mode=body.get("plan_mode", False),
+            tool_mode=body.get("tool_mode", "normal"), approved_tool=body.get("approved_tool"),
+            import_mode=import_mode, has_attachments=bool(files),
+            playbook_expansion=playbook_expansion, pre_stream=pre_stream,
+            playbook_slug=playbook_slug,
+        )
+    except Exception:
+        if audio_temp_dir:
+            shutil.rmtree(audio_temp_dir, ignore_errors=True)
+        raise
 
 
 # ── Per-agent: Tool execute (confirmation approval) ─────────────────────────
