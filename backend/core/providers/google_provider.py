@@ -205,8 +205,20 @@ class GoogleProvider(AIProvider):
             stop_reason = "tool_use" if tool_calls else "stop"
 
         except Exception as e:
-            logger.error("Gemini API error: %s", e)
-            yield {"type": "error", "error": f"AI service error: {str(e)}"}
+            logger.error("Gemini API error (%s): %s", self.model, e)
+            msg = str(e)
+            if "Interactions API" in msg:
+                # Some catalog models (deep-research-*, etc.) claim
+                # generateContent support in metadata but reject it at call
+                # time — steer the user to a model that actually works.
+                msg = (
+                    f"The Google model '{self.model}' can't be used for chat in Chatty. "
+                    "Pick a standard Gemini model (e.g. gemini-2.5-flash) in "
+                    "Settings → AI Providers → Tiers, then try again."
+                )
+            else:
+                msg = f"AI service error ({self.model}): {msg}"
+            yield {"type": "error", "error": msg}
             yield {"type": "_turn_complete", "tool_calls": [], "stop_reason": "error"}
             return
 

@@ -43,6 +43,21 @@ class TestTierInference:
         )
         assert out == {"top": "gemini-2.5-pro", "mid": "gemini-2.5-flash", "light": "gemini-2.5-flash-lite"}
 
+    def test_google_excludes_specialty_models(self):
+        """Specialty catalog models (deep-research-pro, lyria music,
+        nano-banana image, TTS/image variants) collide with the tier keywords
+        but can't serve chat — a deep-research 'top' pick bricked every turn
+        with '400 This model only supports Interactions API'."""
+        out = tiers.infer_tier_models(
+            "google", ["deep-research-pro-preview-12-2025", "lyria-3-pro-preview",
+                       "nano-banana-pro-preview", "gemini-3-pro-image",
+                       "gemini-2.5-pro-preview-tts", "gemini-3.1-flash-tts-preview",
+                       "gemini-3.1-pro-preview", "gemini-3.5-flash",
+                       "gemini-3.1-flash-lite", "gemini-2.5-flash"]
+        )
+        assert out == {"top": "gemini-3.1-pro-preview", "mid": "gemini-3.5-flash",
+                       "light": "gemini-3.1-flash-lite"}
+
     def test_together_by_param_count(self):
         out = tiers.infer_tier_models(
             "together", ["Qwen/Qwen3.5-32B", "Qwen/Qwen3.5-14B", "Qwen/Qwen3.5-7B"]
