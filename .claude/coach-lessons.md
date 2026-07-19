@@ -10,6 +10,7 @@
 - [Git] resolving merge conflicts: `git add <specific files>`, never `-A`
 - [DB] SQLite column adds: `_migrate_schema()` try/except pattern
 - [Testing] credential-store helpers: monkeypatch `_fetch_anthropic_key` too
+- [Testing] tamper tests on random tokens: replacement char must differ
 - [Testing] approved-tool tests: end with literal `[Approved] <tool>` message
 - [Code] `ensure_memory_db(slug)` in system prompt, not `get_instance`
 - [Code] admin settings go in `core/admin_settings.py`
@@ -39,6 +40,7 @@
 
 - `[✓0 ✗0 · 2026-06-17]` **When** unit-testing Chatty code that calls a provider but first fetches the key via a credential-store helper (`_fetch_anthropic_key` and friends) → **do** monkeypatch that helper to return a stub key too, not just `anthropic.Anthropic` → **because** with no credential the helper returns `""` and the caller (e.g. the compaction summarizer) short-circuits before constructing the mocked client — the tests pass locally where a dev key exists and fail only in CI (Codex caught exactly this on the compaction tests)
 - `[✓0 ✗0 · 2026-06-12]` **When** testing Chatty chat flows that resume or reconstruct state (`approved_tool`) → **do** end the messages with the frontend's literal `[Approved] <tool>` user message → **because** `ai_service` strips that placeholder conditionally (ai_service.py:1143) — a generic message silently bypasses the strip branch, and the test stays green while production leaks `[Approved] send_email` into provider history
+- `[✓0 ✗0 · 2026-07-19]` **When** writing a tamper test that corrupts one char of a random token (Fernet/JWT/base64) → **do** pick a replacement guaranteed to differ from the original (`"X" if orig != "X" else "Y"`), never a fixed char → **because** the token embeds a random IV, so a fixed char matches the original ~1/64 runs, the "tampered" token round-trips fine, and the test flakes only in CI (`test_tampered_ciphertext_returns_empty` blocked PR #132)
 
 ## Code & Architecture
 
