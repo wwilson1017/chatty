@@ -296,9 +296,17 @@ def is_conversation_busy(conversation_id: str) -> bool:
 # ── Transcript assembly ─────────────────────────────────────────────────────
 
 def transcript_text(session: LiveSession, *, tail_chars: int | None = None) -> str:
-    """Rolling transcript: segments sorted by index, with gap/failure markers."""
+    """Rolling transcript: segments sorted by index, with gap/failure markers.
+
+    Indexes with no Segment at all (chunk lost client-side or dropped at
+    upload) get a synthesized marker too — an absent chunk must not read as
+    a continuous transcript."""
     parts: list[str] = []
+    prev_index: int | None = None
     for seg in sorted(session.segments.values(), key=lambda s: s.index):
+        if prev_index is not None and seg.index > prev_index + 1:
+            parts.append("[missing audio segment]")
+        prev_index = seg.index
         if seg.gap_before:
             parts.append("[recording gap — interruption]")
         if seg.status == "failed":
@@ -367,6 +375,7 @@ def status_event(session: LiveSession) -> dict:
         "chunks_transcribed": sum(1 for s in segs if s.status == "done"),
         "chunks_failed": sum(1 for s in segs if s.status == "failed"),
         "audio_seconds": round(session.chunk_audio_seconds, 1),
+        "escalations": session.escalations,
     }
 
 

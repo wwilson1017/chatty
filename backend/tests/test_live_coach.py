@@ -231,30 +231,41 @@ def test_wrapup_turn_always_delivers(turn_env):
 
 
 def test_coach_tool_filter():
-    """Outbound-communication tools are stripped from coach turns — the core
-    denylist AND integration write tools that send/reply outward."""
+    """Coach tool policy: outbound comms always denied; budget-exempt
+    context_memory writes default-denied except the append-only allowlist;
+    budgeted integration writes kept; other core writes denied."""
     defs = [
         {"name": "send_email", "writes": True},
-        {"name": "reply_to_email", "writes": True},
-        {"name": "send_email_with_attachment", "writes": True},
         {"name": "post_message", "writes": True},
         {"name": "qbo_send_invoice", "writes": True, "integration": "quickbooks"},
         {"name": "odoo_send_ticket_reply", "writes": True, "integration": "odoo"},
+        # budget-exempt destructive class — must be stripped
+        {"name": "create_real_tool", "writes": True, "context_memory": True},
+        {"name": "delete_context_file", "writes": True, "context_memory": True},
+        {"name": "write_context_file", "writes": True, "context_memory": True},
+        {"name": "update_memory", "writes": True, "context_memory": True},
+        {"name": "save_playbook", "writes": True, "context_memory": True},
+        # allowlisted append-only capture tools — must survive
+        {"name": "create_reminder", "writes": True},
+        {"name": "add_fact", "writes": True, "context_memory": True},
+        {"name": "append_daily_note", "writes": True, "context_memory": True},
+        {"name": "append_to_context_file", "writes": True, "context_memory": True},
         {"name": "notify_user", "writes": True},
+        # budgeted integration write (locked product decision) — survives
+        {"name": "qbo_create_invoice", "writes": True, "integration": "quickbooks"},
+        # other core writes — denied
+        {"name": "delete_scheduled_action", "writes": True},
+        {"name": "setup_odoo", "writes": True},
+        # reads always survive, even with 'send' in the name
         {"name": "search_memory", "writes": False},
-        {"name": "set_reminder", "writes": True},
-        # read tool with 'send' in the name must survive (writes gate)
         {"name": "qbo_get_send_history", "writes": False},
     ]
-    names = {t["name"] for t in defs if not coach._is_outbound_comm_tool(t)}
-    assert "send_email" not in names
-    assert "post_message" not in names
-    assert "qbo_send_invoice" not in names
-    assert "odoo_send_ticket_reply" not in names
-    assert "notify_user" in names          # sanctioned channel stays
-    assert "set_reminder" in names
-    assert "search_memory" in names
-    assert "qbo_get_send_history" in names
+    names = {t["name"] for t in defs if coach._coach_tool_allowed(t)}
+    assert names == {
+        "create_reminder", "add_fact", "append_daily_note",
+        "append_to_context_file", "notify_user", "qbo_create_invoice",
+        "search_memory", "qbo_get_send_history",
+    }
 
 
 def test_coach_loop_gates_and_reviews_indexes(monkeypatch, tmp_path):
@@ -291,6 +302,19 @@ def test_coach_loop_gates_and_reviews_indexes(monkeypatch, tmp_path):
         session.wake.set()
         await asyncio.sleep(0.1)
         assert len(ran) == 1
+        # Busy conversation → loop defers the next turn until cleared
+        live.mark_conversation_busy(session.conversation_id)
+        session.segments[2] = live.Segment(index=2, filename="f", status="done",
+                                           text="another chunk of meaningful content here")
+        session.wake.set()
+        await asyncio.sleep(0.3)
+        assert len(ran) == 1  # deferred while busy
+        live.clear_conversation_busy(session.conversation_id)
+        for _ in range(30):  # loop polls busy at 1s cadence
+            if len(ran) == 2:
+                break
+            await asyncio.sleep(0.1)
+        assert len(ran) == 2
         session.status = "finalizing"
         session.wake.set()
         await asyncio.sleep(0.05)

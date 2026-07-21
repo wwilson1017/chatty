@@ -53,7 +53,7 @@ async def chunk_worker(session: LiveSession) -> None:
                 # keep recording; the archival pass recovers its audio.
                 logger.warning("Chunk %s transcription attempt %d failed: %s", idx, attempt, e)
                 if attempt == 1:
-                    await asyncio.sleep(5)
+                    await asyncio.sleep(_RETRY_DELAY_S)
 
         if result is None:
             seg.status = "failed"
@@ -105,6 +105,7 @@ async def chunk_worker(session: LiveSession) -> None:
 
 
 _WATCHDOG_INTERVAL_S = 30
+_RETRY_DELAY_S = 5.0  # pause between chunk transcription attempts
 
 
 async def watchdog(session: LiveSession) -> None:
@@ -186,8 +187,8 @@ async def finalize(session: LiveSession, reason: str) -> None:
                             "message": "Stitching recording…", "percent": None})
         try:
             await asyncio.to_thread(concat_audio, chunks, recording)
-        except Exception as e:
-            session.finalize_error = f"concat failed: {e}"
+        except Exception:
+            session.finalize_error = "Failed to stitch the recording — chunk files kept; see server logs."
             logger.exception("Concat failed for %s — keeping chunk files", session.session_id)
     if recording.exists():
         session.duration_seconds = (
@@ -258,8 +259,8 @@ async def finalize(session: LiveSession, reason: str) -> None:
             )
             session.meeting_filename = saved.get("filename", "")
             session.meeting_title = saved.get("title", title)
-        except Exception as e:
-            session.finalize_error = f"save failed: {e}"
+        except Exception:
+            session.finalize_error = "Failed to save the meeting transcript — see server logs."
             logger.exception("save_meeting_transcript failed for %s", session.session_id)
     save_snapshot(session)
 

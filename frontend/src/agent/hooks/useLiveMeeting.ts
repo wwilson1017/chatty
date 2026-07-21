@@ -539,7 +539,6 @@ export function useLiveMeeting(apiPrefix: string, opts: LiveMeetingOptions) {
     errorMsg,
     foreignSession,
     doneInfo,
-    sessionConversationId: sessionRef.current?.conversation_id ?? null,
     start,
     stop,
     resume,

@@ -106,7 +106,14 @@ def concat_audio(chunks: list[Path], dst: Path) -> Path:
         list_file.write_text(
             "".join(f"file '{p}'\n" for p in normalized), encoding="utf-8",
         )
-        _run(["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", str(list_file), "-c", "copy", str(dst)])
+        # Atomic publish: write to a .part path and rename only after ffmpeg
+        # exits cleanly, so dst's existence always means a COMPLETE file — a
+        # crash mid-concat must never leave a truncated recording that a
+        # resumed finalize would trust (and delete the source chunks for).
+        part = dst.with_name(dst.name + ".part")
+        _run(["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", str(list_file),
+              "-c", "copy", "-f", "mp3", str(part)])
+        part.replace(dst)
     return dst
 
 

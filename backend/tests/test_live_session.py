@@ -104,6 +104,7 @@ def test_chunk_worker_failure_marks_gap(monkeypatch, tmp_path):
     import core.agents.transcription.service as svc
 
     monkeypatch.setattr(live, "recordings_dir", lambda slug: tmp_path / slug / "recordings")
+    monkeypatch.setattr(pipeline, "_RETRY_DELAY_S", 0.01)
     acks = []
     monkeypatch.setattr(live, "post_assistant_message",
                         lambda session, text: acks.append(text))
@@ -145,6 +146,7 @@ def test_chunk_worker_first_failure_warns(monkeypatch, tmp_path):
     import core.agents.transcription.service as svc
 
     monkeypatch.setattr(live, "recordings_dir", lambda slug: tmp_path / slug / "recordings")
+    monkeypatch.setattr(pipeline, "_RETRY_DELAY_S", 0.01)
     acks = []
     monkeypatch.setattr(live, "post_assistant_message",
                         lambda session, text: acks.append(text))
@@ -505,3 +507,56 @@ def test_live_audio_download(live_client, tmp_path):
 
     traversal = live_client.get(f"/api/agents/{agent_id}/live/recordings/..%2F..%2Fetc/audio")
     assert traversal.status_code in (404, 422)
+
+
+def test_transcript_text_missing_index_marker(monkeypatch, tmp_path):
+    """An index with no Segment at all must not read as continuous audio."""
+    monkeypatch.setattr(live, "recordings_dir", lambda slug: tmp_path / slug / "recordings")
+    s = live.start_session(_fake_agent(), "conv-1", "")
+    s.segments[0] = live.Segment(index=0, filename="f0", status="done", text="alpha")
+    s.segments[3] = live.Segment(index=3, filename="f3", status="done", text="delta")
+    text = live.transcript_text(s)
+    assert text.index("alpha") < text.index("[missing audio segment]") < text.index("delta")
+
+
+def test_finalize_concat_failure_keeps_chunks(finalize_env, monkeypatch):
+    import core.agents.transcription.audio as audio_mod
+
+    s, calls = finalize_env
+    monkeypatch.setattr(audio_mod, "concat_audio",
+                        lambda chunks, dst: (_ for _ in ()).throw(RuntimeError("ffmpeg died")))
+    asyncio.run(pipeline.finalize(s, "stopped"))
+    assert s.status == "finalized"
+    assert "stitch" in s.finalize_error
+    assert "ffmpeg died" not in s.finalize_error  # raw stderr never reaches client
+    assert not (s.chunk_dir / "recording.mp3").exists()
+    assert len(list(s.chunk_dir.glob("chunk-*.webm"))) == 2  # originals preserved
+    assert len(calls.saved) == 1  # transcript still saved from live text
+
+
+def test_finalize_save_failure_still_finalizes(finalize_env, monkeypatch):
+    import core.agents.tools.memory_tools as memory_mod
+
+    s, calls = finalize_env
+    monkeypatch.setattr(memory_mod, "save_meeting_transcript",
+                        lambda *a, **kw: (_ for _ in ()).throw(OSError("disk full")))
+    asyncio.run(pipeline.finalize(s, "stopped"))
+    assert s.status == "finalized"
+    assert "save" in s.finalize_error and "disk full" not in s.finalize_error
+    assert s.meeting_filename == ""
+    assert len(calls.wrapup) == 1  # wrap-up still runs
+
+
+def test_finalize_wrapup_crash_marks_done(finalize_env, monkeypatch):
+    """A crashed wrap-up is logged, not retried — finalize still completes."""
+    import core.agents.live.coach as coach_mod
+
+    s, calls = finalize_env
+
+    async def boom(*a, **kw):
+        raise RuntimeError("provider down")
+
+    monkeypatch.setattr(coach_mod, "run_coach_turn", boom)
+    asyncio.run(pipeline.finalize(s, "stopped"))
+    assert s.status == "finalized"
+    assert s.wrapup_done is True

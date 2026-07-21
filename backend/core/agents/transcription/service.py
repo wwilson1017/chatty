@@ -421,7 +421,7 @@ async def transcribe_chunk(path: Path, *, ext: str,
         raise TranscriptionError(NO_PROVIDER_MESSAGE)
     provider, api_key = backend
 
-    duration = probe_duration_seconds(path) or client_duration_s or 0.0
+    duration = (await asyncio.to_thread(probe_duration_seconds, path)) or client_duration_s or 0.0
 
     if provider == "openai":
         import openai

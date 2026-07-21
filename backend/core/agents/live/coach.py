@@ -49,6 +49,39 @@ def _is_outbound_comm_tool(tool: dict) -> bool:
         return True
     return bool(tool.get("writes")) and ("send" in name or "reply" in name)
 
+
+# Write tools the coach may hold from the context_memory class — that class
+# is EXEMPT from the background write budget (background_runner skips the
+# budget check when context_memory=True), so it gets a curated append-only
+# allowlist instead of the budget as its guardrail. Everything else in the
+# class (write/delete context files, update_memory, real-tool CRUD, playbook
+# mutation, shared context) is default-denied: meeting-room audio is an
+# adversarial input and those tools are destructive with no budget and no
+# confirmation. Integration writes stay (budget-covered, per product choice).
+_COACH_WRITE_ALLOWLIST = {
+    "create_reminder",
+    "add_fact",
+    "append_daily_note",
+    "append_to_context_file",
+    "complete_commitment",
+    "notify_user",
+}
+
+
+def _coach_tool_allowed(tool: dict) -> bool:
+    if _is_outbound_comm_tool(tool):
+        return False
+    if not tool.get("writes"):
+        return True  # read tools are always fine
+    name = tool.get("name", "")
+    if name in _COACH_WRITE_ALLOWLIST:
+        return True
+    if tool.get("context_memory"):
+        return False  # budget-exempt destructive class — default deny
+    if tool.get("integration"):
+        return True  # budgeted integration writes (locked product decision)
+    return False  # remaining core writes (setup_*, scheduled actions, …)
+
 _VERDICT_RE = re.compile(
     r"^\s*\**\s*VERDICT\s*[:—\-]?\s*(PASS|NUDGE|ESCALATE)\b\**\s*(.*)$",
     re.IGNORECASE,
@@ -117,8 +150,11 @@ def _coach_model_plan(config) -> dict:
 def build_coach_context(agent: dict) -> dict:
     """Assemble config, tool defs, and registry for coach turns.
 
-    Mirrors reminders/heartbeat.py _process_self_reminder (copy #3 of this
-    assembly — extract a shared helper if a fourth appears).
+    Mirrors reminders/heartbeat.py _process_self_reminder. This assembly
+    pattern now exists in ~5 places (agents/router, cli/session, heartbeat,
+    scheduled_actions/processor, here) — past any reasonable extraction
+    threshold; consolidating is a worthwhile standalone refactor, deliberately
+    not smuggled into this feature branch.
     """
     from pathlib import Path
 
@@ -182,7 +218,7 @@ def build_coach_context(agent: dict) -> dict:
         if not (t.get("integration") and t.get("writes")
                 and integration_modes.get(t["integration"]) == "read-only")
     ]
-    tool_defs = [t for t in tool_defs if not _is_outbound_comm_tool(t)]
+    tool_defs = [t for t in tool_defs if _coach_tool_allowed(t)]
 
     registry = ToolRegistry(
         context_dir=config.context_dir,

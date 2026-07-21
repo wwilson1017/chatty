@@ -344,68 +344,25 @@ def run_background_turn(
     """Synchronous wrapper for running a background AI turn.
 
     Creates a new event loop if needed (e.g., from APScheduler thread).
-    When ``source`` is provided (e.g. "whatsapp"), logs a chat event
-    after execution. Scheduled actions pass source=None since they
-    already log via history.py.
+    Delegates to run_background_turn_async so the activity-log shell exists
+    in exactly one place. When ``source`` is provided (e.g. "whatsapp"),
+    logs a chat event after execution. Scheduled actions pass source=None
+    since they already log via history.py.
     """
-    _slug = agent_slug or getattr(registry, "agent_slug", "unknown")
-    t0 = time.time()
-
+    coro = run_background_turn_async(
+        system_prompt, user_message, tool_defs, registry,
+        max_iterations=max_iterations, model_override=model_override,
+        provider_override=provider_override, on_iteration=on_iteration,
+        source=source, model_tier=model_tier, agent_slug=agent_slug,
+    )
     try:
-        try:
-            loop = asyncio.get_running_loop()
-        except RuntimeError:
-            loop = None
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        loop = None
 
-        if loop and loop.is_running():
-            import concurrent.futures
-            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
-                future = pool.submit(
-                    asyncio.run,
-                    _run_turn(system_prompt, user_message, tool_defs, registry,
-                              max_iterations, model_override, provider_override,
-                              on_iteration, model_tier=model_tier,
-                              agent_slug=_slug)
-                )
-                result = future.result(timeout=300)
-        else:
-            result = asyncio.run(
-                _run_turn(system_prompt, user_message, tool_defs, registry,
-                          max_iterations, model_override, provider_override,
-                          on_iteration, model_tier=model_tier,
-                          agent_slug=_slug)
-            )
-    except Exception as exc:
-        if source:
-            try:
-                from core.agents.activity_log import log_chat_event
-                log_chat_event(
-                    agent=_slug,
-                    source=source,
-                    status="error",
-                    result_summary=str(exc)[:500],
-                    duration_ms=int((time.time() - t0) * 1000),
-                )
-            except Exception:
-                logger.warning("Activity log write failed", exc_info=True)
-        raise
-
-    if source:
-        try:
-            from core.agents.activity_log import log_chat_event
-            log_chat_event(
-                agent=_slug,
-                source=source,
-                status="error" if result.error else "ok",
-                result_summary=result.text[:500],
-                tool_calls=result.tool_log or None,
-                model_used=result.model_used,
-                provider=result.provider,
-                input_tokens=result.input_tokens,
-                output_tokens=result.output_tokens,
-                duration_ms=int((time.time() - t0) * 1000),
-            )
-        except Exception:
-            logger.warning("Activity log write failed", exc_info=True)
-
-    return result
+    if loop and loop.is_running():
+        import concurrent.futures
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+            future = pool.submit(asyncio.run, coro)
+            return future.result(timeout=300)
+    return asyncio.run(coro)

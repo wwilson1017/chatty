@@ -738,7 +738,7 @@ export function AgentPage() {
       )}
       {live.status === 'idle' && live.foreignSession && (
         <div
-          onClick={() => navigate(`/agents/${live.foreignSession!.agent_id}`)}
+          onClick={() => navigate(`/agent/${live.foreignSession!.agent_id}`)}
           style={{
             padding: '4px 12px', background: 'rgba(224,82,77,0.05)',
             borderBottom: '1px solid rgba(224,82,77,0.15)',
