@@ -47,6 +47,7 @@ export function IconDot(p: IconProps) { return <Ico {...p}><circle cx="12" cy="1
 export function IconMenu(p: IconProps) { return <Ico d="M4 6h16M4 12h16M4 18h16" {...p} />; }
 export function IconMore(p: IconProps) { return <Ico {...p}><circle cx="5" cy="12" r="1.2" fill="currentColor" /><circle cx="12" cy="12" r="1.2" fill="currentColor" /><circle cx="19" cy="12" r="1.2" fill="currentColor" /></Ico>; }
 export function IconAttach(p: IconProps) { return <Ico d="M21 12.5 12.5 21a5.5 5.5 0 0 1-7.8-7.8l9-9a3.7 3.7 0 0 1 5.2 5.2l-9 9a2 2 0 0 1-2.8-2.8L14.5 9" {...p} />; }
+export function IconMic(p: IconProps) { return <Ico {...p}><rect x="9" y="2" width="6" height="12" rx="3" /><path d="M5 10v1a7 7 0 0 0 14 0v-1M12 18v4M8 22h8" /></Ico>; }
 export function IconSend(p: IconProps) { return <Ico d="m22 2-7 20-4-9-9-4z M22 2 11 13" {...p} />; }
 export function IconFilter(p: IconProps) { return <Ico d="M3 4h18l-7 9v7l-4-2v-5L3 4z" {...p} />; }
 export function IconInbox(p: IconProps) { return <Ico {...p}><path d="M22 12h-6l-2 3h-4l-2-3H2" /><path d="M5.5 5 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.5-7a1.9 1.9 0 0 0-1.8-1h-9a1.9 1.9 0 0 0-1.8 1Z" /></Ico>; }

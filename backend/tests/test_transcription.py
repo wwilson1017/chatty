@@ -904,3 +904,71 @@ def test_upload_audio_invalid_playbook_slug_fails_fast(client, monkeypatch):
     assert resp.status_code == 400
     assert "invalid playbook_slug" in resp.json()["detail"]
     assert called["transcribe"] is False
+
+
+# ---------------------------------------------------------------------------
+# Live-meeting primitives: chunk backend selection + real-ffmpeg concat
+# ---------------------------------------------------------------------------
+
+def test_pick_chunk_backend_prefers_openai(monkeypatch):
+    """Inverse of pick_backend: chunks want OpenAI's single cheap REST call."""
+    from core.agents.transcription.service import pick_chunk_backend
+    _patch_store(monkeypatch, {
+        "google:default": {"type": "api_key", "key": "g-key"},
+        "openai:default": {"type": "api_key", "key": "o-key"},
+    })
+    assert pick_chunk_backend() == ("openai", "o-key")
+
+
+def test_pick_chunk_backend_falls_back_to_gemini(monkeypatch):
+    from core.agents.transcription.service import pick_chunk_backend
+    _patch_store(monkeypatch, {
+        "google:default": {"type": "api_key", "key": "g-key"},
+    })
+    assert pick_chunk_backend() == ("google", "g-key")
+
+
+def test_pick_chunk_backend_none(monkeypatch):
+    from core.agents.transcription.service import pick_chunk_backend
+    _patch_store(monkeypatch, {})
+    assert pick_chunk_backend() is None
+
+
+def test_transcribe_chunk_without_provider_raises(monkeypatch):
+    import asyncio
+    from core.agents.transcription.service import TranscriptionError, transcribe_chunk
+    _patch_store(monkeypatch, {})
+    with pytest.raises(TranscriptionError):
+        asyncio.run(transcribe_chunk(Path("/nonexistent.webm"), ext="webm"))
+
+
+from core.agents.transcription.audio import ffmpeg_available  # noqa: E402
+
+
+@pytest.mark.skipif(not ffmpeg_available(), reason="ffmpeg not installed")
+def test_concat_audio_real_ffmpeg(tmp_path):
+    """Two 1s sine wavs stitch into one mp3 of ~2s (first real-ffmpeg test
+    in the suite — everything else mocks the transcode layer)."""
+    import subprocess
+    from core.agents.transcription.audio import concat_audio, probe_duration_seconds
+
+    chunks = []
+    for i in range(2):
+        p = tmp_path / f"chunk-0000{i}.wav"
+        subprocess.run(
+            ["ffmpeg", "-y", "-f", "lavfi", "-i", "sine=frequency=440:duration=1",
+             str(p)], capture_output=True, check=True)
+        chunks.append(p)
+
+    dst = tmp_path / "recording.mp3"
+    concat_audio(chunks, dst)
+    assert dst.exists() and dst.stat().st_size > 0
+    duration = probe_duration_seconds(dst)
+    assert duration is not None and 1.7 < duration < 2.4
+
+
+@pytest.mark.skipif(not ffmpeg_available(), reason="ffmpeg not installed")
+def test_concat_audio_empty_list_raises(tmp_path):
+    from core.agents.transcription.audio import concat_audio
+    with pytest.raises(RuntimeError):
+        concat_audio([], tmp_path / "out.mp3")

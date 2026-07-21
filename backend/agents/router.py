@@ -651,8 +651,24 @@ def _stream_chat(agent: dict, messages: list, training_mode: bool, conversation_
         ):
             yield event
 
+    async def guarded_generator():
+        # Advisory busy lease: the live-meeting coach defers its turns (and
+        # nudge saves) while a user turn is streaming in this conversation.
+        from core.agents.live.session import (
+            clear_conversation_busy,
+            mark_conversation_busy,
+        )
+        if conversation_id:
+            mark_conversation_busy(conversation_id)
+        try:
+            async for event in event_generator():
+                yield event
+        finally:
+            if conversation_id:
+                clear_conversation_busy(conversation_id)
+
     return StreamingResponse(
-        event_generator(),
+        guarded_generator(),
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache",

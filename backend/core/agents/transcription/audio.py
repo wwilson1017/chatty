@@ -81,6 +81,35 @@ def transcode_to_mp3(src: Path, dst: Path) -> Path:
     return dst
 
 
+def concat_audio(chunks: list[Path], dst: Path) -> Path:
+    """Stitch ordered recording chunks into one 16 kHz mono MP3.
+
+    Normalize-first: the concat demuxer requires matching codecs/timebases
+    across *inputs*, so each chunk is transcoded to MP3 before concatenation
+    (re-encoding only the output would not make mixed webm/mp4 chunks safe).
+    Chunks already in .mp3 are used as-is.
+    """
+    if not chunks:
+        raise RuntimeError("no chunks to concatenate")
+    import tempfile
+
+    with tempfile.TemporaryDirectory(prefix="chatty-concat-") as tmp:
+        tmp_dir = Path(tmp)
+        normalized: list[Path] = []
+        for i, chunk in enumerate(chunks):
+            if chunk.suffix.lower() == ".mp3":
+                normalized.append(chunk)
+            else:
+                normalized.append(transcode_to_mp3(chunk, tmp_dir / f"norm-{i:05d}.mp3"))
+        list_file = tmp_dir / "concat.txt"
+        # concat-demuxer list format; paths are program-generated (no quotes)
+        list_file.write_text(
+            "".join(f"file '{p}'\n" for p in normalized), encoding="utf-8",
+        )
+        _run(["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", str(list_file), "-c", "copy", str(dst)])
+    return dst
+
+
 def segment_to_mp3(src: Path, dst_dir: Path, segment_seconds: int = SEGMENT_SECONDS) -> list[Path]:
     """Split a recording into sequential mono MP3 segments for Whisper."""
     dst_dir.mkdir(parents=True, exist_ok=True)

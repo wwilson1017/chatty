@@ -5,7 +5,8 @@ import { AgentMessageBubble } from './AgentMessageBubble';
 import { DateDivider } from './DateDivider';
 import AlertBanner from './AlertBanner';
 import NotificationLog from './NotificationLog';
-import { IconAttach, IconArrowUp, IconZap } from '../../shared/icons';
+import { IconAttach, IconArrowUp, IconMic, IconZap } from '../../shared/icons';
+import type { LiveStatus } from '../hooks/useLiveMeeting';
 import { useIsMobile } from '../../shared/useIsMobile';
 import { api } from '../../core/api/client';
 import { toast } from '../../shared/toast';
@@ -57,6 +58,9 @@ interface Props {
   onSwitchTier?: (tier: ModelTier) => void;
   playbooks?: PlaybookSummary[];
   onOpenPlaybooks?: () => void;
+  liveStatus?: LiveStatus;
+  onStartLive?: (prep?: string) => void;
+  liveError?: string | null;
 }
 
 const TOOL_MODES: { key: ToolMode; label: string }[] = [
@@ -76,9 +80,21 @@ export function AgentChatPanel({
   greetingPending,
   modelTier, tierLabels, onSwitchTier,
   playbooks, onOpenPlaybooks,
+  liveStatus, onStartLive, liveError,
 }: Props) {
   const [input, setInput] = useState('');
   const [pendingFiles, setPendingFiles] = useState<File[]>([]);
+  const [showRecordPrep, setShowRecordPrep] = useState(false);
+  const [prepText, setPrepText] = useState('');
+  // Prep row stays open through 'starting' (so a mic-denied error is visible)
+  // and closes itself once recording actually begins.
+  useEffect(() => {
+    if (liveStatus === 'recording') {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setShowRecordPrep(false);
+      setPrepText('');
+    }
+  }, [liveStatus]);
   const [dragOver, setDragOver] = useState(false);
   const [fileError, setFileError] = useState<string | null>(null);
   const [alerts, setAlerts] = useState<AgentAlert[]>([]);
@@ -417,6 +433,52 @@ export function AgentChatPanel({
               >✕</span>
             </div>
           )}
+          {showRecordPrep && (
+            <div style={{ marginBottom: 10 }}>
+              <div style={{
+                display: 'flex', alignItems: 'center', gap: 8,
+                padding: '5px 10px', borderRadius: 6,
+                background: 'rgba(200,209,217,0.08)', border: '1px solid rgba(200,209,217,0.16)',
+              }}>
+                <IconMic size={14} strokeWidth={1.85} />
+                <input
+                  autoFocus
+                  value={prepText}
+                  onChange={e => setPrepText(e.target.value)}
+                  onKeyDown={e => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      onStartLive?.(prepText.trim() || undefined);
+                    } else if (e.key === 'Escape') {
+                      setShowRecordPrep(false); setPrepText('');
+                    }
+                  }}
+                  placeholder="What's this meeting? What do you want out of it? (optional)"
+                  style={{
+                    flex: 1, minWidth: 0, background: 'transparent', border: 'none',
+                    outline: 'none', color: '#EDF0F4', fontSize: 13,
+                    fontFamily: "'Inter Tight', system-ui, sans-serif",
+                  }}
+                />
+                <button
+                  onClick={() => onStartLive?.(prepText.trim() || undefined)}
+                  style={{
+                    fontSize: 11, fontWeight: 600, letterSpacing: '0.08em',
+                    textTransform: 'uppercase', color: '#E0524D',
+                    background: 'rgba(224,82,77,0.12)', border: '1px solid rgba(224,82,77,0.3)',
+                    borderRadius: 4, padding: '3px 10px', cursor: 'pointer', whiteSpace: 'nowrap',
+                  }}
+                >Start</button>
+                <span
+                  onClick={() => { setShowRecordPrep(false); setPrepText(''); }}
+                  style={{ cursor: 'pointer', color: 'rgba(237,240,244,0.45)', fontSize: 14, lineHeight: 1 }}
+                >✕</span>
+              </div>
+              {liveError && (
+                <div style={{ fontSize: 11, color: '#D97757', marginTop: 4, paddingLeft: 2 }}>{liveError}</div>
+              )}
+            </div>
+          )}
           <textarea
             ref={textareaRef}
             value={input}
@@ -445,6 +507,22 @@ export function AgentChatPanel({
               >
                 <IconAttach size={16} strokeWidth={1.85} />
               </div>
+              {onStartLive && (
+                <div
+                  onClick={() => {
+                    if (liveStatus && liveStatus !== 'idle' && liveStatus !== 'error') return;
+                    setShowRecordPrep(v => !v);
+                  }}
+                  title="Record a live meeting"
+                  style={{
+                    cursor: liveStatus && liveStatus !== 'idle' && liveStatus !== 'error' ? 'default' : 'pointer',
+                    color: liveStatus && liveStatus !== 'idle' && liveStatus !== 'error'
+                      ? '#E0524D' : 'rgba(237,240,244,0.62)',
+                  }}
+                >
+                  <IconMic size={16} strokeWidth={1.85} />
+                </div>
+              )}
               <input
                 ref={fileInputRef}
                 type="file"

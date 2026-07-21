@@ -377,3 +377,134 @@ async def _transcribe_whisper(path: Path, filename: str, api_key: str,
             "input_tokens": input_tokens,
             "output_tokens": output_tokens,
         }
+
+
+# ---------------------------------------------------------------------------
+# Live-meeting chunks — small standalone files, transcribed one at a time
+# ---------------------------------------------------------------------------
+
+_CHUNK_PROMPT = (
+    "Transcribe this audio segment verbatim. Output only the transcript "
+    "text — no timestamps, no speaker labels, no commentary. If the "
+    "segment is silent or unintelligible, output nothing."
+)
+
+
+def pick_chunk_backend() -> tuple[str, str] | None:
+    """Return (provider, api_key) for live chunk transcription, or None.
+
+    Preference is inverted vs pick_backend(): for a ~20 s chunk OpenAI is one
+    cheap REST call (webm/mp4 native, no ffmpeg), while Gemini needs a
+    transcode plus an SDK call serialized behind _GEMINI_SDK_LOCK.
+    """
+    profiles = CredentialStore().data.get("profiles", {})
+    openai_p = profiles.get("openai:default", {})
+    if openai_p.get("type") == "api_key" and openai_p.get("key"):
+        return ("openai", openai_p["key"])
+    google = profiles.get("google:default", {})
+    if google.get("type") == "api_key" and google.get("key"):
+        return ("google", google["key"])
+    return None
+
+
+async def transcribe_chunk(path: Path, *, ext: str,
+                           client_duration_s: float | None = None,
+                           prev_tail: str = "") -> dict:
+    """Transcribe one short live-meeting chunk.
+
+    Returns {"text", "model", "provider", "input_tokens", "output_tokens",
+    "duration_seconds"}. Empty text is a normal result (silence), not an
+    error. Raises TranscriptionError on provider/conversion failure.
+    """
+    backend = pick_chunk_backend()
+    if backend is None:
+        raise TranscriptionError(NO_PROVIDER_MESSAGE)
+    provider, api_key = backend
+
+    duration = probe_duration_seconds(path) or client_duration_s or 0.0
+
+    if provider == "openai":
+        import openai
+
+        client = openai.AsyncOpenAI(api_key=api_key)
+        with tempfile.TemporaryDirectory(prefix="chatty-chunk-") as tmp:
+            send_path = path
+            if ext not in WHISPER_NATIVE_EXTENSIONS:
+                if not ffmpeg_available():
+                    raise TranscriptionError(
+                        f"'.{ext}' chunks need ffmpeg to convert, and ffmpeg isn't installed."
+                    )
+                send_path = await asyncio.to_thread(
+                    transcode_to_mp3, path, Path(tmp) / "chunk.mp3"
+                )
+            try:
+                with open(send_path, "rb") as fh:
+                    result = await client.audio.transcriptions.create(
+                        model=OPENAI_TRANSCRIBE_MODEL,
+                        file=fh,
+                        # Boundary continuity: the tail of the prior chunk's
+                        # text biases decoding at the seam.
+                        **({"prompt": prev_tail[-200:]} if prev_tail else {}),
+                    )
+            except openai.APIError as e:
+                raise TranscriptionError(f"OpenAI transcription failed: {getattr(e, 'message', e)}")
+        usage = getattr(result, "usage", None)
+        return {
+            "text": (result.text or "").strip(),
+            "model": OPENAI_TRANSCRIBE_MODEL,
+            "provider": "openai",
+            "input_tokens": getattr(usage, "input_tokens", 0) or 0,
+            "output_tokens": getattr(usage, "output_tokens", 0) or 0,
+            "duration_seconds": duration,
+        }
+
+    # Gemini: inline audio bytes in generate_content — no File API, no polling.
+    try:
+        import google.generativeai as genai
+    except ImportError:
+        raise TranscriptionError("google-generativeai package not installed")
+
+    with tempfile.TemporaryDirectory(prefix="chatty-chunk-") as tmp:
+        send_path = path
+        if ext not in GEMINI_NATIVE_EXTENSIONS:
+            if not ffmpeg_available():
+                raise TranscriptionError(
+                    f"'.{ext}' chunks need ffmpeg to convert for Gemini, and ffmpeg isn't installed."
+                )
+            send_path = await asyncio.to_thread(
+                transcode_to_mp3, path, Path(tmp) / "chunk.mp3"
+            )
+        audio_bytes = send_path.read_bytes()
+        mime = "audio/mp3" if send_path.suffix == ".mp3" else f"audio/{ext}"
+
+        def _generate():
+            genai.configure(api_key=api_key)
+            model = genai.GenerativeModel(GEMINI_TRANSCRIBE_MODEL)
+            return model.generate_content(
+                [{"mime_type": mime, "data": audio_bytes}, _CHUNK_PROMPT],
+                generation_config={"temperature": 0.1},
+                request_options={"timeout": 120},
+            )
+
+        # Same process-global SDK state caveat as _transcribe_gemini; held
+        # across the to_thread call so a concurrent whole-file transcription
+        # can't reconfigure mid-request.
+        async with _GEMINI_SDK_LOCK:
+            try:
+                response = await asyncio.to_thread(_generate)
+            except Exception as e:
+                raise TranscriptionError(f"Gemini transcription failed: {e}")
+
+    usage = getattr(response, "usage_metadata", None)
+    try:
+        text = (response.text or "").strip()
+    except Exception:
+        text = ""  # blocked/empty candidates — treat as silence
+    return {
+        "text": text,
+        "model": GEMINI_TRANSCRIBE_MODEL,
+        "provider": "google",
+        "input_tokens": getattr(usage, "prompt_token_count", 0) or 0,
+        "output_tokens": getattr(usage, "candidates_token_count", 0) or 0,
+        "duration_seconds": duration,
+    }

@@ -264,6 +264,70 @@ async def _run_turn(
     )
 
 
+async def run_background_turn_async(
+    system_prompt: "str | tuple[str, str]",
+    user_message: str,
+    tool_defs: list[dict],
+    registry: ToolRegistry,
+    max_iterations: int = 5,
+    model_override: str | None = None,
+    provider_override: str | None = None,
+    on_iteration: Callable[[int], bool] | None = None,
+    source: str | None = None,
+    model_tier: str | None = None,
+    agent_slug: str | None = None,
+) -> BackgroundResult:
+    """Async twin of run_background_turn for callers already on the event loop.
+
+    The sync wrapper, called from a running loop, parks the loop on
+    ThreadPoolExecutor future.result() — freezing every other request/SSE
+    stream for the turn's duration. Async callers (the live-meeting coach)
+    must use this instead.
+    """
+    _slug = agent_slug or getattr(registry, "agent_slug", "unknown")
+    t0 = time.time()
+    try:
+        result = await _run_turn(
+            system_prompt, user_message, tool_defs, registry,
+            max_iterations, model_override, provider_override,
+            on_iteration, model_tier=model_tier, agent_slug=_slug,
+        )
+    except Exception as exc:
+        if source:
+            try:
+                from core.agents.activity_log import log_chat_event
+                log_chat_event(
+                    agent=_slug,
+                    source=source,
+                    status="error",
+                    result_summary=str(exc)[:500],
+                    duration_ms=int((time.time() - t0) * 1000),
+                )
+            except Exception:
+                logger.warning("Activity log write failed", exc_info=True)
+        raise
+
+    if source:
+        try:
+            from core.agents.activity_log import log_chat_event
+            log_chat_event(
+                agent=_slug,
+                source=source,
+                status="error" if result.error else "ok",
+                result_summary=result.text[:500],
+                tool_calls=result.tool_log or None,
+                model_used=result.model_used,
+                provider=result.provider,
+                input_tokens=result.input_tokens,
+                output_tokens=result.output_tokens,
+                duration_ms=int((time.time() - t0) * 1000),
+            )
+        except Exception:
+            logger.warning("Activity log write failed", exc_info=True)
+
+    return result
+
+
 def run_background_turn(
     system_prompt: "str | tuple[str, str]",
     user_message: str,

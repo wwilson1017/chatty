@@ -88,6 +88,20 @@ export interface ChatMessage {
 // here so existing importers (AgentChatPanel) keep their import path.
 export type { ContextUsage };
 
+// Insert an out-of-band message (live-meeting coach nudge) into the list.
+// Pure and exported for tests. Duplicate ids are dropped (SSE replay ×
+// history reload overlap); if the tail is mid-stream the message goes just
+// before it — every streaming writer targets prev[prev.length-1], so
+// appending would corrupt the in-flight reply.
+export function insertMessage(list: ChatMessage[], msg: ChatMessage): ChatMessage[] {
+  if (list.some(m => m.id === msg.id)) return list;
+  const last = list[list.length - 1];
+  if (last?.isStreaming) {
+    return [...list.slice(0, -1), msg, last];
+  }
+  return [...list, msg];
+}
+
 interface Options {
   onTitleUpdate?: (convId: string, title: string) => void;
   onImportComplete?: (newConversationId: string) => void;
@@ -599,6 +613,18 @@ export function useAgentChat(apiPrefix: string, options?: Options) {
     }, 12);
   }, []);
 
+  // Out-of-band append (live-meeting coach messages arriving over the
+  // session SSE stream).
+  const appendMessage = useCallback((msg: ChatMessage) => {
+    setMessages(prev => insertMessage(prev, msg));
+  }, []);
+
+  // Adopt a conversation id without loading messages (live session started
+  // from a fresh chat — the id exists server-side before any turn streams).
+  const adoptConversation = useCallback((id: string) => {
+    setConversationId(prev => prev ?? id);
+  }, []);
+
   return {
     messages,
     isStreaming,
@@ -621,5 +647,7 @@ export function useAgentChat(apiPrefix: string, options?: Options) {
     stop,
     clear,
     loadMessages,
+    appendMessage,
+    adoptConversation,
   };
 }
