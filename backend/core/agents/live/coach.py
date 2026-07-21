@@ -432,6 +432,7 @@ async def run_coach_turn(session: LiveSession, ctx: dict, delta_text: str, *,
 
 async def coach_loop(session: LiveSession, ctx: dict) -> None:
     """Watch the transcript; run a gated turn when enough new content lands."""
+    fail_streak = 0
     try:
         while session.status == "recording":
             try:
@@ -469,10 +470,20 @@ async def coach_loop(session: LiveSession, ctx: dict) -> None:
                 # Only mark reviewed on completion: a timeout/provider error
                 # must NOT permanently skip that transcript content.
                 session.reviewed_indexes.update(delta_indexes)
+                fail_streak = 0
             else:
                 # Transient failure: self-wake so the delta is retried even
-                # if no further chunks arrive (the 45s gap gate is the backoff).
-                session.wake.set()
+                # if no further chunks arrive (the 45s gap gate is the
+                # backoff). A persistent failure (e.g. deterministic
+                # max-iterations error) must not retry forever — after 3
+                # consecutive failures, mark reviewed and move on.
+                fail_streak += 1
+                if fail_streak >= 3:
+                    logger.warning("Coach turn failed %d× — skipping delta", fail_streak)
+                    session.reviewed_indexes.update(delta_indexes)
+                    fail_streak = 0
+                else:
+                    session.wake.set()
     except asyncio.CancelledError:
         raise
     except Exception:

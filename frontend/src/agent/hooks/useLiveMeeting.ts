@@ -374,6 +374,7 @@ export function useLiveMeeting(apiPrefix: string, opts: LiveMeetingOptions) {
         title: (event.title as string) ?? 'Live meeting',
         error: (event.error as string) ?? null,
       });
+      if (event.error) setErrorMsg(event.error as string);
       setStatusBoth('done');
       releaseWakeLock();
     }

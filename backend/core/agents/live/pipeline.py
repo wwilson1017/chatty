@@ -174,6 +174,8 @@ async def finalize(session: LiveSession, reason: str) -> None:
     drain_deadline = time.time() + 120
     while (any(s.status == "pending" for s in session.segments.values())
            and time.time() < drain_deadline):
+        if session.worker_task is None or session.worker_task.done():
+            break  # no worker (orphan recovery) — pending chunks can't drain
         await asyncio.sleep(2)
     if session.worker_task and not session.worker_task.done():
         session.worker_task.cancel()
@@ -254,7 +256,10 @@ async def finalize(session: LiveSession, reason: str) -> None:
                 title,
                 transcript,
                 duration_seconds=int(session.duration_seconds or 0),
-                source_filename=f"recordings/{session.session_id}/recording.mp3",
+                source_filename=(
+                    f"recordings/{session.session_id}/recording.mp3"
+                    if recording.exists() else ""
+                ),
                 transcribed_by=transcribed_by or "live",
             )
             session.meeting_filename = saved.get("filename", "")

@@ -704,9 +704,10 @@ export function AgentPage() {
           )}
           {live.status === 'done' && live.doneInfo && (
             <span style={{
-              fontSize: 12, color: 'rgba(237,240,244,0.62)',
+              fontSize: 12,
+              color: live.doneInfo.error ? '#D97757' : 'rgba(237,240,244,0.62)',
               overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-            }}>{live.doneInfo.title}</span>
+            }}>{live.doneInfo.error ? `⚠ ${live.doneInfo.error}` : live.doneInfo.title}</span>
           )}
           {['recording', 'suspended', 'tap_to_resume'].includes(live.status) && (
             <button

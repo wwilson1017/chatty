@@ -102,9 +102,10 @@ def concat_audio(chunks: list[Path], dst: Path) -> Path:
             else:
                 normalized.append(transcode_to_mp3(chunk, tmp_dir / f"norm-{i:05d}.mp3"))
         list_file = tmp_dir / "concat.txt"
-        # concat-demuxer list format; paths are program-generated (no quotes)
+        # concat-demuxer list format; single quotes escaped ffmpeg-style
+        escaped = (str(p).replace("'", "'\\''") for p in normalized)
         list_file.write_text(
-            "".join(f"file '{p}'\n" for p in normalized), encoding="utf-8",
+            "".join(f"file '{e}'\n" for e in escaped), encoding="utf-8",
         )
         # Atomic publish: write to a .part path and rename only after ffmpeg
         # exits cleanly, so dst's existence always means a COMPLETE file — a
