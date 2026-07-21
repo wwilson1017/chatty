@@ -4,6 +4,7 @@ Chatty — FastAPI entry point.
 Mounts all routers, initializes databases, sets up CORS and APScheduler.
 """
 
+import asyncio
 import contextvars
 import logging
 import os
@@ -38,6 +39,7 @@ from backup.router import router as backup_router
 from integrations.telegram.router import router as telegram_router
 from core.agents.alerts.router import router as alerts_router
 from core.agents.notifications.router import router as notifications_router
+from core.agents.live.router import router as live_router
 from core.agents.reminders.router import router as reminders_router
 from core.agents.shared_context.router import router as shared_context_router
 from core.agents.usage.router import router as usage_router
@@ -190,6 +192,11 @@ async def lifespan(app: FastAPI):
     _scheduler.start()
     logger.info("APScheduler started (reminder heartbeat + scheduled actions + sweeper + nightly jobs)")
 
+    # Finalize live meeting sessions orphaned by a restart (async, on the loop —
+    # sessions are event-loop-owned, so no APScheduler involvement).
+    from core.agents.live.pipeline import recover_orphaned_sessions
+    asyncio.get_running_loop().create_task(recover_orphaned_sessions())
+
     # Log WhatsApp session status on startup
     if settings.whatsapp.is_configured:
         try:
@@ -297,6 +304,7 @@ app.include_router(webby_router, tags=["webby"])
 app.include_router(scheduled_actions_router, prefix="/api/scheduled-actions", tags=["scheduled-actions"])
 
 app.include_router(alerts_router, prefix="/api/alerts", tags=["alerts"])
+app.include_router(live_router, tags=["live"])
 app.include_router(notifications_router)
 app.include_router(reminders_router, prefix="/api/reminders", tags=["reminders"])
 app.include_router(setup_router, prefix="/api/setup", tags=["setup"])

@@ -1192,6 +1192,12 @@ async def chat(
     if catalog_text:
         static_prompt += "\n\n" + catalog_text
 
+    # Live meeting in progress → transcript tail rides the volatile suffix
+    # (rebuilt every turn, never persisted, never busts the static cache).
+    from core.agents.live.session import live_meeting_block
+    volatile_prompt += live_meeting_block(
+        getattr(registry, "agent_slug", ""), conversation_id)
+
     # Build the system prompt tuple for provider (enables prompt caching)
     system_prompt = (static_prompt, volatile_prompt)
 
@@ -1806,6 +1812,11 @@ async def run_sync(
 
     if catalog_text:
         static_prompt += "\n\n" + catalog_text
+
+    # Live meeting hook — same as chat(): volatile-only, never persisted.
+    from core.agents.live.session import live_meeting_block
+    volatile_prompt += live_meeting_block(
+        getattr(registry, "agent_slug", ""), conversation_id)
 
     system_prompt = (static_prompt, volatile_prompt)
 

@@ -81,6 +81,43 @@ def transcode_to_mp3(src: Path, dst: Path) -> Path:
     return dst
 
 
+def concat_audio(chunks: list[Path], dst: Path) -> Path:
+    """Stitch ordered recording chunks into one 16 kHz mono MP3.
+
+    Normalize-first: the concat demuxer requires matching codecs/timebases
+    across *inputs*, so each chunk is transcoded to MP3 before concatenation
+    (re-encoding only the output would not make mixed webm/mp4 chunks safe).
+    Chunks already in .mp3 are used as-is.
+    """
+    if not chunks:
+        raise RuntimeError("no chunks to concatenate")
+    import tempfile
+
+    with tempfile.TemporaryDirectory(prefix="chatty-concat-") as tmp:
+        tmp_dir = Path(tmp)
+        normalized: list[Path] = []
+        for i, chunk in enumerate(chunks):
+            if chunk.suffix.lower() == ".mp3":
+                normalized.append(chunk)
+            else:
+                normalized.append(transcode_to_mp3(chunk, tmp_dir / f"norm-{i:05d}.mp3"))
+        list_file = tmp_dir / "concat.txt"
+        # concat-demuxer list format; single quotes escaped ffmpeg-style
+        escaped = (str(p).replace("'", "'\\''") for p in normalized)
+        list_file.write_text(
+            "".join(f"file '{e}'\n" for e in escaped), encoding="utf-8",
+        )
+        # Atomic publish: write to a .part path and rename only after ffmpeg
+        # exits cleanly, so dst's existence always means a COMPLETE file — a
+        # crash mid-concat must never leave a truncated recording that a
+        # resumed finalize would trust (and delete the source chunks for).
+        part = dst.with_name(dst.name + ".part")
+        _run(["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", str(list_file),
+              "-c", "copy", "-f", "mp3", str(part)])
+        part.replace(dst)
+    return dst
+
+
 def segment_to_mp3(src: Path, dst_dir: Path, segment_seconds: int = SEGMENT_SECONDS) -> list[Path]:
     """Split a recording into sequential mono MP3 segments for Whisper."""
     dst_dir.mkdir(parents=True, exist_ok=True)

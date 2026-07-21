@@ -524,3 +524,54 @@ class TestRunSync:
             [{"role": "user", "content": "hi"}],
         )
         assert "Hello from mock" in result
+
+
+# ---------------------------------------------------------------------------
+# Live meeting: volatile-prompt injection (core/agents/live wiring)
+# ---------------------------------------------------------------------------
+
+class _SystemPromptRecorder(MockAIProvider):
+    def __init__(self):
+        super().__init__()
+        self.seen_system_prompts = []
+
+    async def stream_turn(self, messages, tools, system_prompt):
+        self.seen_system_prompts.append(system_prompt)
+        async for event in super().stream_turn(messages, tools, system_prompt):
+            yield event
+
+
+@pytest.mark.asyncio
+async def test_live_meeting_block_injected_into_chat(fake_config, mock_registry,
+                                                     mock_ctx, monkeypatch, tmp_path):
+    """While a live session is recording in this conversation, chat() turns
+    carry the transcript tail in the volatile system prompt — and only then."""
+    import core.agents.live.session as live_mod
+    from core.agents.ai_service import chat
+
+    monkeypatch.setattr(live_mod, "_active", None)
+    monkeypatch.setattr(live_mod, "recordings_dir",
+                        lambda slug: tmp_path / slug / "recordings")
+    mock_registry.agent_slug = "test-agent"
+    provider = _SystemPromptRecorder()
+
+    session = live_mod.start_session(
+        {"id": "a1", "slug": "test-agent", "agent_name": "T"}, "conv-live", "prep")
+    session.segments[0] = live_mod.Segment(
+        index=0, filename="f", status="done", text="the henderson order came up")
+
+    async for _ in chat(fake_config, provider, mock_registry, mock_ctx,
+                        [{"role": "user", "content": "hi"}],
+                        conversation_id="conv-live"):
+        pass
+    _, volatile = provider.seen_system_prompts[0]
+    assert "Live Meeting In Progress" in volatile
+    assert "the henderson order came up" in volatile
+
+    # Different conversation → no injection
+    async for _ in chat(fake_config, provider, mock_registry, mock_ctx,
+                        [{"role": "user", "content": "hi"}],
+                        conversation_id="conv-other"):
+        pass
+    _, volatile2 = provider.seen_system_prompts[1]
+    assert "Live Meeting In Progress" not in volatile2

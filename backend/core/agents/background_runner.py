@@ -264,7 +264,7 @@ async def _run_turn(
     )
 
 
-def run_background_turn(
+async def run_background_turn_async(
     system_prompt: "str | tuple[str, str]",
     user_message: str,
     tool_defs: list[dict],
@@ -277,40 +277,21 @@ def run_background_turn(
     model_tier: str | None = None,
     agent_slug: str | None = None,
 ) -> BackgroundResult:
-    """Synchronous wrapper for running a background AI turn.
+    """Async twin of run_background_turn for callers already on the event loop.
 
-    Creates a new event loop if needed (e.g., from APScheduler thread).
-    When ``source`` is provided (e.g. "whatsapp"), logs a chat event
-    after execution. Scheduled actions pass source=None since they
-    already log via history.py.
+    The sync wrapper, called from a running loop, parks the loop on
+    ThreadPoolExecutor future.result() — freezing every other request/SSE
+    stream for the turn's duration. Async callers (the live-meeting coach)
+    must use this instead.
     """
     _slug = agent_slug or getattr(registry, "agent_slug", "unknown")
     t0 = time.time()
-
     try:
-        try:
-            loop = asyncio.get_running_loop()
-        except RuntimeError:
-            loop = None
-
-        if loop and loop.is_running():
-            import concurrent.futures
-            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
-                future = pool.submit(
-                    asyncio.run,
-                    _run_turn(system_prompt, user_message, tool_defs, registry,
-                              max_iterations, model_override, provider_override,
-                              on_iteration, model_tier=model_tier,
-                              agent_slug=_slug)
-                )
-                result = future.result(timeout=300)
-        else:
-            result = asyncio.run(
-                _run_turn(system_prompt, user_message, tool_defs, registry,
-                          max_iterations, model_override, provider_override,
-                          on_iteration, model_tier=model_tier,
-                          agent_slug=_slug)
-            )
+        result = await _run_turn(
+            system_prompt, user_message, tool_defs, registry,
+            max_iterations, model_override, provider_override,
+            on_iteration, model_tier=model_tier, agent_slug=_slug,
+        )
     except Exception as exc:
         if source:
             try:
@@ -345,3 +326,43 @@ def run_background_turn(
             logger.warning("Activity log write failed", exc_info=True)
 
     return result
+
+
+def run_background_turn(
+    system_prompt: "str | tuple[str, str]",
+    user_message: str,
+    tool_defs: list[dict],
+    registry: ToolRegistry,
+    max_iterations: int = 5,
+    model_override: str | None = None,
+    provider_override: str | None = None,
+    on_iteration: Callable[[int], bool] | None = None,
+    source: str | None = None,
+    model_tier: str | None = None,
+    agent_slug: str | None = None,
+) -> BackgroundResult:
+    """Synchronous wrapper for running a background AI turn.
+
+    Creates a new event loop if needed (e.g., from APScheduler thread).
+    Delegates to run_background_turn_async so the activity-log shell exists
+    in exactly one place. When ``source`` is provided (e.g. "whatsapp"),
+    logs a chat event after execution. Scheduled actions pass source=None
+    since they already log via history.py.
+    """
+    coro = run_background_turn_async(
+        system_prompt, user_message, tool_defs, registry,
+        max_iterations=max_iterations, model_override=model_override,
+        provider_override=provider_override, on_iteration=on_iteration,
+        source=source, model_tier=model_tier, agent_slug=agent_slug,
+    )
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        loop = None
+
+    if loop and loop.is_running():
+        import concurrent.futures
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+            future = pool.submit(asyncio.run, coro)
+            return future.result(timeout=300)
+    return asyncio.run(coro)

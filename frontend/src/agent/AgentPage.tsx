@@ -3,6 +3,7 @@ import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { api } from '../core/api/client';
 import type { ProviderStatus } from '../core/types';
 import { useAgentChat, type ToolMode, type ModelTier } from './hooks/useAgentChat';
+import { useLiveMeeting, formatElapsed } from './hooks/useLiveMeeting';
 import { useConversations } from './hooks/useConversations';
 import { useScrollDirection } from './hooks/useScrollDirection';
 import { AgentChatPanel } from './components/AgentChatPanel';
@@ -101,6 +102,35 @@ export function AgentPage() {
     onTitleUpdate: handleTitleUpdate,
     onImportComplete: (id) => importCompleteRef.current?.(id),
     onOnboardingComplete: () => onboardingCompleteRef.current?.(),
+  });
+
+  // Live meeting recorder + coach. The hook reads these callbacks through a
+  // per-render ref, so fresh chat/convs closures are always used.
+  const live = useLiveMeeting(apiPrefix, {
+    conversationId: chat.conversationId,
+    onCoachMessage: (msg, sessConvId) => {
+      if (chat.conversationId === sessConvId) chat.appendMessage(msg);
+      // Other conversations: the nudge is persisted server-side and loads
+      // normally when that conversation is opened.
+    },
+    onSessionConversation: async (convId) => {
+      if (chat.conversationId === convId) return;
+      if (!chat.conversationId) {
+        chat.adoptConversation(convId);
+        convs.loadConversations();
+        return;
+      }
+      // Reattach while a different conversation is open → switch to the
+      // meeting conversation (same flow as the import redirect above).
+      await convs.loadConversations();
+      const msgs = await convs.selectConversation(convId);
+      if (msgs) chat.loadMessages(msgs, convId);
+    },
+    onSessionEnded: async (sessConvId) => {
+      if (chat.conversationId !== sessConvId || chat.isStreaming) return;
+      const msgs = await convs.selectConversation(sessConvId);
+      if (msgs) chat.loadMessages(msgs, sessConvId);
+    },
   });
 
   useEffect(() => {
@@ -629,6 +659,100 @@ export function AgentPage() {
         </div>
       )}
 
+      {/* Live meeting strip — same slot as the mode banners: persists across
+          tab switches and is not hidden by the auto-hiding header. */}
+      {live.status !== 'idle' && (
+        <div
+          onClick={live.status === 'tap_to_resume' ? live.resume : undefined}
+          style={{
+            padding: '4px 12px', background: 'rgba(224,82,77,0.08)',
+            borderBottom: '1px solid rgba(224,82,77,0.2)',
+            display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0,
+            cursor: live.status === 'tap_to_resume' ? 'pointer' : 'default',
+          }}
+        >
+          <style>{'@keyframes chattyLivePulse{0%,100%{opacity:1}50%{opacity:0.25}}'}</style>
+          <span style={{
+            width: 8, height: 8, borderRadius: '50%', background: '#E0524D', flexShrink: 0,
+            animation: ['recording', 'starting'].includes(live.status)
+              ? 'chattyLivePulse 1.6s ease-in-out infinite' : 'none',
+            opacity: ['suspended', 'tap_to_resume'].includes(live.status) ? 0.45 : 1,
+          }} />
+          <span style={{
+            fontFamily: "'JetBrains Mono', ui-monospace, monospace",
+            fontSize: 10, fontWeight: 600, letterSpacing: '0.16em',
+            textTransform: 'uppercase', color: '#E0524D', whiteSpace: 'nowrap',
+          }}>
+            {live.status === 'starting' && 'STARTING…'}
+            {live.status === 'recording' && 'RECORDING'}
+            {live.status === 'suspended' && 'PAUSED — RESUMING…'}
+            {live.status === 'tap_to_resume' && 'PAUSED — TAP TO RESUME'}
+            {live.status === 'stopping' && `FINISHING${live.pendingUploads > 0 ? ` — UPLOADING ${live.pendingUploads}` : ''}…`}
+            {live.status === 'finalizing' && 'FINALIZING…'}
+            {live.status === 'done' && 'SAVED'}
+          </span>
+          {live.status !== 'done' && live.status !== 'finalizing' && live.status !== 'starting' && (
+            <span style={{
+              fontFamily: "'JetBrains Mono', ui-monospace, monospace",
+              fontSize: 11, color: 'rgba(237,240,244,0.62)',
+            }}>{formatElapsed(live.elapsedSec)}</span>
+          )}
+          {live.status === 'recording' && live.pendingUploads > 1 && (
+            <span style={{ fontSize: 11, color: 'rgba(237,240,244,0.62)' }}>
+              · {live.pendingUploads} uploading
+            </span>
+          )}
+          {live.status === 'done' && live.doneInfo && (
+            <span style={{
+              fontSize: 12,
+              color: live.doneInfo.error ? '#D97757' : 'rgba(237,240,244,0.62)',
+              overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+            }}>{live.doneInfo.error ? `⚠ ${live.doneInfo.error}` : live.doneInfo.title}</span>
+          )}
+          {['recording', 'suspended', 'tap_to_resume'].includes(live.status) && (
+            <button
+              onClick={(e) => { e.stopPropagation(); live.stop(); }}
+              style={{
+                marginLeft: 'auto', fontSize: 11,
+                color: '#E0524D', background: 'none', border: 'none', cursor: 'pointer',
+              }}
+            >Stop</button>
+          )}
+          {live.status === 'done' && (
+            <span style={{ marginLeft: 'auto', display: 'flex', gap: 12, alignItems: 'center' }}>
+              {live.doneInfo?.audio_url && (
+                <button
+                  onClick={live.downloadRecording}
+                  style={{
+                    fontSize: 11, color: '#E0524D',
+                    background: 'none', border: 'none', cursor: 'pointer',
+                  }}
+                >Download recording</button>
+              )}
+              <span
+                onClick={live.dismissDone}
+                style={{ cursor: 'pointer', color: 'rgba(237,240,244,0.45)', fontSize: 14, lineHeight: 1 }}
+              >✕</span>
+            </span>
+          )}
+        </div>
+      )}
+      {live.status === 'idle' && live.foreignSession && (
+        <div
+          onClick={() => navigate(`/agent/${live.foreignSession!.agent_id}`)}
+          style={{
+            padding: '4px 12px', background: 'rgba(224,82,77,0.05)',
+            borderBottom: '1px solid rgba(224,82,77,0.15)',
+            display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0, cursor: 'pointer',
+          }}
+        >
+          <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#E0524D', opacity: 0.6, flexShrink: 0 }} />
+          <span style={{ fontSize: 12, color: 'rgba(237,240,244,0.62)' }}>
+            Recording active on {live.foreignSession.agent_name} — tap to open
+          </span>
+        </div>
+      )}
+
       {/* Body */}
       <div style={{ display: 'flex', flex: 1, overflow: 'hidden', position: 'relative' }}>
         {activeTab === 'chat' ? (
@@ -724,6 +848,14 @@ export function AgentPage() {
               greetingPending={chat.greetingPending}
               playbooks={chat.trainingMode ? undefined : pb.playbooks}
               onOpenPlaybooks={() => setActiveTab('playbooks')}
+              liveStatus={live.status}
+              liveError={live.errorMsg}
+              onStartLive={
+                chat.trainingMode || chat.planMode
+                  || convs.conversations.find(c => c.id === convs.activeId)?.mode === 'import'
+                  ? undefined
+                  : (prep) => { void live.start(prep); }
+              }
               onCancelImport={async () => {
                 const ok = await confirmDialog({
                   title: 'Cancel import',

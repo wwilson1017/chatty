@@ -245,3 +245,37 @@ def test_merge_tool_result_previews_unit():
     assert "result" not in json.loads(only_calls["tool_calls"])[0]
     # Malformed JSON must not raise.
     _merge_tool_result_previews({"tool_calls": "not json", "tool_results": "[]"})
+
+
+def test_chat_stream_marks_conversation_busy(chat_client, mock_provider, monkeypatch):
+    """guarded_generator marks the conversation busy for the live-meeting
+    coach while a user turn streams, and clears it afterwards."""
+    import core.agents.live.session as live_mod
+    from tests.test_http_agents import make_agent
+
+    monkeypatch.setattr(live_mod, "_busy", {})
+    agent = make_agent(chat_client)
+
+    # First turn mints the conversation id (busy-marking needs a known id).
+    r1 = chat_client.post(f"/api/agents/{agent['id']}/chat",
+                          json={"messages": [{"role": "user", "content": "hi"}]})
+    conv_id = next(e["id"] for e in parse_sse(r1)
+                   if e.get("type") == "conversation_id")
+
+    busy_during = []
+
+    class BusyProbe(type(mock_provider)):
+        async def stream_turn(self, messages, tools, system_prompt):
+            busy_during.append(live_mod.is_conversation_busy(conv_id))
+            async for event in super().stream_turn(messages, tools, system_prompt):
+                yield event
+
+    probe = BusyProbe()
+    monkeypatch.setattr("agents.router.get_ai_provider", lambda **kw: probe)
+
+    r2 = chat_client.post(f"/api/agents/{agent['id']}/chat",
+                          json={"messages": [{"role": "user", "content": "again"}],
+                                "conversation_id": conv_id})
+    assert r2.status_code == 200
+    assert busy_during == [True]                       # busy while streaming
+    assert not live_mod.is_conversation_busy(conv_id)  # cleared afterwards
