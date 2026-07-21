@@ -44,9 +44,12 @@ def _get_agent_or_404(agent_id: str) -> dict:
     return agent
 
 
-def _session_or_404(session_id: str) -> LiveSession:
+def _session_or_404(session_id: str, agent: dict | None = None) -> LiveSession:
     session = live.get_session(session_id)
     if session is None:
+        raise HTTPException(status_code=404, detail="Live session not found")
+    if agent is not None and session.agent_id != str(agent.get("id", "")):
+        # Session ids are agent-scoped in the URL; don't accept cross-agent use.
         raise HTTPException(status_code=404, detail="Live session not found")
     return session
 
@@ -99,7 +102,9 @@ async def live_start(agent_id: str, req: LiveStartRequest, user=Depends(get_curr
     if get_ai_provider() is None:
         raise HTTPException(status_code=400, detail="No AI provider configured")
 
-    prep = (req.prep_note or "").strip()[:500]
+    # Control chars / newlines stripped: prep rides trusted prompt text and
+    # YAML-ish status lines, so keep it a plain single line.
+    prep = re.sub(r"\s+", " ", re.sub(r"[\x00-\x1f\x7f]", " ", req.prep_note or "")).strip()[:500]
     chat_service = get_chat_service(agent["slug"])
     conversation_id = req.conversation_id
     if not conversation_id:
@@ -153,8 +158,8 @@ async def live_chunk(agent_id: str, session_id: str, file: UploadFile,
                      user=Depends(get_current_user)):
     from core.storage import atomic_write_bytes
 
-    _get_agent_or_404(agent_id)
-    session = _session_or_404(session_id)
+    agent = _get_agent_or_404(agent_id)
+    session = _session_or_404(session_id, agent)
     if session.status != "recording":
         raise HTTPException(status_code=409, detail="Session is not recording")
     if index < 0 or index >= live.MAX_CHUNKS:
@@ -189,16 +194,16 @@ async def live_chunk(agent_id: str, session_id: str, file: UploadFile,
 
 @router.post("/api/agents/{agent_id}/live/{session_id}/stop")
 async def live_stop(agent_id: str, session_id: str, user=Depends(get_current_user)):
-    _get_agent_or_404(agent_id)
-    session = _session_or_404(session_id)
+    agent = _get_agent_or_404(agent_id)
+    session = _session_or_404(session_id, agent)
     pipeline.ensure_finalize(session, "stopped")
     return {"state": session.status}
 
 
 @router.get("/api/agents/{agent_id}/live/{session_id}/events")
 async def live_events(agent_id: str, session_id: str, user=Depends(get_current_user)):
-    _get_agent_or_404(agent_id)
-    session = _session_or_404(session_id)
+    agent = _get_agent_or_404(agent_id)
+    session = _session_or_404(session_id, agent)
 
     async def event_generator():
         q: asyncio.Queue = asyncio.Queue(maxsize=256)

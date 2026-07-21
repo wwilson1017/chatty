@@ -188,8 +188,13 @@ def load_snapshot(path: Path) -> LiveSession | None:
 
 
 # ── Registry (one active session) ───────────────────────────────────────────
+# Process-local by design: Chatty deploys as a single uvicorn process (no
+# --workers), matching every other in-process registry here (APScheduler,
+# import sessions, telegram busy map). Multi-worker would need shared state.
 
 _active: LiveSession | None = None
+_last_finalized: LiveSession | None = None  # kept so a reloading client can
+# still resolve /events for the just-finished session and replay `done`
 _registry_lock = threading.Lock()
 
 
@@ -232,6 +237,8 @@ def get_session(session_id: str) -> LiveSession | None:
     with _registry_lock:
         if _active and _active.session_id == session_id:
             return _active
+        if _last_finalized and _last_finalized.session_id == session_id:
+            return _last_finalized
     return None
 
 
@@ -243,10 +250,12 @@ def get_active_for_conversation(agent_slug: str, conversation_id: str) -> LiveSe
 
 
 def clear_active(session: LiveSession) -> None:
-    global _active
+    global _active, _last_finalized
     with _registry_lock:
         if _active is session:
             _active = None
+        if session.status == "finalized":
+            _last_finalized = session
 
 
 def adopt_active(session: LiveSession) -> bool:
@@ -260,37 +269,45 @@ def adopt_active(session: LiveSession) -> bool:
 
 
 # ── Conversation busy map (mirrors integrations/telegram/router.py) ────────
+# Reference-counted: a user chat stream and a coach turn can hold leases on
+# the same conversation concurrently — one holder finishing must not clear
+# the other's lease. Each lease is a timestamp; stale ones (crashed holders
+# that never cleared) age out via the TTL.
 
-_busy: dict[str, float] = {}
+_busy: dict[str, list[float]] = {}
 _busy_lock = threading.Lock()
-_BUSY_TTL = 300  # stale entries treated as hung requests
+_BUSY_TTL = 300  # stale leases treated as hung requests
 
 
 def mark_conversation_busy(conversation_id: str) -> None:
     if not conversation_id:
         return
     with _busy_lock:
-        _busy[conversation_id] = time.time()
+        _busy.setdefault(conversation_id, []).append(time.time())
 
 
 def clear_conversation_busy(conversation_id: str) -> None:
     if not conversation_id:
         return
     with _busy_lock:
-        _busy.pop(conversation_id, None)
+        leases = _busy.get(conversation_id)
+        if leases:
+            leases.pop(0)
+        if not leases:
+            _busy.pop(conversation_id, None)
 
 
 def is_conversation_busy(conversation_id: str) -> bool:
     if not conversation_id:
         return False
+    now = time.time()
     with _busy_lock:
-        ts = _busy.get(conversation_id)
-        if ts is None:
-            return False
-        if time.time() - ts > _BUSY_TTL:
-            del _busy[conversation_id]
-            return False
-        return True
+        leases = [ts for ts in _busy.get(conversation_id, []) if now - ts <= _BUSY_TTL]
+        if leases:
+            _busy[conversation_id] = leases
+            return True
+        _busy.pop(conversation_id, None)
+        return False
 
 
 # ── Transcript assembly ─────────────────────────────────────────────────────
@@ -355,11 +372,21 @@ def emit(session: LiveSession, event: dict) -> None:
         # (they're still in the conversation itself).
         if len(session.coach_events) > 500:
             del session.coach_events[0]
+    terminal = event.get("type") in ("done", "_close")
     for q in list(session.listeners):
         try:
             q.put_nowait(event)
         except asyncio.QueueFull:
-            logger.debug("Live SSE listener queue full; dropping event")
+            if terminal:
+                # Terminal events must land or the stream never closes —
+                # evict the oldest buffered event to make room.
+                try:
+                    q.get_nowait()
+                    q.put_nowait(event)
+                except (asyncio.QueueEmpty, asyncio.QueueFull):
+                    logger.warning("Live SSE listener wedged; terminal event dropped")
+            else:
+                logger.debug("Live SSE listener queue full; dropping event")
 
 
 def status_event(session: LiveSession) -> dict:

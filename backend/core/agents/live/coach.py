@@ -321,8 +321,12 @@ def _turn_user_message(session: LiveSession, delta_text: str, *, wrapup: bool,
 
 async def run_coach_turn(session: LiveSession, ctx: dict, delta_text: str, *,
                          escalate_reason: str = "", wrapup: bool = False,
-                         finalize_reason: str = "") -> None:
-    """Run one gated coach turn; persist and emit the nudge if any."""
+                         finalize_reason: str = "") -> bool:
+    """Run one gated coach turn; persist and emit the nudge if any.
+
+    Returns True when the turn completed (including PASS), False on a
+    transient failure (timeout / provider error) — the caller must NOT mark
+    the delta reviewed on False, so that transcript content gets retried."""
     from core.agents.background_runner import run_background_turn_async
 
     plan = ctx["model_plan"]
@@ -358,13 +362,13 @@ async def run_coach_turn(session: LiveSession, ctx: dict, delta_text: str, *,
         )
     except asyncio.TimeoutError:
         logger.warning("Coach turn timed out (%ss) for session %s", timeout, session.session_id)
-        return
+        return False
     finally:
         live.clear_conversation_busy(session.conversation_id)
 
     if result.error:
         logger.warning("Coach turn errored: %s", result.text[:200])
-        return
+        return False
 
     verdict, body, reason = parse_verdict(result.text)
 
@@ -373,19 +377,18 @@ async def run_coach_turn(session: LiveSession, ctx: dict, delta_text: str, *,
             verdict, body = ("NUDGE", body) if body else ("PASS", "")
         elif time.time() - session.coach_last_escalate_at < ESCALATE_MIN_GAP_S:
             logger.info("Escalation rate-limited; dropping")
-            return
+            return True
         else:
             session.coach_last_escalate_at = time.time()
             session.escalations += 1
-            await run_coach_turn(session, ctx, delta_text,
-                                 escalate_reason=reason or body or "flagged moment")
-            return
+            return await run_coach_turn(session, ctx, delta_text,
+                                        escalate_reason=reason or body or "flagged moment")
     elif verdict == "ESCALATE":
         # Escalated/wrap-up turn asking to escalate again: no recursion.
         verdict, body = ("NUDGE", body) if body else ("PASS", "")
 
     if verdict != "NUDGE" or not body:
-        return
+        return True
 
     # Defer the save while a user turn is streaming in this conversation —
     # cosmetic adjacency is legal (_coalesce_consecutive) but avoid it.
@@ -405,7 +408,7 @@ async def run_coach_turn(session: LiveSession, ctx: dict, delta_text: str, *,
         )
     except Exception:
         logger.exception("Failed to save coach nudge")
-        return
+        return True  # content WAS reviewed; only delivery failed (logged)
 
     live.emit(session, {
         "type": "coach",
@@ -417,6 +420,7 @@ async def run_coach_turn(session: LiveSession, ctx: dict, delta_text: str, *,
         "escalated": escalated,
         "wrapup": wrapup,
     })
+    return True
 
 
 async def coach_loop(session: LiveSession, ctx: dict) -> None:
@@ -447,12 +451,17 @@ async def coach_loop(session: LiveSession, ctx: dict) -> None:
                 if session.status != "recording":
                     return
 
-            session.reviewed_indexes.update(s.index for s in delta_segs)
+            delta_indexes = {s.index for s in delta_segs}
             session.coach_last_run_at = time.time()
             try:
-                await run_coach_turn(session, ctx, delta_text)
+                completed = await run_coach_turn(session, ctx, delta_text)
             except Exception:
                 logger.exception("Coach turn crashed; loop continues")
+                completed = True  # a crash is not transient — don't loop on it
+            if completed:
+                # Only mark reviewed on completion: a timeout/provider error
+                # must NOT permanently skip that transcript content.
+                session.reviewed_indexes.update(delta_indexes)
     except asyncio.CancelledError:
         raise
     except Exception:

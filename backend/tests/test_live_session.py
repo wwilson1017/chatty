@@ -560,3 +560,67 @@ def test_finalize_wrapup_crash_marks_done(finalize_env, monkeypatch):
     asyncio.run(pipeline.finalize(s, "stopped"))
     assert s.status == "finalized"
     assert s.wrapup_done is True
+
+
+# ---------------------------------------------------------------------------
+# Stage-2 review fixes (Codex round)
+# ---------------------------------------------------------------------------
+
+def test_busy_map_refcounted():
+    """Two holders (user stream + coach) must not clear each other's lease."""
+    live.mark_conversation_busy("c1")   # user stream
+    live.mark_conversation_busy("c1")   # coach turn
+    live.clear_conversation_busy("c1")  # coach finishes first
+    assert live.is_conversation_busy("c1")   # user stream still holds
+    live.clear_conversation_busy("c1")
+    assert not live.is_conversation_busy("c1")
+
+
+def test_emit_terminal_event_evicts_when_full(monkeypatch, tmp_path):
+    monkeypatch.setattr(live, "recordings_dir", lambda slug: tmp_path / slug / "recordings")
+    s = live.start_session(_fake_agent(), "conv-1", "")
+    q = asyncio.Queue(maxsize=2)
+    s.listeners.append(q)
+    live.emit(s, {"type": "chunk", "index": 0})
+    live.emit(s, {"type": "chunk", "index": 1})
+    live.emit(s, {"type": "chunk", "index": 2})   # dropped (full, non-terminal)
+    live.emit(s, {"type": "done"})                # must evict to land
+    events = []
+    while not q.empty():
+        events.append(q.get_nowait()["type"])
+    assert "done" in events
+
+
+def test_get_session_resolves_last_finalized(monkeypatch, tmp_path):
+    """A reloading client can still hit /events for the just-finished session."""
+    monkeypatch.setattr(live, "recordings_dir", lambda slug: tmp_path / slug / "recordings")
+    s = live.start_session(_fake_agent(), "conv-1", "")
+    sid = s.session_id
+    s.status = "finalized"
+    live.clear_active(s)
+    assert live.get_active() is None
+    assert live.get_session(sid) is s
+
+
+def test_live_chunk_rejects_cross_agent_session(live_client):
+    agent_a = make_agent(live_client, name="Agent A")["id"]
+    agent_b = make_agent(live_client, name="Agent B")["id"]
+    sid = _start(live_client, agent_a).json()["session_id"]
+    res = live_client.post(
+        f"/api/agents/{agent_b}/live/{sid}/chunk",
+        files={"file": ("c.webm", b"x", "audio/webm")},
+        data={"index": "0"},
+    )
+    assert res.status_code == 404
+    assert live_client.post(f"/api/agents/{agent_b}/live/{sid}/stop").status_code == 404
+    assert live_client.get(f"/api/agents/{agent_b}/live/{sid}/events").status_code == 404
+
+
+def test_live_start_sanitizes_prep_note(live_client):
+    agent_id = make_agent(live_client, name="Prep Agent")["id"]
+    res = live_client.post(f"/api/agents/{agent_id}/live/start",
+                           json={"prep_note": "close the\ndeal\x00 today"})
+    assert res.status_code == 200
+    s = live.get_active()
+    assert "\n" not in s.prep_note and "\x00" not in s.prep_note
+    assert "close the deal today" == s.prep_note

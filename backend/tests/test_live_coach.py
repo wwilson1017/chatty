@@ -279,6 +279,7 @@ def test_coach_loop_gates_and_reviews_indexes(monkeypatch, tmp_path):
 
     async def fake_run(sess, ctx, delta_text, **kw):
         ran.append(delta_text)
+        return True
 
     monkeypatch.setattr(coach, "run_coach_turn", fake_run)
 
