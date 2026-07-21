@@ -215,6 +215,8 @@ async def live_events(agent_id: str, session_id: str, user=Depends(get_current_u
             for ev in list(session.coach_events):
                 yield _sse(ev)
             if session.status == "finalized":
+                if session.done_event:
+                    yield _sse(session.done_event)
                 return
             while True:
                 try:

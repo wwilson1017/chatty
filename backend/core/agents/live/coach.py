@@ -121,7 +121,14 @@ def parse_verdict(text: str) -> tuple[str, str, str]:
         m = _VERDICT_RE.match(lines[i])
         if m:
             verdict = m.group(1).upper()
-            body = "\n".join(lines[:i]).strip()[:2000]
+            # Body starts after any EARLIER verdict line — a multi-iteration
+            # turn's interim narration/verdicts must not leak into the nudge.
+            start = 0
+            for j in range(i - 1, -1, -1):
+                if _VERDICT_RE.match(lines[j]):
+                    start = j + 1
+                    break
+            body = "\n".join(lines[start:i]).strip()[:2000]
             reason = (m.group(2) or "").strip().strip("—-–: *").strip()[:300]
             return (verdict, body, reason)
     logger.warning("Coach turn had no VERDICT line; treating as PASS")
@@ -462,6 +469,10 @@ async def coach_loop(session: LiveSession, ctx: dict) -> None:
                 # Only mark reviewed on completion: a timeout/provider error
                 # must NOT permanently skip that transcript content.
                 session.reviewed_indexes.update(delta_indexes)
+            else:
+                # Transient failure: self-wake so the delta is retried even
+                # if no further chunks arrive (the 45s gap gate is the backoff).
+                session.wake.set()
     except asyncio.CancelledError:
         raise
     except Exception:

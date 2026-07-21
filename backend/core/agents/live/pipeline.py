@@ -304,6 +304,17 @@ async def finalize(session: LiveSession, reason: str) -> None:
     # 8. Done.
     session.status = "finalized"
     save_snapshot(session)
+    session.done_event = {
+        "type": "done",
+        "meeting_filename": session.meeting_filename or None,
+        "audio_url": (
+            f"/api/agents/{session.agent_id}/live/recordings/{session.session_id}/audio"
+            if recording.exists() else None
+        ),
+        "duration_seconds": round(session.duration_seconds, 1),
+        "title": session.meeting_title or "Live meeting",
+        "error": session.finalize_error or None,
+    }
     live.emit(session, {
         "type": "done",
         "meeting_filename": session.meeting_filename or None,

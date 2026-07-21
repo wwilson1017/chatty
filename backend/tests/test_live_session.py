@@ -624,3 +624,26 @@ def test_live_start_sanitizes_prep_note(live_client):
     s = live.get_active()
     assert "\n" not in s.prep_note and "\x00" not in s.prep_note
     assert "close the deal today" == s.prep_note
+
+
+def test_transcript_text_leading_missing_marker(monkeypatch, tmp_path):
+    monkeypatch.setattr(live, "recordings_dir", lambda slug: tmp_path / slug / "recordings")
+    s = live.start_session(_fake_agent(), "conv-1", "")
+    s.segments[2] = live.Segment(index=2, filename="f2", status="done", text="late start")
+    text = live.transcript_text(s)
+    assert text.index("[missing audio segment]") < text.index("late start")
+
+
+def test_events_replays_done_for_finalized(live_client):
+    agent_id = make_agent(live_client, name="Done Agent")["id"]
+    session = _start(live_client, agent_id).json()
+    sid = session["session_id"]
+    s = live.get_session(sid)
+    s.status = "finalized"
+    s.done_event = {"type": "done", "meeting_filename": "m.md", "audio_url": None,
+                    "duration_seconds": 1.0, "title": "T", "error": None}
+    live.clear_active(s)  # registry keeps it via the last-finalized slot
+    res = live_client.get(f"/api/agents/{agent_id}/live/{sid}/events")
+    events = [json.loads(line[6:]) for line in res.text.split("\n") if line.startswith("data: ")]
+    assert events[-1]["type"] == "done"
+    assert events[-1]["meeting_filename"] == "m.md"

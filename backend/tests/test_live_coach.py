@@ -322,3 +322,11 @@ def test_coach_loop_gates_and_reviews_indexes(monkeypatch, tmp_path):
         loop_task.cancel()
 
     asyncio.run(run())
+
+
+def test_parse_verdict_body_excludes_prior_iterations():
+    """Multi-iteration turn text: body starts after the previous verdict."""
+    text = "interim narration\nVERDICT: PASS\nThe real nudge.\nVERDICT: NUDGE"
+    verdict, body, _ = coach.parse_verdict(text)
+    assert verdict == "NUDGE"
+    assert body == "The real nudge."

@@ -94,6 +94,7 @@ class LiveSession:
     wake: asyncio.Event = field(default_factory=asyncio.Event)
     listeners: list[asyncio.Queue] = field(default_factory=list)
     coach_events: list[dict] = field(default_factory=list)
+    done_event: dict | None = None  # retained for post-finalize reconnects
     worker_task: asyncio.Task | None = None
     coach_task: asyncio.Task | None = None
     watchdog_task: asyncio.Task | None = None
@@ -319,9 +320,9 @@ def transcript_text(session: LiveSession, *, tail_chars: int | None = None) -> s
     upload) get a synthesized marker too — an absent chunk must not read as
     a continuous transcript."""
     parts: list[str] = []
-    prev_index: int | None = None
+    prev_index = -1  # index 0 lost → leading marker, per the contract above
     for seg in sorted(session.segments.values(), key=lambda s: s.index):
-        if prev_index is not None and seg.index > prev_index + 1:
+        if seg.index > prev_index + 1:
             parts.append("[missing audio segment]")
         prev_index = seg.index
         if seg.gap_before:
