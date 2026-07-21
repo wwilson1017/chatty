@@ -37,6 +37,18 @@ _COACH_EXCLUDED_TOOLS = {
     "post_message",
 }
 
+
+def _is_outbound_comm_tool(tool: dict) -> bool:
+    """True for tools the coach must not hold. Besides the core denylist,
+    catch integration write tools that send/reply outward (qbo_send_invoice,
+    odoo_send_ticket_reply, messaging sends…) — a name-pattern denylist, so
+    new integrations get covered by convention. Over-blocking a write tool
+    here only affects coach turns, never normal chat."""
+    name = tool.get("name", "")
+    if name in _COACH_EXCLUDED_TOOLS:
+        return True
+    return bool(tool.get("writes")) and ("send" in name or "reply" in name)
+
 _VERDICT_RE = re.compile(
     r"^\s*\**\s*VERDICT\s*[:—\-]?\s*(PASS|NUDGE|ESCALATE)\b\**\s*(.*)$",
     re.IGNORECASE,
@@ -170,7 +182,7 @@ def build_coach_context(agent: dict) -> dict:
         if not (t.get("integration") and t.get("writes")
                 and integration_modes.get(t["integration"]) == "read-only")
     ]
-    tool_defs = [t for t in tool_defs if t.get("name") not in _COACH_EXCLUDED_TOOLS]
+    tool_defs = [t for t in tool_defs if not _is_outbound_comm_tool(t)]
 
     registry = ToolRegistry(
         context_dir=config.context_dir,

@@ -26,7 +26,7 @@ logger = logging.getLogger(__name__)
 
 async def chunk_worker(session: LiveSession) -> None:
     """Transcribe accepted chunks in arrival order."""
-    from core.agents.transcription.service import TranscriptionError, transcribe_chunk
+    from core.agents.transcription.service import transcribe_chunk
 
     while True:
         idx = await session.queue.get()
@@ -47,7 +47,10 @@ async def chunk_worker(session: LiveSession) -> None:
                     timeout=90,
                 )
                 break
-            except (TranscriptionError, asyncio.TimeoutError, Exception) as e:
+            except Exception as e:
+                # Broad by design: one bad chunk (provider error, timeout, or
+                # even a bug) must never kill the session — mark it failed and
+                # keep recording; the archival pass recovers its audio.
                 logger.warning("Chunk %s transcription attempt %d failed: %s", idx, attempt, e)
                 if attempt == 1:
                     await asyncio.sleep(5)

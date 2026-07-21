@@ -231,16 +231,30 @@ def test_wrapup_turn_always_delivers(turn_env):
 
 
 def test_coach_tool_filter():
-    """Outbound-communication tools are stripped from coach turns."""
-    defs = [{"name": n} for n in
-            ("send_email", "reply_to_email", "send_email_with_attachment",
-             "post_message", "notify_user", "search_memory", "set_reminder")]
-    kept = [t for t in defs if t["name"] not in coach._COACH_EXCLUDED_TOOLS]
-    names = {t["name"] for t in kept}
+    """Outbound-communication tools are stripped from coach turns — the core
+    denylist AND integration write tools that send/reply outward."""
+    defs = [
+        {"name": "send_email", "writes": True},
+        {"name": "reply_to_email", "writes": True},
+        {"name": "send_email_with_attachment", "writes": True},
+        {"name": "post_message", "writes": True},
+        {"name": "qbo_send_invoice", "writes": True, "integration": "quickbooks"},
+        {"name": "odoo_send_ticket_reply", "writes": True, "integration": "odoo"},
+        {"name": "notify_user", "writes": True},
+        {"name": "search_memory", "writes": False},
+        {"name": "set_reminder", "writes": True},
+        # read tool with 'send' in the name must survive (writes gate)
+        {"name": "qbo_get_send_history", "writes": False},
+    ]
+    names = {t["name"] for t in defs if not coach._is_outbound_comm_tool(t)}
     assert "send_email" not in names
     assert "post_message" not in names
+    assert "qbo_send_invoice" not in names
+    assert "odoo_send_ticket_reply" not in names
     assert "notify_user" in names          # sanctioned channel stays
     assert "set_reminder" in names
+    assert "search_memory" in names
+    assert "qbo_get_send_history" in names
 
 
 def test_coach_loop_gates_and_reviews_indexes(monkeypatch, tmp_path):

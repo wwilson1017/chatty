@@ -343,6 +343,10 @@ def emit(session: LiveSession, event: dict) -> None:
     """Push an event to every listener queue; retain coach events for replay."""
     if event.get("type") == "coach":
         session.coach_events.append(event)
+        # Replay buffer cap: reconnects lose the oldest nudges past this
+        # (they're still in the conversation itself).
+        if len(session.coach_events) > 500:
+            del session.coach_events[0]
     for q in list(session.listeners):
         try:
             q.put_nowait(event)
