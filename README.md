@@ -15,15 +15,23 @@ Create custom AI agents with their own personality, knowledge, and tools — pow
 - **Browser-based UI** — Full dashboard for managing agents, integrations, and settings — no command line needed after initial setup
 - **Multi-agent** — Create and manage multiple AI agents, each with its own name, personality, and knowledge base
 - **Multi-provider AI** — Anthropic, OpenAI, Google Gemini, Ollama (local models), and Together AI
+- **Live meetings** — Record a meeting straight from the chat window and your agent transcribes it live and coaches you in real time — surfacing talking points, questions to ask, facts from its memory, and action items — then posts a wrap-up when you stop
+- **Meeting transcription** — Drop an audio or video recording into chat and your agent transcribes it (Google Gemini or OpenAI Whisper), labels speakers, and can act on what it heard
 - **Heartbeat** — Agents run scheduled background tasks on their own — scanning emails, checking calendars, monitoring your CRM — and notify you via browser push notifications, Telegram, or WhatsApp
 - **Reminders** — Set one-time or recurring reminders (daily, weekly, monthly, cron) that trigger your agent to take action or notify you
 - **Training mode** — Conversational onboarding that teaches your agent about you, your business, and how you like to work
 - **Knowledge import** — Import an existing agent from [OpenClaw](https://github.com/claw-project/openclaw) or paste context from any AI tool to bootstrap a new agent in minutes
+- **Second brain** — Semantic memory with vector search: your agent auto-extracts and recalls facts across every conversation, no manual note-taking
+- **Playbooks** — Teach your agent reusable business procedures ("how we chase overdue invoices here") that it follows on demand
+- **Commitments** — Your agent notices follow-ups implied in conversation ("the supplier said they'd quote by Friday") and surfaces them before they slip
+- **Conversation search** — Full-text search across your entire chat history
+- **Usage & cost dashboard** — Track token usage and spend per agent, model, and provider, with live provider pricing
 - **Built-in CRM** — Manage your pipeline: contacts, companies, tasks and deals all with your AI agent
 - **Integrations** — Gmail (multiple accounts), Google Calendar, Google Drive, QuickBooks Online, Todoist, Telegram (multiple bots), Odoo, BambooHR, Paperclip (WhatsApp is deprecated/frozen — use Telegram)
 - **Agent orchestration** — Connect to [Paperclip](https://github.com/paperclipai/paperclip) for org charts, task management, and multi-agent coordination
-- **File uploads** — Drag and drop PDFs, DOCX, and text files into chat for your agent to read and analyze
+- **File uploads** — Drag and drop PDFs, DOCX, text, and audio/video files into chat for your agent to read, analyze, or transcribe
 - **Two-factor auth** — Optional TOTP-based 2FA for your login
+- **Injection-hardened** — Untrusted content from emails and integrations is sandboxed, with per-turn write budgets and rate limits on tools that take action
 - **Brandable** — Upload your logo, company name, and accent color to make it yours
 - **BYO OAuth** — Bring your own Google and QuickBooks OAuth credentials for full control over your integration apps
 - **Local-first** — SQLite database, no external services required
@@ -95,6 +103,14 @@ No OpenClaw? No problem. You can bootstrap a new Chatty agent from any existing 
 You can tailor the export to fit the new agent's purpose. For example, if your existing agent is a business assistant but you're setting up a personal agent in Chatty, tell it to leave out work-specific details and focus on personal preferences. Going the other direction, ask it to emphasize business context. You can also ask it to include a list of questions where it has gaps, so your new agent knows what to ask you about.
 
 **No existing agent? Use any AI chat.** Open ChatGPT, Claude, or any AI assistant and ask it something like: *"Search your memory and our conversation history, then create a markdown knowledge file I can give to a new AI agent that explains who I am, what I do, what's important to me, and how I like to work."* Paste the result into Chatty and you've got a head start.
+
+## Live Meetings & Transcription
+
+Your agent can sit in on a meeting with you — as a listener, a coach, or both.
+
+**Record live from the chat window.** Click the microphone in the chat bar, jot an optional note about what the meeting is and what you want out of it, and hit **Start**. Chatty records in short chunks, transcribes each one as it arrives, and keeps a rolling transcript. Your agent watches along and jumps in with brief, well-timed nudges — a question you should ask, a number worth pinning down, a fact from its memory that strengthens your position, an action item worth capturing — posted right into the conversation. When you stop, it posts a wrap-up with outcomes, decisions, and follow-ups, and saves the full audio and transcript to the thread. Live recording needs `ffmpeg` installed and a connected provider that can transcribe audio (Google Gemini or OpenAI).
+
+**Transcribe a recording you already have.** Drag an audio or video file into chat (or use the attach button). Your agent transcribes it — labeling distinct speakers, handling multi-hour recordings — and you can immediately ask it to summarize, pull action items, draft a follow-up email, or save what matters to memory. Gemini transcribes the whole file in one pass; OpenAI Whisper splits long recordings into segments automatically.
 
 ## Scheduled Actions & Heartbeat
 
