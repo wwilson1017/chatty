@@ -50,15 +50,19 @@ entry here are flagged "pricing unknown" by the usage dashboard, never silently 
 
 | Model | Input $/M | Output $/M | Source | Verified |
 |---|---|---|---|---|
-| `Qwen/Qwen3.7-Max` | 1.25 | 3.75 | [pricing](https://www.together.ai/pricing) | 2026-07-31 |
-| `Qwen/Qwen3.7-Plus` | 0.32 | 1.28 | [pricing](https://www.together.ai/pricing) | 2026-07-31 |
-| `Qwen/Qwen3.5-9B` | 0.17 | 0.25 | [pricing](https://www.together.ai/pricing) | 2026-07-31 |
+| `moonshotai/Kimi-K2.6` | 1.20 | 4.50 | [pricing](https://www.together.ai/pricing) | 2026-07-31 |
+| `zai-org/GLM-5.2` | 1.40 | 4.40 | [pricing](https://www.together.ai/pricing) | 2026-07-31 |
+| `deepseek-ai/DeepSeek-V4-Pro` | 1.74 | 3.48 | [pricing](https://www.together.ai/pricing) | 2026-07-31 |
+| `MiniMaxAI/MiniMax-M3` | 0.30 | 1.20 | [pricing](https://www.together.ai/pricing) | 2026-07-31 |
 | `meta-llama/Llama-3.3-70B-Instruct-Turbo` | 1.04 | 1.04 | [pricing](https://www.together.ai/pricing) | 2026-07-31 |
 | `google/gemma-4-31B-it` | 0.39 | 0.97 | [pricing](https://www.together.ai/pricing) | 2026-07-31 |
-| `deepseek-ai/DeepSeek-V4-Pro` | 1.74 | 3.48 | [pricing](https://www.together.ai/pricing) | 2026-07-31 |
 | `openai/gpt-oss-120b` | 0.15 | 0.60 | [pricing](https://www.together.ai/pricing) | 2026-07-31 |
+| `openai/gpt-oss-20b` | 0.05 | 0.20 | [pricing](https://www.together.ai/pricing) | 2026-07-31 |
+| `Qwen/Qwen3.5-9B` | 0.17 | 0.25 | [pricing](https://www.together.ai/pricing) | 2026-07-31 |
 
 > Only the curated model set above (`TOGETHER_MODELS` in `together_provider.py`) is priced. Together's live catalog is much larger; any other model a user selects flags "pricing unknown" in the usage dashboard (never $0). `deepseek-ai/DeepSeek-V4-Pro` also has a $0.20/M cached-input rate not reflected here.
+>
+> Every curated model is documented by Together as supporting function calling. `Qwen/Qwen3.7-Max` and `Qwen/Qwen3.7-Plus` were dropped from the set on 2026-07-31: capable chat models, but no tool calling, so Chatty cannot use them at all.
 
 ## Audio transcription (per audio minute)
 

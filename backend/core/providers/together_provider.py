@@ -23,14 +23,24 @@ logger = logging.getLogger(__name__)
 TOGETHER_BASE_URL = "https://api.together.xyz/v1"
 
 # Curated list of models known to work well with tool calling and agents.
+#
+# Every entry MUST be documented by Together as supporting function calling
+# (docs.together.ai/docs/serverless/models -> "Function calling: Yes").
+# Chatty always sends tools, so a chat model without tool-calling support is
+# unusable here: Together's vLLM backend rejects the request outright with
+# '"auto" tool choice requires --enable-auto-tool-choice ...' (a 400 that
+# reads like a Chatty bug but is really "this model can't do tools").
+# Qwen3.7-Max / Qwen3.7-Plus were previously listed here and are exactly that
+# trap — capable chat models, no function calling.
 TOGETHER_MODELS = [
-    "Qwen/Qwen3.7-Max",
-    "Qwen/Qwen3.7-Plus",
-    "Qwen/Qwen3.5-9B",
+    "moonshotai/Kimi-K2.6",
+    "zai-org/GLM-5.2",
+    "deepseek-ai/DeepSeek-V4-Pro",
+    "MiniMaxAI/MiniMax-M3",
     "meta-llama/Llama-3.3-70B-Instruct-Turbo",
     "google/gemma-4-31B-it",
-    "deepseek-ai/DeepSeek-V4-Pro",
     "openai/gpt-oss-120b",
+    "Qwen/Qwen3.5-9B",
 ]
 
 TOGETHER_DEFAULT_MODEL = "Qwen/Qwen3.5-9B"
@@ -42,6 +52,19 @@ _TOGETHER_NON_CHAT = (
     "embedding", "rerank", "image", "audio", "moderation",
     "whisper", "guard", "vision", "tts", "flux",
 )
+
+
+def _is_no_tool_support(error: str) -> bool:
+    """Detect Together's 400 for a model served without tool-calling enabled.
+
+    Together fronts most models with vLLM; when a deployment wasn't launched
+    with the tool-call parser, any request carrying tools fails with
+    '"auto" tool choice requires --enable-auto-tool-choice and
+    --tool-call-parser to be set'. Raw, that reads like a Chatty
+    misconfiguration; it actually means "this model can't do tools".
+    """
+    low = error.lower()
+    return "enable-auto-tool-choice" in low or "tool-call-parser" in low
 
 
 def _is_together_chat(model: dict) -> bool:
@@ -90,6 +113,15 @@ class TogetherProvider(AIProvider):
                 yield {
                     "type": "error",
                     "error": "Cannot connect to Together AI. Check your internet connection.",
+                }
+            elif event.get("type") == "error" and _is_no_tool_support(event.get("error", "")):
+                yield {
+                    "type": "error",
+                    "error": (
+                        f"{self.model} does not support tool calling, which Chatty needs "
+                        f"for memory, search, and integrations. Pick a model Together lists "
+                        f"with function calling — e.g. {', '.join(TOGETHER_MODELS[:3])}."
+                    ),
                 }
             else:
                 yield event
