@@ -37,7 +37,7 @@ PROVIDER_DEFAULTS = {
     "openai": "gpt-5.4",
     "google": "gemini-2.5-flash",
     "ollama": "",
-    "together": "Qwen/Qwen3.5-7B",
+    "together": "Qwen/Qwen3.5-9B",
 }
 
 

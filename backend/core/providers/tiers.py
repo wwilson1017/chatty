@@ -30,9 +30,9 @@ TIER_MODELS: dict[str, dict[str, str]] = {
         "light": "gemini-2.5-flash-lite",
     },
     "together": {
-        "top":   "Qwen/Qwen3.5-32B",
-        "mid":   "Qwen/Qwen3.5-14B",
-        "light": "Qwen/Qwen3.5-7B",
+        "top":   "meta-llama/Llama-3.3-70B-Instruct-Turbo",
+        "mid":   "google/gemma-4-31B-it",
+        "light": "Qwen/Qwen3.5-9B",
     },
 }
 
@@ -42,7 +42,7 @@ TIER_LABELS: dict[str, dict[str, str]] = {
     "anthropic": {"top": "Opus", "mid": "Sonnet", "light": "Haiku"},
     "openai":    {"top": "GPT-5.5", "mid": "Mini", "light": "Nano"},
     "google":    {"top": "Pro", "mid": "Flash", "light": "Flash-Lite"},
-    "together":  {"top": "32B", "mid": "14B", "light": "7B"},
+    "together":  {"top": "70B", "mid": "31B", "light": "9B"},
 }
 
 # Hardcoded fallback for the triage classifier (the cheap "light"-tier model).

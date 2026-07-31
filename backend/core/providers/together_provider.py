@@ -23,16 +23,16 @@ TOGETHER_BASE_URL = "https://api.together.xyz/v1"
 
 # Curated list of models known to work well with tool calling and agents.
 TOGETHER_MODELS = [
-    "Qwen/Qwen3.5-32B",
-    "Qwen/Qwen3.5-14B",
-    "Qwen/Qwen3.5-7B",
-    "meta-llama/Llama-4-Scout-17B-16E-Instruct",
-    "google/gemma-3-27b-it",
-    "deepseek-ai/DeepSeek-V3-0324",
-    "mistralai/Mistral-Small-24B-Instruct-2501",
+    "Qwen/Qwen3.7-Max",
+    "Qwen/Qwen3.7-Plus",
+    "Qwen/Qwen3.5-9B",
+    "meta-llama/Llama-3.3-70B-Instruct-Turbo",
+    "google/gemma-4-31B-it",
+    "deepseek-ai/DeepSeek-V4-Pro",
+    "openai/gpt-oss-120b",
 ]
 
-TOGETHER_DEFAULT_MODEL = "Qwen/Qwen3.5-7B"
+TOGETHER_DEFAULT_MODEL = "Qwen/Qwen3.5-9B"
 
 # Together's catalog is large and mixes chat, embedding, image, rerank, etc.
 # Prefer the per-model `type` (chat/language) when present; otherwise exclude
@@ -114,17 +114,19 @@ class TogetherProvider(AIProvider):
         return models
 
     async def validate(self) -> bool:
-        """Validate the API key with a minimal completion."""
+        """Validate the API key with a cheap, model-agnostic authenticated call.
+
+        Deliberately does NOT probe with a chat completion against a specific
+        model: Together's catalog turns over, and a stale/renamed model id in
+        the probe would 400 and make a genuinely valid key read as invalid
+        (same failure mode fixed for OpenAI in openai_provider.py).
+        """
         try:
             client = openai.AsyncOpenAI(
                 api_key=self.api_key,
                 base_url=TOGETHER_BASE_URL,
             )
-            await client.chat.completions.create(
-                model=TOGETHER_DEFAULT_MODEL,
-                messages=[{"role": "user", "content": "hi"}],
-                max_tokens=1,
-            )
+            await client.models.list()
             return True
         except Exception:
             return False
