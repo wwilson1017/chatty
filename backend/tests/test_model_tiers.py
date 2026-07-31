@@ -244,6 +244,32 @@ class TestTogetherRawListing:
         assert await provider.validate() is True
         assert provider.last_error is None
 
+    def test_curated_models_all_priced(self):
+        """Every curated Together model must carry a price: they are the set the
+        usage dashboard is expected to cost accurately."""
+        from core.providers.pricing import MODEL_PRICING
+        from core.providers.together_provider import TOGETHER_MODELS
+
+        assert [m for m in TOGETHER_MODELS if m not in MODEL_PRICING] == []
+
+    def test_default_model_is_curated(self):
+        from core.providers.together_provider import (
+            TOGETHER_DEFAULT_MODEL, TOGETHER_MODELS,
+        )
+
+        assert TOGETHER_DEFAULT_MODEL in TOGETHER_MODELS
+
+    def test_detects_missing_tool_support_error(self):
+        """Together's vLLM backend rejects tools on models served without the
+        tool-call parser; that 400 must be recognised, not shown raw."""
+        from core.providers.together_provider import _is_no_tool_support
+
+        assert _is_no_tool_support(
+            '"auto" tool choice requires --enable-auto-tool-choice and '
+            '--tool-call-parser to be set'
+        ) is True
+        assert _is_no_tool_support("Error code: 401 - Unauthorized") is False
+
     async def test_validate_false_with_real_error_on_401(self, monkeypatch):
         from core.providers.together_provider import TogetherProvider
 

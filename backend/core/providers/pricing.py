@@ -42,13 +42,15 @@ MODEL_PRICING: dict[str, tuple[float, float]] = {
     "gemini-2.0-flash-lite": (0.075, 0.30),
     # Together AI (serverless/on-demand tier). Only the curated TOGETHER_MODELS
     # set is priced; other Together models a user selects show "pricing unknown".
-    "Qwen/Qwen3.7-Max":                          (1.25, 3.75),
-    "Qwen/Qwen3.7-Plus":                         (0.32, 1.28),
-    "Qwen/Qwen3.5-9B":                           (0.17, 0.25),
+    "moonshotai/Kimi-K2.6":                      (1.20, 4.50),
+    "zai-org/GLM-5.2":                           (1.40, 4.40),
+    "deepseek-ai/DeepSeek-V4-Pro":               (1.74, 3.48),
+    "MiniMaxAI/MiniMax-M3":                      (0.30, 1.20),
     "meta-llama/Llama-3.3-70B-Instruct-Turbo":   (1.04, 1.04),
     "google/gemma-4-31B-it":                     (0.39, 0.97),
-    "deepseek-ai/DeepSeek-V4-Pro":               (1.74, 3.48),
     "openai/gpt-oss-120b":                       (0.15, 0.60),
+    "openai/gpt-oss-20b":                        (0.05, 0.20),
+    "Qwen/Qwen3.5-9B":                           (0.17, 0.25),
 }
 
 # model id -> (source_url, verified_date). Maintained by the price-check skill;
@@ -75,13 +77,15 @@ PRICING_SOURCES: dict[str, tuple[str, str]] = {
     "gemini-2.5-flash-lite": ("https://ai.google.dev/gemini-api/docs/pricing", "2026-07-19"),
     "gemini-2.0-flash":      ("https://ai.google.dev/gemini-api/docs/pricing", "2026-07-19"),
     "gemini-2.0-flash-lite": ("https://ai.google.dev/gemini-api/docs/pricing", "2026-07-19"),
-    "Qwen/Qwen3.7-Max":                        ("https://www.together.ai/pricing", "2026-07-31"),
-    "Qwen/Qwen3.7-Plus":                       ("https://www.together.ai/pricing", "2026-07-31"),
-    "Qwen/Qwen3.5-9B":                         ("https://www.together.ai/pricing", "2026-07-31"),
+    "moonshotai/Kimi-K2.6":                    ("https://www.together.ai/pricing", "2026-07-31"),
+    "zai-org/GLM-5.2":                         ("https://www.together.ai/pricing", "2026-07-31"),
+    "deepseek-ai/DeepSeek-V4-Pro":             ("https://www.together.ai/pricing", "2026-07-31"),
+    "MiniMaxAI/MiniMax-M3":                    ("https://www.together.ai/pricing", "2026-07-31"),
     "meta-llama/Llama-3.3-70B-Instruct-Turbo": ("https://www.together.ai/pricing", "2026-07-31"),
     "google/gemma-4-31B-it":                   ("https://www.together.ai/pricing", "2026-07-31"),
-    "deepseek-ai/DeepSeek-V4-Pro":             ("https://www.together.ai/pricing", "2026-07-31"),
     "openai/gpt-oss-120b":                     ("https://www.together.ai/pricing", "2026-07-31"),
+    "openai/gpt-oss-20b":                      ("https://www.together.ai/pricing", "2026-07-31"),
+    "Qwen/Qwen3.5-9B":                         ("https://www.together.ai/pricing", "2026-07-31"),
 }
 
 
