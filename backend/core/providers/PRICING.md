@@ -1,6 +1,6 @@
 # Model Pricing
 
-Last verified: 2026-07-19 (price-check)
+Last verified: 2026-07-31 (price-check)
 
 USD per 1M tokens, standard / short-context tier. Generated from `pricing.py`
 (`MODEL_PRICING` + `PRICING_SOURCES`) by the `price-check` skill — do not hand-edit;
@@ -46,6 +46,20 @@ entry here are flagged "pricing unknown" by the usage dashboard, never silently 
 > `gemini-2.5-pro` is the standard ≤200K-prompt tier; long prompts bill higher.
 > `gemini-2.0-*` models were shut down 2026-06-01 but are retained to price historical usage rows.
 
+## Together AI
+
+| Model | Input $/M | Output $/M | Source | Verified |
+|---|---|---|---|---|
+| `Qwen/Qwen3.7-Max` | 1.25 | 3.75 | [pricing](https://www.together.ai/pricing) | 2026-07-31 |
+| `Qwen/Qwen3.7-Plus` | 0.32 | 1.28 | [pricing](https://www.together.ai/pricing) | 2026-07-31 |
+| `Qwen/Qwen3.5-9B` | 0.17 | 0.25 | [pricing](https://www.together.ai/pricing) | 2026-07-31 |
+| `meta-llama/Llama-3.3-70B-Instruct-Turbo` | 1.04 | 1.04 | [pricing](https://www.together.ai/pricing) | 2026-07-31 |
+| `google/gemma-4-31B-it` | 0.39 | 0.97 | [pricing](https://www.together.ai/pricing) | 2026-07-31 |
+| `deepseek-ai/DeepSeek-V4-Pro` | 1.74 | 3.48 | [pricing](https://www.together.ai/pricing) | 2026-07-31 |
+| `openai/gpt-oss-120b` | 0.15 | 0.60 | [pricing](https://www.together.ai/pricing) | 2026-07-31 |
+
+> Only the curated model set above (`TOGETHER_MODELS` in `together_provider.py`) is priced. Together's live catalog is much larger; any other model a user selects flags "pricing unknown" in the usage dashboard (never $0). `deepseek-ai/DeepSeek-V4-Pro` also has a $0.20/M cached-input rate not reflected here.
+
 ## Audio transcription (per audio minute)
 
 USD per minute of recording, from `TRANSCRIPTION_PRICING` (meeting-recording
@@ -59,6 +73,5 @@ transcription bills by duration, not tokens).
 
 ## Not yet priced
 
-- **Together AI** (paid, Qwen/Llama/etc.) — pull from <https://www.together.ai/pricing> via `price-check`. The tier models (`Qwen/Qwen3.5-32B/14B/7B`) are not listed on the current pricing page, so Together rows are flagged "pricing unknown" in the usage dashboard (never $0).
 - **Legacy OpenAI** (`o3`, `o4-mini`, `gpt-4o`, `gpt-4o-mini`) — removed from OpenAI's current pricing page; historical usage rows referencing them flag as unknown.
 - **`whisper-1`** — no longer on OpenAI's pricing page; Chatty transcribes with `gpt-4o-transcribe` instead.

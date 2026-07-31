@@ -103,6 +103,6 @@ def get_ai_provider(
 
     elif profile_name.startswith("together:"):
         from core.providers.together_provider import TogetherProvider
-        return TogetherProvider(api_key=profile.get("key", ""), model=model or "Qwen/Qwen3.5-7B")
+        return TogetherProvider(api_key=profile.get("key", ""), model=model or "Qwen/Qwen3.5-9B")
 
     return None

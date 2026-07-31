@@ -322,7 +322,7 @@ async def ollama_status(user=Depends(get_current_user)):
 
 class TogetherConnectRequest(BaseModel):
     api_key: str
-    model: str = "Qwen/Qwen3.5-7B"
+    model: str = "Qwen/Qwen3.5-9B"
 
 
 @router.post("/together/connect")
