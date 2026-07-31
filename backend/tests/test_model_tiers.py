@@ -197,26 +197,60 @@ class TestModelFilters:
     def test_together_filter_by_type(self):
         from core.providers.together_provider import _is_together_chat
 
-        class M:
-            def __init__(self, id, type=None):
-                self.id = id
-                self.type = type
-
-        assert _is_together_chat(M("x", "chat")) is True
-        assert _is_together_chat(M("x", "language")) is True
-        assert _is_together_chat(M("x", "embedding")) is False
+        assert _is_together_chat({"id": "x", "type": "chat"}) is True
+        assert _is_together_chat({"id": "x", "type": "language"}) is True
+        assert _is_together_chat({"id": "x", "type": "embedding"}) is False
 
     def test_together_filter_name_fallback(self):
         from core.providers.together_provider import _is_together_chat
 
-        class M:
-            def __init__(self, id):
-                self.id = id
-                self.type = None
+        assert _is_together_chat({"id": "Qwen/Qwen3.5-32B"}) is True
+        assert _is_together_chat({"id": "BAAI/bge-large-embedding"}) is False
+        assert _is_together_chat({"id": "black-forest-labs/flux"}) is False
 
-        assert _is_together_chat(M("Qwen/Qwen3.5-32B")) is True
-        assert _is_together_chat(M("BAAI/bge-large-embedding")) is False
-        assert _is_together_chat(M("black-forest-labs/flux")) is False
+
+class TestTogetherRawListing:
+    """Together's /v1/models returns a bare JSON array, not OpenAI's
+    {"object": "list", "data": [...]} wrapper — the openai SDK crashes parsing
+    it, so the provider must fetch that endpoint with httpx directly (#136)."""
+
+    def _patch_get(self, monkeypatch, status, payload):
+        import httpx
+
+        req = httpx.Request("GET", "https://api.together.xyz/v1/models")
+        resp = httpx.Response(status, json=payload, request=req)
+
+        async def fake_get(self, url, **kwargs):
+            return resp
+
+        monkeypatch.setattr(httpx.AsyncClient, "get", fake_get)
+
+    async def test_fetch_models_parses_bare_array(self, monkeypatch):
+        from core.providers.together_provider import TogetherProvider
+
+        self._patch_get(monkeypatch, 200, [
+            {"id": "b/chat-model", "type": "chat"},
+            {"id": "a/chat-model", "type": "chat"},
+            {"id": "e/embedder", "type": "embedding"},
+        ])
+        provider = TogetherProvider(api_key="k")
+        assert await provider._fetch_models() == ["a/chat-model", "b/chat-model"]
+
+    async def test_validate_true_on_200(self, monkeypatch):
+        from core.providers.together_provider import TogetherProvider
+
+        self._patch_get(monkeypatch, 200, [{"id": "a/chat-model", "type": "chat"}])
+        provider = TogetherProvider(api_key="k")
+        assert await provider.validate() is True
+        assert provider.last_error is None
+
+    async def test_validate_false_with_real_error_on_401(self, monkeypatch):
+        from core.providers.together_provider import TogetherProvider
+
+        self._patch_get(monkeypatch, 401, {"error": {"message": "Unauthorized"}})
+        provider = TogetherProvider(api_key="bad")
+        assert await provider.validate() is False
+        assert "401" in provider.last_error
 
 
 class TestInferenceEdges:
