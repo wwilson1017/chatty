@@ -331,7 +331,10 @@ async def connect_together(body: TogetherConnectRequest, user=Depends(get_curren
     from core.providers.together_provider import TogetherProvider
     provider = TogetherProvider(api_key=body.api_key, model=body.model)
     if not await provider.validate():
-        raise HTTPException(status_code=400, detail="Invalid Together AI API key")
+        detail = "Invalid Together AI API key"
+        if provider.last_error:
+            detail = f"Together AI rejected the key: {provider.last_error}"
+        raise HTTPException(status_code=400, detail=detail)
 
     store = CredentialStore()
     store.set_api_key("together", body.api_key, model=body.model)

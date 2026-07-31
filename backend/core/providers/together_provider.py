@@ -58,6 +58,9 @@ class TogetherProvider(AIProvider):
     def __init__(self, api_key: str, model: str = TOGETHER_DEFAULT_MODEL):
         super().__init__(model=model)
         self.api_key = api_key
+        # Set by validate() on failure so callers (router.py) can surface the
+        # real cause instead of a blanket "invalid key" message.
+        self.last_error: str | None = None
 
     @property
     def provider_name(self) -> str:
@@ -121,6 +124,7 @@ class TogetherProvider(AIProvider):
         the probe would 400 and make a genuinely valid key read as invalid
         (same failure mode fixed for OpenAI in openai_provider.py).
         """
+        self.last_error = None
         try:
             client = openai.AsyncOpenAI(
                 api_key=self.api_key,
@@ -128,5 +132,7 @@ class TogetherProvider(AIProvider):
             )
             await client.models.list()
             return True
-        except Exception:
+        except Exception as e:
+            self.last_error = str(e)
+            logger.warning("Together AI key validation failed: %s", e)
             return False
