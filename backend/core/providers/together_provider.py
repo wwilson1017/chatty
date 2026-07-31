@@ -9,6 +9,7 @@ $25 free credits at signup, no credit card required.
 import logging
 from typing import AsyncGenerator
 
+import httpx
 import openai
 
 from core.providers.base import AIProvider
@@ -43,14 +44,11 @@ _TOGETHER_NON_CHAT = (
 )
 
 
-def _is_together_chat(model) -> bool:
-    mtype = getattr(model, "type", None)
-    if mtype is None:
-        extra = getattr(model, "model_extra", None) or {}
-        mtype = extra.get("type")
+def _is_together_chat(model: dict) -> bool:
+    mtype = model.get("type")
     if mtype:
         return mtype in ("chat", "language")
-    low = model.id.lower()
+    low = model.get("id", "").lower()
     return not any(token in low for token in _TOGETHER_NON_CHAT)
 
 
@@ -104,10 +102,27 @@ class TogetherProvider(AIProvider):
     ) -> list[dict]:
         return build_openai_tool_results(messages, tool_calls, results)
 
+    async def _list_models_raw(self) -> list[dict]:
+        """GET /models directly with httpx.
+
+        Together's /v1/models is NOT OpenAI-compatible: it returns a bare JSON
+        array instead of {"object": "list", "data": [...]}, so the openai
+        SDK's client.models.list() crashes while parsing the response
+        (AttributeError deep in its pagination model). Chat completions ARE
+        compatible, so the SDK is still used everywhere else.
+        """
+        async with httpx.AsyncClient(timeout=30) as client:
+            resp = await client.get(
+                f"{TOGETHER_BASE_URL}/models",
+                headers={"Authorization": f"Bearer {self.api_key}"},
+            )
+        resp.raise_for_status()
+        data = resp.json()
+        return data if isinstance(data, list) else data.get("data", [])
+
     async def _fetch_models(self) -> list[str]:
-        client = openai.AsyncOpenAI(api_key=self.api_key, base_url=TOGETHER_BASE_URL)
-        resp = await client.models.list()
-        return sorted(m.id for m in resp.data if _is_together_chat(m))
+        models = await self._list_models_raw()
+        return sorted(m["id"] for m in models if _is_together_chat(m))
 
     async def list_models(self) -> list[str]:
         from core.providers.model_listing import cache_key, cached_models, materialize_inference
@@ -122,16 +137,18 @@ class TogetherProvider(AIProvider):
         Deliberately does NOT probe with a chat completion against a specific
         model: Together's catalog turns over, and a stale/renamed model id in
         the probe would 400 and make a genuinely valid key read as invalid
-        (same failure mode fixed for OpenAI in openai_provider.py).
+        (same failure mode fixed for OpenAI in openai_provider.py). Goes
+        through _list_models_raw() because the openai SDK cannot parse
+        Together's non-standard /models response shape.
         """
         self.last_error = None
         try:
-            client = openai.AsyncOpenAI(
-                api_key=self.api_key,
-                base_url=TOGETHER_BASE_URL,
-            )
-            await client.models.list()
+            await self._list_models_raw()
             return True
+        except httpx.HTTPStatusError as e:
+            self.last_error = f"HTTP {e.response.status_code}: {e.response.text[:200]}"
+            logger.warning("Together AI key validation failed: %s", self.last_error)
+            return False
         except Exception as e:
             self.last_error = str(e)
             logger.warning("Together AI key validation failed: %s", e)
