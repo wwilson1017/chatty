@@ -33,10 +33,10 @@ def bootstrap():
     from agents.db import init_db as init_agents_db
     _safe_init("agents", init_agents_db, critical=True)
 
-    from integrations.crm_lite.db import init_db as init_crm_db
-    _safe_init("crm_lite", init_crm_db)
-    from integrations.registry import ensure_crm_active
-    _safe_init("crm_active", ensure_crm_active)
+    from integrations.registry import is_enabled as integration_enabled
+    if integration_enabled("crm_lite"):
+        from integrations.crm_lite.db import init_db as init_crm_db
+        _safe_init("crm_lite", init_crm_db)
 
     from core.agents.reminders.db import init_db as init_reminders_db
     _safe_init("reminders", init_reminders_db)

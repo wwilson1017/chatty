@@ -91,3 +91,42 @@ class TestListIntegrations:
         result = list_integrations()
         ids = {entry["id"] for entry in result}
         assert ids == set(AVAILABLE_INTEGRATIONS.keys())
+
+
+class TestCrmDemotion:
+    """CRM Lite is a normal opt-in integration: default OFF, no always_on lock."""
+
+    def test_fresh_install_crm_disabled(self, registry_dir):
+        from integrations.registry import is_enabled
+
+        assert is_enabled("crm_lite") is False
+
+    def test_crm_entry_has_no_always_on(self):
+        from integrations.registry import AVAILABLE_INTEGRATIONS
+
+        assert "always_on" not in AVAILABLE_INTEGRATIONS["crm_lite"]
+
+    def test_no_credential_integrations_report_configured(self, registry_dir):
+        # auth_type "none" integrations have nothing to set up, and the enable
+        # endpoint requires configured — so they must always report configured.
+        from integrations.registry import list_integrations
+
+        entries = {e["id"]: e for e in list_integrations()}
+        assert entries["crm_lite"]["configured"] is True
+        assert entries["crm_lite"]["enabled"] is False
+        assert entries["qb_csv"]["configured"] is True
+
+    def test_preexisting_enabled_state_honored(self, registry_dir):
+        from integrations.registry import is_enabled, list_integrations, save_credentials
+
+        save_credentials("crm_lite", {"enabled": True})
+        assert is_enabled("crm_lite") is True
+        entries = {e["id"]: e for e in list_integrations()}
+        assert entries["crm_lite"]["enabled"] is True
+
+    def test_crm_can_be_disabled(self, registry_dir):
+        from integrations.registry import disable, is_enabled, save_credentials
+
+        save_credentials("crm_lite", {"enabled": True})
+        disable("crm_lite")
+        assert is_enabled("crm_lite") is False

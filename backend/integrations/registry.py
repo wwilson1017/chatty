@@ -57,10 +57,9 @@ AVAILABLE_INTEGRATIONS = {
     },
     "crm_lite": {
         "name": "CRM",
-        "description": "Built-in CRM — always available.",
+        "description": "Built-in CRM — contacts, deals, and follow-up tasks (optional)",
         "icon": "📋",
         "auth_type": "none",
-        "always_on": True,
     },
     "telegram": {
         "name": "Telegram",
@@ -148,13 +147,6 @@ def disable(name: str) -> None:
     creds = get_credentials(name)
     creds["enabled"] = False
     save_credentials(name, creds)
-
-
-def ensure_crm_active() -> None:
-    """Ensure CRM Lite is always configured and enabled on startup."""
-    creds = get_credentials("crm_lite")
-    if not creds or not creds.get("enabled"):
-        save_credentials("crm_lite", {**creds, "enabled": True})
 
 
 def get_tool_mode(name: str) -> str:
@@ -336,7 +328,6 @@ def list_integrations() -> list[dict]:
     result = []
     for key, meta in AVAILABLE_INTEGRATIONS.items():
         creds = get_credentials(key)
-        always_on = meta.get("always_on", False)
 
         if key == "google":
             accounts = creds.get("accounts", {})
@@ -349,14 +340,16 @@ def list_integrations() -> list[dict]:
             is_configured = bool(creds.get("access_token") or creds.get("refresh_token"))
             is_enabled_val = bool(creds.get("enabled", False))
         else:
-            is_configured = bool(creds)
+            # No-credential integrations (crm_lite, qb_csv) are always "configured" —
+            # the enable endpoint requires configured, and they have nothing to set up.
+            is_configured = True if meta.get("auth_type") == "none" else bool(creds)
             is_enabled_val = bool(creds.get("enabled", False))
 
         entry = {
             "id": key,
             **meta,
-            "enabled": True if always_on else is_enabled_val,
-            "configured": True if always_on else is_configured,
+            "enabled": is_enabled_val,
+            "configured": is_configured,
             "hidden": False,
             "connection_status": creds.get("connection_status", "ok") if creds else "ok",
             "tool_mode": creds.get("tool_mode", "normal"),

@@ -220,12 +220,12 @@ _Reference for helping your human connect integrations. Use the setup tools belo
 3. Call `setup_bamboohr` with both values.
 4. Confirm it connected successfully.
 
-## CRM (Built-in) Setup
+## CRM (Built-in, Optional) Setup
 
-**What it does:** Enables the built-in lightweight CRM for contacts, deals, tasks, and pipeline tracking.
+**What it does:** Enables the built-in lightweight CRM for contacts, deals, and pipeline tracking. Disabled by default.
 **No credentials needed.**
 
-1. Ask if they want to enable the built-in CRM.
+1. If the user runs a business and wants contact/deal tracking, offer the built-in CRM.
 2. Call `enable_crm` to activate it.
 3. Let them know it's ready.
 

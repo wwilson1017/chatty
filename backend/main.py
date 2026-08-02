@@ -100,13 +100,13 @@ async def lifespan(app: FastAPI):
     from core.agents.playbooks.migration import migrate_all_agents
     _safe_init("playbooks_migration", migrate_all_agents)
 
-    from integrations.crm_lite.db import init_db as init_crm_db
-    _safe_init("crm_lite", init_crm_db)
-
-    from integrations.registry import is_enabled as integration_enabled, ensure_crm_active, migrate_google_json, migrate_agent_google_accounts_to_arrays
-    ensure_crm_active()
+    from integrations.registry import is_enabled as integration_enabled, migrate_google_json, migrate_agent_google_accounts_to_arrays
     migrate_google_json()
     migrate_agent_google_accounts_to_arrays()
+
+    if integration_enabled("crm_lite"):
+        from integrations.crm_lite.db import init_db as init_crm_db
+        _safe_init("crm_lite", init_crm_db)
 
     if integration_enabled("qb_csv"):
         from integrations.qb_csv.db import init_db as init_qb_csv_db
