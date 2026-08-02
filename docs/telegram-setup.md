@@ -52,7 +52,7 @@ Once connected, your agent has access to all its normal capabilities through Tel
 
 ### Proactive Notifications via Heartbeat
 
-Telegram is one of several notification channels for the **Heartbeat** feature. Your agent runs scheduled background tasks — scanning emails, checking calendars, monitoring CRM tasks — and decides when to notify you. If the agent finds something worth alerting you about, it sends notifications to all your enabled channels: browser push, Telegram, and WhatsApp.
+Telegram is one of several notification channels for the **Heartbeat** feature. Your agent runs scheduled background tasks — scanning emails, checking calendars, reviewing your todo list — and decides when to notify you. If the agent finds something worth alerting you about, it sends notifications to all your enabled channels: browser push, Telegram, and WhatsApp.
 
 To enable Telegram notifications, go to **Settings** > **Notifications** and make sure Telegram is toggled on. The agent decides when to notify — no per-task configuration needed.
 
