@@ -20,6 +20,48 @@ class TestDefaultToolSet:
         assert "web_search" in names
         assert "create_reminder" in names
 
+
+class TestTodoTools:
+    EXPECTED = {
+        "todo_create", "todo_list", "todo_get", "todo_update", "todo_bulk_update",
+        "todo_delete", "todo_list_projects", "todo_create_project",
+        "todo_update_project", "todo_delete_project", "todo_update_gtd_coaching",
+    }
+    READS = {"todo_list", "todo_get", "todo_list_projects"}
+
+    def test_always_present(self):
+        assert self.EXPECTED <= _tool_names(get_tool_definitions())
+
+    def test_background_mode_gets_all_but_coaching_update(self):
+        # Background turns process inbox text reachable from the public
+        # /capture endpoint with no human confirmation — the tool that
+        # rewrites every agent's standing instructions is interactive-only.
+        names = _tool_names(get_tool_definitions(background_mode=True))
+        assert (self.EXPECTED - {"todo_update_gtd_coaching"}) <= names
+        assert "todo_update_gtd_coaching" not in names
+
+    def test_messaging_strip_removes_interactive_only_tools(self):
+        # run_sync (Telegram DM/group, Paperclip) and WhatsApp apply this
+        # filter — messaging channels auto-execute writes with no approval UI.
+        from core.agents.tool_definitions import strip_interactive_only_tools
+
+        stripped = _tool_names(strip_interactive_only_tools(get_tool_definitions()))
+        assert "todo_update_gtd_coaching" not in stripped
+        assert (self.EXPECTED - {"todo_update_gtd_coaching"}) <= stripped
+
+    def test_absent_in_import_mode(self):
+        names = _tool_names(get_tool_definitions(import_mode=True))
+        assert not any(n.startswith("todo_") for n in names)
+
+    def test_kind_writes_and_no_context_memory(self):
+        todo_tools = [t for t in get_tool_definitions() if t["name"].startswith("todo_")]
+        assert {t["name"] for t in todo_tools} >= self.EXPECTED
+        for t in todo_tools:
+            assert t["kind"] == "todo"
+            assert t["writes"] is (t["name"] not in self.READS)
+            # Not budget-exempt: todo writes count against write budgets.
+            assert not t.get("context_memory", False)
+
     def test_excludes_google_when_disabled(self):
         names = _tool_names(get_tool_definitions())
         assert "search_emails" not in names

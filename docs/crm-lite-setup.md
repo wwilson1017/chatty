@@ -1,22 +1,21 @@
 # CRM Lite Setup
 
-CRM Lite is Chatty's built-in contact and deal management system. No external accounts or API keys needed — it runs entirely inside your Chatty instance.
+CRM Lite is Chatty's optional built-in contact and deal management system. No external accounts or API keys needed — it runs entirely inside your Chatty instance. It ships **disabled by default**; enable it if you want lightweight contact/deal tracking. (For everyday task management, use the built-in [Todos (GTD) system](../README.md) instead — it's always on.)
 
-## Local Setup
+## Enabling It
 
-1. Start Chatty with `python run.py`
+1. Open Chatty (locally via `python run.py`, or your Railway instance)
 2. Go to **Settings** > **Integrations**
-3. Find **CRM Lite** and click **Setup**
-4. Done — the CRM database is created and your agents can start using it
+3. Find **CRM** and toggle it on for an empty CRM — or ask any agent to run `enable_crm`, which also seeds clearable example data so you can see how a populated CRM looks
+4. Done — the CRM database is created, the CRM tab appears in the nav, and your agents get the CRM tools
 
-## Railway Setup
+Your data lives in Chatty's local SQLite storage (on Railway: the persistent volume). No environment variables or external credentials needed.
 
-1. Open your Chatty instance on Railway
-2. Go to **Settings** > **Integrations**
-3. Find **CRM Lite** and click **Setup**
-4. Done — your CRM data is stored on the Railway persistent volume
+## Disabling It
 
-No environment variables or external credentials needed for either setup. You can also access the CRM directly from the **CRM** tab in the Chatty dashboard.
+Toggle CRM off in **Settings** > **Integrations** at any time. Your data stays on disk untouched — re-enabling brings everything back. (Real deletion lives in **Settings** > **Danger** > "Clear CRM data".)
+
+> **Tip:** Want your CRM tasks in the Todos system? Before disabling, ask any agent: *"Move my open CRM tasks into my todo inbox."* The agent reads them with `crm_list_tasks` and recreates them with `todo_create`.
 
 ## Demo Data
 

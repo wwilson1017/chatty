@@ -163,6 +163,8 @@ class ToolRegistry:
                 return self._execute_reminder(tool_name, tool_args)
             elif kind == "scheduled_action":
                 return self._execute_scheduled_action(tool_name, tool_args)
+            elif kind == "todo":
+                return self._execute_todo(tool_name, tool_args)
             elif kind == "integration":
                 return await self._execute_integration(tool_name, tool_args)
             elif kind == "setup":
@@ -565,6 +567,14 @@ class ToolRegistry:
         if handler:
             return handler(**args)
         return {"error": f"Scheduled action tool not available: {tool_name}"}
+
+    def _execute_todo(self, tool_name: str, args: dict) -> dict:
+        # Global store — module-level executors, no per-agent binding needed.
+        from core.todo.tools import TODO_TOOL_EXECUTORS
+        fn = TODO_TOOL_EXECUTORS.get(tool_name)
+        if fn:
+            return fn(**args)
+        return {"error": f"Unknown todo tool: {tool_name}"}
 
     def _execute_setup(self, tool_name: str, args: dict) -> dict:
         """Execute integration setup tools using this agent's context."""

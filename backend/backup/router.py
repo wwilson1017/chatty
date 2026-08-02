@@ -173,6 +173,7 @@ def _do_restore(file: UploadFile, content: bytes) -> dict:
     from core.agents.reminders.db import close_db as close_reminders_db
     from core.agents.shared_context.db import close_db as close_shared_context_db
     from core.agents.tool_config_db import close_db as close_tool_config_db
+    from core.todo.db import close_db as close_todo_db
     from integrations.crm_lite.db import close_db as close_crm_db
     from integrations.qb_csv.db import close_db as close_qb_csv_db
     from integrations.telegram.state import close_db as close_telegram_db
@@ -183,6 +184,7 @@ def _do_restore(file: UploadFile, content: bytes) -> dict:
     close_reminders_db()
     close_shared_context_db()
     close_tool_config_db()
+    close_todo_db()
     close_crm_db()
     close_qb_csv_db()
     close_telegram_db()
@@ -240,6 +242,11 @@ def _do_restore(file: UploadFile, content: bytes) -> dict:
 
     from core.agents.tool_config_db import init_db as init_tool_config_db
     _reinit("tool_configs", init_tool_config_db)
+
+    # Core feature — reinit unconditionally (old backups without data/todo/
+    # simply get a fresh empty db).
+    from core.todo.db import init_db as init_todo_db
+    _reinit("todo", init_todo_db)
 
     from integrations.telegram.state import init_db as init_telegram_db
     _reinit("telegram", init_telegram_db)

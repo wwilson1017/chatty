@@ -5,13 +5,21 @@ import { NavRail } from './NavRail';
 import { ErrorBoundary, RouteErrorFallback } from './ErrorBoundary';
 import { SettingsPanel } from '../dashboard/SettingsPanel';
 import { useIsMobile } from './useIsMobile';
-import { IconBot, IconFunnel, IconChart, IconBook, IconSettings } from './icons';
+import { IconBot, IconFunnel, IconChart, IconBook, IconSettings, IconListCheck } from './icons';
 import type { BrandingConfig } from '../core/types';
 
 export function AppShell() {
   const [branding, setBranding] = useState<BrandingConfig | null>(null);
   const [showSettings, setShowSettings] = useState(false);
   const [activeNavKey, setActiveNavKey] = useState<string | null>(null);
+  // null = unknown (loading). CRM nav stays hidden until confirmed enabled —
+  // the right default now that new installs ship with CRM off. Seeded from
+  // sessionStorage so enabled installs don't get a nav pop-in on every load;
+  // MobileMenuDrawer reads the same key directly.
+  const [crmEnabled, setCrmEnabled] = useState<boolean | null>(() => {
+    const cached = sessionStorage.getItem('chatty_crm_enabled');
+    return cached === null ? null : cached === '1';
+  });
   const isMobile = useIsMobile();
   const location = useLocation();
   const navigate = useNavigate();
@@ -20,6 +28,22 @@ export function AppShell() {
     const handler = () => setShowSettings(true);
     document.addEventListener('chatty:open-settings', handler);
     return () => document.removeEventListener('chatty:open-settings', handler);
+  }, []);
+
+  useEffect(() => {
+    const fetchCrm = () => {
+      api<{ integrations: { id: string; enabled: boolean }[] }>('/api/integrations')
+        .then(data => {
+          const enabled = data.integrations.find(i => i.id === 'crm_lite')?.enabled ?? false;
+          setCrmEnabled(enabled);
+          sessionStorage.setItem('chatty_crm_enabled', enabled ? '1' : '0');
+        })
+        .catch(() => setCrmEnabled(prev => prev ?? false));
+    };
+    fetchCrm();
+    // IntegrationsTab dispatches this after any enable/disable toggle.
+    document.addEventListener('chatty:integrations-changed', fetchCrm);
+    return () => document.removeEventListener('chatty:integrations-changed', fetchCrm);
   }, []);
 
   useEffect(() => {
@@ -36,7 +60,10 @@ export function AppShell() {
 
   const mobileNavItems = [
     { key: 'agents', icon: IconBot, label: 'Agents', path: '/', match: (p: string) => p === '/' || p.startsWith('/agent/') },
-    { key: 'crm', icon: IconFunnel, label: 'CRM', path: '/crm', match: (p: string) => p.startsWith('/crm') },
+    { key: 'todos', icon: IconListCheck, label: 'Todos', path: '/todos', match: (p: string) => p.startsWith('/todos') },
+    ...(crmEnabled === true
+      ? [{ key: 'crm', icon: IconFunnel, label: 'CRM', path: '/crm', match: (p: string) => p.startsWith('/crm') }]
+      : []),
     { key: 'usage', icon: IconChart, label: 'Usage', path: '/usage', match: (p: string) => p.startsWith('/usage') },
     { key: 'knowledge', icon: IconBook, label: 'Knowledge', path: null as string | null, match: () => false },
     { key: 'settings', icon: IconSettings, label: 'Settings', path: null as string | null, match: () => false },
@@ -64,20 +91,23 @@ export function AppShell() {
       flexDirection: isMobile ? 'column' : 'row',
     }}>
       {!isMobile && (
-        <NavRail onSettingsClick={() => setShowSettings(true)} userInitial={userInitial} />
+        <NavRail onSettingsClick={() => setShowSettings(true)} userInitial={userInitial} crmEnabled={crmEnabled === true} />
       )}
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', position: 'relative', overflow: 'hidden' }}>
         {/* Keyed by route group so navigating away resets a crashed route
-            while the nav rail (outside) survives. CRM shares one key: its
-            nested tabs change the pathname, and a full-pathname key would
-            remount the stateful CrmLayout on every tab switch (re-showing
-            the dismissed demo dialog). Recovery from a crash inside CRM
-            still works via the fallback's Back to Dashboard / Reload. */}
+            while the nav rail (outside) survives. CRM and Todos each share
+            one key: their nested tabs change the pathname, and a
+            full-pathname key would remount the stateful layout on every tab
+            switch (re-showing CRM's dismissed demo dialog, refetching Todo
+            badge counts). Recovery from a crash inside either still works
+            via the fallback's Back to Dashboard / Reload. */}
         <ErrorBoundary
-          key={location.pathname.startsWith('/crm') ? '/crm' : location.pathname}
+          key={location.pathname.startsWith('/crm') ? '/crm'
+            : location.pathname.startsWith('/todos') ? '/todos'
+            : location.pathname}
           fallback={(error, reset) => <RouteErrorFallback error={error} reset={reset} />}
         >
-          <Outlet context={{ branding, setBranding }} />
+          <Outlet context={{ branding, setBranding, crmEnabled }} />
         </ErrorBoundary>
       </div>
 

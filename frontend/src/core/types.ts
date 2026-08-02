@@ -222,6 +222,54 @@ export interface CrmDashboard {
   top_deals: CrmDeal[];
 }
 
+// Todo (GTD) types
+
+export type TodoStatus =
+  | 'inbox'
+  | 'next_action'
+  | 'waiting_for'
+  | 'delegated'
+  | 'someday_maybe'
+  | 'done'
+  | 'dropped';
+
+export type TodoProjectStatus = 'active' | 'someday' | 'completed' | 'dropped';
+
+export type TodoSource = 'capture_web' | 'telegram' | 'agent' | 'ui';
+
+export interface Todo {
+  id: number;
+  title: string;
+  notes: string;
+  project_id: number | null;
+  project_name: string | null;
+  context: string;
+  tags: string[];
+  status: TodoStatus;
+  star: boolean;
+  due_date: string | null;
+  source: TodoSource;
+  created_at: string;
+  updated_at: string;
+  completed_at: string | null;
+}
+
+export interface TodoProject {
+  id: number;
+  name: string;
+  notes: string;
+  status: TodoProjectStatus;
+  open_count: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface TodoFilters {
+  contexts: string[];
+  tags: string[];
+  status_counts: Record<TodoStatus, number>;
+}
+
 // Provider status (from GET /api/providers)
 export interface ProviderStatus {
   active_provider: string;

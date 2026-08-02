@@ -2,15 +2,16 @@
 
 ## What This Is
 
-**Chatty** — a free, open-source personal AI agent platform with a browser-based UI, built for small business owners.
+**Chatty** — a free, open-source **personal assistant** (business or personal) with a browser-based UI: simple, easy, web-based. Positioning: personal assistant first, with business connection options — CRM-focused users belong in CakeCRM (separate product), not here.
 - **Free and open source** — no paid tiers, no vendor lock-in, no SaaS fees. Users only pay for their own AI provider API usage
-- **Target audience**: small business owners who want a powerful AI chatbot without enterprise pricing or technical complexity
+- **Target audience**: small business owners and individuals who want a powerful AI assistant without enterprise pricing or technical complexity
 - **Browser-based** — full dashboard UI for creating agents, chatting, managing integrations, and settings. Also includes a CLI test harness for terminal-based agent interaction.
 - Single user (password login + optional TOTP 2FA), multiple agents
 - User creates agents from a dashboard; each has name/personality/knowledge via conversational onboarding (training mode)
 - Optional branding: logo, company name, accent color
 - Multi-provider AI: Anthropic, OpenAI, Google Gemini, Ollama (local), Together AI — all via API key paste (no OAuth for AI providers)
-- Integrations: QuickBooks Online (OAuth), QuickBooks CSV import, Gmail (multiple accounts), Google Calendar, Google Drive, WhatsApp (Baileys bridge), Telegram (multiple bots), CRM Lite, Odoo, BambooHR, Paperclip (agent orchestration)
+- Integrations: QuickBooks Online (OAuth), QuickBooks CSV import, Gmail (multiple accounts), Google Calendar, Google Drive, WhatsApp (Baileys bridge), Telegram (multiple bots), CRM Lite (optional, default OFF), Odoo, BambooHR, Paperclip (agent orchestration), Todoist
+- **Todos (GTD)** — core always-on feature (NOT an integration): global store in `core/todo/`, 11 `todo_*` agent tools, multi-page UI at `/todos`, GTD coaching block injected into every agent's system prompt (admin setting `gtd_coaching_text`), public no-login `/capture` page (optional secret token), deterministic Telegram "capture" intercept
 - Agent features: memory system, dreaming/context archival, shared context across agents, scheduled actions (heartbeat), reminders (one-time and recurring), notifications (web push, Telegram, WhatsApp), knowledge import (OpenClaw, paste, folder, ZIP)
 - File uploads: PDF, DOCX, and text files via drag-and-drop in chat
 - BYO OAuth: users can bring their own Google and QuickBooks OAuth app credentials
@@ -108,8 +109,9 @@ backend/
 │   ├── auth_2fa.py                  # Optional TOTP two-factor authentication
 │   ├── encryption.py                # Fernet encryption for credentials
 │   ├── providers/                   # AI provider abstraction (Anthropic, OpenAI, Gemini, Ollama, Together AI)
+│   ├── todo/                        # Todo (GTD) core feature: db, service, tools, REST router, /capture page, coaching
 │   └── agents/                      # Agent engine (ai_service, tool_registry, context_manager, chat_history, memory, dreaming, shared_context, reminders, scheduled_actions, alerts, notifications)
-├── integrations/                    # Google (Gmail/Calendar/Drive), QuickBooks, QB CSV, Telegram, WhatsApp, CRM, Odoo, BambooHR, Paperclip
+├── integrations/                    # Google (Gmail/Calendar/Drive), QuickBooks, QB CSV, Telegram, WhatsApp, CRM (optional), Odoo, BambooHR, Paperclip
 ├── branding/                        # Logo/name/color
 └── whatsapp-bridge/                 # Node.js Baileys sidecar
 
@@ -120,8 +122,9 @@ frontend/src/
 ├── setup/                           # First-run provider setup
 ├── login/                           # Login page
 ├── core/                            # API client, auth context, types
-├── crm/                             # CRM interface
-└── shared/                          # Shared components and utilities
+├── crm/                             # CRM interface (nav gated on the crm_lite integration being enabled)
+├── todo/                            # Todos (GTD) interface: inbox triage, next actions, projects, review
+└── shared/                          # Shared components and utilities (incl. sectionStyles shared by crm/ + todo/)
 ```
 
 ## Adding Integrations

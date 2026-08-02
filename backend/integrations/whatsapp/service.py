@@ -256,6 +256,15 @@ def _process_message_locked(
             or integration_tool_modes.get(t.get("integration", ""), "power") == "power"
         ]
 
+    # No approval UI here either: the global-instruction rewrite tool stays
+    # interactive-only (same rule as background_mode / run_sync).
+    from core.agents.tool_definitions import strip_interactive_only_tools
+    tool_defs = strip_interactive_only_tools(tool_defs)
+
+    # GTD coaching — standing instructions for the always-on todo tools
+    from core.todo.coaching import gtd_coaching_block
+    system_prompt += gtd_coaching_block(tool_defs)
+
     # 10. Run the agent
     result = run_background_turn(
         system_prompt=system_prompt,

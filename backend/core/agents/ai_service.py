@@ -1188,6 +1188,10 @@ async def chat(
                 "- Amounts are in the company's home currency.\n"
             )
 
+    # GTD coaching — standing instructions for the always-on todo tools
+    from core.todo.coaching import gtd_coaching_block
+    static_prompt += gtd_coaching_block(tool_defs)
+
     # Append deferred tool catalog to static prompt
     if catalog_text:
         static_prompt += "\n\n" + catalog_text
@@ -1743,6 +1747,13 @@ async def run_sync(
             or _itm.get(t.get("integration", ""), "power") == "power"
         ]
 
+    # Same no-approval-UI reasoning as background_mode in get_tool_definitions:
+    # rewriting every agent's standing instructions stays interactive-only —
+    # Telegram/WhatsApp turns (incl. third-party group members) must not
+    # auto-execute it.
+    from core.agents.tool_definitions import strip_interactive_only_tools
+    tool_defs = strip_interactive_only_tools(tool_defs)
+
     kind_map = _build_kind_map(tool_defs)
     writes_map = build_writes_map(tool_defs)
     cm_map = build_context_memory_map(tool_defs)
@@ -1809,6 +1820,10 @@ async def run_sync(
                 "- **Never guess IDs** — always query first to find the correct Customer, Item, or Invoice ID.\n"
                 "- Amounts are in the company's home currency.\n"
             )
+
+    # GTD coaching — same as chat()
+    from core.todo.coaching import gtd_coaching_block
+    static_prompt += gtd_coaching_block(tool_defs)
 
     if catalog_text:
         static_prompt += "\n\n" + catalog_text

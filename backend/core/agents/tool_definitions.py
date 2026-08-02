@@ -19,7 +19,18 @@ TOOL_KIND_LABELS: dict[str, str] = {
     "post_message": "Messaging",
     "chat_history": "Chat History",
     "playbook": "Playbooks",
+    "todo": "Todos (GTD)",
 }
+
+# Tools that must only execute where a human can confirm them (the web chat's
+# approval flow). Background turns exclude these in get_tool_definitions();
+# messaging channels (Telegram/WhatsApp — no approval UI) strip them via
+# strip_interactive_only_tools().
+INTERACTIVE_ONLY_TOOLS: frozenset[str] = frozenset({"todo_update_gtd_coaching"})
+
+
+def strip_interactive_only_tools(tool_defs: list[dict]) -> list[dict]:
+    return [t for t in tool_defs if t["name"] not in INTERACTIVE_ONLY_TOOLS]
 
 
 # ── Context tools ─────────────────────────────────────────────────────────────
@@ -1774,6 +1785,16 @@ def get_tool_definitions(
         tools.extend(REMINDER_TOOLS)
     if scheduled_actions_enabled:
         tools.extend(SCHEDULED_ACTION_TOOLS)
+    # Todo (GTD) is a core always-on feature: every agent gets these tools.
+    # Exception: background turns (heartbeat/scheduled actions) process inbox
+    # text that can arrive via the public /capture endpoint with no human in
+    # the loop — rewriting every agent's standing instructions stays an
+    # interactive-only capability.
+    from core.todo.tools import TODO_TOOL_DEFS
+    if background_mode:
+        tools.extend(t for t in TODO_TOOL_DEFS if t["name"] not in INTERACTIVE_ONLY_TOOLS)
+    else:
+        tools.extend(TODO_TOOL_DEFS)
     if integration_tools:
         tools.extend(integration_tools)
     tools.extend(SETUP_TOOLS)

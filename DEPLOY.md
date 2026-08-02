@@ -235,3 +235,5 @@ Chatty runs as a single service on Railway:
 - **Scheduler**: APScheduler for reminders and scheduled actions (runs in-process)
 
 No external database, Redis, or additional services are required.
+
+**Note for self-hosters (non-Railway):** the container starts gunicorn with `--forwarded-allow-ips '*'`, i.e. it trusts `X-Forwarded-For` from its direct peer. Railway's edge proxy strips client-supplied forwarding headers, so this is safe there. If you expose the container directly to the internet elsewhere, run it behind a reverse proxy that sanitizes `X-Forwarded-For` — otherwise per-IP protections (login, 2FA, and capture rate limiting) can be bypassed with spoofed headers.

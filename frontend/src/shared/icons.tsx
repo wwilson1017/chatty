@@ -62,6 +62,9 @@ export function IconLock(p: IconProps) { return <Ico {...p}><rect x="4" y="11" w
 export function IconMoon(p: IconProps) { return <Ico d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z" {...p} />; }
 export function IconSun(p: IconProps) { return <Ico {...p}><circle cx="12" cy="12" r="4" /><path d="M12 3v2M12 19v2M5 12H3M21 12h-2M6 6l1.5 1.5M16.5 16.5 18 18M6 18l1.5-1.5M16.5 7.5 18 6" /></Ico>; }
 export function IconCircle(p: IconProps) { return <Ico {...p}><circle cx="12" cy="12" r="9" /></Ico>; }
+export function IconStar(p: IconProps) { return <Ico d="m12 2 3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01z" {...p} />; }
+export function IconStarFilled(p: IconProps) { return <Ico {...p}><path d="m12 2 3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01z" fill="currentColor" /></Ico>; }
+export function IconListCheck(p: IconProps) { return <Ico d="M11 6h10M11 12h10M11 18h10M3 6l1.5 1.5L7 5M3 12l1.5 1.5L7 11M3 18l1.5 1.5L7 17" {...p} />; }
 export function IconTarget(p: IconProps) { return <Ico {...p}><circle cx="12" cy="12" r="9" /><circle cx="12" cy="12" r="5" /><circle cx="12" cy="12" r="1" fill="currentColor" /></Ico>; }
 
 export function IconLogo({ size = 24, strokeWidth = 3, className, style }: IconProps) {

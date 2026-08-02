@@ -1,8 +1,8 @@
 # <img src="docs/chatty-logo.svg" alt="" width="28" /> Chatty
 
-A free, open-source personal AI agent platform with a full browser-based UI — not a command-line tool. Create, train, and manage your agents from a dashboard that works on any device with a browser. Learn more at [mechatty.ai](https://mechatty.ai).
+A free, open-source personal assistant for business or personal use — a simple, easy, web-based AI agent platform, not a command-line tool. Create, train, and manage your agents from a dashboard that works on any device with a browser. Learn more at [mechatty.ai](https://mechatty.ai).
 
-Everything happens in the browser: creating agents, chatting, connecting integrations, managing your CRM, reviewing heartbeat schedules. Run it locally or deploy to Railway and access it from your phone, tablet, or desktop — no terminal required after setup.
+Everything happens in the browser: creating agents, chatting, managing your todos, connecting integrations, reviewing heartbeat schedules. Run it locally or deploy to Railway and access it from your phone, tablet, or desktop — no terminal required after setup.
 
 Create custom AI agents with their own personality, knowledge, and tools — powered by your own API keys or local AI model. No SaaS fees, no vendor lock-in. You only pay for the AI usage you consume.
 
@@ -15,12 +15,13 @@ Create custom AI agents with their own personality, knowledge, and tools — pow
 - **Browser-based UI** — Full dashboard for managing agents, integrations, and settings — no command line needed after initial setup
 - **Multi-agent** — Create and manage multiple AI agents, each with its own name, personality, and knowledge base
 - **Multi-provider AI** — Anthropic, OpenAI, Google Gemini, Ollama (local models), and Together AI
-- **Heartbeat** — Agents run scheduled background tasks on their own — scanning emails, checking calendars, monitoring your CRM — and notify you via browser push notifications, Telegram, or WhatsApp
+- **Heartbeat** — Agents run scheduled background tasks on their own — scanning emails, checking calendars, reviewing your todo list — and notify you via browser push notifications, Telegram, or WhatsApp
 - **Reminders** — Set one-time or recurring reminders (daily, weekly, monthly, cron) that trigger your agent to take action or notify you
 - **Training mode** — Conversational onboarding that teaches your agent about you, your business, and how you like to work
 - **Knowledge import** — Import an existing agent from [OpenClaw](https://github.com/claw-project/openclaw) or paste context from any AI tool to bootstrap a new agent in minutes
-- **Built-in CRM** — Manage your pipeline: contacts, companies, tasks and deals all with your AI agent
-- **Integrations** — Gmail (multiple accounts), Google Calendar, Google Drive, QuickBooks Online, Todoist, Telegram (multiple bots), Odoo, BambooHR, Paperclip (WhatsApp is deprecated/frozen — use Telegram)
+- **Todos (GTD)** — A built-in Getting Things Done todo system your agents manage with you: inbox capture, next actions by context, projects, waiting/delegated tracking, and a weekly review view
+- **Quick capture** — A no-login `/capture` page you bookmark on your phone (type or dictate, hit send, it's in your inbox), plus instant Telegram capture: message your bot "capture buy milk" and it's logged with zero AI processing. If your instance is reachable from the public internet, flip on the secret-link option in Settings → Todos
+- **Integrations** — Gmail (multiple accounts), Google Calendar, Google Drive, QuickBooks Online, Todoist, Telegram (multiple bots), Odoo, BambooHR, Paperclip, built-in CRM (optional) (WhatsApp is deprecated/frozen — use Telegram)
 - **Agent orchestration** — Connect to [Paperclip](https://github.com/paperclipai/paperclip) for org charts, task management, and multi-agent coordination
 - **File uploads** — Drag and drop PDFs, DOCX, and text files into chat for your agent to read and analyze
 - **Two-factor auth** — Optional TOTP-based 2FA for your login
@@ -117,7 +118,7 @@ Chatty connects to your existing business tools so your agents can answer questi
 | [Google Drive](docs/google-drive-setup.md) | Google OAuth — see [setup guide](docs/google-oauth-setup.md) | Search, read, and upload files |
 | [QuickBooks Online](docs/quickbooks-setup.md) | Intuit OAuth — see [setup guide](docs/quickbooks-setup.md) | Invoices, estimates, payments, customers, vendors, and financial reports |
 | [QuickBooks CSV](docs/quickbooks-csv-setup.md) | One-click | Analyze exported QuickBooks CSV files — no OAuth required |
-| [CRM Lite](docs/crm-lite-setup.md) | One-click | Manage contacts, deals, tasks, and activities — built in, ships with demo data you can clear when ready |
+| [CRM Lite](docs/crm-lite-setup.md) | One-click (optional, off by default) | Manage contacts, deals, tasks, and activities — enable it in Settings → Integrations if you want a lightweight CRM |
 | [Telegram](docs/telegram-setup.md) | Bot token | Chat with your agent from Telegram. Each agent gets its own bot; one user can talk to multiple agents |
 | [WhatsApp](docs/whatsapp-setup.md) | QR code scan | Chat with your agent from WhatsApp — **deprecated and frozen** (no new development; use Telegram). Existing setups keep working |
 | [Todoist](docs/todoist-setup.md) | API token | Create, manage, complete, and organize tasks and projects |

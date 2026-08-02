@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import { IconBot, IconFunnel, IconChart, IconSettings } from './icons';
+import { IconBot, IconFunnel, IconChart, IconSettings, IconListCheck } from './icons';
 
 interface MobileMenuDrawerProps {
   onClose: () => void;
@@ -8,6 +8,20 @@ interface MobileMenuDrawerProps {
 }
 
 export function MobileMenuDrawer({ onClose, navigate, children }: MobileMenuDrawerProps) {
+  // AppShell keeps this in sync with GET /api/integrations; hidden when
+  // unknown (new installs default to CRM off).
+  const crmEnabled = sessionStorage.getItem('chatty_crm_enabled') === '1';
+
+  const items = [
+    { icon: IconBot, label: 'Agents', action: () => { onClose(); navigate('/'); } },
+    { icon: IconListCheck, label: 'Todos', action: () => { onClose(); navigate('/todos'); } },
+    ...(crmEnabled
+      ? [{ icon: IconFunnel, label: 'CRM', action: () => { onClose(); navigate('/crm'); } }]
+      : []),
+    { icon: IconChart, label: 'Usage', action: () => { onClose(); navigate('/usage'); } },
+    { icon: IconSettings, label: 'Settings', action: () => { onClose(); document.dispatchEvent(new CustomEvent('chatty:open-settings')); } },
+  ];
+
   return (
     <div style={{
       position: 'fixed', inset: 0, zIndex: 50,
@@ -28,12 +42,7 @@ export function MobileMenuDrawer({ onClose, navigate, children }: MobileMenuDraw
         >&times;</div>
       </div>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 2, padding: '12px 16px' }}>
-        {[
-          { icon: IconBot, label: 'Agents', action: () => { onClose(); navigate('/'); } },
-          { icon: IconFunnel, label: 'CRM', action: () => { onClose(); navigate('/crm'); } },
-          { icon: IconChart, label: 'Usage', action: () => { onClose(); navigate('/usage'); } },
-          { icon: IconSettings, label: 'Settings', action: () => { onClose(); document.dispatchEvent(new CustomEvent('chatty:open-settings')); } },
-        ].map(item => (
+        {items.map(item => (
           <div
             key={item.label}
             onClick={item.action}

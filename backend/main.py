@@ -42,6 +42,8 @@ from core.agents.notifications.router import router as notifications_router
 from core.agents.live.router import router as live_router
 from core.agents.reminders.router import router as reminders_router
 from core.agents.shared_context.router import router as shared_context_router
+from core.todo.router import router as todo_router
+from core.todo.capture import router as capture_router
 from core.agents.usage.router import router as usage_router
 from core.events.router import router as events_router
 
@@ -90,7 +92,7 @@ async def lifespan(app: FastAPI):
 
     # Ensure data directories exist
     data_root = Path(__file__).resolve().parent / "data"
-    for subdir in ("agents", "branding", "integrations", "reminders", "telegram", "whatsapp"):
+    for subdir in ("agents", "branding", "integrations", "reminders", "telegram", "whatsapp", "todo"):
         (data_root / subdir).mkdir(parents=True, exist_ok=True)
 
     # ── Database initialization (per-DB error isolation) ───────────────────
@@ -100,13 +102,13 @@ async def lifespan(app: FastAPI):
     from core.agents.playbooks.migration import migrate_all_agents
     _safe_init("playbooks_migration", migrate_all_agents)
 
-    from integrations.crm_lite.db import init_db as init_crm_db
-    _safe_init("crm_lite", init_crm_db)
-
-    from integrations.registry import is_enabled as integration_enabled, ensure_crm_active, migrate_google_json, migrate_agent_google_accounts_to_arrays
-    ensure_crm_active()
+    from integrations.registry import is_enabled as integration_enabled, migrate_google_json, migrate_agent_google_accounts_to_arrays
     migrate_google_json()
     migrate_agent_google_accounts_to_arrays()
+
+    if integration_enabled("crm_lite"):
+        from integrations.crm_lite.db import init_db as init_crm_db
+        _safe_init("crm_lite", init_crm_db)
 
     if integration_enabled("qb_csv"):
         from integrations.qb_csv.db import init_db as init_qb_csv_db
@@ -128,6 +130,9 @@ async def lifespan(app: FastAPI):
 
     from core.agents.reminders.db import init_db as init_reminders_db
     _safe_init("reminders", init_reminders_db)
+
+    from core.todo.db import init_db as init_todo_db
+    _safe_init("todo", init_todo_db)
 
     from core.agents.shared_context.db import init_db as init_shared_context_db
     _safe_init("shared_context", init_shared_context_db)
@@ -307,6 +312,11 @@ app.include_router(alerts_router, prefix="/api/alerts", tags=["alerts"])
 app.include_router(live_router, tags=["live"])
 app.include_router(notifications_router)
 app.include_router(reminders_router, prefix="/api/reminders", tags=["reminders"])
+app.include_router(todo_router, prefix="/api/todo", tags=["todo"])
+# Public quick-capture page + POST (absolute paths /capture, /api/capture).
+# Must be included BEFORE the StaticFiles mount at the bottom of this file, or
+# the catch-all static app would 404 GET /capture in production.
+app.include_router(capture_router, tags=["capture"])
 app.include_router(setup_router, prefix="/api/setup", tags=["setup"])
 app.include_router(backup_router, prefix="/api/backup", tags=["backup"])
 app.include_router(telegram_router, prefix="/api/telegram", tags=["telegram"])

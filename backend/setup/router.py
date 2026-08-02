@@ -14,6 +14,8 @@ from core.auth import get_current_user
 from core.admin_settings import (
     load_admin_settings,
     invalidate_cache,
+    clamp_todo_settings,
+    settings_write_lock,
     ADMIN_DEFAULTS,
     ADMIN_SETTINGS_FILE,
     VALID_TRIAGE_MODES,
@@ -92,35 +94,43 @@ async def complete_setup(user=Depends(get_current_user)):
 
 @router.get("/admin-settings")
 async def get_admin_settings(user=Depends(get_current_user)):
-    return load_admin_settings()
+    from core.todo.coaching import DEFAULT_GTD_COACHING
+
+    # gtd_coaching_default is read-only metadata for the Settings "Reset to
+    # default" button — the PUT handler's ADMIN_DEFAULTS key loop ignores it.
+    return {**load_admin_settings(), "gtd_coaching_default": DEFAULT_GTD_COACHING}
 
 
 @router.put("/admin-settings")
 async def update_admin_settings(body: dict, user=Depends(get_current_user)):
-    settings = load_admin_settings()
-    for key in ADMIN_DEFAULTS:
-        if key in body:
-            settings[key] = body[key]
-    for _bool_key in ("always_power_mode", "write_budget_heartbeat_enabled",
-                      "write_budget_interactive_enabled", "hourly_write_rate_limit_enabled",
-                      "bot_reply_limit_enabled", "commitments_enabled"):
-        if _bool_key in settings:
-            settings[_bool_key] = bool(settings[_bool_key])
-    if not isinstance(settings.get("triage_mode"), str) or settings["triage_mode"] not in VALID_TRIAGE_MODES:
-        settings["triage_mode"] = ADMIN_DEFAULTS["triage_mode"]
-    if not isinstance(settings.get("default_model_tier"), str) or settings["default_model_tier"] not in VALID_MODEL_TIERS:
-        settings["default_model_tier"] = ADMIN_DEFAULTS["default_model_tier"]
-    if settings.get("injection_scanning") not in VALID_INJECTION_MODES:
-        settings["injection_scanning"] = ADMIN_DEFAULTS["injection_scanning"]
-    for _int_key in ("write_budget_heartbeat", "write_budget_interactive",
-                     "hourly_write_rate_limit", "event_log_retention_days",
-                     "bot_reply_limit", "commitments_daily_cap"):
-        if not isinstance(settings.get(_int_key), int) or settings[_int_key] < 1:
-            settings[_int_key] = ADMIN_DEFAULTS[_int_key]
-    # Cap bot_reply_limit so the loop-prevention guard can't be effectively disabled.
-    settings["bot_reply_limit"] = min(settings["bot_reply_limit"], 100)
-    # Cap the follow-up budget so a bad settings payload can't oversize prompts.
-    settings["commitments_daily_cap"] = min(settings["commitments_daily_cap"], 20)
-    atomic_write_json(ADMIN_SETTINGS_FILE, settings)
-    invalidate_cache()
+    # Lock the whole read-modify-write: a concurrent agent-tool write
+    # (set_admin_setting) racing this PUT would otherwise be silently lost.
+    with settings_write_lock:
+        settings = load_admin_settings()
+        for key in ADMIN_DEFAULTS:
+            if key in body:
+                settings[key] = body[key]
+        for _bool_key in ("always_power_mode", "write_budget_heartbeat_enabled",
+                          "write_budget_interactive_enabled", "hourly_write_rate_limit_enabled",
+                          "bot_reply_limit_enabled", "commitments_enabled"):
+            if _bool_key in settings:
+                settings[_bool_key] = bool(settings[_bool_key])
+        if not isinstance(settings.get("triage_mode"), str) or settings["triage_mode"] not in VALID_TRIAGE_MODES:
+            settings["triage_mode"] = ADMIN_DEFAULTS["triage_mode"]
+        if not isinstance(settings.get("default_model_tier"), str) or settings["default_model_tier"] not in VALID_MODEL_TIERS:
+            settings["default_model_tier"] = ADMIN_DEFAULTS["default_model_tier"]
+        if settings.get("injection_scanning") not in VALID_INJECTION_MODES:
+            settings["injection_scanning"] = ADMIN_DEFAULTS["injection_scanning"]
+        for _int_key in ("write_budget_heartbeat", "write_budget_interactive",
+                         "hourly_write_rate_limit", "event_log_retention_days",
+                         "bot_reply_limit", "commitments_daily_cap"):
+            if not isinstance(settings.get(_int_key), int) or settings[_int_key] < 1:
+                settings[_int_key] = ADMIN_DEFAULTS[_int_key]
+        # Cap bot_reply_limit so the loop-prevention guard can't be effectively disabled.
+        settings["bot_reply_limit"] = min(settings["bot_reply_limit"], 100)
+        # Cap the follow-up budget so a bad settings payload can't oversize prompts.
+        settings["commitments_daily_cap"] = min(settings["commitments_daily_cap"], 20)
+        clamp_todo_settings(settings)
+        atomic_write_json(ADMIN_SETTINGS_FILE, settings)
+        invalidate_cache()
     return settings

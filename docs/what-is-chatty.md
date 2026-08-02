@@ -26,7 +26,7 @@ Think of Chatty like hiring a team of virtual assistants:
 - **Read and send emails** through your Gmail
 - **Check and create calendar events**
 - **Look up customers, invoices, and bills** in QuickBooks
-- **Manage a simple CRM** — track contacts, deals, tasks, and follow-ups
+- **Manage your todo list** — a built-in GTD system with quick capture from your phone, plus an optional simple CRM for contacts and deals
 - **Chat with customers** on Telegram or WhatsApp on your behalf
 - **Remember things** — they build memory over time and get better at helping you
 - **Think overnight** — they review their conversations while you sleep and prepare for tomorrow

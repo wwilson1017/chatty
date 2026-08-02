@@ -1,21 +1,25 @@
 import { useLocation, useNavigate } from 'react-router-dom';
-import { IconLogo, IconBot, IconFunnel, IconChart, IconBook, IconSettings } from './icons';
+import { IconLogo, IconBot, IconFunnel, IconChart, IconBook, IconSettings, IconListCheck } from './icons';
 
 interface NavRailProps {
   onSettingsClick: () => void;
   userInitial?: string;
+  crmEnabled?: boolean;
 }
 
-const navItems = [
-  { key: 'agents', icon: IconBot, path: '/', match: (p: string) => p === '/' || p.startsWith('/agent/') },
-  { key: 'crm', icon: IconFunnel, path: '/crm', match: (p: string) => p.startsWith('/crm') },
-  { key: 'usage', icon: IconChart, path: '/usage', match: (p: string) => p.startsWith('/usage') },
-  { key: 'knowledge', icon: IconBook, path: null as string | null, match: () => false },
-];
-
-export function NavRail({ onSettingsClick, userInitial = 'U' }: NavRailProps) {
+export function NavRail({ onSettingsClick, userInitial = 'U', crmEnabled = false }: NavRailProps) {
   const location = useLocation();
   const navigate = useNavigate();
+
+  const navItems = [
+    { key: 'agents', icon: IconBot, path: '/', match: (p: string) => p === '/' || p.startsWith('/agent/') },
+    { key: 'todos', icon: IconListCheck, path: '/todos', match: (p: string) => p.startsWith('/todos') },
+    ...(crmEnabled
+      ? [{ key: 'crm', icon: IconFunnel, path: '/crm', match: (p: string) => p.startsWith('/crm') }]
+      : []),
+    { key: 'usage', icon: IconChart, path: '/usage', match: (p: string) => p.startsWith('/usage') },
+    { key: 'knowledge', icon: IconBook, path: null as string | null, match: () => false },
+  ];
 
   function handleKnowledgeClick() {
     const lastAgent = localStorage.getItem('chatty_last_agent');

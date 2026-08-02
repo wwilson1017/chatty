@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { NavLink, Outlet, useNavigate } from 'react-router-dom';
+import { Navigate, NavLink, Outlet, useNavigate, useOutletContext } from 'react-router-dom';
 import { api } from '../core/api/client';
 import { useIsMobile } from '../shared/useIsMobile';
 import { MobileMenuDrawer } from '../shared/MobileMenuDrawer';
@@ -136,6 +136,7 @@ function DemoBanner({ onClear, isMobile }: {
 export function CrmLayout() {
   const isMobile = useIsMobile();
   const navigate = useNavigate();
+  const { crmEnabled } = useOutletContext<{ crmEnabled: boolean | null }>();
   const [showMenu, setShowMenu] = useState(false);
   const [demoMode, setDemoMode] = useState<boolean | null>(null);
   const [dialogDismissed, setDialogDismissed] = useState(false);
@@ -155,6 +156,13 @@ export function CrmLayout() {
       throw err;
     }
   }, []);
+
+  // CRM is an opt-in integration now — hard navigation to /crm while it's
+  // disabled lands back on the dashboard. (null = still loading: render
+  // normally to avoid a redirect flash for enabled installs.)
+  if (crmEnabled === false) {
+    return <Navigate to="/" replace />;
+  }
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>

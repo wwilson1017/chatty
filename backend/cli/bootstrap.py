@@ -27,19 +27,22 @@ def bootstrap():
     EncryptionKeyManager.get_key()
 
     data_root = _BACKEND_DIR / "data"
-    for subdir in ("agents", "shared", "reminders", "integrations"):
+    for subdir in ("agents", "shared", "reminders", "integrations", "todo"):
         (data_root / subdir).mkdir(parents=True, exist_ok=True)
 
     from agents.db import init_db as init_agents_db
     _safe_init("agents", init_agents_db, critical=True)
 
-    from integrations.crm_lite.db import init_db as init_crm_db
-    _safe_init("crm_lite", init_crm_db)
-    from integrations.registry import ensure_crm_active
-    _safe_init("crm_active", ensure_crm_active)
+    from integrations.registry import is_enabled as integration_enabled
+    if integration_enabled("crm_lite"):
+        from integrations.crm_lite.db import init_db as init_crm_db
+        _safe_init("crm_lite", init_crm_db)
 
     from core.agents.reminders.db import init_db as init_reminders_db
     _safe_init("reminders", init_reminders_db)
+
+    from core.todo.db import init_db as init_todo_db
+    _safe_init("todo", init_todo_db)
 
     from core.agents.shared_context.db import init_db as init_shared_context_db
     _safe_init("shared_context", init_shared_context_db)

@@ -29,6 +29,21 @@ class TestShouldWrap:
         assert should_wrap("crm_list_contacts", "integration") is False
         assert should_wrap("crm_add_deal", "integration") is False
 
+    def test_todo_content_tools_wrapped(self):
+        # Todo content can arrive via the public /capture endpoint or Telegram,
+        # i.e. potentially attacker-authored — content-bearing results are
+        # wrapped so agents treat the text as data, not instructions.
+        assert should_wrap("todo_list", "todo") is True
+        assert should_wrap("todo_get", "todo") is True
+        assert should_wrap("todo_update", "todo") is True
+
+    def test_todo_structural_tools_not_wrapped(self):
+        # Agent-authored echoes and structural results stay unwrapped.
+        assert should_wrap("todo_create", "todo") is False
+        assert should_wrap("todo_bulk_update", "todo") is False
+        assert should_wrap("todo_list_projects", "todo") is False
+        assert should_wrap("todo_delete", "todo") is False
+
     def test_unknown_kind_not_wrapped(self):
         assert should_wrap("mystery_tool", "unknown_kind") is False
 
