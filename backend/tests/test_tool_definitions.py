@@ -32,8 +32,13 @@ class TestTodoTools:
     def test_always_present(self):
         assert self.EXPECTED <= _tool_names(get_tool_definitions())
 
-    def test_present_in_background_mode(self):
-        assert self.EXPECTED <= _tool_names(get_tool_definitions(background_mode=True))
+    def test_background_mode_gets_all_but_coaching_update(self):
+        # Background turns process inbox text reachable from the public
+        # /capture endpoint with no human confirmation — the tool that
+        # rewrites every agent's standing instructions is interactive-only.
+        names = _tool_names(get_tool_definitions(background_mode=True))
+        assert (self.EXPECTED - {"todo_update_gtd_coaching"}) <= names
+        assert "todo_update_gtd_coaching" not in names
 
     def test_absent_in_import_mode(self):
         names = _tool_names(get_tool_definitions(import_mode=True))

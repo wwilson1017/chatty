@@ -52,7 +52,7 @@ TODO_TOOL_DEFS: list[dict] = [
         ),
         "input_schema": {
             "type": "object",
-            "properties": {"title": _UPDATE_FIELD_PROPS["title"], **{k: v for k, v in _UPDATE_FIELD_PROPS.items() if k != "title"}},
+            "properties": dict(_UPDATE_FIELD_PROPS),
             "required": ["title"],
         },
         "kind": "todo",

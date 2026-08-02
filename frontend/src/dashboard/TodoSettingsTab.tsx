@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { api } from '../core/api/client';
 import { toast } from '../shared/toast';
 import { confirmDialog } from '../shared/confirm';
-import { inputStyle, FONT_MONO } from '../shared/styles';
+import { inputStyle, FONT_MONO, INK, INK_DIM, INK_MUTE, ACCENT, ACCENT_INK, LINE_STRONG } from '../shared/styles';
 
 interface AdminSettings {
   todo_capture_token: string;
@@ -19,20 +19,20 @@ function randomToken(): string {
   return Array.from(bytes, b => b.toString(16).padStart(2, '0')).join('');
 }
 
-const label: React.CSSProperties = { fontSize: 14, color: '#EDF0F4', margin: 0 };
-const hint: React.CSSProperties = { fontSize: 12, color: 'rgba(237,240,244,0.38)', marginTop: 2, lineHeight: 1.5 };
+const label: React.CSSProperties = { fontSize: 14, color: INK, margin: 0 };
+const hint: React.CSSProperties = { fontSize: 12, color: INK_DIM, marginTop: 2, lineHeight: 1.5 };
 const sectionTitle: React.CSSProperties = {
   fontSize: 11, fontFamily: FONT_MONO, letterSpacing: '0.12em',
-  color: 'rgba(237,240,244,0.38)', textTransform: 'uppercase',
+  color: INK_DIM, textTransform: 'uppercase',
   margin: '0 0 14px',
 };
 const primaryBtn: React.CSSProperties = {
-  padding: '8px 16px', background: 'var(--color-ch-accent, #C8D1D9)', color: '#0E1013',
+  padding: '8px 16px', background: ACCENT, color: ACCENT_INK,
   border: 'none', borderRadius: 4, fontSize: 13, fontWeight: 500, cursor: 'pointer',
 };
 const ghostBtn: React.CSSProperties = {
-  padding: '8px 16px', background: 'transparent', color: 'rgba(237,240,244,0.62)',
-  border: '1px solid rgba(230,235,242,0.14)', borderRadius: 4, fontSize: 13, cursor: 'pointer',
+  padding: '8px 16px', background: 'transparent', color: INK_MUTE,
+  border: `1px solid ${LINE_STRONG}`, borderRadius: 4, fontSize: 13, cursor: 'pointer',
 };
 
 export function TodoSettingsTab() {

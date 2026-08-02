@@ -34,6 +34,14 @@ def _validate_status(status: str) -> str:
     return status
 
 
+def _validate_project_status(status: str) -> str:
+    if status not in PROJECT_STATUSES:
+        raise ValueError(
+            f"Invalid project status '{status}'. Valid: {', '.join(PROJECT_STATUSES)}"
+        )
+    return status
+
+
 def _validate_due(due_date) -> str | None:
     if due_date in (None, ""):
         return None
@@ -206,13 +214,13 @@ def _apply_update(conn, todo_id: int, fields: dict) -> bool:
     return True
 
 
-def _check_fields(fields: dict) -> None:
+def _check_fields(fields: dict, valid_fields: frozenset = TODO_FIELDS) -> None:
     if not fields:
         raise ValueError("No fields to update")
-    unknown = set(fields) - TODO_FIELDS
+    unknown = set(fields) - valid_fields
     if unknown:
         raise ValueError(
-            f"Unknown fields: {', '.join(sorted(unknown))}. Valid: {', '.join(sorted(TODO_FIELDS))}"
+            f"Unknown fields: {', '.join(sorted(unknown))}. Valid: {', '.join(sorted(valid_fields))}"
         )
 
 
@@ -316,7 +324,8 @@ def list_todos(
     if where:
         sql += " WHERE " + " AND ".join(where)
     sql += " ORDER BY t.created_at ASC, t.id ASC LIMIT ?"
-    params.append(max(1, min(int(limit or 100), 500)))
+    n = 100 if limit is None else int(limit)  # `or` would turn an explicit 0 into 100
+    params.append(max(1, min(n, 500)))
     return [_todo_dict(r) for r in conn.execute(sql, params).fetchall()]
 
 
@@ -339,10 +348,7 @@ def list_projects(status: str | None = None) -> list[dict]:
     sql = _SELECT_PROJECT
     params: list = []
     if status:
-        if status not in PROJECT_STATUSES:
-            raise ValueError(
-                f"Invalid project status '{status}'. Valid: {', '.join(PROJECT_STATUSES)}"
-            )
+        _validate_project_status(status)
         sql += " WHERE p.status = ?"
         params.append(status)
     sql += " ORDER BY p.name COLLATE NOCASE ASC"
@@ -353,8 +359,7 @@ def create_project(name: str, notes: str = "", status: str = "active") -> dict:
     name = (name or "").strip()
     if not name:
         raise ValueError("name is required")
-    if status not in PROJECT_STATUSES:
-        raise ValueError(f"Invalid project status '{status}'. Valid: {', '.join(PROJECT_STATUSES)}")
+    _validate_project_status(status)
     conn = tododb.get_db()
     with tododb.write_lock():
         try:
@@ -372,13 +377,7 @@ def create_project(name: str, notes: str = "", status: str = "active") -> dict:
 
 
 def update_project(project_id: int, fields: dict) -> dict | None:
-    if not fields:
-        raise ValueError("No fields to update")
-    unknown = set(fields) - PROJECT_FIELDS
-    if unknown:
-        raise ValueError(
-            f"Unknown fields: {', '.join(sorted(unknown))}. Valid: {', '.join(sorted(PROJECT_FIELDS))}"
-        )
+    _check_fields(fields, PROJECT_FIELDS)
     conn = tododb.get_db()
     with tododb.write_lock():
         try:
@@ -401,11 +400,7 @@ def update_project(project_id: int, fields: dict) -> dict | None:
                 sets.append("notes = ?")
                 params.append(str(fields["notes"] or ""))
             if "status" in fields:
-                if fields["status"] not in PROJECT_STATUSES:
-                    raise ValueError(
-                        f"Invalid project status '{fields['status']}'. "
-                        f"Valid: {', '.join(PROJECT_STATUSES)}"
-                    )
+                _validate_project_status(fields["status"])
                 sets.append("status = ?")
                 params.append(fields["status"])
             sets.append("updated_at = datetime('now')")

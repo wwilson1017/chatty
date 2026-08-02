@@ -1776,8 +1776,15 @@ def get_tool_definitions(
     if scheduled_actions_enabled:
         tools.extend(SCHEDULED_ACTION_TOOLS)
     # Todo (GTD) is a core always-on feature: every agent gets these tools.
+    # Exception: background turns (heartbeat/scheduled actions) process inbox
+    # text that can arrive via the public /capture endpoint with no human in
+    # the loop — rewriting every agent's standing instructions stays an
+    # interactive-only capability.
     from core.todo.tools import TODO_TOOL_DEFS
-    tools.extend(TODO_TOOL_DEFS)
+    if background_mode:
+        tools.extend(t for t in TODO_TOOL_DEFS if t["name"] != "todo_update_gtd_coaching")
+    else:
+        tools.extend(TODO_TOOL_DEFS)
     if integration_tools:
         tools.extend(integration_tools)
     tools.extend(SETUP_TOOLS)

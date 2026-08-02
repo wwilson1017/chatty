@@ -17,12 +17,20 @@ _UNWRAPPED_INTEGRATION_PREFIXES: tuple[str, ...] = ("crm_",)
 # prompt-injection vector), even though most memory tools are first-party.
 _WRAPPED_MEMORY_TOOLS: frozenset[str] = frozenset({"read_meeting", "list_meetings"})
 
+# Todo tools whose results carry free text that can originate from the
+# public /capture endpoint or Telegram — i.e. potentially attacker-authored,
+# so it must not be framed as trusted. Structural results (ids, counts,
+# project names, agent-authored create echoes) stay unwrapped.
+_WRAPPED_TODO_TOOLS: frozenset[str] = frozenset({"todo_list", "todo_get", "todo_update"})
+
 
 def should_wrap(tool_name: str, kind: str) -> bool:
     if kind in _EXTERNAL_KINDS:
         return True
     if kind == "integration":
         return not any(tool_name.startswith(p) for p in _UNWRAPPED_INTEGRATION_PREFIXES)
+    if kind == "todo":
+        return tool_name in _WRAPPED_TODO_TOOLS
     if tool_name in _WRAPPED_MEMORY_TOOLS:
         return True
     return False

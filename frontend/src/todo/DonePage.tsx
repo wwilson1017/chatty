@@ -5,10 +5,11 @@ import type { Todo } from '../core/types';
 import { useIsMobile } from '../shared/useIsMobile';
 import { LoadError } from '../shared/LoadError';
 import { INK_DIM } from '../shared/styles';
-import { pageHeading, filterBar, filterTab } from './styles';
+import { pageHeading, filterBar, filterTab, listContainer } from './styles';
 import { STATUS_META } from './constants';
 import { TodoRow } from './components/TodoRow';
 import { TodoEditSheet } from './components/TodoEditSheet';
+import { LoadingSpinner } from './components/LoadingSpinner';
 import type { TodoOutletContext } from './TodoLayout';
 
 type Filter = 'done' | 'dropped';
@@ -55,9 +56,7 @@ export function DonePage() {
       </div>
 
       {loading ? (
-        <div style={{ display: 'flex', justifyContent: 'center', padding: '48px 0' }}>
-          <div className="w-6 h-6 border-2 border-ch-accent border-t-transparent rounded-full animate-spin" />
-        </div>
+        <LoadingSpinner />
       ) : loadFailed && todos.length === 0 ? (
         <LoadError label="Couldn't load finished todos" onRetry={load} />
       ) : todos.length === 0 ? (
@@ -67,10 +66,7 @@ export function DonePage() {
           </p>
         </div>
       ) : (
-        <div style={isMobile
-          ? { display: 'flex', flexDirection: 'column', gap: 8 }
-          : { borderTop: '1px solid rgba(230,235,242,0.07)' }
-        }>
+        <div style={listContainer(isMobile)}>
           {todos.map(todo => (
             <TodoRow key={todo.id} todo={todo} onChanged={reload} onOpen={setEditTodo} />
           ))}

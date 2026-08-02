@@ -66,6 +66,12 @@ _cache_lock = threading.Lock()
 _cached_settings: dict | None = None
 _cached_mtime: float = 0.0
 
+# Serializes whole load→mutate→write cycles. atomic_write_json only makes the
+# file replacement atomic — without this, a background agent tool write and a
+# concurrent settings PUT would each read the same base dict and silently
+# drop the other's change.
+settings_write_lock = threading.Lock()
+
 
 def load_admin_settings() -> dict:
     global _cached_settings, _cached_mtime
@@ -126,9 +132,10 @@ def set_admin_setting(key: str, value) -> dict:
     """
     from core.storage import atomic_write_json
 
-    settings = load_admin_settings()
-    settings[key] = value
-    clamp_todo_settings(settings)
-    atomic_write_json(ADMIN_SETTINGS_FILE, settings)
-    invalidate_cache()
+    with settings_write_lock:
+        settings = load_admin_settings()
+        settings[key] = value
+        clamp_todo_settings(settings)
+        atomic_write_json(ADMIN_SETTINGS_FILE, settings)
+        invalidate_cache()
     return load_admin_settings()

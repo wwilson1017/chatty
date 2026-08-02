@@ -11,13 +11,13 @@ Per-IP rate limiting guards the POST endpoints (login-limiter pattern).
 """
 
 import hmac
+import json
 import logging
 import time
 from collections import defaultdict
 
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import HTMLResponse
-from pydantic import BaseModel
 
 from core.admin_settings import load_admin_settings
 from core.todo import service
@@ -132,16 +132,44 @@ def _page(post_path: str) -> HTMLResponse:
     return HTMLResponse(_CAPTURE_HTML.replace("__POST_PATH__", post_path))
 
 
-class CaptureBody(BaseModel):
-    text: str = ""
+# Bounds request processing before JSON parsing (the 20k-char cap in the
+# service runs only after the body is materialized). 64 KiB fits any legal
+# capture with UTF-8 + JSON-escaping headroom.
+_MAX_BODY_BYTES = 64 * 1024
 
 
-def _do_capture(body: CaptureBody, request: Request) -> dict:
+def _rate_or_429(request: Request) -> None:
     ip = request.client.host if request.client else "unknown"
     if not _check_capture_rate(ip):
         raise HTTPException(status_code=429, detail="Too many captures — try again in a few minutes")
+
+
+async def _read_capture_text(request: Request) -> str:
+    """Parse {"text": ...} manually so the size cap applies before parsing."""
+    length = request.headers.get("content-length")
+    if length is not None:
+        try:
+            declared = int(length)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid Content-Length")
+        if declared > _MAX_BODY_BYTES:
+            raise HTTPException(status_code=413, detail="Capture body too large")
+    body = await request.body()
+    if len(body) > _MAX_BODY_BYTES:
+        raise HTTPException(status_code=413, detail="Capture body too large")
     try:
-        todo = service.capture(body.text, source="capture_web")
+        data = json.loads(body or b"{}")
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid JSON body")
+    text = data.get("text", "") if isinstance(data, dict) else None
+    if not isinstance(text, str):
+        raise HTTPException(status_code=400, detail="text must be a string")
+    return text
+
+
+def _do_capture(text: str) -> dict:
+    try:
+        todo = service.capture(text, source="capture_web")
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     return {"ok": True, "id": todo["id"]}
@@ -157,10 +185,11 @@ async def capture_page():
 
 
 @router.post("/api/capture")
-async def capture_post(body: CaptureBody, request: Request):
+async def capture_post(request: Request):
     if _configured_token():
         raise HTTPException(status_code=404, detail="Not found")
-    return _do_capture(body, request)
+    _rate_or_429(request)
+    return _do_capture(await _read_capture_text(request))
 
 
 # ── Token mode ────────────────────────────────────────────────────────────────
@@ -173,12 +202,17 @@ def _require_token(token: str) -> str:
 
 
 @router.get("/capture/{token}", response_class=HTMLResponse)
-async def capture_page_token(token: str):
+async def capture_page_token(token: str, request: Request):
+    # Rate-check BEFORE the token comparison: failed guesses must burn the
+    # same per-IP budget as captures, or the secret is brute-forceable at
+    # line speed (the 404 itself reveals nothing).
+    _rate_or_429(request)
     configured = _require_token(token)
     return _page(f"/api/capture/{configured}")
 
 
 @router.post("/api/capture/{token}")
-async def capture_post_token(token: str, body: CaptureBody, request: Request):
+async def capture_post_token(token: str, request: Request):
+    _rate_or_429(request)
     _require_token(token)
-    return _do_capture(body, request)
+    return _do_capture(await _read_capture_text(request))

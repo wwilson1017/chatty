@@ -7,11 +7,12 @@ import { LoadError } from '../shared/LoadError';
 import { toast } from '../shared/toast';
 import { IconArrowLeft } from '../shared/icons';
 import { FONT_MONO, GOLD, INK_DIM, INK_SOFT, inputStyle } from '../shared/styles';
-import { pageHeading, sectionHeading, btnSecondary, btnPrimary } from './styles';
+import { pageHeading, sectionHeading, btnSecondary, btnPrimary, listContainer } from './styles';
 import { PROJECT_STATUS_META, STATUS_META } from './constants';
 import { TodoRow } from './components/TodoRow';
 import { TodoEditSheet } from './components/TodoEditSheet';
 import { ProjectForm } from './components/ProjectForm';
+import { LoadingSpinner } from './components/LoadingSpinner';
 import type { TodoOutletContext } from './TodoLayout';
 
 const SECTIONS: { label: string; statuses: TodoStatus[] }[] = [
@@ -80,9 +81,7 @@ export function ProjectDetailPage() {
     return (
       <div style={{ padding: isMobile ? '20px 16px' : '32px 44px' }}>
         {projects.length === 0 ? (
-          <div style={{ display: 'flex', justifyContent: 'center', padding: '48px 0' }}>
-            <div className="w-6 h-6 border-2 border-ch-accent border-t-transparent rounded-full animate-spin" />
-          </div>
+          <LoadingSpinner />
         ) : (
           <LoadError label="Project not found" onRetry={() => navigate('/todos/projects')} />
         )}
@@ -157,10 +156,7 @@ export function ProjectDetailPage() {
             <div style={sectionHeading(section.label === 'Next Actions' ? STATUS_META.next_action.color : undefined)}>
               {section.label.toUpperCase()} · {section.items.length}
             </div>
-            <div style={isMobile
-              ? { display: 'flex', flexDirection: 'column', gap: 8 }
-              : { borderTop: '1px solid rgba(230,235,242,0.07)' }
-            }>
+            <div style={listContainer(isMobile)}>
               {section.items.map(todo => (
                 <TodoRow
                   key={todo.id}

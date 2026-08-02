@@ -46,6 +46,14 @@ class TestPublicMode:
     def test_oversize_400(self, anon_client):
         assert anon_client.post("/api/capture", json={"text": "x" * 20_001}).status_code == 400
 
+    def test_huge_body_413_before_parsing(self, anon_client):
+        r = anon_client.post("/api/capture", json={"text": "x" * 70_000})
+        assert r.status_code == 413
+
+    def test_non_string_text_400(self, anon_client):
+        assert anon_client.post("/api/capture", json={"text": 123}).status_code == 400
+        assert anon_client.post("/api/capture", json=["not", "a", "dict"]).status_code == 400
+
 
 class TestTokenMode:
     def test_matrix(self, anon_client):
@@ -75,3 +83,13 @@ class TestRateLimit:
         for i in range(3):
             assert anon_client.post("/api/capture", json={"text": f"item {i}"}).status_code == 200
         assert anon_client.post("/api/capture", json={"text": "over"}).status_code == 429
+
+    def test_wrong_token_guesses_burn_the_rate_budget(self, anon_client, monkeypatch):
+        # Brute-forcing the secret must be throttled: failed guesses hit the
+        # same per-IP budget as captures (404s until the cap, then 429).
+        monkeypatch.setattr(capture_mod, "_RATE_MAX_POSTS", 3)
+        _set_token("s3cret-token")
+        for i in range(3):
+            assert anon_client.post(f"/api/capture/guess{i}", json={"text": "x"}).status_code == 404
+        assert anon_client.post("/api/capture/guess3", json={"text": "x"}).status_code == 429
+        assert anon_client.get("/capture/guess4").status_code == 429

@@ -4,7 +4,7 @@ import { api } from '../core/api/client';
 import type { Todo } from '../core/types';
 import { useIsMobile } from '../shared/useIsMobile';
 import { FONT_DISPLAY, GOLD, INK, INK_DIM, INK_SOFT, mono } from '../shared/styles';
-import { pageHeading, sectionHeading, cardStyle } from './styles';
+import { pageHeading, sectionHeading, cardStyle, listContainer } from './styles';
 import { STALE_DAYS, STATUS_META } from './constants';
 import { daysSince } from './util';
 import { TodoRow } from './components/TodoRow';
@@ -90,10 +90,7 @@ export function ReviewPage() {
         {stale.length === 0 ? (
           <p style={{ color: INK_DIM, fontSize: 13, margin: 0 }}>Nothing stale. Everything's moving.</p>
         ) : (
-          <div style={isMobile
-            ? { display: 'flex', flexDirection: 'column', gap: 8 }
-            : { borderTop: '1px solid rgba(230,235,242,0.07)' }
-          }>
+          <div style={listContainer(isMobile)}>
             {stale.map(todo => (
               <TodoRow
                 key={todo.id}

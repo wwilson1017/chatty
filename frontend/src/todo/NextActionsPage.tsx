@@ -6,9 +6,10 @@ import { useIsMobile } from '../shared/useIsMobile';
 import { LoadError } from '../shared/LoadError';
 import { IconPlus } from '../shared/icons';
 import { GOLD, INK_DIM } from '../shared/styles';
-import { pageHeading, sectionHeading, btnPrimary } from './styles';
+import { pageHeading, sectionHeading, btnPrimary, listContainer } from './styles';
 import { TodoRow } from './components/TodoRow';
 import { TodoEditSheet } from './components/TodoEditSheet';
+import { LoadingSpinner } from './components/LoadingSpinner';
 import type { TodoOutletContext } from './TodoLayout';
 
 export function NextActionsPage() {
@@ -53,9 +54,6 @@ export function NextActionsPage() {
     return { starred: starredItems, groups: sorted };
   }, [todos]);
 
-  const listContainer: React.CSSProperties = isMobile
-    ? { display: 'flex', flexDirection: 'column', gap: 8 }
-    : { borderTop: '1px solid rgba(230,235,242,0.07)' };
 
   return (
     <div style={{ padding: isMobile ? '20px 16px' : '32px 44px', maxWidth: 900 }}>
@@ -67,9 +65,7 @@ export function NextActionsPage() {
       </div>
 
       {loading ? (
-        <div style={{ display: 'flex', justifyContent: 'center', padding: '48px 0' }}>
-          <div className="w-6 h-6 border-2 border-ch-accent border-t-transparent rounded-full animate-spin" />
-        </div>
+        <LoadingSpinner />
       ) : loadFailed && todos.length === 0 ? (
         <LoadError label="Couldn't load next actions" onRetry={load} />
       ) : todos.length === 0 ? (
@@ -83,7 +79,7 @@ export function NextActionsPage() {
           {starred.length > 0 && (
             <div style={{ marginBottom: 28 }}>
               <div style={sectionHeading(GOLD)}>★ STARRED · {starred.length}</div>
-              <div style={listContainer}>
+              <div style={listContainer(isMobile)}>
                 {starred.map(todo => (
                   <TodoRow key={todo.id} todo={todo} onChanged={reload} onOpen={setEditTodo} />
                 ))}
@@ -95,7 +91,7 @@ export function NextActionsPage() {
               <div style={sectionHeading()}>
                 {(context || 'NO CONTEXT').toUpperCase()} · {items.length}
               </div>
-              <div style={listContainer}>
+              <div style={listContainer(isMobile)}>
                 {items.map(todo => (
                   <TodoRow key={todo.id} todo={todo} onChanged={reload} onOpen={setEditTodo} />
                 ))}

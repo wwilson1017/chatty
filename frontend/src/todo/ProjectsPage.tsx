@@ -4,7 +4,7 @@ import type { TodoProjectStatus } from '../core/types';
 import { useIsMobile } from '../shared/useIsMobile';
 import { IconPlus } from '../shared/icons';
 import { FONT_MONO, INK, INK_DIM, INK_SOFT, LINE } from '../shared/styles';
-import { pageHeading, filterBar, filterTab, btnPrimary, cardStyle } from './styles';
+import { pageHeading, filterBar, filterTab, btnPrimary, cardStyle, listContainer } from './styles';
 import { PROJECT_STATUS_META, PROJECT_STATUS_ORDER } from './constants';
 import { ProjectForm } from './components/ProjectForm';
 import type { TodoOutletContext } from './TodoLayout';
@@ -55,10 +55,7 @@ export function ProjectsPage() {
           </p>
         </div>
       ) : (
-        <div style={isMobile
-          ? { display: 'flex', flexDirection: 'column', gap: 8 }
-          : { borderTop: `1px solid ${LINE}` }
-        }>
+        <div style={listContainer(isMobile)}>
           {visible.map(project => (
             <div
               key={project.id}

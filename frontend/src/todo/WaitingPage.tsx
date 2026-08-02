@@ -6,11 +6,12 @@ import { useIsMobile } from '../shared/useIsMobile';
 import { LoadError } from '../shared/LoadError';
 import { toast } from '../shared/toast';
 import { INK_DIM, INK_SOFT, mono } from '../shared/styles';
-import { pageHeading, sectionHeading, btnSmall } from './styles';
+import { pageHeading, sectionHeading, btnSmall, listContainer } from './styles';
 import { STATUS_META } from './constants';
 import { formatAge } from './util';
 import { TodoRow } from './components/TodoRow';
 import { TodoEditSheet } from './components/TodoEditSheet';
+import { LoadingSpinner } from './components/LoadingSpinner';
 import type { TodoOutletContext } from './TodoLayout';
 
 export function WaitingPage() {
@@ -57,10 +58,7 @@ export function WaitingPage() {
     return (
       <div style={{ marginBottom: 28 }}>
         <div style={sectionHeading(color)}>{label.toUpperCase()} · {items.length}</div>
-        <div style={isMobile
-          ? { display: 'flex', flexDirection: 'column', gap: 8 }
-          : { borderTop: '1px solid rgba(230,235,242,0.07)' }
-        }>
+        <div style={listContainer(isMobile)}>
           {items.map(todo => (
             <TodoRow
               key={todo.id}
@@ -88,9 +86,7 @@ export function WaitingPage() {
       <h1 style={{ ...pageHeading(isMobile), marginBottom: isMobile ? 16 : 24 }}>Waiting</h1>
 
       {loading ? (
-        <div style={{ display: 'flex', justifyContent: 'center', padding: '48px 0' }}>
-          <div className="w-6 h-6 border-2 border-ch-accent border-t-transparent rounded-full animate-spin" />
-        </div>
+        <LoadingSpinner />
       ) : loadFailed && waiting.length === 0 && delegated.length === 0 ? (
         <LoadError label="Couldn't load waiting items" onRetry={load} />
       ) : waiting.length === 0 && delegated.length === 0 ? (

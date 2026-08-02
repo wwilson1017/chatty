@@ -6,9 +6,10 @@ import { useIsMobile } from '../shared/useIsMobile';
 import { LoadError } from '../shared/LoadError';
 import { toast } from '../shared/toast';
 import { INK_DIM, INK_SOFT } from '../shared/styles';
-import { pageHeading, btnSmall } from './styles';
+import { pageHeading, btnSmall, listContainer } from './styles';
 import { TodoRow } from './components/TodoRow';
 import { TodoEditSheet } from './components/TodoEditSheet';
+import { LoadingSpinner } from './components/LoadingSpinner';
 import type { TodoOutletContext } from './TodoLayout';
 
 export function SomedayPage() {
@@ -50,9 +51,7 @@ export function SomedayPage() {
       <h1 style={{ ...pageHeading(isMobile), marginBottom: isMobile ? 16 : 24 }}>Someday / Maybe</h1>
 
       {loading ? (
-        <div style={{ display: 'flex', justifyContent: 'center', padding: '48px 0' }}>
-          <div className="w-6 h-6 border-2 border-ch-accent border-t-transparent rounded-full animate-spin" />
-        </div>
+        <LoadingSpinner />
       ) : loadFailed && todos.length === 0 ? (
         <LoadError label="Couldn't load someday items" onRetry={load} />
       ) : todos.length === 0 ? (
@@ -60,10 +59,7 @@ export function SomedayPage() {
           <p style={{ color: INK_DIM, fontSize: 14 }}>No someday/maybe items parked.</p>
         </div>
       ) : (
-        <div style={isMobile
-          ? { display: 'flex', flexDirection: 'column', gap: 8 }
-          : { borderTop: '1px solid rgba(230,235,242,0.07)' }
-        }>
+        <div style={listContainer(isMobile)}>
           {todos.map(todo => (
             <TodoRow
               key={todo.id}
