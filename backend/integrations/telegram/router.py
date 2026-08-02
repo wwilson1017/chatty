@@ -7,6 +7,7 @@ and JWT-protected admin endpoints for bot token management and registration.
 import asyncio
 import hmac
 import logging
+import re
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -41,6 +42,41 @@ def _mark_telegram_configured(agent_slug: str) -> None:
     from integrations.pending_setup import mark_integration_complete
     context_dir = _AGENTS_DIR / agent_slug / "context"
     mark_integration_complete(context_dir, "Telegram Bot")
+
+
+# ---------------------------------------------------------------------------
+# Deterministic quick-capture intercept — "/capture ..." or "capture ..."
+# goes straight to the global todo inbox with a terse "captured" reply.
+# No AI turn, no chat-history save, zero tokens.
+# ---------------------------------------------------------------------------
+
+# \b keeps "captured ..."/"recapture ..." conversational; (?:@\w+)? handles
+# Telegram's /capture@BotName form in groups.
+_CAPTURE_RE = re.compile(r"^\s*(?:/capture(?:@\w+)?|capture)\b[\s:,\-]*", re.IGNORECASE)
+_LEADING_MENTION_RE = re.compile(r"^\s*@\w+[\s:,]*")
+
+
+def _parse_capture(text: str) -> str | None:
+    """None = not a capture command; '' = capture with no payload; else the todo text."""
+    m = _CAPTURE_RE.match(text or "")
+    if m is None:
+        return None
+    return text[m.end():].strip()
+
+
+def _handle_capture(captured: str, chat_id: int, bot_token: str) -> None:
+    """Insert the capture and send the terse deterministic reply."""
+    if not captured:
+        send_message(chat_id, "capture what?", bot_token)
+        return
+    try:
+        from core.todo import service as todo_service
+        todo_service.capture(captured, source="telegram")
+    except Exception:
+        logger.warning("Telegram capture insert failed", exc_info=True)
+        send_message(chat_id, "capture failed — try again", bot_token)
+        return
+    send_message(chat_id, "captured", bot_token)
 
 
 # ---------------------------------------------------------------------------
@@ -155,6 +191,15 @@ def _safe_process_telegram(
             if is_bot:
                 group.record_bot_message(chat_id)
 
+            # Capture intercept (humans only — bots must never trigger it).
+            # Strip a leading @BotName so "@Bot capture milk" works.
+            if not is_bot:
+                captured = _parse_capture(_LEADING_MENTION_RE.sub("", message))
+                if captured is not None:
+                    _handle_capture(captured, chat_id, bot_token)
+                    group.record_response(chat_id, agent["id"])
+                    return
+
             # Busy check — save message to history but skip AI if already processing
             busy_key = (agent_slug, chat_id)
             busy_started = time.monotonic()
@@ -222,6 +267,12 @@ def _safe_process_telegram(
                     bot_token,
                 )
                 return
+
+        # Capture intercept — registered senders only (mapping checked above).
+        captured = _parse_capture(message)
+        if captured is not None:
+            _handle_capture(captured, chat_id, bot_token)
+            return
 
         # Busy check — save message to history but skip AI if already processing
         busy_key = (agent_slug, chat_id)
