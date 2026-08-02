@@ -136,11 +136,13 @@ def test_context_rejects_bad_filenames(client):
 def test_context_encoded_traversal_blocked(client, tmp_path):
     agent = make_agent(client)
     # %2F decodes to a slash, which the single-segment path param can't match;
-    # depending on routing this is a 404 (no route) or 400 (validator). The
-    # property under test: never 200, and nothing written outside context/.
+    # depending on routing this is a 404 (no route), 400 (validator), or 405
+    # (when frontend/dist exists locally, the "/" StaticFiles mount catches the
+    # normalized path and rejects non-GET methods). The property under test:
+    # never 200, and nothing written outside context/.
     resp = client.put(
         f"/api/agents/{agent['id']}/context/..%2Fevil.md", json={"content": "pwned"}
     )
-    assert resp.status_code in (400, 404)
+    assert resp.status_code in (400, 404, 405)
     assert not (tmp_path / "helper" / "evil.md").exists()
     assert not (tmp_path / "evil.md").exists()
