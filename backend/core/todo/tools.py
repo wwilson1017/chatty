@@ -62,7 +62,8 @@ TODO_TOOL_DEFS: list[dict] = [
         "name": "todo_list",
         "description": (
             "List todos with filters. All filters are optional and combine with AND. "
-            "Returns todos oldest-first (inbox processing order)."
+            "Returns todos oldest-first (inbox processing order); done/dropped lists "
+            "return newest-finished first."
         ),
         "input_schema": {
             "type": "object",

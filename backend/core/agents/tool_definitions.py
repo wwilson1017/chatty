@@ -22,6 +22,16 @@ TOOL_KIND_LABELS: dict[str, str] = {
     "todo": "Todos (GTD)",
 }
 
+# Tools that must only execute where a human can confirm them (the web chat's
+# approval flow). Background turns exclude these in get_tool_definitions();
+# messaging channels (Telegram/WhatsApp — no approval UI) strip them via
+# strip_interactive_only_tools().
+INTERACTIVE_ONLY_TOOLS: frozenset[str] = frozenset({"todo_update_gtd_coaching"})
+
+
+def strip_interactive_only_tools(tool_defs: list[dict]) -> list[dict]:
+    return [t for t in tool_defs if t["name"] not in INTERACTIVE_ONLY_TOOLS]
+
 
 # ── Context tools ─────────────────────────────────────────────────────────────
 
@@ -1782,7 +1792,7 @@ def get_tool_definitions(
     # interactive-only capability.
     from core.todo.tools import TODO_TOOL_DEFS
     if background_mode:
-        tools.extend(t for t in TODO_TOOL_DEFS if t["name"] != "todo_update_gtd_coaching")
+        tools.extend(t for t in TODO_TOOL_DEFS if t["name"] not in INTERACTIVE_ONLY_TOOLS)
     else:
         tools.extend(TODO_TOOL_DEFS)
     if integration_tools:

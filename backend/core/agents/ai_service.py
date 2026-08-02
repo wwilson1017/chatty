@@ -1751,7 +1751,8 @@ async def run_sync(
     # rewriting every agent's standing instructions stays interactive-only —
     # Telegram/WhatsApp turns (incl. third-party group members) must not
     # auto-execute it.
-    tool_defs = [t for t in tool_defs if t["name"] != "todo_update_gtd_coaching"]
+    from core.agents.tool_definitions import strip_interactive_only_tools
+    tool_defs = strip_interactive_only_tools(tool_defs)
 
     kind_map = _build_kind_map(tool_defs)
     writes_map = build_writes_map(tool_defs)

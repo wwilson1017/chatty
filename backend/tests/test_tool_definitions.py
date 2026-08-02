@@ -40,6 +40,15 @@ class TestTodoTools:
         assert (self.EXPECTED - {"todo_update_gtd_coaching"}) <= names
         assert "todo_update_gtd_coaching" not in names
 
+    def test_messaging_strip_removes_interactive_only_tools(self):
+        # run_sync (Telegram DM/group, Paperclip) and WhatsApp apply this
+        # filter — messaging channels auto-execute writes with no approval UI.
+        from core.agents.tool_definitions import strip_interactive_only_tools
+
+        stripped = _tool_names(strip_interactive_only_tools(get_tool_definitions()))
+        assert "todo_update_gtd_coaching" not in stripped
+        assert (self.EXPECTED - {"todo_update_gtd_coaching"}) <= stripped
+
     def test_absent_in_import_mode(self):
         names = _tool_names(get_tool_definitions(import_mode=True))
         assert not any(n.startswith("todo_") for n in names)

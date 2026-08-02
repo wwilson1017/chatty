@@ -258,7 +258,8 @@ def _process_message_locked(
 
     # No approval UI here either: the global-instruction rewrite tool stays
     # interactive-only (same rule as background_mode / run_sync).
-    tool_defs = [t for t in tool_defs if t["name"] != "todo_update_gtd_coaching"]
+    from core.agents.tool_definitions import strip_interactive_only_tools
+    tool_defs = strip_interactive_only_tools(tool_defs)
 
     # GTD coaching — standing instructions for the always-on todo tools
     from core.todo.coaching import gtd_coaching_block
