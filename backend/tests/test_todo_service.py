@@ -1,0 +1,249 @@
+"""Tests for core.todo.service — CRUD, filters, projects, capture."""
+
+import pytest
+
+import core.todo.db as tododb
+from core.todo import service
+
+
+@pytest.fixture()
+def todo_db(tmp_path, monkeypatch):
+    """Point the todo DB at a temp directory with a live connection."""
+    monkeypatch.setattr(tododb, "DATA_DIR", tmp_path / "todo")
+    monkeypatch.setattr(tododb, "DB_PATH", tmp_path / "todo" / "todo.db")
+    (tmp_path / "todo").mkdir()
+    tododb.close_db()
+    tododb._setup_connection()
+    yield
+    tododb.close_db()
+
+
+class TestCreateTodo:
+    def test_defaults(self, todo_db):
+        todo = service.create_todo("Call the bank")
+        assert todo["title"] == "Call the bank"
+        assert todo["status"] == "inbox"
+        assert todo["source"] == "agent"
+        assert todo["tags"] == []
+        assert todo["star"] is False
+        assert todo["project_id"] is None
+        assert todo["project_name"] is None
+        assert todo["due_date"] is None
+        assert todo["completed_at"] is None
+        assert todo["created_at"] and todo["updated_at"]
+
+    def test_title_required(self, todo_db):
+        with pytest.raises(ValueError, match="title is required"):
+            service.create_todo("   ")
+
+    def test_invalid_status_rejected(self, todo_db):
+        with pytest.raises(ValueError, match="Invalid status"):
+            service.create_todo("x", status="doing")
+
+    def test_invalid_due_date_rejected(self, todo_db):
+        with pytest.raises(ValueError, match="YYYY-MM-DD"):
+            service.create_todo("x", due_date="tomorrow")
+
+    def test_invalid_source_rejected(self, todo_db):
+        with pytest.raises(ValueError, match="Invalid source"):
+            service.create_todo("x", source="carrier_pigeon")
+
+    def test_tags_normalized(self, todo_db):
+        todo = service.create_todo("x", tags=["  home ", "", "energy:low"])
+        assert todo["tags"] == ["home", "energy:low"]
+
+    def test_tags_must_be_string_list(self, todo_db):
+        with pytest.raises(ValueError, match="list of strings"):
+            service.create_todo("x", tags="home")
+
+    def test_project_auto_created_by_name(self, todo_db):
+        todo = service.create_todo("x", project="Renovation")
+        assert todo["project_name"] == "Renovation"
+        projects = service.list_projects()
+        assert [p["name"] for p in projects] == ["Renovation"]
+        assert projects[0]["status"] == "active"
+
+    def test_project_name_case_insensitive_dedupe(self, todo_db):
+        a = service.create_todo("x", project="Renovation")
+        b = service.create_todo("y", project="renovation")
+        assert a["project_id"] == b["project_id"]
+        assert len(service.list_projects()) == 1
+
+    def test_created_done_gets_completed_at(self, todo_db):
+        todo = service.create_todo("x", status="done")
+        assert todo["completed_at"] is not None
+
+    def test_unknown_project_id_rejected(self, todo_db):
+        with pytest.raises(ValueError, match="Project id not found"):
+            service.create_todo("x", project_id=999)
+
+
+class TestUpdateTodo:
+    def test_done_sets_completed_at_and_undone_clears(self, todo_db):
+        todo = service.create_todo("x")
+        done = service.update_todo(todo["id"], {"status": "done"})
+        assert done["completed_at"] is not None
+        back = service.update_todo(todo["id"], {"status": "next_action"})
+        assert back["completed_at"] is None
+        assert back["status"] == "next_action"
+
+    def test_unknown_field_rejected(self, todo_db):
+        todo = service.create_todo("x")
+        with pytest.raises(ValueError, match="Unknown fields: priority"):
+            service.update_todo(todo["id"], {"priority": "high"})
+
+    def test_missing_todo_returns_none(self, todo_db):
+        assert service.update_todo(12345, {"title": "y"}) is None
+
+    def test_clear_project_with_empty_name(self, todo_db):
+        todo = service.create_todo("x", project="P1")
+        cleared = service.update_todo(todo["id"], {"project": ""})
+        assert cleared["project_id"] is None
+
+    def test_update_bumps_updated_at(self, todo_db):
+        todo = service.create_todo("x")
+        conn = tododb.get_db()
+        conn.execute(
+            "UPDATE todos SET updated_at = '2020-01-01 00:00:00' WHERE id = ?", (todo["id"],)
+        )
+        conn.commit()
+        updated = service.update_todo(todo["id"], {"notes": "hi"})
+        assert updated["updated_at"] != "2020-01-01 00:00:00"
+
+
+class TestBulkUpdate:
+    def test_reports_updated_and_not_found(self, todo_db):
+        a = service.create_todo("a")
+        b = service.create_todo("b")
+        result = service.bulk_update([a["id"], b["id"], 999], {"status": "next_action"})
+        assert result["updated"] == [a["id"], b["id"]]
+        assert result["not_found"] == [999]
+        assert service.get_todo(a["id"])["status"] == "next_action"
+
+    def test_done_transition_only_stamps_fresh_completions(self, todo_db):
+        a = service.create_todo("a")
+        b = service.create_todo("b", status="done")
+        first_completed = service.get_todo(b["id"])["completed_at"]
+        result = service.bulk_update([a["id"], b["id"]], {"status": "done"})
+        assert result["updated"] == [a["id"], b["id"]]
+        assert service.get_todo(a["id"])["completed_at"] is not None
+        assert service.get_todo(b["id"])["completed_at"] == first_completed
+
+    def test_validation_error_rolls_back_everything(self, todo_db):
+        a = service.create_todo("a")
+        with pytest.raises(ValueError):
+            service.bulk_update([a["id"]], {"status": "bogus"})
+        assert service.get_todo(a["id"])["status"] == "inbox"
+
+
+class TestListTodos:
+    def test_filter_by_status(self, todo_db):
+        service.create_todo("a")
+        service.create_todo("b", status="next_action")
+        assert [t["title"] for t in service.list_todos(status="next_action")] == ["b"]
+
+    def test_filter_by_project_name_and_id(self, todo_db):
+        t = service.create_todo("a", project="Ops")
+        service.create_todo("b")
+        assert [x["title"] for x in service.list_todos(project="Ops")] == ["a"]
+        assert [x["title"] for x in service.list_todos(project=t["project_id"])] == ["a"]
+        assert service.list_todos(project="NoSuch") == []
+
+    def test_filter_by_context_case_insensitive(self, todo_db):
+        service.create_todo("a", context="@Home")
+        service.create_todo("b", context="@office")
+        assert [t["title"] for t in service.list_todos(context="@home")] == ["a"]
+
+    def test_filter_by_tag_exact_json_match(self, todo_db):
+        service.create_todo("a", tags=["home"])
+        service.create_todo("b", tags=["homework"])
+        assert [t["title"] for t in service.list_todos(tag="home")] == ["a"]
+
+    def test_filter_by_starred(self, todo_db):
+        service.create_todo("a", star=1)
+        service.create_todo("b")
+        assert [t["title"] for t in service.list_todos(starred=True)] == ["a"]
+        assert [t["title"] for t in service.list_todos(starred=False)] == ["b"]
+
+    def test_due_ranges_exclude_undated(self, todo_db):
+        service.create_todo("early", due_date="2026-01-05")
+        service.create_todo("late", due_date="2026-03-05")
+        service.create_todo("undated")
+        assert [t["title"] for t in service.list_todos(due_before="2026-02-01")] == ["early"]
+        assert [t["title"] for t in service.list_todos(due_after="2026-02-01")] == ["late"]
+
+    def test_search_title_and_notes_with_wildcards_escaped(self, todo_db):
+        service.create_todo("Buy 100% juice")
+        service.create_todo("other", notes="contains juice too")
+        service.create_todo("unrelated")
+        assert len(service.list_todos(search="juice")) == 2
+        assert [t["title"] for t in service.list_todos(search="100%")] == ["Buy 100% juice"]
+
+    def test_ordering_is_fifo(self, todo_db):
+        service.create_todo("first")
+        service.create_todo("second")
+        titles = [t["title"] for t in service.list_todos()]
+        assert titles == ["first", "second"]
+
+
+class TestProjects:
+    def test_duplicate_name_rejected(self, todo_db):
+        service.create_project("Ops")
+        with pytest.raises(ValueError, match="already exists"):
+            service.create_project("ops")
+
+    def test_delete_orphans_todos(self, todo_db):
+        todo = service.create_todo("x", project="Doomed")
+        assert service.delete_project(todo["project_id"]) is True
+        survivor = service.get_todo(todo["id"])
+        assert survivor is not None
+        assert survivor["project_id"] is None
+
+    def test_open_count_excludes_done_and_dropped(self, todo_db):
+        service.create_todo("a", project="P")
+        service.create_todo("b", project="P", status="done")
+        service.create_todo("c", project="P", status="dropped")
+        project = service.list_projects()[0]
+        assert project["open_count"] == 1
+
+    def test_update_project_rename_dup_rejected(self, todo_db):
+        service.create_project("A")
+        p = service.create_project("B")
+        with pytest.raises(ValueError, match="already exists"):
+            service.update_project(p["id"], {"name": "a"})
+
+    def test_update_missing_returns_none(self, todo_db):
+        assert service.update_project(999, {"name": "x"}) is None
+
+
+class TestFilters:
+    def test_counts_include_all_statuses_with_zeros(self, todo_db):
+        service.create_todo("a")
+        filters = service.get_filters()
+        assert filters["status_counts"]["inbox"] == 1
+        assert set(filters["status_counts"]) == set(tododb.TODO_STATUSES)
+        assert filters["status_counts"]["done"] == 0
+
+    def test_contexts_and_tags_deduped(self, todo_db):
+        service.create_todo("a", context="@home", tags=["deep", "quick"])
+        service.create_todo("b", context="@home", tags=["quick"])
+        service.create_todo("c")
+        filters = service.get_filters()
+        assert filters["contexts"] == ["@home"]
+        assert filters["tags"] == ["deep", "quick"]
+
+
+class TestCapture:
+    def test_capture_trims_and_lands_in_inbox(self, todo_db):
+        todo = service.capture("  buy milk  ", source="telegram")
+        assert todo["title"] == "buy milk"
+        assert todo["status"] == "inbox"
+        assert todo["source"] == "telegram"
+
+    def test_capture_empty_rejected(self, todo_db):
+        with pytest.raises(ValueError, match="Nothing to capture"):
+            service.capture("   ")
+
+    def test_capture_oversize_rejected(self, todo_db):
+        with pytest.raises(ValueError, match="too long"):
+            service.capture("x" * 20_001)
