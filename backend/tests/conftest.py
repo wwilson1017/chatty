@@ -129,6 +129,13 @@ def http_env(agent_db, encryption_env, monkeypatch, tmp_path):
     (tmp_path / "reminders").mkdir(exist_ok=True)
     reminders_db.close_db()
     reminders_db._setup_connection()
+    # Todo DB — core always-on store behind /api/todo and the todo_* tools.
+    import core.todo.db as todo_db_mod
+    monkeypatch.setattr(todo_db_mod, "DATA_DIR", tmp_path / "todo")
+    monkeypatch.setattr(todo_db_mod, "DB_PATH", tmp_path / "todo" / "todo.db")
+    (tmp_path / "todo").mkdir(exist_ok=True)
+    todo_db_mod.close_db()
+    todo_db_mod._setup_connection()
     # Per-slug caches would hand a previous test's DB to a same-named agent.
     engine_mod._get_initialized_db.cache_clear()
     engine_mod._get_initialized_memory_db.cache_clear()
@@ -149,6 +156,8 @@ def http_env(agent_db, encryption_env, monkeypatch, tmp_path):
                 inst._connection.close()
         memory_db_mod._instances.clear()
         reminders_db.close_db()
+        import core.todo.db as todo_db_mod
+        todo_db_mod.close_db()
 
 
 @pytest.fixture

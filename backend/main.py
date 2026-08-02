@@ -42,6 +42,7 @@ from core.agents.notifications.router import router as notifications_router
 from core.agents.live.router import router as live_router
 from core.agents.reminders.router import router as reminders_router
 from core.agents.shared_context.router import router as shared_context_router
+from core.todo.router import router as todo_router
 from core.agents.usage.router import router as usage_router
 from core.events.router import router as events_router
 
@@ -90,7 +91,7 @@ async def lifespan(app: FastAPI):
 
     # Ensure data directories exist
     data_root = Path(__file__).resolve().parent / "data"
-    for subdir in ("agents", "branding", "integrations", "reminders", "telegram", "whatsapp"):
+    for subdir in ("agents", "branding", "integrations", "reminders", "telegram", "whatsapp", "todo"):
         (data_root / subdir).mkdir(parents=True, exist_ok=True)
 
     # ── Database initialization (per-DB error isolation) ───────────────────
@@ -128,6 +129,9 @@ async def lifespan(app: FastAPI):
 
     from core.agents.reminders.db import init_db as init_reminders_db
     _safe_init("reminders", init_reminders_db)
+
+    from core.todo.db import init_db as init_todo_db
+    _safe_init("todo", init_todo_db)
 
     from core.agents.shared_context.db import init_db as init_shared_context_db
     _safe_init("shared_context", init_shared_context_db)
@@ -307,6 +311,7 @@ app.include_router(alerts_router, prefix="/api/alerts", tags=["alerts"])
 app.include_router(live_router, tags=["live"])
 app.include_router(notifications_router)
 app.include_router(reminders_router, prefix="/api/reminders", tags=["reminders"])
+app.include_router(todo_router, prefix="/api/todo", tags=["todo"])
 app.include_router(setup_router, prefix="/api/setup", tags=["setup"])
 app.include_router(backup_router, prefix="/api/backup", tags=["backup"])
 app.include_router(telegram_router, prefix="/api/telegram", tags=["telegram"])

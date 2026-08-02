@@ -27,7 +27,7 @@ def bootstrap():
     EncryptionKeyManager.get_key()
 
     data_root = _BACKEND_DIR / "data"
-    for subdir in ("agents", "shared", "reminders", "integrations"):
+    for subdir in ("agents", "shared", "reminders", "integrations", "todo"):
         (data_root / subdir).mkdir(parents=True, exist_ok=True)
 
     from agents.db import init_db as init_agents_db
@@ -40,6 +40,9 @@ def bootstrap():
 
     from core.agents.reminders.db import init_db as init_reminders_db
     _safe_init("reminders", init_reminders_db)
+
+    from core.todo.db import init_db as init_todo_db
+    _safe_init("todo", init_todo_db)
 
     from core.agents.shared_context.db import init_db as init_shared_context_db
     _safe_init("shared_context", init_shared_context_db)
