@@ -27,8 +27,8 @@ export function DonePage() {
     setLoading(true);
     try {
       const data = await api<{ todos: Todo[] }>(`/api/todo/todos?status=${filter}&limit=200`);
-      // Most recently finished first.
-      setTodos([...data.todos].reverse());
+      // Server orders done/dropped newest-finished first.
+      setTodos(data.todos);
       setLoadFailed(false);
     } catch {
       setLoadFailed(true);

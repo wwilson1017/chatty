@@ -196,7 +196,9 @@ async def capture_post(request: Request):
 
 def _require_token(token: str) -> str:
     configured = _configured_token()
-    if not configured or not hmac.compare_digest(token, configured):
+    # Compare as bytes: compare_digest raises TypeError on non-ASCII str
+    # input, which would turn a scanner's /capture/ü guess into a 500.
+    if not configured or not hmac.compare_digest(token.encode(), configured.encode()):
         raise HTTPException(status_code=404, detail="Not found")
     return configured
 

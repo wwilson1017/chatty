@@ -40,4 +40,4 @@ EXPOSE 8000
 
 # Start WhatsApp bridge sidecar in background (if configured) alongside the Python backend
 # Sidecar PORT is pinned to 3001 to avoid conflicts with cloud platforms that set PORT
-CMD ["sh", "-c", "if [ -n \"$WHATSAPP_BRIDGE_URL\" ]; then PORT=3001 node whatsapp-bridge/index.js & fi; gunicorn main:app --worker-class uvicorn.workers.UvicornWorker --bind 0.0.0.0:${PORT:-8000} --workers 1 --timeout 120"]
+CMD ["sh", "-c", "if [ -n \"$WHATSAPP_BRIDGE_URL\" ]; then PORT=3001 node whatsapp-bridge/index.js & fi; gunicorn main:app --worker-class uvicorn.workers.UvicornWorker --bind 0.0.0.0:${PORT:-8000} --workers 1 --timeout 120 --forwarded-allow-ips '*'"]

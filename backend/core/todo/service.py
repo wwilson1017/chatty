@@ -171,6 +171,8 @@ def _apply_update(conn, todo_id: int, fields: dict) -> bool:
     sets: list[str] = []
     params: list = []
     if "title" in fields:
+        if fields["title"] is not None and not isinstance(fields["title"], str):
+            raise ValueError("title must be a string")
         title = (fields["title"] or "").strip()
         if not title:
             raise ValueError("title cannot be empty")
@@ -323,7 +325,13 @@ def list_todos(
     sql = _SELECT_TODO
     if where:
         sql += " WHERE " + " AND ".join(where)
-    sql += " ORDER BY t.created_at ASC, t.id ASC LIMIT ?"
+    if status in ("done", "dropped"):
+        # Finished lists grow forever — newest-finished first, or the LIMIT
+        # window would freeze on the oldest rows and hide new completions.
+        # (dropped rows have no completed_at; updated_at marks the drop.)
+        sql += " ORDER BY COALESCE(t.completed_at, t.updated_at) DESC, t.id DESC LIMIT ?"
+    else:
+        sql += " ORDER BY t.created_at ASC, t.id ASC LIMIT ?"
     n = 100 if limit is None else int(limit)  # `or` would turn an explicit 0 into 100
     params.append(max(1, min(n, 500)))
     return [_todo_dict(r) for r in conn.execute(sql, params).fetchall()]

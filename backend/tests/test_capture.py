@@ -76,6 +76,12 @@ class TestTokenMode:
         assert anon_client.get("/capture").status_code == 200
         assert anon_client.get("/capture/s3cret-token").status_code == 404
 
+    def test_non_ascii_token_guess_is_404_not_500(self, anon_client):
+        # compare_digest raises TypeError on non-ASCII str input — must not 500.
+        _set_token("s3cret-token")
+        assert anon_client.get("/capture/%C3%BC").status_code == 404
+        assert anon_client.post("/api/capture/%C3%BC", json={"text": "x"}).status_code == 404
+
 
 class TestRateLimit:
     def test_429_after_limit(self, anon_client, monkeypatch):

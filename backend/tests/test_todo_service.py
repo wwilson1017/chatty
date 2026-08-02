@@ -185,6 +185,21 @@ class TestListTodos:
         titles = [t["title"] for t in service.list_todos()]
         assert titles == ["first", "second"]
 
+    def test_done_list_is_newest_finished_first(self, todo_db):
+        a = service.create_todo("finished early")
+        b = service.create_todo("finished late")
+        conn = tododb.get_db()
+        conn.execute("UPDATE todos SET status='done', completed_at='2026-01-01 10:00:00' WHERE id=?", (a["id"],))
+        conn.execute("UPDATE todos SET status='done', completed_at='2026-06-01 10:00:00' WHERE id=?", (b["id"],))
+        conn.commit()
+        titles = [t["title"] for t in service.list_todos(status="done")]
+        assert titles == ["finished late", "finished early"]
+
+    def test_bulk_non_string_title_rejected_not_crash(self, todo_db):
+        a = service.create_todo("a")
+        with pytest.raises(ValueError, match="title must be a string"):
+            service.bulk_update([a["id"]], {"title": 123})
+
 
 class TestProjects:
     def test_duplicate_name_rejected(self, todo_db):

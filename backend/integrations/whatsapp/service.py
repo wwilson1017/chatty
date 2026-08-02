@@ -256,6 +256,10 @@ def _process_message_locked(
             or integration_tool_modes.get(t.get("integration", ""), "power") == "power"
         ]
 
+    # No approval UI here either: the global-instruction rewrite tool stays
+    # interactive-only (same rule as background_mode / run_sync).
+    tool_defs = [t for t in tool_defs if t["name"] != "todo_update_gtd_coaching"]
+
     # GTD coaching — standing instructions for the always-on todo tools
     from core.todo.coaching import gtd_coaching_block
     system_prompt += gtd_coaching_block(tool_defs)

@@ -15,7 +15,10 @@ export function formatAge(s: string): string {
 }
 
 export function todayStr(): string {
-  return new Date().toISOString().split('T')[0];
+  // Local date parts, NOT toISOString(): due dates carry the user's local
+  // intent, and the UTC date would flip items to "overdue" mid-evening.
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
 export function parseTags(input: string): string[] {

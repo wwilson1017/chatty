@@ -44,7 +44,7 @@ from pydantic import BaseModel, field_validator
 from core.auth import get_current_user
 from integrations.registry import is_enabled
 from . import client as crm
-from .db import init_db, _connection
+from . import db as crm_db
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -56,9 +56,10 @@ def _require_crm(user=Depends(get_current_user)):
     """Dependency that ensures CRM is enabled and DB is initialized."""
     if not is_enabled("crm_lite"):
         raise HTTPException(status_code=403, detail="CRM is not enabled")
-    global _connection
-    if _connection is None:
-        init_db()
+    # Check the db module's live global — a from-import binds once (None
+    # forever) and made every request re-run the full integrity-checked init.
+    if crm_db._connection is None:
+        crm_db.init_db()
     return user
 
 

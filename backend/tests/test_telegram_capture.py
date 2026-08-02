@@ -127,3 +127,18 @@ class TestGroupIntercept:
         )
         assert group_env == [(200, "AI-REPLY")]
         assert todo_service.list_todos() == []
+
+    def test_unregistered_group_member_falls_through_to_ai(self, group_env, monkeypatch):
+        # Strangers in a group must not deterministically author the owner's
+        # todos — their "capture ..." goes to the normal AI path instead.
+        async def fake_group_ai(**kwargs):
+            return "AI-REPLY"
+
+        monkeypatch.setattr(tg_router.service, "process_group_message", fake_group_ai)
+        monkeypatch.setattr(tg_router.state, "get_mapping_by_sender", lambda *a: None)
+        tg_router._safe_process_telegram(
+            "helper", "99", "Stranger", "@HelperBot capture stranger danger", 200,
+            chat_type="supergroup", from_username="stranger",
+        )
+        assert group_env == [(200, "AI-REPLY")]
+        assert todo_service.list_todos() == []

@@ -6,7 +6,7 @@ CRM Lite is Chatty's optional built-in contact and deal management system. No ex
 
 1. Open Chatty (locally via `python run.py`, or your Railway instance)
 2. Go to **Settings** > **Integrations**
-3. Find **CRM** and toggle it on (or ask any agent to run `enable_crm`)
+3. Find **CRM** and toggle it on for an empty CRM — or ask any agent to run `enable_crm`, which also seeds clearable example data so you can see how a populated CRM looks
 4. Done — the CRM database is created, the CRM tab appears in the nav, and your agents get the CRM tools
 
 Your data lives in Chatty's local SQLite storage (on Railway: the persistent volume). No environment variables or external credentials needed.

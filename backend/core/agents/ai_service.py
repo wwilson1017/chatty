@@ -1747,6 +1747,12 @@ async def run_sync(
             or _itm.get(t.get("integration", ""), "power") == "power"
         ]
 
+    # Same no-approval-UI reasoning as background_mode in get_tool_definitions:
+    # rewriting every agent's standing instructions stays interactive-only —
+    # Telegram/WhatsApp turns (incl. third-party group members) must not
+    # auto-execute it.
+    tool_defs = [t for t in tool_defs if t["name"] != "todo_update_gtd_coaching"]
+
     kind_map = _build_kind_map(tool_defs)
     writes_map = build_writes_map(tool_defs)
     cm_map = build_context_memory_map(tool_defs)

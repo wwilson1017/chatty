@@ -43,8 +43,9 @@ describe('daysSince / formatAge', () => {
     expect(formatAge('2026-08-01 12:00:00')).toBe('14d');
   });
 
-  it('todayStr returns the UTC date used for overdue comparisons', () => {
-    expect(todayStr()).toBe('2026-08-15');
+  it('todayStr returns the LOCAL date used for overdue comparisons', () => {
+    // en-CA formats as YYYY-MM-DD — an independent local-date implementation.
+    expect(todayStr()).toBe(new Date().toLocaleDateString('en-CA'));
   });
 });
 

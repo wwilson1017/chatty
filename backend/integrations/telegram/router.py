@@ -192,10 +192,14 @@ def _safe_process_telegram(
                 group.record_bot_message(chat_id)
 
             # Capture intercept (humans only — bots must never trigger it).
-            # Strip a leading @BotName so "@Bot capture milk" works.
+            # Strip a leading @BotName so "@Bot capture milk" works. Only
+            # REGISTERED senders get the deterministic write into the owner's
+            # inbox — an unregistered group member's "capture ..." falls
+            # through to the normal AI path instead of silently authoring
+            # the owner's todos.
             if not is_bot:
                 captured = _parse_capture(_LEADING_MENTION_RE.sub("", message))
-                if captured is not None:
+                if captured is not None and state.get_mapping_by_sender("telegram", user_id, agent["id"]):
                     _handle_capture(captured, chat_id, bot_token)
                     group.record_response(chat_id, agent["id"])
                     return
