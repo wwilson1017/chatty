@@ -29,6 +29,11 @@ class TestShouldWrap:
         assert should_wrap("crm_list_contacts", "integration") is False
         assert should_wrap("crm_add_deal", "integration") is False
 
+    def test_todo_tools_not_wrapped(self):
+        # Core kind "todo" reads local user data — never delimiter-wrapped.
+        assert should_wrap("todo_list", "todo") is False
+        assert should_wrap("todo_update", "todo") is False
+
     def test_unknown_kind_not_wrapped(self):
         assert should_wrap("mystery_tool", "unknown_kind") is False
 

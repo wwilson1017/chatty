@@ -19,6 +19,7 @@ TOOL_KIND_LABELS: dict[str, str] = {
     "post_message": "Messaging",
     "chat_history": "Chat History",
     "playbook": "Playbooks",
+    "todo": "Todos (GTD)",
 }
 
 
@@ -1774,6 +1775,9 @@ def get_tool_definitions(
         tools.extend(REMINDER_TOOLS)
     if scheduled_actions_enabled:
         tools.extend(SCHEDULED_ACTION_TOOLS)
+    # Todo (GTD) is a core always-on feature: every agent gets these tools.
+    from core.todo.tools import TODO_TOOL_DEFS
+    tools.extend(TODO_TOOL_DEFS)
     if integration_tools:
         tools.extend(integration_tools)
     tools.extend(SETUP_TOOLS)

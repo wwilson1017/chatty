@@ -52,6 +52,7 @@ def _large_tool_set() -> list[dict]:
         "chat_history": 1,
         "reminder": 3,
         "scheduled_action": 4,
+        "todo": 10,
         "gmail": 11,
         "calendar": 7,
         "drive": 5,

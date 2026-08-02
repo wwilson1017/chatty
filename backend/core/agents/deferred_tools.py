@@ -22,6 +22,7 @@ ALWAYS_LOADED_KINDS: set[str] = {
     "chat_history",
     "reminder",
     "scheduled_action",
+    "todo",
 }
 
 DEFERRED_TOOL_THRESHOLD = 100

@@ -20,6 +20,34 @@ class TestDefaultToolSet:
         assert "web_search" in names
         assert "create_reminder" in names
 
+
+class TestTodoTools:
+    EXPECTED = {
+        "todo_create", "todo_list", "todo_get", "todo_update", "todo_bulk_update",
+        "todo_delete", "todo_list_projects", "todo_create_project",
+        "todo_update_project", "todo_delete_project",
+    }
+    READS = {"todo_list", "todo_get", "todo_list_projects"}
+
+    def test_always_present(self):
+        assert self.EXPECTED <= _tool_names(get_tool_definitions())
+
+    def test_present_in_background_mode(self):
+        assert self.EXPECTED <= _tool_names(get_tool_definitions(background_mode=True))
+
+    def test_absent_in_import_mode(self):
+        names = _tool_names(get_tool_definitions(import_mode=True))
+        assert not any(n.startswith("todo_") for n in names)
+
+    def test_kind_writes_and_no_context_memory(self):
+        todo_tools = [t for t in get_tool_definitions() if t["name"].startswith("todo_")]
+        assert {t["name"] for t in todo_tools} >= self.EXPECTED
+        for t in todo_tools:
+            assert t["kind"] == "todo"
+            assert t["writes"] is (t["name"] not in self.READS)
+            # Not budget-exempt: todo writes count against write budgets.
+            assert not t.get("context_memory", False)
+
     def test_excludes_google_when_disabled(self):
         names = _tool_names(get_tool_definitions())
         assert "search_emails" not in names
