@@ -16,6 +16,15 @@ import { ContactsPage } from './crm/ContactsPage';
 import { ContactDetailPage } from './crm/ContactDetailPage';
 import { PipelinePage } from './crm/PipelinePage';
 import { TasksPage } from './crm/TasksPage';
+import { TodoLayout } from './todo/TodoLayout';
+import { InboxPage } from './todo/InboxPage';
+import { NextActionsPage } from './todo/NextActionsPage';
+import { ProjectsPage } from './todo/ProjectsPage';
+import { ProjectDetailPage } from './todo/ProjectDetailPage';
+import { WaitingPage } from './todo/WaitingPage';
+import { SomedayPage } from './todo/SomedayPage';
+import { DonePage } from './todo/DonePage';
+import { ReviewPage } from './todo/ReviewPage';
 
 export default function App() {
   return (
@@ -42,6 +51,16 @@ export default function App() {
               <Route path="contacts/:id" element={<ContactDetailPage />} />
               <Route path="pipeline" element={<PipelinePage />} />
               <Route path="tasks" element={<TasksPage />} />
+            </Route>
+            <Route path="/todos" element={<TodoLayout />}>
+              <Route index element={<InboxPage />} />
+              <Route path="next" element={<NextActionsPage />} />
+              <Route path="projects" element={<ProjectsPage />} />
+              <Route path="projects/:id" element={<ProjectDetailPage />} />
+              <Route path="waiting" element={<WaitingPage />} />
+              <Route path="someday" element={<SomedayPage />} />
+              <Route path="done" element={<DonePage />} />
+              <Route path="review" element={<ReviewPage />} />
             </Route>
             <Route path="/usage" element={<UsagePage />} />
             <Route path="/webby" element={<WebbyPage />} />

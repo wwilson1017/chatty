@@ -172,6 +172,8 @@ export function IntegrationsTab() {
     const endpoint = enabled ? 'disable' : 'enable';
     await api(`/api/integrations/${id}/${endpoint}`, { method: 'POST' });
     setIntegrations(prev => prev.map(i => i.id === id ? { ...i, enabled: !enabled } : i));
+    // AppShell listens and refetches so nav entries (e.g. CRM) update live.
+    document.dispatchEvent(new CustomEvent('chatty:integrations-changed'));
   }
 
   async function setToolMode(id: string, mode: string) {
