@@ -7,7 +7,6 @@ agent's tool call actually hits, including the source anti-spoofing guard.
 import pytest
 
 import core.todo.db as tododb
-from core.todo import service
 from core.todo.tools import TODO_TOOL_DEFS, TODO_TOOL_EXECUTORS
 
 
