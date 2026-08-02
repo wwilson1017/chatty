@@ -43,6 +43,7 @@ from core.agents.live.router import router as live_router
 from core.agents.reminders.router import router as reminders_router
 from core.agents.shared_context.router import router as shared_context_router
 from core.todo.router import router as todo_router
+from core.todo.capture import router as capture_router
 from core.agents.usage.router import router as usage_router
 from core.events.router import router as events_router
 
@@ -312,6 +313,10 @@ app.include_router(live_router, tags=["live"])
 app.include_router(notifications_router)
 app.include_router(reminders_router, prefix="/api/reminders", tags=["reminders"])
 app.include_router(todo_router, prefix="/api/todo", tags=["todo"])
+# Public quick-capture page + POST (absolute paths /capture, /api/capture).
+# Must be included BEFORE the StaticFiles mount at the bottom of this file, or
+# the catch-all static app would 404 GET /capture in production.
+app.include_router(capture_router, tags=["capture"])
 app.include_router(setup_router, prefix="/api/setup", tags=["setup"])
 app.include_router(backup_router, prefix="/api/backup", tags=["backup"])
 app.include_router(telegram_router, prefix="/api/telegram", tags=["telegram"])
