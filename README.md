@@ -20,7 +20,7 @@ Create custom AI agents with their own personality, knowledge, and tools — pow
 - **Training mode** — Conversational onboarding that teaches your agent about you, your business, and how you like to work
 - **Knowledge import** — Import an existing agent from [OpenClaw](https://github.com/claw-project/openclaw) or paste context from any AI tool to bootstrap a new agent in minutes
 - **Todos (GTD)** — A built-in Getting Things Done todo system your agents manage with you: inbox capture, next actions by context, projects, waiting/delegated tracking, and a weekly review view
-- **Quick capture** — A no-login `/capture` page you bookmark on your phone (type or dictate, hit send, it's in your inbox), plus instant Telegram capture: message your bot "capture buy milk" and it's logged with zero AI processing
+- **Quick capture** — A no-login `/capture` page you bookmark on your phone (type or dictate, hit send, it's in your inbox), plus instant Telegram capture: message your bot "capture buy milk" and it's logged with zero AI processing. If your instance is reachable from the public internet, flip on the secret-link option in Settings → Todos
 - **Integrations** — Gmail (multiple accounts), Google Calendar, Google Drive, QuickBooks Online, Todoist, Telegram (multiple bots), Odoo, BambooHR, Paperclip, built-in CRM (optional) (WhatsApp is deprecated/frozen — use Telegram)
 - **Agent orchestration** — Connect to [Paperclip](https://github.com/paperclipai/paperclip) for org charts, task management, and multi-agent coordination
 - **File uploads** — Drag and drop PDFs, DOCX, and text files into chat for your agent to read and analyze

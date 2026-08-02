@@ -32,6 +32,12 @@ _capture_posts: dict[str, list[float]] = defaultdict(list)
 
 def _check_capture_rate(ip: str) -> bool:
     now = time.time()
+    # Drop whole expired buckets so attacker-controlled IPs can't grow the
+    # dict unboundedly (timestamps alone being pruned still leaks the keys).
+    if len(_capture_posts) > 256:
+        for stale in [k for k, v in _capture_posts.items()
+                      if not v or now - v[-1] >= _RATE_WINDOW_SECONDS]:
+            del _capture_posts[stale]
     _capture_posts[ip] = [t for t in _capture_posts[ip] if now - t < _RATE_WINDOW_SECONDS]
     if len(_capture_posts[ip]) >= _RATE_MAX_POSTS:
         return False

@@ -32,7 +32,7 @@ class TestParseCapture:
         ("captured milk yesterday", None),
         ("recapture x", None),
         ("please capture milk", None),
-        ("what does capture mean?", None),  # doesn't start with the word? it does not — 'what' first
+        ("what does capture mean?", None),  # anchored: only a LEADING "capture" triggers
         ("", None),
     ])
     def test_cases(self, text, expected):
