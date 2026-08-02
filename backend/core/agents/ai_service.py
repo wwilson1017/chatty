@@ -1188,6 +1188,10 @@ async def chat(
                 "- Amounts are in the company's home currency.\n"
             )
 
+    # GTD coaching — standing instructions for the always-on todo tools
+    from core.todo.coaching import gtd_coaching_block
+    static_prompt += gtd_coaching_block(tool_defs)
+
     # Append deferred tool catalog to static prompt
     if catalog_text:
         static_prompt += "\n\n" + catalog_text
@@ -1809,6 +1813,10 @@ async def run_sync(
                 "- **Never guess IDs** — always query first to find the correct Customer, Item, or Invoice ID.\n"
                 "- Amounts are in the company's home currency.\n"
             )
+
+    # GTD coaching — same as chat()
+    from core.todo.coaching import gtd_coaching_block
+    static_prompt += gtd_coaching_block(tool_defs)
 
     if catalog_text:
         static_prompt += "\n\n" + catalog_text

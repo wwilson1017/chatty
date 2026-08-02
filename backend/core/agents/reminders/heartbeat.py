@@ -10,6 +10,7 @@ from . import service
 from .notifications import notify_reminder_fired
 from core.agents.background_runner import run_background_turn
 from core.agents.security.delimiters import DELIMITER_SYSTEM_INSTRUCTION
+from core.todo.coaching import gtd_coaching_block
 
 logger = logging.getLogger(__name__)
 
@@ -166,6 +167,7 @@ def _process_self_reminder(reminder: dict) -> None:
             f"{recurrence_line}\n"
             f"# Your Knowledge (abbreviated)\n\n{context_snippet}\n\n"
             + DELIMITER_SYSTEM_INSTRUCTION + "\n\n"
+            + gtd_coaching_block(tool_defs)
         ),
         (
             f"# Current Date & Time\n\n"

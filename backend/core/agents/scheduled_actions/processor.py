@@ -19,6 +19,7 @@ from core.agents.background_runner import run_background_turn
 from core.agents.tool_registry import ToolRegistry
 from core.agents.tool_definitions import get_tool_definitions
 from core.agents.security.delimiters import DELIMITER_SYSTEM_INSTRUCTION
+from core.todo.coaching import gtd_coaching_block
 
 from . import history, notifications, service
 
@@ -604,6 +605,7 @@ def _process_heartbeat(action: dict) -> None:
                 f"## Your Checklist\n\n{checklist}\n\n"
                 f"## Your Knowledge (abbreviated)\n\n{context_snippet}\n\n"
                 + DELIMITER_SYSTEM_INSTRUCTION + "\n\n"
+                + gtd_coaching_block(tool_defs)
             ),
             (
                 f"# Current Date & Time\n\n"
@@ -766,6 +768,7 @@ def _process_cron(action: dict) -> None:
             f"{prompt}\n\n"
             f"# Your Knowledge (abbreviated)\n\n{context_snippet}\n\n"
             + DELIMITER_SYSTEM_INSTRUCTION + "\n\n"
+            + gtd_coaching_block(tool_defs)
         ),
         (
             f"# Current Date & Time\n\n"

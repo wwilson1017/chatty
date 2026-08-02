@@ -209,6 +209,27 @@ TODO_TOOL_DEFS: list[dict] = [
         "kind": "todo",
         "writes": True,
     },
+    {
+        "name": "todo_update_gtd_coaching",
+        "description": (
+            "Replace the GTD coaching text injected into EVERY agent's system prompt — "
+            "this changes global instructions for all agents, so confirm intent with the "
+            "user before calling. Full replace: send the complete new text. Empty string "
+            "disables the coaching block. Returns the previous text so the change can be undone."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "text": {
+                    "type": "string",
+                    "description": "The complete replacement coaching text (max 20,000 characters). Empty string disables coaching.",
+                },
+            },
+            "required": ["text"],
+        },
+        "kind": "todo",
+        "writes": True,
+    },
 ]
 
 
@@ -286,6 +307,20 @@ def _exec_update_project(**args) -> dict:
         return {"error": str(e)}
 
 
+def _exec_update_coaching(**args) -> dict:
+    from core.admin_settings import load_admin_settings, set_admin_setting
+    from core.todo.coaching import MAX_COACHING_CHARS
+
+    text = args.get("text")
+    if not isinstance(text, str):
+        return {"error": "text must be a string"}
+    if len(text) > MAX_COACHING_CHARS:
+        return {"error": f"text too long (max {MAX_COACHING_CHARS} characters)"}
+    previous = load_admin_settings().get("gtd_coaching_text", "")
+    set_admin_setting("gtd_coaching_text", text.strip())
+    return {"ok": True, "previous_text": previous, "coaching_disabled": not text.strip()}
+
+
 def _exec_delete_project(**args) -> dict:
     project_id = args.get("id")
     if service.delete_project(int(project_id or 0)):
@@ -304,4 +339,5 @@ TODO_TOOL_EXECUTORS: dict = {
     "todo_create_project": _exec_create_project,
     "todo_update_project": _exec_update_project,
     "todo_delete_project": _exec_delete_project,
+    "todo_update_gtd_coaching": _exec_update_coaching,
 }

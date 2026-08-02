@@ -14,6 +14,7 @@ from core.auth import get_current_user
 from core.admin_settings import (
     load_admin_settings,
     invalidate_cache,
+    clamp_todo_settings,
     ADMIN_DEFAULTS,
     ADMIN_SETTINGS_FILE,
     VALID_TRIAGE_MODES,
@@ -92,7 +93,11 @@ async def complete_setup(user=Depends(get_current_user)):
 
 @router.get("/admin-settings")
 async def get_admin_settings(user=Depends(get_current_user)):
-    return load_admin_settings()
+    from core.todo.coaching import DEFAULT_GTD_COACHING
+
+    # gtd_coaching_default is read-only metadata for the Settings "Reset to
+    # default" button — the PUT handler's ADMIN_DEFAULTS key loop ignores it.
+    return {**load_admin_settings(), "gtd_coaching_default": DEFAULT_GTD_COACHING}
 
 
 @router.put("/admin-settings")
@@ -121,6 +126,7 @@ async def update_admin_settings(body: dict, user=Depends(get_current_user)):
     settings["bot_reply_limit"] = min(settings["bot_reply_limit"], 100)
     # Cap the follow-up budget so a bad settings payload can't oversize prompts.
     settings["commitments_daily_cap"] = min(settings["commitments_daily_cap"], 20)
+    clamp_todo_settings(settings)
     atomic_write_json(ADMIN_SETTINGS_FILE, settings)
     invalidate_cache()
     return settings

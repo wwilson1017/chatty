@@ -6,8 +6,11 @@ settings without importing the HTTP router layer.
 
 import json
 import logging
+import re
 import threading
 from pathlib import Path
+
+from core.todo.coaching import DEFAULT_GTD_COACHING, MAX_COACHING_CHARS
 
 logger = logging.getLogger(__name__)
 
@@ -32,7 +35,28 @@ ADMIN_DEFAULTS = {
     "bot_reply_limit": 5,
     "commitments_enabled": True,
     "commitments_daily_cap": 3,
+    "todo_capture_token": "",
+    "gtd_coaching_text": DEFAULT_GTD_COACHING,
 }
+
+_CAPTURE_TOKEN_STRIP_RE = re.compile(r"[^A-Za-z0-9_-]")
+
+
+def clamp_todo_settings(settings: dict) -> None:
+    """In-place validation for the todo-gtd string settings.
+
+    Capture token must stay URL-safe (it is a path segment); coaching text is
+    capped so a bad payload can't oversize every agent's system prompt.
+    """
+    token = settings.get("todo_capture_token")
+    if not isinstance(token, str):
+        token = ""
+    settings["todo_capture_token"] = _CAPTURE_TOKEN_STRIP_RE.sub("", token)[:128]
+    coaching = settings.get("gtd_coaching_text")
+    if not isinstance(coaching, str):
+        coaching = ADMIN_DEFAULTS["gtd_coaching_text"]
+    settings["gtd_coaching_text"] = coaching[:MAX_COACHING_CHARS]
+
 
 VALID_TRIAGE_MODES = {"standard", "cheap", "always_cheap"}
 VALID_MODEL_TIERS = {"auto", "top", "mid", "light"}
@@ -79,6 +103,7 @@ def load_admin_settings() -> dict:
         result["bot_reply_limit_enabled"] = ADMIN_DEFAULTS["bot_reply_limit_enabled"]
     if not isinstance(result.get("commitments_enabled"), bool):
         result["commitments_enabled"] = ADMIN_DEFAULTS["commitments_enabled"]
+    clamp_todo_settings(result)
 
     with _cache_lock:
         _cached_settings = result
@@ -92,3 +117,18 @@ def invalidate_cache() -> None:
     with _cache_lock:
         _cached_settings = None
         _cached_mtime = 0.0
+
+
+def set_admin_setting(key: str, value) -> dict:
+    """Persist one admin setting outside the HTTP layer (e.g. from an agent tool).
+
+    Values are clamped by load_admin_settings on the way back out.
+    """
+    from core.storage import atomic_write_json
+
+    settings = load_admin_settings()
+    settings[key] = value
+    clamp_todo_settings(settings)
+    atomic_write_json(ADMIN_SETTINGS_FILE, settings)
+    invalidate_cache()
+    return load_admin_settings()

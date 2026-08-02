@@ -25,7 +25,7 @@ class TestTodoTools:
     EXPECTED = {
         "todo_create", "todo_list", "todo_get", "todo_update", "todo_bulk_update",
         "todo_delete", "todo_list_projects", "todo_create_project",
-        "todo_update_project", "todo_delete_project",
+        "todo_update_project", "todo_delete_project", "todo_update_gtd_coaching",
     }
     READS = {"todo_list", "todo_get", "todo_list_projects"}
 

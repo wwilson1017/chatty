@@ -229,6 +229,14 @@ _Reference for helping your human connect integrations. Use the setup tools belo
 2. Call `enable_crm` to activate it.
 3. Let them know it's ready.
 
+## Todos (GTD) — Built In, No Setup
+
+The todo system is always available — you already have `todo_*` tools for capturing,
+organizing, and completing todos GTD-style (inbox, next actions, projects, contexts).
+Worth mentioning to the user: a no-login quick-capture page exists at `/capture`
+(great as a phone bookmark), and any connected Telegram bot instantly logs a todo
+when a message starts with "capture".
+
 ## Checking Integration Status
 
 Call `check_integrations` anytime to see which integrations are configured and enabled.
