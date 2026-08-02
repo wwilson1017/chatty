@@ -4,6 +4,7 @@ import { toast } from '../shared/toast';
 import type { Agent, BrandingConfig } from '../core/types';
 import { ProviderSetup } from '../setup/ProviderSetup';
 import { IntegrationsTab } from './IntegrationsTab';
+import { TodoSettingsTab } from './TodoSettingsTab';
 import { DataTab } from './DataTab';
 import { LogsTab } from './LogsTab';
 import { SecurityTab } from './SecurityTab';
@@ -17,7 +18,7 @@ interface Props {
   onClose: () => void;
 }
 
-type Tab = 'providers' | 'branding' | 'integrations' | 'chat' | 'data' | 'logs' | 'security' | 'danger';
+type Tab = 'providers' | 'branding' | 'integrations' | 'todos' | 'chat' | 'data' | 'logs' | 'security' | 'danger';
 
 export function SettingsPanel({ branding, onBrandingUpdate, onClose }: Props) {
   const [tab, setTab] = useState<Tab>('providers');
@@ -119,6 +120,7 @@ export function SettingsPanel({ branding, onBrandingUpdate, onClose }: Props) {
     { id: 'providers', label: 'Providers' },
     { id: 'branding', label: 'Branding' },
     { id: 'integrations', label: 'Integrations' },
+    { id: 'todos', label: 'Todos' },
     { id: 'chat', label: 'Chat' },
     { id: 'data', label: 'Data' },
     { id: 'logs', label: 'Logs' },
@@ -154,8 +156,8 @@ export function SettingsPanel({ branding, onBrandingUpdate, onClose }: Props) {
           }}>×</button>
         </div>
 
-        {/* Tabs */}
-        <div style={{ display: 'flex', gap: 0 }}>
+        {/* Tabs — 9 of them in 520px: allow horizontal scroll instead of clipping */}
+        <div style={{ display: 'flex', gap: 0, overflowX: 'auto' }}>
           {tabs.map(t => {
             const active = tab === t.id;
             return (
@@ -163,7 +165,7 @@ export function SettingsPanel({ branding, onBrandingUpdate, onClose }: Props) {
                 key={t.id}
                 onClick={() => setTab(t.id)}
                 style={{
-                  flex: 1, padding: '10px 0', textAlign: 'center',
+                  flex: '1 0 auto', padding: '10px 8px', textAlign: 'center',
                   fontSize: 12,
                   fontFamily: "'Inter Tight', system-ui, sans-serif",
                   color: t.id === 'danger'
@@ -267,6 +269,8 @@ export function SettingsPanel({ branding, onBrandingUpdate, onClose }: Props) {
           )}
 
           {tab === 'integrations' && <IntegrationsTab />}
+
+          {tab === 'todos' && <TodoSettingsTab />}
 
           {tab === 'chat' && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
