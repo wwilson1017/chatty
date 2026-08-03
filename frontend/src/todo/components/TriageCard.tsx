@@ -5,7 +5,10 @@ import { useIsMobile } from '../../shared/useIsMobile';
 import { toast } from '../../shared/toast';
 import { confirmDialog } from '../../shared/confirm';
 import { IconStar, IconStarFilled } from '../../shared/icons';
-import { FONT_DISPLAY, GOLD, INK, INK_DIM, INK_MUTE, inputStyle, mono, SAGE, ACCENT_INK } from '../../shared/styles';
+import {
+  FONT_DISPLAY, GOLD, INK, INK_DIM, INK_MUTE, INK_SOFT,
+  inputStyle, mono, SAGE, ACCENT_INK, LINE_STRONG,
+} from '../../shared/styles';
 import { cardStyle, btnSecondary, btnDanger } from '../styles';
 import { SourceBadge } from './badges';
 import { formatAge } from '../util';
@@ -13,6 +16,8 @@ import { formatAge } from '../util';
 interface Props {
   todo: Todo;
   projects: TodoProject[];
+  /** Contexts already in use — the options for the final "set context" step. */
+  contexts: string[];
   /** Called after any mutation that resolves this item (status move / delete). */
   onProcessed: () => void;
   /** Called after an in-place change (project, due date, star). */
@@ -20,17 +25,22 @@ interface Props {
   onEdit: (todo: Todo) => void;
 }
 
-const MOVES: { label: string; status: string; primary?: boolean }[] = [
-  { label: '→ Next', status: 'next_action', primary: true },
+// Destinations for items that are NOT next actions. Filing as a next action is
+// the context step below — it is deliberately not a button up here.
+const MOVES: { label: string; status: string }[] = [
   { label: '→ Waiting', status: 'waiting_for' },
   { label: '→ Delegated', status: 'delegated' },
   { label: '→ Someday', status: 'someday_maybe' },
 ];
 
+const NEW_CONTEXT = '__new__';
+const NO_CONTEXT = '__none__';
+
 /** Inbox processing card — clarify the head item one decision at a time. */
-export function TriageCard({ todo, projects, onProcessed, onChanged, onEdit }: Props) {
+export function TriageCard({ todo, projects, contexts, onProcessed, onChanged, onEdit }: Props) {
   const isMobile = useIsMobile();
   const [busy, setBusy] = useState(false);
+  const [newContext, setNewContext] = useState<string | null>(null);
 
   async function patch(fields: Record<string, unknown>, resolves: boolean) {
     if (busy) return;
@@ -42,6 +52,30 @@ export function TriageCard({ todo, projects, onProcessed, onChanged, onEdit }: P
       toast.error('Failed to update todo.');
     }
     setBusy(false);
+  }
+
+  /** The last step: context + next_action in one write, so it leaves the inbox. */
+  async function fileUnder(context: string) {
+    if (busy) return;
+    setBusy(true);
+    try {
+      await api(`/api/todo/todos/${todo.id}`, {
+        method: 'PUT',
+        body: JSON.stringify({ context: context.trim(), status: 'next_action' }),
+      });
+      toast.success(context.trim() ? `Filed under ${context.trim()} → To Do` : 'Filed → To Do');
+      setNewContext(null);
+      onProcessed();
+    } catch {
+      toast.error('Failed to update todo.');
+    }
+    setBusy(false);
+  }
+
+  function onContextPick(value: string) {
+    if (!value) return;
+    if (value === NEW_CONTEXT) { setNewContext(''); return; }
+    fileUnder(value === NO_CONTEXT ? '' : value);
   }
 
   async function handleDelete() {
@@ -60,12 +94,11 @@ export function TriageCard({ todo, projects, onProcessed, onChanged, onEdit }: P
     }
   }
 
-  const moveBtn = (move: typeof MOVES[number]): React.CSSProperties => move.primary
-    ? {
-        background: SAGE, color: ACCENT_INK, border: 'none', borderRadius: 4,
-        padding: '10px 16px', fontSize: 14, fontWeight: 600, cursor: 'pointer',
-      }
-    : { ...btnSecondary, padding: '10px 14px', fontSize: 14 };
+  const stepLabel = (n: number, text: string): React.ReactNode => (
+    <div style={{ ...mono(11, INK_DIM), marginBottom: 8 }}>
+      <span style={{ color: INK_SOFT }}>{n}.</span> {text}
+    </div>
+  );
 
   return (
     <div style={{ ...cardStyle, padding: isMobile ? '16px 14px' : '22px 24px', marginBottom: 20 }}>
@@ -93,15 +126,16 @@ export function TriageCard({ todo, projects, onProcessed, onChanged, onEdit }: P
         </p>
       )}
 
-      <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 18 }}>
+      <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 20 }}>
         <SourceBadge source={todo.source} />
         <span style={mono(11, INK_DIM)}>captured {formatAge(todo.created_at)} ago</span>
       </div>
 
-      {/* Row 1 — where does it go? */}
+      {/* Step 1 — not a next action? Send it somewhere else and move on. */}
+      {stepLabel(1, 'NOT A NEXT ACTION?')}
       <div style={{
         display: isMobile ? 'grid' : 'flex',
-        gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 12,
+        gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 18,
         flexWrap: 'wrap',
       }}>
         {MOVES.map(move => (
@@ -109,20 +143,28 @@ export function TriageCard({ todo, projects, onProcessed, onChanged, onEdit }: P
             key={move.status}
             disabled={busy}
             onClick={() => patch({ status: move.status }, true)}
-            style={{ ...moveBtn(move), opacity: busy ? 0.6 : 1 }}
+            style={{ ...btnSecondary, padding: '10px 14px', fontSize: 14, opacity: busy ? 0.6 : 1 }}
           >{move.label}</button>
         ))}
+        <button
+          disabled={busy}
+          onClick={() => patch({ status: 'done' }, true)}
+          title="It took under 2 minutes — done"
+          style={{ ...btnSecondary, padding: '10px 14px', fontSize: 14, color: SAGE, opacity: busy ? 0.6 : 1 }}
+        >Done ✓</button>
       </div>
 
-      {/* Row 2 — enrich in place */}
+      {/* Step 2 — optional enrichment. Nothing here leaves the inbox. */}
+      {stepLabel(2, 'ADD DETAIL (OPTIONAL)')}
       <div style={{
         display: isMobile ? 'grid' : 'flex',
         gridTemplateColumns: '1fr 1fr', gap: 8, alignItems: 'center',
-        flexWrap: 'wrap',
+        flexWrap: 'wrap', marginBottom: 18,
       }}>
         <select
           value={todo.project_id ?? ''}
           onChange={e => patch({ project_id: e.target.value ? Number(e.target.value) : null }, false)}
+          aria-label="Project"
           style={{ ...inputStyle, width: isMobile ? '100%' : 180, padding: '8px 10px', fontSize: 13 }}
         >
           <option value="">No project</option>
@@ -132,6 +174,7 @@ export function TriageCard({ todo, projects, onProcessed, onChanged, onEdit }: P
           type="date"
           value={todo.due_date || ''}
           onChange={e => patch({ due_date: e.target.value || null }, false)}
+          aria-label="Due date"
           style={{ ...inputStyle, width: isMobile ? '100%' : 160, padding: '8px 10px', fontSize: 13 }}
         />
         <button onClick={() => onEdit(todo)} style={{ ...btnSecondary, padding: '8px 14px', fontSize: 13 }}>
@@ -140,12 +183,74 @@ export function TriageCard({ todo, projects, onProcessed, onChanged, onEdit }: P
         <button onClick={handleDelete} style={{ ...btnDanger, padding: '8px 14px', fontSize: 13 }}>
           Delete
         </button>
-        <button
-          disabled={busy}
-          onClick={() => patch({ status: 'done' }, true)}
-          title="It took under 2 minutes — done"
-          style={{ ...btnSecondary, padding: '8px 14px', fontSize: 13, color: SAGE }}
-        >Done ✓</button>
+      </div>
+
+      {/* Step 3 — the last step. Picking a context files it and clears the inbox. */}
+      <div style={{
+        borderTop: `1px solid ${LINE_STRONG}`, paddingTop: 16,
+      }}>
+        {stepLabel(3, 'LAST STEP — SET CONTEXT')}
+        <p style={{ fontSize: 13, color: INK_MUTE, margin: '0 0 10px', lineHeight: 1.5 }}>
+          Where can you actually do this? Choosing a context files it under{' '}
+          <strong style={{ color: INK, fontWeight: 500 }}>To Do</strong> and clears it out of your
+          inbox — do it last.
+        </p>
+
+        {newContext === null ? (
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+            <select
+              value=""
+              disabled={busy}
+              onChange={e => onContextPick(e.target.value)}
+              aria-label="Set context and file this todo"
+              style={{
+                ...inputStyle, width: isMobile ? '100%' : 260,
+                padding: '10px 12px', fontSize: 14,
+                borderColor: SAGE, color: INK,
+                opacity: busy ? 0.6 : 1,
+              }}
+            >
+              <option value="">Set context…</option>
+              {contexts.map(c => <option key={c} value={c}>{c}</option>)}
+              <option value={NEW_CONTEXT}>+ New context…</option>
+              <option value={NO_CONTEXT}>No context — file anyway</option>
+            </select>
+            {todo.context && (
+              <span style={mono(11, INK_DIM)}>currently {todo.context}</span>
+            )}
+          </div>
+        ) : (
+          <form
+            onSubmit={e => { e.preventDefault(); if (newContext.trim()) fileUnder(newContext); }}
+            style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}
+          >
+            <input
+              value={newContext}
+              onChange={e => setNewContext(e.target.value)}
+              placeholder="@home, @calls, @errands..."
+              autoFocus
+              aria-label="New context"
+              style={{
+                ...inputStyle, width: isMobile ? '100%' : 220,
+                padding: '10px 12px', fontSize: 14, borderColor: SAGE,
+              }}
+            />
+            <button
+              type="submit"
+              disabled={busy || !newContext.trim()}
+              style={{
+                background: SAGE, color: ACCENT_INK, border: 'none', borderRadius: 4,
+                padding: '10px 16px', fontSize: 14, fontWeight: 600, cursor: 'pointer',
+                opacity: busy || !newContext.trim() ? 0.5 : 1,
+              }}
+            >File →</button>
+            <button
+              type="button"
+              onClick={() => setNewContext(null)}
+              style={{ ...btnSecondary, padding: '9px 14px', fontSize: 13 }}
+            >Cancel</button>
+          </form>
+        )}
       </div>
     </div>
   );
