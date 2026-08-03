@@ -223,6 +223,19 @@ class TestListTodos:
         service.update_todo(b["id"], {"notes": "edited after done", "status": "done"})
         assert len(service.list_todos(status="next_action")) == 1
 
+    def test_bulk_complete_spawns_each_repeating_todo(self, todo_db):
+        a = service.create_todo("water", status="next_action", repeat="daily")
+        b = service.create_todo("stretch", status="next_action", repeat="weekly")
+        c = service.create_todo("one-off", status="next_action")
+        service.bulk_update([a["id"], b["id"], c["id"]], {"status": "done"})
+        spawned = service.list_todos(status="next_action")
+        assert sorted(t["title"] for t in spawned) == ["stretch", "water"]
+
+    def test_clearing_repeat_while_completing_does_not_spawn(self, todo_db):
+        a = service.create_todo("was repeating", status="next_action", repeat="weekly")
+        service.update_todo(a["id"], {"repeat": "", "status": "done"})
+        assert service.list_todos(status="next_action") == []
+
     def test_invalid_repeat_rejected(self, todo_db):
         import pytest
         with pytest.raises(ValueError, match="repeat"):
