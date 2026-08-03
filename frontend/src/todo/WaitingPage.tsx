@@ -12,7 +12,7 @@ import { STATUS_META } from './constants';
 import { formatAge, matchesFilter } from './util';
 import { TodoRow } from './components/TodoRow';
 import { TodoEditSheet } from './components/TodoEditSheet';
-import { ListFilterBar } from './components/ListFilterBar';
+import { FilterEmptyState, ListFilterBar } from './components/ListFilterBar';
 import { LoadingSpinner } from './components/LoadingSpinner';
 import type { TodoOutletContext } from './TodoLayout';
 
@@ -113,9 +113,7 @@ export function WaitingPage() {
           <p style={{ color: INK_DIM, fontSize: 14 }}>Nothing waiting on anyone. Nice.</p>
         </div>
       ) : visibleWaiting.length === 0 && visibleDelegated.length === 0 ? (
-        <div style={{ textAlign: 'center', padding: '64px 0' }}>
-          <p style={{ color: INK_DIM, fontSize: 14 }}>Nothing matches your filter.</p>
-        </div>
+        <FilterEmptyState />
       ) : (
         <>
           {section('Waiting For', STATUS_META.waiting_for.color, visibleWaiting)}

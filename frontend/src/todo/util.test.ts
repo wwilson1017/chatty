@@ -5,7 +5,7 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { parseDbDate, daysSince, formatAge, parseTags, todayStr, matchesFilter } from './util';
+import { parseDbDate, daysSince, formatAge, parseTags, todayStr, matchesFilter, groupByContext } from './util';
 
 describe('parseDbDate', () => {
   it('treats SQLite "YYYY-MM-DD HH:MM:SS" timestamps as UTC', () => {
@@ -86,5 +86,23 @@ describe('matchesFilter', () => {
 
   it('handles null project_name', () => {
     expect(matchesFilter({ ...todo, project_name: null }, 'house')).toBe(false);
+  });
+});
+
+describe('groupByContext', () => {
+  it('sorts contexts alphabetically with "no context" last', () => {
+    const groups = groupByContext([
+      { context: '', title: 'orphan' },
+      { context: '@home', title: 'a' },
+      { context: '@calls', title: 'b' },
+      { context: '@home', title: 'c' },
+    ]);
+    expect(groups.map(([ctx]) => ctx)).toEqual(['@calls', '@home', '']);
+    expect(groups[1][1].map(t => t.title)).toEqual(['a', 'c']);
+    expect(groups[2][1].map(t => t.title)).toEqual(['orphan']);
+  });
+
+  it('returns an empty array for no todos', () => {
+    expect(groupByContext([])).toEqual([]);
   });
 });

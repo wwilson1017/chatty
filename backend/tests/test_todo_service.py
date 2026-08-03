@@ -187,6 +187,13 @@ class TestListTodos:
         assert service._next_due("monthly", "2099-12-15") == "2100-01-15"  # year rollover
         assert service._next_due("yearly", "2096-02-29") == "2097-02-28"   # leap clamp
 
+    def test_next_due_invalid_repeat_raises(self, todo_db):
+        # Empty/unknown values must never silently fall through to yearly math.
+        with pytest.raises(ValueError, match="Invalid repeat"):
+            service._next_due("", "2099-01-01")
+        with pytest.raises(ValueError, match="Invalid repeat"):
+            service._next_due("bogus", "2099-01-01")
+
     def test_next_due_never_spawns_overdue(self, todo_db):
         import datetime
         today = datetime.date.today()
@@ -212,6 +219,19 @@ class TestListTodos:
         assert nxt["star"] is False          # today's priority doesn't carry over
         done = service.list_todos(status="done")
         assert [t["id"] for t in done] == [a["id"]]
+
+    def test_spawn_preserves_prior_inbox_status(self, todo_db):
+        a = service.create_todo("repeating inbox", status="inbox", repeat="daily")
+        service.update_todo(a["id"], {"status": "done"})
+        spawned = service.list_todos(status="inbox")
+        assert [t["title"] for t in spawned] == ["repeating inbox"]
+        assert spawned[0]["id"] != a["id"]
+
+    def test_spawn_from_dropped_falls_back_to_next_action(self, todo_db):
+        a = service.create_todo("was dropped", status="dropped", repeat="weekly")
+        service.update_todo(a["id"], {"status": "done"})
+        spawned = service.list_todos(status="next_action")
+        assert [t["title"] for t in spawned] == ["was dropped"]
 
     def test_non_repeating_and_reopen_do_not_spawn(self, todo_db):
         a = service.create_todo("one-off", status="next_action")
@@ -323,6 +343,64 @@ class TestFilters:
         filters = service.get_filters()
         assert filters["contexts"] == ["@home"]
         assert filters["tags"] == ["deep", "quick"]
+
+
+class TestMigration:
+    def test_repeat_column_added_to_pre_migration_db(self, tmp_path, monkeypatch):
+        """A DB created before the repeat column existed gets it via the
+        ALTER TABLE migration in _setup_connection, preserving existing rows."""
+        import sqlite3
+
+        monkeypatch.setattr(tododb, "DATA_DIR", tmp_path / "todo")
+        monkeypatch.setattr(tododb, "DB_PATH", tmp_path / "todo" / "todo.db")
+        (tmp_path / "todo").mkdir()
+        tododb.close_db()
+
+        # Pre-migration schema: current CREATE TABLE minus the repeat column.
+        conn = sqlite3.connect(str(tmp_path / "todo" / "todo.db"))
+        conn.executescript("""
+            CREATE TABLE projects (
+                id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                name        TEXT NOT NULL COLLATE NOCASE UNIQUE,
+                notes       TEXT NOT NULL DEFAULT '',
+                status      TEXT NOT NULL DEFAULT 'active'
+                            CHECK(status IN ('active','someday','completed','dropped')),
+                created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+                updated_at  TEXT NOT NULL DEFAULT (datetime('now'))
+            );
+            CREATE TABLE todos (
+                id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                title        TEXT NOT NULL,
+                notes        TEXT NOT NULL DEFAULT '',
+                project_id   INTEGER REFERENCES projects(id) ON DELETE SET NULL,
+                context      TEXT NOT NULL DEFAULT '',
+                tags         TEXT NOT NULL DEFAULT '[]',
+                status       TEXT NOT NULL DEFAULT 'inbox'
+                             CHECK(status IN ('inbox','next_action','waiting_for','delegated',
+                                              'someday_maybe','done','dropped')),
+                star         INTEGER NOT NULL DEFAULT 0,
+                due_date     TEXT,
+                source       TEXT NOT NULL DEFAULT 'agent',
+                created_at   TEXT NOT NULL DEFAULT (datetime('now')),
+                updated_at   TEXT NOT NULL DEFAULT (datetime('now')),
+                completed_at TEXT
+            );
+        """)
+        conn.execute("INSERT INTO todos (title) VALUES ('legacy row')")
+        conn.commit()
+        conn.close()
+
+        tododb._setup_connection()
+        try:
+            cols = {r[1] for r in tododb.get_db().execute("PRAGMA table_info(todos)")}
+            assert "repeat" in cols
+            legacy = service.list_todos(search="legacy")
+            assert len(legacy) == 1
+            assert legacy[0]["repeat"] == ""
+            fresh = service.create_todo("new repeating", repeat="weekly")
+            assert fresh["repeat"] == "weekly"
+        finally:
+            tododb.close_db()
 
 
 class TestCapture:

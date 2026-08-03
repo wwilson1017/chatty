@@ -13,6 +13,7 @@ import { TodoRow } from './components/TodoRow';
 import { TodoEditSheet } from './components/TodoEditSheet';
 import { ProjectForm } from './components/ProjectForm';
 import { LoadingSpinner } from './components/LoadingSpinner';
+import { updateProjectStatus } from './projectActions';
 import type { TodoOutletContext } from './TodoLayout';
 
 const SECTIONS: { label: string; statuses: TodoStatus[] }[] = [
@@ -61,15 +62,7 @@ export function ProjectDetailPage() {
   const hasNextAction = todos.some(t => t.status === 'next_action');
 
   async function setProjectStatus(status: TodoProjectStatus) {
-    try {
-      await api(`/api/todo/projects/${projectId}`, {
-        method: 'PUT', body: JSON.stringify({ status }),
-      });
-    } catch {
-      toast.error('Failed to update project.');
-      return;
-    }
-    refreshMeta();
+    if (await updateProjectStatus(projectId, status)) refreshMeta();
   }
 
   async function addNextAction() {

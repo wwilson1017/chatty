@@ -1,15 +1,14 @@
 import { useState } from 'react';
 import { useNavigate, useOutletContext } from 'react-router-dom';
-import { api } from '../core/api/client';
 import type { TodoProject, TodoProjectStatus } from '../core/types';
 import { useIsMobile } from '../shared/useIsMobile';
-import { toast } from '../shared/toast';
 import { IconPlus } from '../shared/icons';
 import { FONT_MONO, INK, INK_DIM, INK_SOFT, LINE } from '../shared/styles';
 import { pageHeading, filterBar, filterTab, btnPrimary, btnSmall, cardStyle, listContainer } from './styles';
 import { PROJECT_STATUS_META, PROJECT_STATUS_ORDER } from './constants';
 import { ProjectForm } from './components/ProjectForm';
 import { ListFilterBar } from './components/ListFilterBar';
+import { updateProjectStatus } from './projectActions';
 import type { TodoOutletContext } from './TodoLayout';
 
 export function ProjectsPage() {
@@ -27,15 +26,7 @@ export function ProjectsPage() {
   );
 
   async function setStatus(project: TodoProject, status: TodoProjectStatus) {
-    try {
-      await api(`/api/todo/projects/${project.id}`, {
-        method: 'PUT', body: JSON.stringify({ status }),
-      });
-    } catch {
-      toast.error('Failed to update project.');
-      return;
-    }
-    refreshMeta();
+    if (await updateProjectStatus(project.id, status)) refreshMeta();
   }
 
   const statusBadge = (status: TodoProjectStatus) => {

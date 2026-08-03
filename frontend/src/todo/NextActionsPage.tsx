@@ -7,10 +7,10 @@ import { LoadError } from '../shared/LoadError';
 import { IconPlus } from '../shared/icons';
 import { GOLD, INK_DIM } from '../shared/styles';
 import { pageHeading, sectionHeading, btnPrimary, listContainer } from './styles';
-import { matchesFilter } from './util';
+import { groupByContext, matchesFilter } from './util';
 import { TodoRow } from './components/TodoRow';
 import { TodoEditSheet } from './components/TodoEditSheet';
-import { ListFilterBar } from './components/ListFilterBar';
+import { FilterEmptyState, ListFilterBar } from './components/ListFilterBar';
 import { LoadingSpinner } from './components/LoadingSpinner';
 import type { TodoOutletContext } from './TodoLayout';
 
@@ -49,18 +49,7 @@ export function NextActionsPage() {
   const { starred, groups } = useMemo(() => {
     const starredItems = filtered.filter(t => t.star);
     const rest = filtered.filter(t => !t.star);
-    const byContext = new Map<string, Todo[]>();
-    for (const t of rest) {
-      const key = t.context || '';
-      if (!byContext.has(key)) byContext.set(key, []);
-      byContext.get(key)!.push(t);
-    }
-    const sorted = [...byContext.entries()].sort(([a], [b]) => {
-      if (a === '') return 1;   // "No context" last
-      if (b === '') return -1;
-      return a.localeCompare(b);
-    });
-    return { starred: starredItems, groups: sorted };
+    return { starred: starredItems, groups: groupByContext(rest) };
   }, [filtered]);
 
 
@@ -90,9 +79,7 @@ export function NextActionsPage() {
           </p>
         </div>
       ) : filtered.length === 0 ? (
-        <div style={{ textAlign: 'center', padding: '64px 0' }}>
-          <p style={{ color: INK_DIM, fontSize: 14 }}>Nothing matches your filter.</p>
-        </div>
+        <FilterEmptyState />
       ) : (
         <>
           {starred.length > 0 && (

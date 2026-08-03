@@ -6,6 +6,7 @@ import { useIsMobile } from '../shared/useIsMobile';
 import { LoadError } from '../shared/LoadError';
 import { INK_DIM, INK_SOFT, inputStyle } from '../shared/styles';
 import { pageHeading, sectionHeading, listContainer } from './styles';
+import { groupByContext } from './util';
 import { STATUS_META, TODO_STATUS_ORDER } from './constants';
 import { TodoRow } from './components/TodoRow';
 import { TodoEditSheet } from './components/TodoEditSheet';
@@ -89,24 +90,12 @@ export function SearchPage() {
         }))
         .filter(g => g.items.length > 0);
     }
-    const byContext = new Map<string, Todo[]>();
-    for (const t of visible) {
-      const key = t.context || '';
-      if (!byContext.has(key)) byContext.set(key, []);
-      byContext.get(key)!.push(t);
-    }
-    return [...byContext.entries()]
-      .sort(([a], [b]) => {
-        if (a === '') return 1;   // "No context" last
-        if (b === '') return -1;
-        return a.localeCompare(b);
-      })
-      .map(([ctx, items]) => ({
-        key: ctx || '(none)',
-        label: ctx || 'No context',
-        color: undefined as string | undefined,
-        items,
-      }));
+    return groupByContext(visible).map(([ctx, items]) => ({
+      key: ctx || '(none)',
+      label: ctx || 'No context',
+      color: undefined as string | undefined,
+      items,
+    }));
   }, [visible, searching]);
 
   return (

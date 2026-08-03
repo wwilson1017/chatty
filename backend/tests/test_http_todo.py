@@ -51,6 +51,10 @@ class TestTodoCrud:
         r = client.post("/api/todo/todos", json={"title": "x", "status": "bogus"})
         assert r.status_code == 400
 
+    def test_invalid_repeat_400(self, client):
+        r = client.post("/api/todo/todos", json={"title": "x", "repeat": "fortnightly"})
+        assert r.status_code == 400
+
     def test_list_filters_by_status(self, client):
         client.post("/api/todo/todos", json={"title": "a"})
         client.post("/api/todo/todos", json={"title": "b", "status": "next_action"})

@@ -46,9 +46,11 @@ export function TodoLayout() {
 
   const onSearchPage = location.pathname.startsWith('/todos/search');
 
-  // Leaving the results page resets the global search box.
-  // eslint-disable-next-line react-hooks/set-state-in-effect
-  useEffect(() => { if (!onSearchPage) setSearchText(''); }, [onSearchPage]);
+  // Keep the header box in sync with ?q= — covers deep links, Back/Forward,
+  // and leaving the results page (urlQuery becomes ''). Typing is unaffected:
+  // navigate() puts the same value in the URL, so the effect is a no-op.
+  const urlQuery = onSearchPage ? new URLSearchParams(location.search).get('q') || '' : '';
+  useEffect(() => { setSearchText(urlQuery); }, [urlQuery]);
 
   // Global search: typing anywhere drops straight into live results. The
   // keystroke that starts a search pushes one history entry (back returns

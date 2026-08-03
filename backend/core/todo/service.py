@@ -86,9 +86,11 @@ def _next_due(repeat: str, due_date: str | None) -> str:
     if repeat == "monthly":
         y, m = (base.year, base.month + 1) if base.month < 12 else (base.year + 1, 1)
         return base.replace(year=y, month=m, day=min(base.day, calendar.monthrange(y, m)[1])).isoformat()
-    # yearly — clamp for Feb 29
-    y = base.year + 1
-    return base.replace(year=y, day=min(base.day, calendar.monthrange(y, base.month)[1])).isoformat()
+    if repeat == "yearly":
+        # clamp for Feb 29
+        y = base.year + 1
+        return base.replace(year=y, day=min(base.day, calendar.monthrange(y, base.month)[1])).isoformat()
+    raise ValueError(f"Invalid repeat '{repeat}'")
 
 
 def _validate_tags(tags) -> list[str]:

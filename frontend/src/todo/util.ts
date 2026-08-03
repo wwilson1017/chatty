@@ -25,6 +25,21 @@ export function parseTags(input: string): string[] {
   return input.split(',').map(t => t.trim()).filter(Boolean);
 }
 
+// Group todos by context, sorted alphabetically with "no context" last.
+export function groupByContext<T extends { context: string }>(todos: T[]): [string, T[]][] {
+  const byContext = new Map<string, T[]>();
+  for (const t of todos) {
+    const key = t.context || '';
+    if (!byContext.has(key)) byContext.set(key, []);
+    byContext.get(key)!.push(t);
+  }
+  return [...byContext.entries()].sort(([a], [b]) => {
+    if (a === '') return 1;
+    if (b === '') return -1;
+    return a.localeCompare(b);
+  });
+}
+
 // Client-side filter behind the per-tab search boxes. Context is an exact
 // (case-insensitive) match; search is a substring match across title, notes,
 // context, project name, and tags.

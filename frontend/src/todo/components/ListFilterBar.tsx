@@ -1,4 +1,4 @@
-import { inputStyle } from '../../shared/styles';
+import { INK_DIM, inputStyle } from '../../shared/styles';
 
 interface Props {
   search: string;
@@ -34,6 +34,15 @@ export function ListFilterBar({
           {contexts.map(c => <option key={c} value={c}>{c}</option>)}
         </select>
       )}
+    </div>
+  );
+}
+
+/** Empty state shown when the filter bar's search/context hides every row. */
+export function FilterEmptyState() {
+  return (
+    <div style={{ textAlign: 'center', padding: '64px 0' }}>
+      <p style={{ color: INK_DIM, fontSize: 14 }}>Nothing matches your filter.</p>
     </div>
   );
 }

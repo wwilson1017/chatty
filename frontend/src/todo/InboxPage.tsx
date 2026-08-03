@@ -10,7 +10,7 @@ import { matchesFilter } from './util';
 import { TriageCard } from './components/TriageCard';
 import { TodoRow } from './components/TodoRow';
 import { TodoEditSheet } from './components/TodoEditSheet';
-import { ListFilterBar } from './components/ListFilterBar';
+import { FilterEmptyState, ListFilterBar } from './components/ListFilterBar';
 import { LoadingSpinner } from './components/LoadingSpinner';
 import type { TodoOutletContext } from './TodoLayout';
 
@@ -61,9 +61,7 @@ export function InboxPage() {
       ) : loadFailed && todos.length === 0 ? (
         <LoadError label="Couldn't load your inbox" onRetry={load} />
       ) : !active && todos.length > 0 ? (
-        <div style={{ textAlign: 'center', padding: '64px 0' }}>
-          <p style={{ color: INK_DIM, fontSize: 14 }}>Nothing matches your filter.</p>
-        </div>
+        <FilterEmptyState />
       ) : !active ? (
         <div style={{ textAlign: 'center', padding: '72px 0' }}>
           <div style={{ fontSize: 28, marginBottom: 12, color: SAGE }}>✓</div>
