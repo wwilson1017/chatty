@@ -42,6 +42,10 @@ export function InboxPage() {
 
   const reload = useCallback(() => { load(); refreshMeta(); }, [load, refreshMeta]);
 
+  // A processed item leaves the inbox — drop the manual selection so the card
+  // advances to the next item in capture order.
+  const advance = useCallback(() => { setActiveId(null); reload(); }, [reload]);
+
   const filtered = todos.filter(t => matchesFilter(t, search, contextFilter));
   const active = filtered.find(t => t.id === activeId) || filtered[0] || null;
   const rest = filtered.filter(t => t.id !== (active?.id ?? -1));
@@ -73,9 +77,11 @@ export function InboxPage() {
       ) : (
         <>
           <TriageCard
+            key={active.id}
             todo={active}
             projects={projects}
-            onProcessed={reload}
+            contexts={contexts}
+            onProcessed={advance}
             onChanged={reload}
             onEdit={setEditTodo}
           />
