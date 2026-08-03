@@ -61,8 +61,10 @@ export function SearchPage() {
   }, []);
 
   // Debounced live search (the header box updates ?q= per keystroke);
-  // instant initial browse load.
+  // instant initial browse load. Bump seq immediately so a request still in
+  // flight for the previous query can't commit during the debounce window.
   useEffect(() => {
+    seq.current++;
     const t = setTimeout(() => { load(query); }, query ? 250 : 0);
     return () => clearTimeout(t);
   }, [query, load]);
@@ -123,7 +125,9 @@ export function SearchPage() {
 
       {loading ? (
         <LoadingSpinner />
-      ) : loadFailed && todos.length === 0 ? (
+      ) : loadFailed ? (
+        // Always surface a failed request — keeping the previous query's
+        // results on screen would silently mislabel them as this query's.
         <LoadError label="Couldn't load todos" onRetry={() => load(query)} />
       ) : visible.length === 0 ? (
         <div style={{ textAlign: 'center', padding: '64px 0' }}>
