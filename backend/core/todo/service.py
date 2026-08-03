@@ -67,30 +67,46 @@ def _validate_repeat(repeat) -> str:
     return r
 
 
+def _advance(repeat: str, base: datetime.date) -> datetime.date:
+    """One repeat interval after `base`, clamping month-end/Feb-29 overflow."""
+    if repeat == "daily":
+        return base + datetime.timedelta(days=1)
+    if repeat == "weekly":
+        return base + datetime.timedelta(days=7)
+    if repeat == "monthly":
+        y, m = (base.year, base.month + 1) if base.month < 12 else (base.year + 1, 1)
+        return base.replace(year=y, month=m, day=min(base.day, calendar.monthrange(y, m)[1]))
+    if repeat == "yearly":
+        y = base.year + 1
+        return base.replace(year=y, day=min(base.day, calendar.monthrange(y, base.month)[1]))
+    raise ValueError(f"Invalid repeat '{repeat}'")
+
+
 def _next_due(repeat: str, due_date: str | None) -> str:
     """Due date for the next occurrence of a repeating todo.
 
-    Advances from the old due date, or from today when the due date is past
-    or missing — completing late must never spawn an already-overdue copy.
+    Advances from the old due date; re-anchors to today only when even the
+    advanced date is already past, so completing late never spawns an
+    already-overdue copy. Advancing-then-clamping (rather than clamping the
+    base first) matters because "today" here is the SERVER date — UTC on
+    Railway — while due dates carry the user's local intent: an evening
+    completion lands after UTC midnight, and clamping first would skip a day
+    on every such completion.
+
+    # simplification: next-due derives from the previous occurrence with
+    # month-end clamping, so a monthly Jan-31 repeat drifts to the 28th after
+    # February, and "today" is server-local; storing an anchor day plus a
+    # user-timezone setting is the upgrade path if either matters.
     """
     today = datetime.date.today()
     try:
         base = datetime.date.fromisoformat(due_date) if due_date else today
     except ValueError:
         base = today
-    base = max(base, today)
-    if repeat == "daily":
-        return (base + datetime.timedelta(days=1)).isoformat()
-    if repeat == "weekly":
-        return (base + datetime.timedelta(days=7)).isoformat()
-    if repeat == "monthly":
-        y, m = (base.year, base.month + 1) if base.month < 12 else (base.year + 1, 1)
-        return base.replace(year=y, month=m, day=min(base.day, calendar.monthrange(y, m)[1])).isoformat()
-    if repeat == "yearly":
-        # clamp for Feb 29
-        y = base.year + 1
-        return base.replace(year=y, day=min(base.day, calendar.monthrange(y, base.month)[1])).isoformat()
-    raise ValueError(f"Invalid repeat '{repeat}'")
+    nxt = _advance(repeat, base)
+    if nxt < today:  # strictly less — a due-today result is not overdue
+        nxt = _advance(repeat, today)
+    return nxt.isoformat()
 
 
 def _validate_tags(tags) -> list[str]:
@@ -403,6 +419,11 @@ def list_todos(
         # window would freeze on the oldest rows and hide new completions.
         # (dropped rows have no completed_at; updated_at marks the drop.)
         sql += " ORDER BY COALESCE(t.completed_at, t.updated_at) DESC, t.id DESC LIMIT ?"
+    elif search and not status:
+        # Global search spans every status, and repeating todos accumulate
+        # done copies with identical titles — open todos must win the LIMIT
+        # window or the live occurrence vanishes behind finished ones.
+        sql += " ORDER BY (t.status IN ('done','dropped')) ASC, t.id DESC LIMIT ?"
     else:
         sql += " ORDER BY t.created_at ASC, t.id ASC LIMIT ?"
     n = 100 if limit is None else int(limit)  # `or` would turn an explicit 0 into 100

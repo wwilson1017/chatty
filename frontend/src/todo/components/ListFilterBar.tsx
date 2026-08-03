@@ -22,12 +22,14 @@ export function ListFilterBar({
         value={search}
         onChange={e => onSearch(e.target.value)}
         placeholder={placeholder}
+        aria-label={placeholder}
         style={{ ...inputStyle, flex: 1, padding: '7px 12px' }}
       />
       {onContext && (
         <select
           value={context || ''}
           onChange={e => onContext(e.target.value)}
+          aria-label="Filter by context"
           style={{ ...inputStyle, width: 'auto', maxWidth: isMobile ? 140 : 200, padding: '7px 12px' }}
         >
           <option value="">All contexts</option>

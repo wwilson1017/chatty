@@ -113,6 +113,7 @@ export function SearchPage() {
         <select
           value={context}
           onChange={e => setContext(e.target.value)}
+          aria-label="Filter by context"
           style={{ ...inputStyle, width: 'auto', maxWidth: 200, padding: '7px 12px' }}
         >
           <option value="">All contexts</option>
@@ -131,18 +132,25 @@ export function SearchPage() {
           </p>
         </div>
       ) : (
-        groups.map(group => (
-          <div key={group.key} style={{ marginBottom: 28 }}>
-            <div style={sectionHeading(group.color)}>
-              {group.label.toUpperCase()} · {group.items.length}
+        <>
+          {searching && todos.length >= 500 && (
+            <p style={{ color: INK_DIM, fontSize: 13, margin: '0 0 16px' }}>
+              Showing the first 500 matches — refine your search to narrow down.
+            </p>
+          )}
+          {groups.map(group => (
+            <div key={group.key} style={{ marginBottom: 28 }}>
+              <div style={sectionHeading(group.color)}>
+                {group.label.toUpperCase()} · {group.items.length}
+              </div>
+              <div style={listContainer(isMobile)}>
+                {group.items.map(todo => (
+                  <TodoRow key={todo.id} todo={todo} onChanged={reload} onOpen={setEditTodo} />
+                ))}
+              </div>
             </div>
-            <div style={listContainer(isMobile)}>
-              {group.items.map(todo => (
-                <TodoRow key={todo.id} todo={todo} onChanged={reload} onOpen={setEditTodo} />
-              ))}
-            </div>
-          </div>
-        ))
+          ))}
+        </>
       )}
 
       {editTodo && (

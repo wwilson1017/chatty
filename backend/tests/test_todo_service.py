@@ -197,9 +197,21 @@ class TestListTodos:
     def test_next_due_never_spawns_overdue(self, todo_db):
         import datetime
         today = datetime.date.today()
-        # Overdue and missing due dates both advance from today.
+        # Long-overdue and missing due dates both advance from today.
         assert service._next_due("daily", "2020-01-01") == (today + datetime.timedelta(days=1)).isoformat()
         assert service._next_due("weekly", None) == (today + datetime.timedelta(days=7)).isoformat()
+
+    def test_next_due_advances_from_due_date_not_today(self, todo_db):
+        import datetime
+        today = datetime.date.today()
+        # Due "yesterday" (an evening completion after UTC midnight, or one day
+        # late): advancing from the due date gives today — NOT tomorrow, which
+        # clamping base-to-today first would produce, skipping a day.
+        yesterday = (today - datetime.timedelta(days=1)).isoformat()
+        assert service._next_due("daily", yesterday) == today.isoformat()
+        # Weekly overdue by 3 days keeps its anchor: due+7, not today+7.
+        due = today - datetime.timedelta(days=3)
+        assert service._next_due("weekly", due.isoformat()) == (due + datetime.timedelta(days=7)).isoformat()
 
     def test_completing_repeating_todo_spawns_next_occurrence(self, todo_db):
         a = service.create_todo(
@@ -275,6 +287,18 @@ class TestListTodos:
         assert [t["title"] for t in service.list_todos(search="calls")] == ["a"]
         assert [t["title"] for t in service.list_todos(search="errand")] == ["b"]
         assert [t["title"] for t in service.list_todos(search="garage")] == ["c"]
+
+    def test_global_search_orders_open_before_done(self, todo_db):
+        # Repeating todos pile up done copies with identical titles; the open
+        # occurrence must win the LIMIT window in a global (no-status) search.
+        service.create_todo("Water the plants", status="done")
+        service.create_todo("Water the plants", status="done")
+        open_todo = service.create_todo("Water the plants", status="next_action")
+        results = service.list_todos(search="water")
+        assert results[0]["id"] == open_todo["id"]
+        assert [t["status"] for t in results] == ["next_action", "done", "done"]
+        # Status-filtered lists keep their existing ordering contracts.
+        assert [t["status"] for t in service.list_todos(status="done", search="water")] == ["done", "done"]
 
     def test_ordering_is_fifo(self, todo_db):
         service.create_todo("first")

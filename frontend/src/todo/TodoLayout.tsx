@@ -131,6 +131,7 @@ export function TodoLayout() {
                 value={searchText}
                 onChange={e => onSearchChange(e.target.value)}
                 placeholder="Search todos..."
+                aria-label="Search todos"
                 style={{ ...inputStyle, width: 200, padding: '7px 12px', fontSize: 14, marginRight: 8 }}
               />
               <QuickAdd isMobile={false} onAdded={() => { refreshMeta(); setQuickAddSeq(s => s + 1); }} />
@@ -170,6 +171,7 @@ export function TodoLayout() {
               value={searchText}
               onChange={e => onSearchChange(e.target.value)}
               placeholder="Search todos..."
+              aria-label="Search todos"
               style={{ ...inputStyle, padding: '7px 12px', fontSize: 14 }}
             />
           </div>
