@@ -42,6 +42,7 @@ class TodoCreate(BaseModel):
     status: str = "inbox"
     star: bool = False
     due_date: str | None = None
+    repeat: str = ""
 
 
 class TodoUpdate(BaseModel):
@@ -54,6 +55,7 @@ class TodoUpdate(BaseModel):
     status: str | None = None
     star: bool | None = None
     due_date: str | None = None
+    repeat: str | None = None
 
 
 class TodoBulkUpdate(BaseModel):
@@ -111,6 +113,7 @@ async def create_todo(body: TodoCreate, user=Depends(get_current_user)):
             status=body.status,
             star=body.star,
             due_date=body.due_date,
+            repeat=body.repeat,
             source="ui",
         )
     except ValueError as e:

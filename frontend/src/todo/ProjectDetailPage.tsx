@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate, useOutletContext, useParams } from 'react-router-dom';
 import { api } from '../core/api/client';
-import type { Todo, TodoStatus } from '../core/types';
+import type { Todo, TodoProjectStatus, TodoStatus } from '../core/types';
 import { useIsMobile } from '../shared/useIsMobile';
 import { LoadError } from '../shared/LoadError';
 import { toast } from '../shared/toast';
@@ -13,6 +13,7 @@ import { TodoRow } from './components/TodoRow';
 import { TodoEditSheet } from './components/TodoEditSheet';
 import { ProjectForm } from './components/ProjectForm';
 import { LoadingSpinner } from './components/LoadingSpinner';
+import { updateProjectStatus } from './projectActions';
 import type { TodoOutletContext } from './TodoLayout';
 
 const SECTIONS: { label: string; statuses: TodoStatus[] }[] = [
@@ -59,6 +60,10 @@ export function ProjectDetailPage() {
   })), [todos]);
 
   const hasNextAction = todos.some(t => t.status === 'next_action');
+
+  async function setProjectStatus(status: TodoProjectStatus) {
+    if (await updateProjectStatus(projectId, status)) refreshMeta();
+  }
 
   async function addNextAction() {
     const title = newTitle.trim();
@@ -112,6 +117,17 @@ export function ProjectDetailPage() {
           background: meta.bg, color: meta.color,
         }}>{meta.label}</span>
         <div style={{ flex: 1 }} />
+        {project.status === 'completed' || project.status === 'dropped' ? (
+          <button
+            onClick={() => setProjectStatus('active')}
+            style={{ ...btnSecondary, padding: '7px 14px', fontSize: 13 }}
+          >Reactivate</button>
+        ) : (
+          <button
+            onClick={() => setProjectStatus('completed')}
+            style={{ ...btnSecondary, padding: '7px 14px', fontSize: 13 }}
+          >✓ Mark Completed</button>
+        )}
         <button onClick={() => setEditProject(true)} style={{ ...btnSecondary, padding: '7px 14px', fontSize: 13 }}>
           Edit
         </button>

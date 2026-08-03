@@ -1,12 +1,14 @@
 import { useState } from 'react';
 import { useNavigate, useOutletContext } from 'react-router-dom';
-import type { TodoProjectStatus } from '../core/types';
+import type { TodoProject, TodoProjectStatus } from '../core/types';
 import { useIsMobile } from '../shared/useIsMobile';
 import { IconPlus } from '../shared/icons';
 import { FONT_MONO, INK, INK_DIM, INK_SOFT, LINE } from '../shared/styles';
-import { pageHeading, filterBar, filterTab, btnPrimary, cardStyle, listContainer } from './styles';
+import { pageHeading, filterBar, filterTab, btnPrimary, btnSmall, cardStyle, listContainer } from './styles';
 import { PROJECT_STATUS_META, PROJECT_STATUS_ORDER } from './constants';
 import { ProjectForm } from './components/ProjectForm';
+import { ListFilterBar } from './components/ListFilterBar';
+import { updateProjectStatus } from './projectActions';
 import type { TodoOutletContext } from './TodoLayout';
 
 export function ProjectsPage() {
@@ -15,8 +17,17 @@ export function ProjectsPage() {
   const { projects, refreshMeta } = useOutletContext<TodoOutletContext>();
   const [filter, setFilter] = useState<TodoProjectStatus>('active');
   const [showCreate, setShowCreate] = useState(false);
+  const [search, setSearch] = useState('');
 
-  const visible = projects.filter(p => p.status === filter);
+  const q = search.trim().toLowerCase();
+  const visible = projects.filter(p =>
+    p.status === filter
+    && (!q || p.name.toLowerCase().includes(q) || p.notes.toLowerCase().includes(q)),
+  );
+
+  async function setStatus(project: TodoProject, status: TodoProjectStatus) {
+    if (await updateProjectStatus(project.id, status)) refreshMeta();
+  }
 
   const statusBadge = (status: TodoProjectStatus) => {
     const meta = PROJECT_STATUS_META[status];
@@ -48,10 +59,16 @@ export function ProjectsPage() {
         ))}
       </div>
 
+      <ListFilterBar
+        search={search} onSearch={setSearch}
+        isMobile={isMobile} placeholder="Search projects..."
+      />
+
       {visible.length === 0 ? (
         <div style={{ textAlign: 'center', padding: '64px 0' }}>
           <p style={{ color: INK_DIM, fontSize: 14 }}>
-            No {PROJECT_STATUS_META[filter].label.toLowerCase()} projects.
+            {q ? 'No projects match your search.'
+              : `No ${PROJECT_STATUS_META[filter].label.toLowerCase()} projects.`}
           </p>
         </div>
       ) : (
@@ -83,9 +100,24 @@ export function ProjectsPage() {
                   }}>{project.notes}</p>
                 )}
               </div>
-              <span style={{ fontSize: 13, color: INK_SOFT, flexShrink: 0, marginTop: isMobile ? 6 : 0, display: isMobile ? 'block' : undefined }}>
-                {project.open_count} open
-              </span>
+              <div style={{
+                display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0,
+                marginTop: isMobile ? 8 : 0,
+              }}>
+                <span style={{ fontSize: 13, color: INK_SOFT }}>{project.open_count} open</span>
+                <button
+                  onClick={e => {
+                    e.stopPropagation();
+                    setStatus(project, project.status === 'completed' || project.status === 'dropped' ? 'active' : 'completed');
+                  }}
+                  title={project.status === 'completed' || project.status === 'dropped'
+                    ? 'Reopen this project'
+                    : 'Mark this project completed'}
+                  style={{ ...btnSmall, background: 'transparent', border: '1px solid rgba(230,235,242,0.14)', color: INK_SOFT }}
+                >
+                  {project.status === 'completed' || project.status === 'dropped' ? 'Reactivate' : '✓ Complete'}
+                </button>
+              </div>
             </div>
           ))}
         </div>

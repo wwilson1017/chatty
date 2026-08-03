@@ -5,23 +5,28 @@ import type { Todo } from '../core/types';
 import { useIsMobile } from '../shared/useIsMobile';
 import { LoadError } from '../shared/LoadError';
 import { toast } from '../shared/toast';
+import { IconPlus } from '../shared/icons';
 import { INK_DIM, INK_SOFT, mono } from '../shared/styles';
-import { pageHeading, sectionHeading, btnSmall, listContainer } from './styles';
+import { pageHeading, sectionHeading, btnPrimary, btnSmall, listContainer } from './styles';
 import { STATUS_META } from './constants';
-import { formatAge } from './util';
+import { formatAge, matchesFilter } from './util';
 import { TodoRow } from './components/TodoRow';
 import { TodoEditSheet } from './components/TodoEditSheet';
+import { FilterEmptyState, ListFilterBar } from './components/ListFilterBar';
 import { LoadingSpinner } from './components/LoadingSpinner';
 import type { TodoOutletContext } from './TodoLayout';
 
 export function WaitingPage() {
   const isMobile = useIsMobile();
-  const { refreshMeta } = useOutletContext<TodoOutletContext>();
+  const { contexts, refreshMeta } = useOutletContext<TodoOutletContext>();
   const [waiting, setWaiting] = useState<Todo[]>([]);
   const [delegated, setDelegated] = useState<Todo[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadFailed, setLoadFailed] = useState(false);
   const [editTodo, setEditTodo] = useState<Todo | null>(null);
+  const [showCreate, setShowCreate] = useState(false);
+  const [search, setSearch] = useState('');
+  const [contextFilter, setContextFilter] = useState('');
 
   const load = useCallback(async () => {
     try {
@@ -81,9 +86,23 @@ export function WaitingPage() {
     );
   }
 
+  const visibleWaiting = waiting.filter(t => matchesFilter(t, search, contextFilter));
+  const visibleDelegated = delegated.filter(t => matchesFilter(t, search, contextFilter));
+
   return (
     <div style={{ padding: isMobile ? '20px 16px' : '32px 44px', maxWidth: 900 }}>
-      <h1 style={{ ...pageHeading(isMobile), marginBottom: isMobile ? 16 : 24 }}>Waiting</h1>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: isMobile ? 16 : 24 }}>
+        <h1 style={pageHeading(isMobile)}>Waiting</h1>
+        <button onClick={() => setShowCreate(true)} style={{ ...btnPrimary, padding: '7px 14px', fontSize: 13 }}>
+          <IconPlus size={13} strokeWidth={2.25} /> {isMobile ? 'Add' : 'Add Waiting Item'}
+        </button>
+      </div>
+
+      <ListFilterBar
+        search={search} onSearch={setSearch}
+        context={contextFilter} onContext={setContextFilter} contexts={contexts}
+        isMobile={isMobile} placeholder="Search waiting items..."
+      />
 
       {loading ? (
         <LoadingSpinner />
@@ -93,13 +112,22 @@ export function WaitingPage() {
         <div style={{ textAlign: 'center', padding: '64px 0' }}>
           <p style={{ color: INK_DIM, fontSize: 14 }}>Nothing waiting on anyone. Nice.</p>
         </div>
+      ) : visibleWaiting.length === 0 && visibleDelegated.length === 0 ? (
+        <FilterEmptyState />
       ) : (
         <>
-          {section('Waiting For', STATUS_META.waiting_for.color, waiting)}
-          {section('Delegated', STATUS_META.delegated.color, delegated)}
+          {section('Waiting For', STATUS_META.waiting_for.color, visibleWaiting)}
+          {section('Delegated', STATUS_META.delegated.color, visibleDelegated)}
         </>
       )}
 
+      {showCreate && (
+        <TodoEditSheet
+          defaults={{ status: 'waiting_for' }}
+          onClose={() => setShowCreate(false)}
+          onSaved={() => { setShowCreate(false); reload(); }}
+        />
+      )}
       {editTodo && (
         <TodoEditSheet
           todo={editTodo}

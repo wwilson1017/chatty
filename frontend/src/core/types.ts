@@ -237,6 +237,8 @@ export type TodoProjectStatus = 'active' | 'someday' | 'completed' | 'dropped';
 
 export type TodoSource = 'capture_web' | 'telegram' | 'agent' | 'ui';
 
+export type TodoRepeat = '' | 'daily' | 'weekly' | 'monthly' | 'yearly';
+
 export interface Todo {
   id: number;
   title: string;
@@ -248,6 +250,7 @@ export interface Todo {
   status: TodoStatus;
   star: boolean;
   due_date: string | null;
+  repeat: TodoRepeat;
   source: TodoSource;
   created_at: string;
   updated_at: string;

@@ -5,20 +5,26 @@ import type { Todo } from '../core/types';
 import { useIsMobile } from '../shared/useIsMobile';
 import { LoadError } from '../shared/LoadError';
 import { toast } from '../shared/toast';
+import { IconPlus } from '../shared/icons';
 import { INK_DIM, INK_SOFT } from '../shared/styles';
-import { pageHeading, btnSmall, listContainer } from './styles';
+import { pageHeading, btnPrimary, btnSmall, listContainer } from './styles';
+import { matchesFilter } from './util';
 import { TodoRow } from './components/TodoRow';
 import { TodoEditSheet } from './components/TodoEditSheet';
+import { FilterEmptyState, ListFilterBar } from './components/ListFilterBar';
 import { LoadingSpinner } from './components/LoadingSpinner';
 import type { TodoOutletContext } from './TodoLayout';
 
 export function SomedayPage() {
   const isMobile = useIsMobile();
-  const { refreshMeta } = useOutletContext<TodoOutletContext>();
+  const { contexts, refreshMeta } = useOutletContext<TodoOutletContext>();
   const [todos, setTodos] = useState<Todo[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadFailed, setLoadFailed] = useState(false);
   const [editTodo, setEditTodo] = useState<Todo | null>(null);
+  const [showCreate, setShowCreate] = useState(false);
+  const [search, setSearch] = useState('');
+  const [contextFilter, setContextFilter] = useState('');
 
   const load = useCallback(async () => {
     try {
@@ -46,9 +52,22 @@ export function SomedayPage() {
     reload();
   }
 
+  const filtered = todos.filter(t => matchesFilter(t, search, contextFilter));
+
   return (
     <div style={{ padding: isMobile ? '20px 16px' : '32px 44px', maxWidth: 900 }}>
-      <h1 style={{ ...pageHeading(isMobile), marginBottom: isMobile ? 16 : 24 }}>Someday / Maybe</h1>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: isMobile ? 16 : 24 }}>
+        <h1 style={pageHeading(isMobile)}>Someday / Maybe</h1>
+        <button onClick={() => setShowCreate(true)} style={{ ...btnPrimary, padding: '7px 14px', fontSize: 13 }}>
+          <IconPlus size={13} strokeWidth={2.25} /> {isMobile ? 'Add' : 'Add Someday Item'}
+        </button>
+      </div>
+
+      <ListFilterBar
+        search={search} onSearch={setSearch}
+        context={contextFilter} onContext={setContextFilter} contexts={contexts}
+        isMobile={isMobile} placeholder="Search someday items..."
+      />
 
       {loading ? (
         <LoadingSpinner />
@@ -58,9 +77,11 @@ export function SomedayPage() {
         <div style={{ textAlign: 'center', padding: '64px 0' }}>
           <p style={{ color: INK_DIM, fontSize: 14 }}>No someday/maybe items parked.</p>
         </div>
+      ) : filtered.length === 0 ? (
+        <FilterEmptyState />
       ) : (
         <div style={listContainer(isMobile)}>
-          {todos.map(todo => (
+          {filtered.map(todo => (
             <TodoRow
               key={todo.id}
               todo={todo}
@@ -77,6 +98,13 @@ export function SomedayPage() {
         </div>
       )}
 
+      {showCreate && (
+        <TodoEditSheet
+          defaults={{ status: 'someday_maybe' }}
+          onClose={() => setShowCreate(false)}
+          onSaved={() => { setShowCreate(false); reload(); }}
+        />
+      )}
       {editTodo && (
         <TodoEditSheet
           todo={editTodo}
