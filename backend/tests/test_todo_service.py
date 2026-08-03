@@ -179,6 +179,70 @@ class TestListTodos:
         assert len(service.list_todos(search="juice")) == 2
         assert [t["title"] for t in service.list_todos(search="100%")] == ["Buy 100% juice"]
 
+    def test_next_due_arithmetic(self, todo_db):
+        # Future base dates (never clamped to today) exercise the raw math.
+        assert service._next_due("daily", "2099-03-15") == "2099-03-16"
+        assert service._next_due("weekly", "2099-03-15") == "2099-03-22"
+        assert service._next_due("monthly", "2099-01-31") == "2099-02-28"  # clamped
+        assert service._next_due("monthly", "2099-12-15") == "2100-01-15"  # year rollover
+        assert service._next_due("yearly", "2096-02-29") == "2097-02-28"   # leap clamp
+
+    def test_next_due_never_spawns_overdue(self, todo_db):
+        import datetime
+        today = datetime.date.today()
+        # Overdue and missing due dates both advance from today.
+        assert service._next_due("daily", "2020-01-01") == (today + datetime.timedelta(days=1)).isoformat()
+        assert service._next_due("weekly", None) == (today + datetime.timedelta(days=7)).isoformat()
+
+    def test_completing_repeating_todo_spawns_next_occurrence(self, todo_db):
+        a = service.create_todo(
+            "Water the plants", status="next_action", context="@home",
+            tags=["chore"], due_date="2099-06-01", repeat="weekly", star=1,
+        )
+        service.update_todo(a["id"], {"status": "done"})
+        todos = service.list_todos(status="next_action")
+        assert len(todos) == 1
+        nxt = todos[0]
+        assert nxt["id"] != a["id"]
+        assert nxt["title"] == "Water the plants"
+        assert nxt["due_date"] == "2099-06-08"
+        assert nxt["repeat"] == "weekly"
+        assert nxt["context"] == "@home"
+        assert nxt["tags"] == ["chore"]
+        assert nxt["star"] is False          # today's priority doesn't carry over
+        done = service.list_todos(status="done")
+        assert [t["id"] for t in done] == [a["id"]]
+
+    def test_non_repeating_and_reopen_do_not_spawn(self, todo_db):
+        a = service.create_todo("one-off", status="next_action")
+        service.update_todo(a["id"], {"status": "done"})
+        assert service.list_todos(status="next_action") == []
+        b = service.create_todo("weekly thing", status="next_action", repeat="weekly")
+        service.update_todo(b["id"], {"status": "done"})
+        # Editing an already-done repeating todo must not spawn again.
+        service.update_todo(b["id"], {"notes": "edited after done", "status": "done"})
+        assert len(service.list_todos(status="next_action")) == 1
+
+    def test_invalid_repeat_rejected(self, todo_db):
+        import pytest
+        with pytest.raises(ValueError, match="repeat"):
+            service.create_todo("x", repeat="fortnightly")
+        a = service.create_todo("y")
+        with pytest.raises(ValueError, match="repeat"):
+            service.update_todo(a["id"], {"repeat": "hourly"})
+        # "none" and case variants normalize to no-repeat
+        b = service.create_todo("z", repeat="None")
+        assert b["repeat"] == ""
+
+    def test_search_matches_context_tags_and_project_name(self, todo_db):
+        service.create_todo("a", context="@calls")
+        service.create_todo("b", tags=["errands"])
+        service.create_todo("c", project="Garage Sale")
+        service.create_todo("unrelated")
+        assert [t["title"] for t in service.list_todos(search="calls")] == ["a"]
+        assert [t["title"] for t in service.list_todos(search="errand")] == ["b"]
+        assert [t["title"] for t in service.list_todos(search="garage")] == ["c"]
+
     def test_ordering_is_fifo(self, todo_db):
         service.create_todo("first")
         service.create_todo("second")

@@ -24,3 +24,21 @@ export function todayStr(): string {
 export function parseTags(input: string): string[] {
   return input.split(',').map(t => t.trim()).filter(Boolean);
 }
+
+// Client-side filter behind the per-tab search boxes. Context is an exact
+// (case-insensitive) match; search is a substring match across title, notes,
+// context, project name, and tags.
+export function matchesFilter(
+  todo: {
+    title: string; notes: string; context: string;
+    project_name: string | null; tags: string[];
+  },
+  search: string,
+  context = '',
+): boolean {
+  if (context && todo.context.toLowerCase() !== context.toLowerCase()) return false;
+  const q = search.trim().toLowerCase();
+  if (!q) return true;
+  return [todo.title, todo.notes, todo.context, todo.project_name || '', ...todo.tags]
+    .some(field => field.toLowerCase().includes(q));
+}

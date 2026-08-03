@@ -7,8 +7,10 @@ import { LoadError } from '../shared/LoadError';
 import { INK_DIM } from '../shared/styles';
 import { pageHeading, filterBar, filterTab, listContainer } from './styles';
 import { STATUS_META } from './constants';
+import { matchesFilter } from './util';
 import { TodoRow } from './components/TodoRow';
 import { TodoEditSheet } from './components/TodoEditSheet';
+import { ListFilterBar } from './components/ListFilterBar';
 import { LoadingSpinner } from './components/LoadingSpinner';
 import type { TodoOutletContext } from './TodoLayout';
 
@@ -16,12 +18,14 @@ type Filter = 'done' | 'dropped';
 
 export function DonePage() {
   const isMobile = useIsMobile();
-  const { refreshMeta } = useOutletContext<TodoOutletContext>();
+  const { contexts, refreshMeta } = useOutletContext<TodoOutletContext>();
   const [filter, setFilter] = useState<Filter>('done');
   const [todos, setTodos] = useState<Todo[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadFailed, setLoadFailed] = useState(false);
   const [editTodo, setEditTodo] = useState<Todo | null>(null);
+  const [search, setSearch] = useState('');
+  const [contextFilter, setContextFilter] = useState('');
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -41,6 +45,8 @@ export function DonePage() {
 
   const reload = useCallback(() => { load(); refreshMeta(); }, [load, refreshMeta]);
 
+  const filtered = todos.filter(t => matchesFilter(t, search, contextFilter));
+
   return (
     <div style={{ padding: isMobile ? '20px 16px' : '32px 44px', maxWidth: 900 }}>
       <h1 style={{ ...pageHeading(isMobile), marginBottom: isMobile ? 16 : 24 }}>Done</h1>
@@ -55,6 +61,12 @@ export function DonePage() {
         ))}
       </div>
 
+      <ListFilterBar
+        search={search} onSearch={setSearch}
+        context={contextFilter} onContext={setContextFilter} contexts={contexts}
+        isMobile={isMobile} placeholder="Search finished todos..."
+      />
+
       {loading ? (
         <LoadingSpinner />
       ) : loadFailed && todos.length === 0 ? (
@@ -65,9 +77,13 @@ export function DonePage() {
             {filter === 'done' ? 'Nothing completed yet.' : 'Nothing dropped.'}
           </p>
         </div>
+      ) : filtered.length === 0 ? (
+        <div style={{ textAlign: 'center', padding: '64px 0' }}>
+          <p style={{ color: INK_DIM, fontSize: 14 }}>Nothing matches your filter.</p>
+        </div>
       ) : (
         <div style={listContainer(isMobile)}>
-          {todos.map(todo => (
+          {filtered.map(todo => (
             <TodoRow key={todo.id} todo={todo} onChanged={reload} onOpen={setEditTodo} />
           ))}
         </div>

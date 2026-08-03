@@ -25,6 +25,7 @@ import { WaitingPage } from './todo/WaitingPage';
 import { SomedayPage } from './todo/SomedayPage';
 import { DonePage } from './todo/DonePage';
 import { ReviewPage } from './todo/ReviewPage';
+import { SearchPage } from './todo/SearchPage';
 
 export default function App() {
   return (
@@ -61,6 +62,7 @@ export default function App() {
               <Route path="someday" element={<SomedayPage />} />
               <Route path="done" element={<DonePage />} />
               <Route path="review" element={<ReviewPage />} />
+              <Route path="search" element={<SearchPage />} />
             </Route>
             <Route path="/usage" element={<UsagePage />} />
             <Route path="/webby" element={<WebbyPage />} />

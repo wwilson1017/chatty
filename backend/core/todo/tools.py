@@ -41,6 +41,15 @@ _UPDATE_FIELD_PROPS = {
         "type": "string",
         "description": "Real deadline as YYYY-MM-DD (not an aspiration). Empty string clears it.",
     },
+    "repeat": {
+        "type": "string",
+        "enum": list(service.REPEAT_OPTIONS),
+        "description": (
+            "Simple recurrence. When a repeating todo is completed, the next "
+            "occurrence is created automatically with the due date advanced. "
+            "Empty string means no repeat."
+        ),
+    },
 }
 
 TODO_TOOL_DEFS: list[dict] = [

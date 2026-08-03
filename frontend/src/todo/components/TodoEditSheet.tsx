@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useOutletContext } from 'react-router-dom';
 import { api } from '../../core/api/client';
-import type { Todo, TodoStatus } from '../../core/types';
+import type { Todo, TodoRepeat, TodoStatus } from '../../core/types';
 import { useIsMobile } from '../../shared/useIsMobile';
 import { toast } from '../../shared/toast';
 import { confirmDialog } from '../../shared/confirm';
@@ -38,6 +38,7 @@ export function TodoEditSheet({ todo, defaults, onClose, onSaved }: Props) {
   const [tagsInput, setTagsInput] = useState((todo?.tags || []).join(', '));
   const [star, setStar] = useState(todo?.star || false);
   const [dueDate, setDueDate] = useState(todo?.due_date || '');
+  const [repeat, setRepeat] = useState<TodoRepeat>(todo?.repeat || '');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
 
@@ -56,7 +57,7 @@ export function TodoEditSheet({ todo, defaults, onClose, onSaved }: Props) {
       const body = {
         title: title.trim(), notes, status, project_id: pid,
         context: context.trim(), tags: parseTags(tagsInput),
-        star, due_date: dueDate || null,
+        star, due_date: dueDate || null, repeat,
       };
       if (isEdit) {
         await api(`/api/todo/todos/${todo.id}`, { method: 'PUT', body: JSON.stringify(body) });
@@ -133,6 +134,22 @@ export function TodoEditSheet({ todo, defaults, onClose, onSaved }: Props) {
               <label style={labelStyle}>Due Date</label>
               <input type="date" value={dueDate} onChange={e => setDueDate(e.target.value)} style={inputStyle} />
             </div>
+          </div>
+
+          <div>
+            <label style={labelStyle}>Repeat</label>
+            <select value={repeat} onChange={e => setRepeat(e.target.value as TodoRepeat)} style={inputStyle}>
+              <option value="">Doesn't repeat</option>
+              <option value="daily">Daily</option>
+              <option value="weekly">Weekly</option>
+              <option value="monthly">Monthly</option>
+              <option value="yearly">Yearly</option>
+            </select>
+            {repeat && (
+              <p style={{ fontSize: 12, color: INK_SOFT, margin: '6px 0 0' }}>
+                Completing this creates the next occurrence automatically.
+              </p>
+            )}
           </div>
 
           <div>

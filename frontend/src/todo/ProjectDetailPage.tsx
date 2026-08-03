@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate, useOutletContext, useParams } from 'react-router-dom';
 import { api } from '../core/api/client';
-import type { Todo, TodoStatus } from '../core/types';
+import type { Todo, TodoProjectStatus, TodoStatus } from '../core/types';
 import { useIsMobile } from '../shared/useIsMobile';
 import { LoadError } from '../shared/LoadError';
 import { toast } from '../shared/toast';
@@ -60,6 +60,18 @@ export function ProjectDetailPage() {
 
   const hasNextAction = todos.some(t => t.status === 'next_action');
 
+  async function setProjectStatus(status: TodoProjectStatus) {
+    try {
+      await api(`/api/todo/projects/${projectId}`, {
+        method: 'PUT', body: JSON.stringify({ status }),
+      });
+    } catch {
+      toast.error('Failed to update project.');
+      return;
+    }
+    refreshMeta();
+  }
+
   async function addNextAction() {
     const title = newTitle.trim();
     if (!title || adding) return;
@@ -112,6 +124,17 @@ export function ProjectDetailPage() {
           background: meta.bg, color: meta.color,
         }}>{meta.label}</span>
         <div style={{ flex: 1 }} />
+        {project.status === 'completed' || project.status === 'dropped' ? (
+          <button
+            onClick={() => setProjectStatus('active')}
+            style={{ ...btnSecondary, padding: '7px 14px', fontSize: 13 }}
+          >Reactivate</button>
+        ) : (
+          <button
+            onClick={() => setProjectStatus('completed')}
+            style={{ ...btnSecondary, padding: '7px 14px', fontSize: 13 }}
+          >✓ Mark Completed</button>
+        )}
         <button onClick={() => setEditProject(true)} style={{ ...btnSecondary, padding: '7px 14px', fontSize: 13 }}>
           Edit
         </button>

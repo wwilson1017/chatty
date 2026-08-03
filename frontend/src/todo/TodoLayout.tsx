@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useState } from 'react';
-import { NavLink, Outlet, useNavigate } from 'react-router-dom';
+import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { api } from '../core/api/client';
 import type { TodoFilters, TodoProject, TodoStatus } from '../core/types';
 import { useIsMobile } from '../shared/useIsMobile';
 import { MobileMenuDrawer } from '../shared/MobileMenuDrawer';
-import { ACCENT, FONT_DISPLAY, INK, INK_MUTE, INK_SOFT, LINE, LINE_STRONG, ACCENT_INK } from '../shared/styles';
+import { ACCENT, FONT_DISPLAY, INK, INK_MUTE, INK_SOFT, LINE, LINE_STRONG, ACCENT_INK, inputStyle } from '../shared/styles';
 import { QuickAdd } from './components/QuickAdd';
 
 export interface TodoOutletContext {
@@ -25,21 +25,44 @@ const EMPTY_COUNTS: Record<TodoStatus, number> = {
 
 const NAV_ITEMS = [
   { to: '/todos', label: 'Inbox', end: true },
-  { to: '/todos/next', label: 'Next' },
+  { to: '/todos/next', label: 'To Do' },
   { to: '/todos/projects', label: 'Projects' },
   { to: '/todos/waiting', label: 'Waiting' },
   { to: '/todos/someday', label: 'Someday' },
   { to: '/todos/done', label: 'Done' },
   { to: '/todos/review', label: 'Review' },
+  { to: '/todos/search', label: 'Contexts' },
 ];
 
 export function TodoLayout() {
   const isMobile = useIsMobile();
   const navigate = useNavigate();
+  const location = useLocation();
   const [showMenu, setShowMenu] = useState(false);
   const [filters, setFilters] = useState<TodoFilters | null>(null);
   const [projects, setProjects] = useState<TodoProject[]>([]);
   const [quickAddSeq, setQuickAddSeq] = useState(0);
+  const [searchText, setSearchText] = useState('');
+
+  const onSearchPage = location.pathname.startsWith('/todos/search');
+
+  // Leaving the results page resets the global search box.
+  // eslint-disable-next-line react-hooks/set-state-in-effect
+  useEffect(() => { if (!onSearchPage) setSearchText(''); }, [onSearchPage]);
+
+  // Global search: typing anywhere drops straight into live results. The
+  // keystroke that starts a search pushes one history entry (back returns
+  // to wherever you were — a tab or the Contexts browse); refining or
+  // clearing replaces, so history isn't one entry per character.
+  const onSearchChange = (v: string) => {
+    setSearchText(v);
+    if (!v.trim() && !onSearchPage) return;
+    const refining = onSearchPage && new URLSearchParams(location.search).has('q');
+    navigate(
+      v.trim() ? `/todos/search?q=${encodeURIComponent(v)}` : '/todos/search',
+      { replace: refining },
+    );
+  };
 
   const refreshMeta = useCallback(() => {
     api<TodoFilters>('/api/todo/filters').then(setFilters).catch(() => {});
@@ -102,6 +125,12 @@ export function TodoLayout() {
                   </NavLink>
                 ))}
               </div>
+              <input
+                value={searchText}
+                onChange={e => onSearchChange(e.target.value)}
+                placeholder="Search todos..."
+                style={{ ...inputStyle, width: 200, padding: '7px 12px', fontSize: 14, marginRight: 8 }}
+              />
               <QuickAdd isMobile={false} onAdded={() => { refreshMeta(); setQuickAddSeq(s => s + 1); }} />
             </>
           )}
@@ -128,10 +157,19 @@ export function TodoLayout() {
           </div>
         )}
 
-        {/* Row 3 (mobile): QuickAdd */}
+        {/* Row 3 (mobile): QuickAdd + global search */}
         {isMobile && (
-          <div style={{ padding: '10px 16px', borderTop: '1px solid rgba(230,235,242,0.04)' }}>
+          <div style={{
+            padding: '10px 16px', borderTop: '1px solid rgba(230,235,242,0.04)',
+            display: 'flex', flexDirection: 'column', gap: 8,
+          }}>
             <QuickAdd isMobile onAdded={() => { refreshMeta(); setQuickAddSeq(s => s + 1); }} />
+            <input
+              value={searchText}
+              onChange={e => onSearchChange(e.target.value)}
+              placeholder="Search todos..."
+              style={{ ...inputStyle, padding: '7px 12px', fontSize: 14 }}
+            />
           </div>
         )}
       </div>

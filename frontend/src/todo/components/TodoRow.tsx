@@ -73,6 +73,11 @@ export function TodoRow({ todo, onChanged, onOpen, uncheckStatus = 'next_action'
         <span style={{ fontSize: 13, color: INK_SOFT, whiteSpace: 'nowrap' }}>{todo.project_name}</span>
       )}
       {todo.tags.slice(0, 3).map(t => <TagChip key={t} tag={t} />)}
+      {todo.repeat && (
+        <span title={`Repeats ${todo.repeat}`} style={{ ...mono(12, INK_SOFT), whiteSpace: 'nowrap' }}>
+          ↻ {todo.repeat}
+        </span>
+      )}
       {todo.due_date && (
         <span style={{
           ...mono(12, overdue ? CORAL : INK_SOFT),
