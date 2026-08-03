@@ -3,8 +3,8 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Chatty — Free AI Agent Platform for Small Business</title>
-  <meta name="description" content="A free, open-source AI agent platform with a full browser-based UI — not a command line. Create custom AI agents for your business, powered by your own API keys or local models.">
+  <title>Chatty — Your assistant. Your data. Your rules.</title>
+  <meta name="description" content="A free, open-source personal AI assistant that runs in your browser. It reads your email, keeps your todos in a full GTD system, and works on a schedule — on your own API keys, with everything it learns staying yours.">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300..600;1,9..144,300..600&family=Geist:wght@300..600&family=JetBrains+Mono:wght@300..500&display=swap" rel="stylesheet">
@@ -32,7 +32,7 @@
     </a>
     <div class="nav-links">
       <a href="#product">Product</a>
-      <a href="#sales">Sales</a>
+      <a href="#todos">Todos</a>
       <a href="#agents">Agents</a>
       <a href="#integrations">Integrations</a>
       <a href="#install">Docs</a>
@@ -61,9 +61,9 @@
       </svg>
     </div>
 
-    <h1 class="hero-heading">Your own AI agents,<br><em>on your own machine.</em></h1>
+    <h1 class="hero-heading">Your assistant.<br>Your data. <em>Your rules.</em></h1>
 
-    <p class="hero-sub">A free, open-source AI agent platform with a full browser-based UI &mdash; not a command line. Built for professionals and small business owners.</p>
+    <p class="hero-sub">A free, open-source personal AI assistant that runs in your browser. It reads your email, keeps your todos, and works on a schedule &mdash; and everything it learns stays yours.</p>
 
     <div class="hero-actions">
       <a href="#install" class="btn btn-primary">
@@ -79,7 +79,7 @@
     <div class="hero-meta">One-click deploy to the cloud, or run it fully local on your own hardware.</div>
 
     <figure class="screenshot-real">
-      <img src="screenshot-login.png" alt="Chatty login page — hire a team of agents, not just a chatbot" loading="lazy">
+      <img src="screenshot-login.png" alt="Chatty login page — your assistant, your data, your rules" loading="lazy">
       <figcaption>Sign in to your Chatty instance — everything runs in the browser</figcaption>
     </figure>
 
@@ -113,36 +113,53 @@
           </div>
           <div class="dash-main">
             <div class="dash-topbar">
-              <span class="mono-label">Cheesecake Operations &middot; Thursday, April 18</span>
+              <span class="mono-label">Thursday, April 18</span>
             </div>
             <div class="dash-hero-area">
-              <div class="mono-label" style="margin-bottom: 14px">Vol. IV &middot; Morning edition</div>
-              <div class="dash-greeting">Good morning, Sammy.</div>
-              <div class="dash-subtitle">Your agents handled <span class="gold">34 tasks</span> overnight. Two are working now.</div>
+              <div class="mono-label" style="margin-bottom: 14px">Morning edition</div>
+              <div class="dash-greeting">Good morning, Sam.</div>
+              <div class="dash-subtitle">Penelope handled <span class="gold">12 things</span> overnight. Nothing needs you yet.</div>
               <div class="dash-stats">
-                <div class="stat"><span class="mono-label">At work now</span><span class="stat-val">2</span></div>
-                <div class="stat"><span class="mono-label">Tasks today</span><span class="stat-val">34</span></div>
-                <div class="stat"><span class="mono-label">Avg. reply</span><span class="stat-val">12s</span></div>
-                <div class="stat"><span class="mono-label">Pipeline</span><span class="stat-val">$153.9K</span></div>
+                <div class="stat"><span class="mono-label">Handled</span><span class="stat-val">12</span></div>
+                <div class="stat"><span class="mono-label">Inbox</span><span class="stat-val">3</span></div>
+                <div class="stat"><span class="mono-label">Next actions</span><span class="stat-val">7</span></div>
+                <div class="stat"><span class="mono-label">Needs you</span><span class="stat-val">1</span></div>
               </div>
             </div>
             <div class="dash-agents-label">
-              <span class="mono-label">Your agents &middot; 6</span>
+              <span class="mono-label">Overnight &middot; Penelope</span>
             </div>
-            <div class="dash-grid">
-              <div class="agent-card"><div class="mark mark-P">P</div><div><strong>Penelope</strong><span class="muted">Personal Assistant</span></div></div>
-              <div class="agent-card"><div class="mark mark-A">A</div><div><strong>Arthur</strong><span class="muted">Accounts Payable</span></div></div>
-              <div class="agent-card"><div class="mark mark-R">R</div><div><strong>Rhea</strong><span class="muted">Accounts Receivable</span></div></div>
-              <div class="agent-card"><div class="mark mark-C">C</div><div><strong>Cassian</strong><span class="muted">Customer Service</span></div></div>
-              <div class="agent-card"><div class="mark mark-L">L</div><div><strong>Lior</strong><span class="muted">Inbound Sales</span></div></div>
-              <div class="agent-card"><div class="mark mark-T">T</div><div><strong>Talia</strong><span class="muted">Research Analyst</span></div></div>
+            <div style="padding: 0 28px 20px">
+              <div class="hb-row">
+                <div class="hb-dot sage"></div>
+                <div class="hb-content"><div class="hb-desc">Dentist moved to Thursday 2:00 PM &mdash; calendar updated</div></div>
+                <div class="mono-label">6:04 AM</div>
+              </div>
+              <div class="hb-row">
+                <div class="hb-dot sage"></div>
+                <div class="hb-content"><div class="hb-desc">3 emails triaged &mdash; one needs a decision from you</div></div>
+                <div class="mono-label">6:11 AM</div>
+              </div>
+              <div class="hb-row">
+                <div class="hb-dot gold"></div>
+                <div class="hb-content"><div class="hb-desc">Alba Co. invoice is <span class="gold">12% over</span> contract &mdash; flagged</div></div>
+                <div class="mono-label">6:12 AM</div>
+              </div>
+              <div class="hb-row">
+                <div class="hb-dot sage"></div>
+                <div class="hb-content"><div class="hb-desc">4 todos captured from yesterday's call notes</div></div>
+                <div class="mono-label">6:20 AM</div>
+              </div>
+              <div class="hb-row">
+                <div class="hb-dot gold"></div>
+                <div class="hb-content"><div class="hb-desc">Mom's birthday is Saturday &mdash; added to next actions</div></div>
+                <div class="mono-label">6:21 AM</div>
+              </div>
             </div>
           </div>
         </div>
       </div>
     </div>
-  </div>
-
   </div>
 </section>
 
@@ -152,24 +169,24 @@
     <div class="section-header">
       <div class="eyebrow">The product</div>
       <h2>Chat + Tools + <em>Integrated.</em></h2>
-      <p class="section-sub">Your data, tools, and approvals wrap around a single conversation.</p>
+      <p class="section-sub">Your data, your tools, and your approvals wrap around a single conversation.</p>
     </div>
 
     <div class="showcase-item">
       <div class="showcase-text">
         <div class="showcase-label">01 &mdash; Chat</div>
         <h3>Simple design, easy to read and navigate.</h3>
-        <p>Control read, tool approvals, and power mode all right in the chat box.</p>
+        <p>Drop in a file and ask. Read mode, tool approvals, and power mode all live right in the chat box &mdash; so nothing gets sent or changed without you saying yes.</p>
       </div>
       <div class="showcase-preview">
         <div class="preview-chat">
           <div class="preview-topbar"><span>Alba Co. invoice review</span></div>
           <div class="preview-messages">
-            <div class="msg-user">Arthur, can you look at the Alba Co. invoice that came in this morning?</div>
+            <div class="msg-user">Penelope, can you look at the Alba Co. invoice that came in this morning?</div>
             <div class="msg-agent">
-              <div class="mark mark-A mark-sm">A</div>
+              <div class="mark mark-P mark-sm">P</div>
               <div class="msg-agent-body">
-                <div class="msg-agent-head"><span class="gold">Arthur</span> <span class="mono-label">9:14 AM</span></div>
+                <div class="msg-agent-head"><span class="gold">Penelope</span> <span class="mono-label">9:14 AM</span></div>
                 <p>Good catch. Alba's Q2 invoice came in at <span class="highlight">$18,420</span> &mdash; that's <em>+12.3%</em> over their contracted rate of $16,400.</p>
                 <div class="tool-card">
                   <div class="tool-head"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8zM14 2v6h6"/></svg> alba_q2_2026.pdf <span class="mono-label">Read</span></div>
@@ -190,47 +207,59 @@
 
     <div class="showcase-item">
       <div class="showcase-text">
-        <div class="showcase-label">02 &mdash; CRM</div>
-        <h3>Agent-Managed CRM built in.</h3>
-        <p>The CRM isn't a separate app &mdash; it's built in. Your agents read it, update it, and manage your deals directly. They log calls, move stages, create tasks, and follow up on stalled opportunities without you lifting a finger.</p>
+        <div class="showcase-label">02 &mdash; Todos</div>
+        <h3>A real todo app. That someone else keeps up to date.</h3>
+        <p>Not a chatbot that jots things down &mdash; a full Getting Things Done system built into Chatty. Inbox, next actions by context, projects, waiting-for, someday/maybe, and a weekly review. Open it and work it yourself, or let your assistant capture, triage, and close things for you.</p>
       </div>
       <div class="showcase-preview">
-        <div class="preview-crm">
-          <div class="preview-topbar"><span>CRM</span> <span class="mono-label">/ Pipeline</span></div>
-          <div class="crm-hero">
-            <div class="mono-label">Week of Apr 14 &mdash; 20</div>
-            <div class="crm-total">Pipeline is <span class="gold"><em>$153,900</em></span></div>
-            <div class="crm-sub">across 26 open deals.</div>
+        <div class="preview-todos">
+          <div class="preview-topbar"><span>Todos</span> <span class="mono-label">/ Next actions</span></div>
+          <div class="todo-tabs">
+            <span class="todo-tab">Inbox <span class="count">3</span></span>
+            <span class="todo-tab active">Next actions</span>
+            <span class="todo-tab">Projects</span>
+            <span class="todo-tab">Waiting</span>
+            <span class="todo-tab">Review</span>
           </div>
-          <div class="crm-stages">
-            <div class="crm-row"><span class="crm-name">Lead</span><div class="crm-bar"><div style="width:38%"></div></div><span class="crm-val">$18.4K</span><span class="mono-label">12 deals</span></div>
-            <div class="crm-row"><span class="crm-name">Qualified</span><div class="crm-bar"><div style="width:62%"></div></div><span class="crm-val">$42.8K</span><span class="mono-label">7 deals</span></div>
-            <div class="crm-row"><span class="crm-name">Proposal</span><div class="crm-bar"><div style="width:88%"></div></div><span class="crm-val">$64.2K</span><span class="mono-label">4 deals</span></div>
-            <div class="crm-row"><span class="crm-name">Negotiation</span><div class="crm-bar"><div style="width:48%"></div></div><span class="crm-val">$28.5K</span><span class="mono-label">3 deals</span></div>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <div class="showcase-item">
-      <div class="showcase-text">
-        <div class="showcase-label">03 &mdash; Onboarding</div>
-        <h3>Spin up an agent in a minute.</h3>
-        <p>Pick a role, connect the tools it needs, decide what it should ask before doing. That's it &mdash; you can always refine later.</p>
-      </div>
-      <div class="showcase-preview">
-        <div class="preview-onboarding">
-          <div class="preview-topbar"><span style="color: var(--accent)">
-            <svg height="18" viewBox="0 0 180 32" fill="none"><g transform="translate(0, 4)"><path d="M20 7.5a7.5 7.5 0 1 0 0 9" stroke="currentColor" stroke-width="3" stroke-linecap="round"/><circle cx="12" cy="12" r="1.5" fill="currentColor"/></g><text x="32" y="23" font-family="Fraunces, Georgia, serif" font-size="24" font-weight="400" fill="currentColor" letter-spacing="-0.02em">chatty</text></svg>
-          </span> <span class="mono-label">Step 2 of 4 &middot; Choose a provider</span></div>
-          <div class="onboard-body">
-            <div class="mono-label">Connect your model</div>
-            <div class="onboard-heading">Where does <em class="gold">the thinking</em> happen?</div>
-            <div class="onboard-grid">
-              <div class="provider-card selected"><div class="provider-check"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg></div><div><strong>Anthropic</strong><span class="muted">Claude Sonnet, Opus</span></div></div>
-              <div class="provider-card"><div class="provider-check empty"></div><div><strong>OpenAI</strong><span class="muted">GPT-4o, o1</span></div></div>
-              <div class="provider-card"><div class="provider-check empty"></div><div><strong>Together</strong><span class="muted">Open models, OSS fine-tunes</span></div></div>
-              <div class="provider-card"><div class="provider-check empty"></div><div><strong>Ollama</strong><span class="muted">Run locally, no cloud</span></div></div>
+          <div class="todo-body">
+            <div class="todo-group">
+              <span class="mono-label">@Calls</span>
+              <div class="todo-item">
+                <div class="todo-box"></div>
+                <div class="todo-text">Call the dentist back about Thursday
+                  <div class="todo-meta"><span class="todo-pill next">Next Action</span> <span class="mono-label">Telegram</span></div>
+                </div>
+              </div>
+              <div class="todo-item">
+                <div class="todo-box"></div>
+                <div class="todo-text">Ask Alba Co. about the expedited handling line
+                  <div class="todo-meta"><span class="todo-pill next">Next Action</span> <span class="mono-label">Agent</span></div>
+                </div>
+              </div>
+            </div>
+            <div class="todo-group">
+              <span class="mono-label">@Errands</span>
+              <div class="todo-item">
+                <div class="todo-box"></div>
+                <div class="todo-text">Pick up Mom's birthday gift &mdash; Saturday
+                  <div class="todo-meta"><span class="todo-pill next">Next Action</span> <span class="mono-label">Capture</span></div>
+                </div>
+              </div>
+            </div>
+            <div class="todo-group">
+              <span class="mono-label">Waiting on someone else</span>
+              <div class="todo-item">
+                <div class="todo-box"></div>
+                <div class="todo-text">Harbor Bistro &mdash; revised quote
+                  <div class="todo-meta"><span class="todo-pill waiting">Waiting For</span> <span class="mono-label">6 days</span></div>
+                </div>
+              </div>
+              <div class="todo-item">
+                <div class="todo-box"></div>
+                <div class="todo-text">Insurance paperwork &mdash; handed to Dana
+                  <div class="todo-meta"><span class="todo-pill delegated">Delegated</span> <span class="mono-label">2 days</span></div>
+                </div>
+              </div>
             </div>
           </div>
         </div>
@@ -239,9 +268,57 @@
 
     <div class="showcase-item">
       <div class="showcase-text">
+        <div class="showcase-label">03 &mdash; Memory</div>
+        <h3>It knows you. And that stays yours.</h3>
+        <p>Your assistant builds a second brain as you go &mdash; facts it learned, things you told it once, details pulled out of email and calls. Search it in plain language. It consolidates what matters overnight and archives what's gone stale, so it gets sharper instead of bloated.</p>
+      </div>
+      <div class="showcase-preview">
+        <div class="preview-memory">
+          <div class="preview-topbar"><span>Memory</span> <span class="mono-label">/ Second brain</span></div>
+          <div class="mem-hero">
+            <div class="mono-label">Everything it has learned</div>
+            <div class="mem-total">She remembers <span class="gold"><em>1,284 things</em></span></div>
+            <div class="mem-sub">about you and your work.</div>
+          </div>
+          <div class="mem-query">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+            what did I promise Maria?
+          </div>
+          <div class="mem-rows">
+            <div class="hb-row">
+              <div class="hb-dot gold"></div>
+              <div class="hb-content">
+                <div class="hb-desc">You said you'd send Q3 pricing by Friday</div>
+                <div class="mono-label">From Tuesday's call &middot; 3 days ago</div>
+              </div>
+            </div>
+            <div class="hb-row">
+              <div class="hb-dot sage"></div>
+              <div class="hb-content">
+                <div class="hb-desc">Maria prefers email over phone calls</div>
+                <div class="mono-label">Learned March 4</div>
+              </div>
+            </div>
+            <div class="hb-row">
+              <div class="hb-dot sage"></div>
+              <div class="hb-content">
+                <div class="hb-desc">Her contract renews in September</div>
+                <div class="mono-label">From an invoice &middot; January</div>
+              </div>
+            </div>
+          </div>
+          <div class="mem-foot">
+            <span class="mono-label">Nightly &middot; consolidated 4 files, archived 2 dormant docs</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="showcase-item">
+      <div class="showcase-text">
         <div class="showcase-label">04 &mdash; Heartbeat</div>
-        <h3>They work while you sleep.</h3>
-        <p>Agents set their own reminders, run scheduled actions, and consolidate what they've learned &mdash; all in the background. You wake up to work already done.</p>
+        <h3>It works while you sleep.</h3>
+        <p>Your assistant sets its own reminders, runs scheduled actions on a cron, and consolidates what it's learned &mdash; all in the background. When a scheduled run has something to say, Chatty delivers it whether or not the model remembers to; when there's nothing new, it stays quiet.</p>
       </div>
       <div class="showcase-preview">
         <div class="preview-heartbeat">
@@ -252,20 +329,20 @@
               <div class="hb-row">
                 <div class="hb-dot sage"></div>
                 <div class="hb-content">
-                  <div class="hb-title"><span class="mark mark-A" style="width:22px;height:22px;font-size:12px;border-radius:4px">A</span> Arthur</div>
-                  <div class="hb-desc">Ran weekly AP digest &mdash; flagged 2 overdue invoices</div>
-                  <div class="mono-label">Scheduled &middot; Every Monday 8:00 AM</div>
+                  <div class="hb-title"><span class="mark mark-P" style="width:22px;height:22px;font-size:12px;border-radius:4px">P</span> Penelope</div>
+                  <div class="hb-desc">Morning brief &mdash; 3 emails need you, dentist moved to Thursday</div>
+                  <div class="mono-label">Scheduled &middot; Daily 6:00 AM</div>
                 </div>
                 <div class="mono-label">6:02 AM</div>
               </div>
               <div class="hb-row">
                 <div class="hb-dot sage"></div>
                 <div class="hb-content">
-                  <div class="hb-title"><span class="mark mark-R" style="width:22px;height:22px;font-size:12px;border-radius:4px">R</span> Rhea</div>
-                  <div class="hb-desc">Checked aged receivables &mdash; sent 3 follow-up emails</div>
-                  <div class="mono-label">Scheduled &middot; Daily 7:00 AM</div>
+                  <div class="hb-title"><span class="mark mark-P" style="width:22px;height:22px;font-size:12px;border-radius:4px">P</span> Penelope</div>
+                  <div class="hb-desc">Weekly review prep &mdash; 4 stale next actions, 2 waiting-fors</div>
+                  <div class="mono-label">Scheduled &middot; Every Friday 4:00 PM</div>
                 </div>
-                <div class="mono-label">7:00 AM</div>
+                <div class="mono-label">4:00 PM</div>
               </div>
             </div>
             <div class="heartbeat-section">
@@ -273,8 +350,8 @@
               <div class="hb-row">
                 <div class="hb-dot gold"></div>
                 <div class="hb-content">
-                  <div class="hb-title"><span class="mark mark-L" style="width:22px;height:22px;font-size:12px;border-radius:4px">L</span> Lior</div>
-                  <div class="hb-desc">Follow up with Ocean View Caf&eacute; on proposal</div>
+                  <div class="hb-title"><span class="mark mark-P" style="width:22px;height:22px;font-size:12px;border-radius:4px">P</span> Penelope</div>
+                  <div class="hb-desc">Chase Harbor Bistro on the revised quote &mdash; 6 days out</div>
                   <div class="mono-label">Self-set &middot; 3 days ago</div>
                 </div>
                 <div class="mono-label">9:00 AM</div>
@@ -296,6 +373,122 @@
       </div>
     </div>
 
+    <div class="showcase-item">
+      <div class="showcase-text">
+        <div class="showcase-label">05 &mdash; Live meetings</div>
+        <h3>It sits in on your calls.</h3>
+        <p>Record a meeting and your assistant transcribes it as it happens. While you're talking, it watches the transcript in the background and speaks up in your chat only when something is worth catching &mdash; a date that moved, a promise you just made. Afterwards you've got the full transcript and it can act on what it heard.</p>
+      </div>
+      <div class="showcase-preview">
+        <div class="preview-meeting">
+          <div class="preview-topbar"><span>Meeting with Maria</span> <span class="meet-live"><span class="dot"></span>Recording</span></div>
+          <div class="meet-panes">
+            <div class="meet-pane">
+              <span class="mono-label">Transcript</span>
+              <div class="meet-line faded"><span class="speaker">Maria:</span> &hellip;so the board pushed the timeline back.</div>
+              <div class="meet-line"><span class="speaker">You:</span> Understood. Are we still looking at Q2 for rollout?</div>
+              <div class="meet-line"><span class="speaker">Maria:</span> Realistically we'd need it by Q3 now.</div>
+              <div class="meet-line"><span class="speaker">You:</span> I'll get you revised pricing by Friday.</div>
+              <div class="meet-line"><span class="speaker">Maria:</span> Perfect. And can you loop in Dana on the insurance side?</div>
+              <div class="meet-line"><span class="speaker">You:</span> Will do. She's already got the paperwork.</div>
+              <div class="meet-line"><span class="speaker">Maria:</span> Great. Let's regroup once you've got the numbers.</div>
+            </div>
+            <div class="meet-pane">
+              <span class="mono-label">Penelope</span>
+              <div class="meet-nudge">
+                <span class="mono-label">Heads up</span>
+                She just moved the date from Q2 to Q3. Your last proposal assumed Q2 pricing.
+              </div>
+              <div class="meet-nudge">
+                <span class="mono-label">Caught a commitment</span>
+                You promised revised pricing by Friday. Want it in your todos?
+              </div>
+              <div class="meet-nudge">
+                <span class="mono-label">Worth knowing</span>
+                Dana already has the insurance paperwork &mdash; it's on your delegated list from Tuesday.
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="showcase-item">
+      <div class="showcase-text">
+        <div class="showcase-label">06 &mdash; Playbooks</div>
+        <h3>It learns your routines.</h3>
+        <p>When your assistant notices you asking for the same thing over and over, it offers to save it as a playbook. Approve it and it becomes a slash command you can fire anytime. You edit them like documents &mdash; and nothing gets saved without your say-so.</p>
+      </div>
+      <div class="showcase-preview">
+        <div class="preview-playbooks">
+          <div class="preview-topbar"><span>Playbooks</span> <span class="mono-label">/ Learning feed</span></div>
+          <div class="pb-body">
+            <div class="tool-card">
+              <div class="tool-head">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2 3 14h9l-1 8 10-12h-9l1-8z"/></svg>
+                Noticed a pattern <span class="mono-label">Just now</span>
+              </div>
+              <p style="font-size: 13.5px; line-height: 1.55; color: var(--ink-mute); margin-bottom: 12px">You've asked me to pull together the Monday invoice review three weeks running. Want me to save it as a playbook?</p>
+              <div class="msg-actions">
+                <button class="btn btn-primary btn-xs">Save playbook</button>
+                <button class="btn btn-outline btn-xs">Not now</button>
+              </div>
+            </div>
+            <span class="mono-label">Saved playbooks</span>
+            <div class="pb-chips">
+              <span class="pb-chip gold">/monday-invoices</span>
+              <span class="pb-chip">/week-ahead</span>
+              <span class="pb-chip">/inbox-triage</span>
+              <span class="pb-chip">/follow-ups</span>
+            </div>
+            <div style="margin-top: 22px; padding-top: 18px; border-top: 1px solid var(--line)">
+              <span class="mono-label" style="display:block; margin-bottom: 8px">Recently run</span>
+              <div class="hb-row">
+                <div class="hb-dot sage"></div>
+                <div class="hb-content"><div class="hb-desc"><span class="gold">/week-ahead</span> &mdash; 6 things on deck, 2 need a decision</div></div>
+                <div class="mono-label">Mon 7:00 AM</div>
+              </div>
+              <div class="hb-row">
+                <div class="hb-dot sage"></div>
+                <div class="hb-content"><div class="hb-desc"><span class="gold">/inbox-triage</span> &mdash; cleared 9 items, filed 4 under projects</div></div>
+                <div class="mono-label">Yesterday</div>
+              </div>
+              <div class="hb-row">
+                <div class="hb-dot gold"></div>
+                <div class="hb-content"><div class="hb-desc"><span class="gold">/follow-ups</span> &mdash; 3 people owe you a reply</div></div>
+                <div class="mono-label">Yesterday</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="showcase-item">
+      <div class="showcase-text">
+        <div class="showcase-label">07 &mdash; Onboarding</div>
+        <h3>Set it up in a minute.</h3>
+        <p>Give it a name, paste an API key or point it at Ollama, and tell it what you want help with. Your assistant takes it from there &mdash; it interviews you in plain conversation and writes down what it learns.</p>
+      </div>
+      <div class="showcase-preview">
+        <div class="preview-onboarding">
+          <div class="preview-topbar"><span style="color: var(--accent)">
+            <svg height="18" viewBox="0 0 180 32" fill="none"><g transform="translate(0, 4)"><path d="M20 7.5a7.5 7.5 0 1 0 0 9" stroke="currentColor" stroke-width="3" stroke-linecap="round"/><circle cx="12" cy="12" r="1.5" fill="currentColor"/></g><text x="32" y="23" font-family="Fraunces, Georgia, serif" font-size="24" font-weight="400" fill="currentColor" letter-spacing="-0.02em">chatty</text></svg>
+          </span> <span class="mono-label">Step 2 of 4 &middot; Choose a provider</span></div>
+          <div class="onboard-body">
+            <div class="mono-label">Connect your model</div>
+            <div class="onboard-heading">Where does <em class="gold">the thinking</em> happen?</div>
+            <div class="onboard-grid">
+              <div class="provider-card selected"><div class="provider-check"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg></div><div><strong>Anthropic</strong><span class="muted">Claude models</span></div></div>
+              <div class="provider-card"><div class="provider-check empty"></div><div><strong>OpenAI</strong><span class="muted">GPT &amp; reasoning models</span></div></div>
+              <div class="provider-card"><div class="provider-check empty"></div><div><strong>Together</strong><span class="muted">Open models, OSS fine-tunes</span></div></div>
+              <div class="provider-card"><div class="provider-check empty"></div><div><strong>Ollama</strong><span class="muted">Run locally, no cloud</span></div></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
   </div>
 </section>
 
@@ -305,7 +498,7 @@
     <div class="section-header center">
       <div class="eyebrow">What's inside</div>
       <h2>Batteries, <em>included.</em></h2>
-      <p class="section-sub">Everything you need to build an agent-driven workspace.</p>
+      <p class="section-sub">Everything an assistant needs to actually be useful &mdash; no add-ons, no upsells.</p>
     </div>
     <div class="features-grid">
       <div class="feature-card">
@@ -330,18 +523,60 @@
         <div class="feature-body">Feed an agent docs, notes, or files. Or import a full agent from OpenClaw &mdash; personality, knowledge, and context carry over in one click.</div>
       </div>
       <div class="feature-card">
-        <div class="feature-icon accent">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.9M16 3.1a4 4 0 0 1 0 7.8"/></svg>
+        <div class="feature-icon gold">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11l3 3 8-8"/><path d="M20 12v7a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h9"/></svg>
         </div>
-        <div class="feature-title">Built-in CRM</div>
-        <div class="feature-body">Contacts, companies, deals, tasks &mdash; the same store your agents read from. Not a bolt-on.</div>
+        <div class="feature-title">Todos (GTD)</div>
+        <div class="feature-body">A full Getting Things Done system built in &mdash; inbox, next actions by context, projects, waiting-for, and a weekly review.</div>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon gold">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>
+        </div>
+        <div class="feature-title">Quick capture</div>
+        <div class="feature-body">A no-login page you bookmark on your phone &mdash; type or dictate, hit send, it's in your inbox. Or text your bot "capture buy milk" on Telegram.</div>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon accent">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="M7 15l4-5 3 3 5-7"/></svg>
+        </div>
+        <div class="feature-title">Usage &amp; cost</div>
+        <div class="feature-body">Your keys, so you see the bill. Token usage and estimated cost broken down by agent and model &mdash; no surprises at the end of the month.</div>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon accent">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z"/><path d="M19 10v1a7 7 0 0 1-14 0v-1M12 18v4"/></svg>
+        </div>
+        <div class="feature-title">Meeting recording</div>
+        <div class="feature-body">Record a call and get it transcribed, with your assistant watching along and speaking up when something matters.</div>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon accent">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+        </div>
+        <div class="feature-title">Search everything</div>
+        <div class="feature-body">Full-text search across every conversation you've ever had, plus semantic recall over what your assistant has learned about you.</div>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon gold">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg>
+        </div>
+        <div class="feature-title">Notifications</div>
+        <div class="feature-body">Browser push, Telegram, or WhatsApp. Your assistant decides what's worth interrupting you for &mdash; and stays quiet otherwise.</div>
       </div>
       <div class="feature-card">
         <div class="feature-icon gold">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2 3 14h9l-1 8 10-12h-9l1-8z"/></svg>
         </div>
         <div class="feature-title">Tools &amp; integrations</div>
-        <div class="feature-body">Gmail (multiple accounts), Calendar, Drive, QuickBooks, Telegram (multiple bots), WhatsApp, Odoo, BambooHR, and more.</div>
+        <div class="feature-body">Gmail (multiple accounts), Calendar, Drive, Telegram (multiple bots), Todoist, QuickBooks, Odoo, BambooHR, and more.</div>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon gold">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/><path d="M22 12a10 10 0 1 1-5-8.66"/></svg>
+        </div>
+        <div class="feature-title">Commitments</div>
+        <div class="feature-body">It notices what you promised in email and on calls &mdash; and surfaces the follow-up before you've remembered you owe it.</div>
       </div>
       <div class="feature-card">
         <div class="feature-icon accent">
@@ -386,88 +621,98 @@
         <div class="feature-body">API keys encrypted at rest, optional TOTP two-factor auth, and bring-your-own OAuth credentials for full control.</div>
       </div>
     </div>
+
+    <figure class="screenshot-real">
+      <img src="screenshot-usage.png" alt="Chatty usage dashboard — daily cost, token totals, and per-agent breakdown" loading="lazy">
+      <figcaption>Your keys, your bill &mdash; usage and estimated cost by agent, model, and day</figcaption>
+    </figure>
   </div>
 </section>
 
-<!-- ─── Sales ───────────────────────────────────────────── -->
-<section id="sales" class="section section-ruled">
+<!-- ─── Todos ───────────────────────────────────────────── -->
+<section id="todos" class="section section-ruled">
   <div class="container">
     <div class="section-header">
-      <div class="eyebrow">Sales</div>
-      <h2>No sales, <em>no business.</em></h2>
-      <p class="section-sub">Selling is the most important thing in small business. Figuring out how to build your sales process is figuring out how to build your small business. Leverage Chatty and AI to streamline and grow your sales.</p>
+      <div class="eyebrow">Todos</div>
+      <h2>Nothing falls through <em>the cracks.</em></h2>
+      <p class="section-sub">The hard part of Getting Things Done was never the method &mdash; it was keeping the list honest. Chatty ships a full GTD system, and your assistant does the upkeep: catching things wherever they land, sorting them into the right bucket, and telling you what's gone stale.</p>
     </div>
 
-    <div class="sales-grid">
-      <div class="sales-card">
-        <div class="sales-num gold">01</div>
-        <h4>Capture everything</h4>
-        <p>No matter where it comes from &mdash; email, Telegram, or anywhere else &mdash; leverage your AI team to capture every lead. They log the conversation and add a new lead or deal to your pipeline automatically.</p>
+    <div class="flow-grid">
+      <div class="flow-card">
+        <div class="flow-num gold">01</div>
+        <h4>Capture from anywhere</h4>
+        <p>Bookmark the no-login capture page on your phone &mdash; type or dictate, hit send, done. Text your bot "capture buy milk" on Telegram and it's logged instantly, no AI in the loop. Or let your assistant pull todos out of your email, your calls, and your chats on its own.</p>
       </div>
-      <div class="sales-card">
-        <div class="sales-num gold">02</div>
-        <h4>Remember everything</h4>
-        <p>Follow up with every lead with perfection. Never forget a task. Proposal due Friday? No problem &mdash; your AI creates the task and reminds you when things are due. Deals never stall because someone is always watching and helping you move your sales forward.</p>
+      <div class="flow-card">
+        <div class="flow-num gold">02</div>
+        <h4>Triaged for you</h4>
+        <p>An inbox full of half-sentences isn't a system. Your assistant works the inbox with you &mdash; turning vague notes into real next actions, tagging them by context, grouping them under projects, and tracking what you're waiting on from other people.</p>
       </div>
-      <div class="sales-card">
-        <div class="sales-num gold">03</div>
-        <h4>Close more deals</h4>
-        <p>When it's time to close business, it's your turn. You have all the information you need at your fingertips. Your pipeline is current, and you know exactly where everyone stands.</p>
+      <div class="flow-card">
+        <div class="flow-num gold">03</div>
+        <h4>Reviewed weekly</h4>
+        <p>The review is the part everyone skips. There's a page for it, and your assistant comes prepared &mdash; what closed, what's stalled, what's been sitting untouched for two weeks, and what you said you'd do and haven't.</p>
       </div>
     </div>
 
-    <div class="sales-activity">
-      <div class="sales-activity-header">
-        <div class="sales-activity-agent">
-          <div class="mark mark-L" style="width:26px;height:26px;font-size:13px;border-radius:5px">L</div>
-          <span>Lior</span>
-          <span class="mono-label">Inbound Sales</span>
+    <div class="act-panel">
+      <div class="act-panel-header">
+        <div class="act-panel-agent">
+          <div class="mark mark-P" style="width:26px;height:26px;font-size:13px;border-radius:5px">P</div>
+          <span>Penelope</span>
+          <span class="mono-label">Working your list</span>
         </div>
         <span class="mono-label">Today</span>
       </div>
-      <div class="sales-activity-body">
-        <div class="sa-row">
-          <div class="sa-time mono-label">7:12 AM</div>
-          <div class="sa-dot gold"></div>
-          <div class="sa-content">
-            <div class="sa-action">Created contact <span class="gold">Maria Chen</span> from inbound email</div>
-            <div class="sa-detail mono-label">Added to pipeline &middot; Lead &middot; $4,200</div>
+      <div class="act-panel-body">
+        <div class="act-row">
+          <div class="act-time mono-label">7:12 AM</div>
+          <div class="act-dot gold"></div>
+          <div class="act-content">
+            <div class="act-action">Captured <span class="gold">"call dentist re: Thursday"</span> from Telegram</div>
+            <div class="act-detail mono-label">Telegram &middot; Inbox &middot; no AI processing</div>
           </div>
         </div>
-        <div class="sa-row">
-          <div class="sa-time mono-label">7:14 AM</div>
-          <div class="sa-dot sage"></div>
-          <div class="sa-content">
-            <div class="sa-action">Replied to Maria with pricing overview and next steps</div>
-            <div class="sa-detail mono-label">Gmail &middot; Draft approved by you yesterday</div>
+        <div class="act-row">
+          <div class="act-time mono-label">7:40 AM</div>
+          <div class="act-dot sage"></div>
+          <div class="act-content">
+            <div class="act-action">Triaged 3 inbox items into next actions</div>
+            <div class="act-detail mono-label">Agent &middot; tagged @Calls, @Errands</div>
           </div>
         </div>
-        <div class="sa-row">
-          <div class="sa-time mono-label">9:30 AM</div>
-          <div class="sa-dot gold"></div>
-          <div class="sa-content">
-            <div class="sa-action">Moved <span class="gold">Harbor Bistro</span> from Proposal &rarr; Negotiation</div>
-            <div class="sa-detail mono-label">Deal value &middot; $12,600 &middot; Expected close May 2</div>
+        <div class="act-row">
+          <div class="act-time mono-label">9:30 AM</div>
+          <div class="act-dot gold"></div>
+          <div class="act-content">
+            <div class="act-action">Pulled a commitment out of your call with <span class="gold">Maria</span></div>
+            <div class="act-detail mono-label">Agent &middot; "revised pricing by Friday" &rarr; next action</div>
           </div>
         </div>
-        <div class="sa-row">
-          <div class="sa-time mono-label">11:45 AM</div>
-          <div class="sa-dot coral"></div>
-          <div class="sa-content">
-            <div class="sa-action">Flagged <span class="coral">Sunset Catering</span> &mdash; no response in 7 days</div>
-            <div class="sa-detail mono-label">Created follow-up task &middot; Priority: high</div>
+        <div class="act-row">
+          <div class="act-time mono-label">11:45 AM</div>
+          <div class="act-dot coral"></div>
+          <div class="act-content">
+            <div class="act-action">Flagged <span class="coral">Harbor Bistro quote</span> &mdash; waiting 6 days</div>
+            <div class="act-detail mono-label">Waiting For &middot; stale after 14 days</div>
           </div>
         </div>
-        <div class="sa-row">
-          <div class="sa-time mono-label">2:00 PM</div>
-          <div class="sa-dot sage"></div>
-          <div class="sa-content">
-            <div class="sa-action">Sent follow-up to <span class="gold">Ocean View Caf&eacute;</span> with revised proposal</div>
-            <div class="sa-detail mono-label">Gmail &middot; Proposal &middot; $8,400</div>
+        <div class="act-row">
+          <div class="act-time mono-label">2:00 PM</div>
+          <div class="act-dot sage"></div>
+          <div class="act-content">
+            <div class="act-action">Filed 4 loose notes under the <span class="gold">Kitchen remodel</span> project</div>
+            <div class="act-detail mono-label">Agent &middot; project auto-created</div>
           </div>
         </div>
       </div>
     </div>
+
+    <figure class="screenshot-real">
+      <img src="screenshot-todos.png" alt="Chatty todos — GTD inbox and next actions grouped by context" loading="lazy">
+      <figcaption>Your todos &mdash; inbox, next actions by context, projects, and a weekly review</figcaption>
+    </figure>
   </div>
 </section>
 
@@ -477,16 +722,16 @@
   <div class="container" style="position:relative;z-index:2">
     <div class="section-header">
       <div class="eyebrow">Agents</div>
-      <h2>Start with one, <em>build a team.</em></h2>
-      <p class="section-sub">Create an agent with just a name, then give it a role, that's it. Your agent walks you through training in a natural conversation &mdash; or import an existing agent from <a href="https://github.com/claw-project/openclaw" target="_blank" rel="noopener" style="color: var(--gold); text-decoration: underline; text-underline-offset: 3px;">OpenClaw</a> and skip training entirely. Chatty detects your local OpenClaw installation and imports your agent's knowledge automatically.</p>
+      <h2>One is plenty. <em>But you can have more.</em></h2>
+      <p class="section-sub">Most people need exactly one assistant, and that's how Chatty starts &mdash; give it a name and it walks you through training in a natural conversation. Or import an existing agent from <a href="https://github.com/claw-project/openclaw" target="_blank" rel="noopener" style="color: var(--gold); text-decoration: underline; text-underline-offset: 3px;">OpenClaw</a> and skip training entirely. When one isn't enough, add another with its own personality, knowledge, and tools &mdash; they share what they know.</p>
       <p class="section-sub"><strong>You own everything your agents learn.</strong> Every conversation, every memory, every piece of knowledge lives on your machine or your server &mdash; not in someone else's cloud. Switch providers, move hosts, or go offline. Your agents and everything they know come with you.</p>
     </div>
-    <div class="chat-demo" id="chat-demo" role="region" aria-label="Demo conversation with Parker">
+    <div class="chat-demo" id="chat-demo" role="region" aria-label="Demo conversation with Penelope">
       <div class="chat-demo-header">
         <div class="mark mark-P mark-sm" aria-hidden="true">P</div>
         <div class="chat-demo-meta">
-          <span class="chat-demo-name">Parker</span>
-          <span class="chat-demo-role">Support concierge</span>
+          <span class="chat-demo-name">Penelope</span>
+          <span class="chat-demo-role">Personal assistant</span>
         </div>
         <div class="chat-demo-status"><span class="status-dot" aria-hidden="true"></span>Online</div>
       </div>
@@ -494,12 +739,12 @@
     </div>
 
     <div class="agents-grid">
-      <div class="agent-spot"><div class="mark mark-P">P</div><div class="agent-info"><div class="agent-name">Parker</div><div class="muted">Support concierge</div><div class="agent-stats"><span>1,240 tasks</span><span>8 tools</span></div></div></div>
-      <div class="agent-spot"><div class="mark mark-A">A</div><div class="agent-info"><div class="agent-name">Arthur</div><div class="muted">AP controller</div><div class="agent-stats"><span>984 tasks</span><span>6 tools</span></div></div></div>
-      <div class="agent-spot"><div class="mark mark-R">R</div><div class="agent-info"><div class="agent-name">Reed</div><div class="muted">Revenue ops</div><div class="agent-stats"><span>720 tasks</span><span>7 tools</span></div></div></div>
-      <div class="agent-spot"><div class="mark mark-C">C</div><div class="agent-info"><div class="agent-name">Clare</div><div class="muted">Customer research</div><div class="agent-stats"><span>412 tasks</span><span>5 tools</span></div></div></div>
-      <div class="agent-spot"><div class="mark mark-L">L</div><div class="agent-info"><div class="agent-name">Lane</div><div class="muted">Lead qualification</div><div class="agent-stats"><span>1,899 tasks</span><span>4 tools</span></div></div></div>
-      <div class="agent-spot"><div class="mark mark-T">T</div><div class="agent-info"><div class="agent-name">Theo</div><div class="muted">On-call triage</div><div class="agent-stats"><span>260 tasks</span><span>9 tools</span></div></div></div>
+      <div class="agent-spot"><div class="mark mark-P">P</div><div class="agent-info"><div class="agent-name">Penelope</div><div class="muted">Personal assistant</div><div class="agent-stats"><span>1,240 tasks</span><span>8 tools</span></div></div></div>
+      <div class="agent-spot"><div class="mark mark-A">A</div><div class="agent-info"><div class="agent-name">Arthur</div><div class="muted">Bookkeeping</div><div class="agent-stats"><span>984 tasks</span><span>6 tools</span></div></div></div>
+      <div class="agent-spot"><div class="mark mark-R">R</div><div class="agent-info"><div class="agent-name">Reed</div><div class="muted">Reading &amp; research</div><div class="agent-stats"><span>720 tasks</span><span>7 tools</span></div></div></div>
+      <div class="agent-spot"><div class="mark mark-C">C</div><div class="agent-info"><div class="agent-name">Clare</div><div class="muted">Household &amp; errands</div><div class="agent-stats"><span>412 tasks</span><span>5 tools</span></div></div></div>
+      <div class="agent-spot"><div class="mark mark-L">L</div><div class="agent-info"><div class="agent-name">Lane</div><div class="muted">Travel planning</div><div class="agent-stats"><span>1,899 tasks</span><span>4 tools</span></div></div></div>
+      <div class="agent-spot"><div class="mark mark-T">T</div><div class="agent-info"><div class="agent-name">Theo</div><div class="muted">Inbox triage</div><div class="agent-stats"><span>260 tasks</span><span>9 tools</span></div></div></div>
     </div>
 
     <figure class="screenshot-real">
@@ -514,8 +759,8 @@
   <div class="container">
     <div class="section-header">
       <div class="eyebrow">Models &amp; tools</div>
-      <h2>It plugs into<br><em>what you already run.</em></h2>
-      <p class="section-sub">Bring your own keys for any supported provider &mdash; or point Chatty at a local Ollama instance and never pay for a token.</p>
+      <h2>It plugs into<br><em>what you already use.</em></h2>
+      <p class="section-sub">Connect a service once and every agent gets its tools &mdash; no per-agent setup. Bring your own keys for any supported model provider, or point Chatty at a local Ollama instance and never pay for a token.</p>
     </div>
 
     <div class="featured-grid">
@@ -524,20 +769,20 @@
         <div class="featured-top">
           <svg width="68" height="68" viewBox="0 0 48 48" fill="none" style="color: var(--gold)">
             <circle cx="24" cy="24" r="22" stroke="currentColor" stroke-width="1.5" opacity="0.3"/>
-            <circle cx="24" cy="24" r="15" stroke="currentColor" stroke-width="1.5" opacity="0.6"/>
-            <text x="24" y="30.5" text-anchor="middle" font-family="Fraunces, serif" font-size="20" font-weight="500" fill="currentColor" font-style="italic">O</text>
+            <path d="M13 18h22v14a2 2 0 0 1-2 2H15a2 2 0 0 1-2-2z" stroke="currentColor" stroke-width="1.5"/>
+            <path d="m13 19 11 8 11-8" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/>
           </svg>
-          <span class="featured-badge gold">Odoo</span>
+          <span class="featured-badge gold">Google</span>
         </div>
         <div class="featured-body">
-          <div class="mono-label">Odoo ERP</div>
-          <div class="featured-tagline">Your whole back-office, <em>at your agent's fingertips.</em></div>
+          <div class="mono-label">Gmail &middot; Calendar &middot; Drive</div>
+          <div class="featured-tagline">Your inbox and your calendar, <em>handled.</em></div>
         </div>
         <div class="featured-bullets">
-          <div class="bullet gold"><span></span>CRM, helpdesk, sales, purchasing, accounting, quality &mdash; 60+ tools wired in</div>
-          <div class="bullet gold"><span></span>Auto-discovers your databases; works with any self-hosted or cloud Odoo instance</div>
-          <div class="bullet gold"><span></span>Per-agent permissions: read-only to full CRUD, your call</div>
-          <div class="bullet gold"><span></span>Query aged receivables, open tickets, leads, quality alerts &mdash; in plain English</div>
+          <div class="bullet gold"><span></span>Search, read, send, reply to, and draft email &mdash; in chat, sending waits for your approval unless you switch on power mode</div>
+          <div class="bullet gold"><span></span>Connect multiple Gmail accounts and assign them per agent &mdash; work and personal stay separate</div>
+          <div class="bullet gold"><span></span>View, create, move, and cancel calendar events; find the conflict before you do</div>
+          <div class="bullet gold"><span></span>Search, read, and upload files in Drive</div>
         </div>
       </div>
       <div class="featured-card">
@@ -555,10 +800,28 @@
           <div class="featured-tagline">Chat with your agents <em>from anywhere.</em></div>
         </div>
         <div class="featured-bullets">
-          <div class="bullet"><span></span>Talk to any agent from your phone &mdash; each agent gets its own bot, one user can talk to all of them</div>
-          <div class="bullet"><span></span>Proactive alerts: agents push email summaries, calendar conflicts, and CRM reminders to you via Telegram</div>
-          <div class="bullet"><span></span>Full tool access: bookkeeping, CRM, email drafts, all over text</div>
-          <div class="bullet"><span></span>One-to-one or group chats &mdash; run an ops team that never leaves the group chat</div>
+          <div class="bullet"><span></span>Talk to your assistant from your phone &mdash; each agent gets its own bot, one user can talk to all of them</div>
+          <div class="bullet"><span></span>Text "capture buy milk" and it lands in your todo inbox instantly &mdash; no AI call, no waiting</div>
+          <div class="bullet"><span></span>Proactive alerts: email summaries, calendar conflicts, and reminders pushed to you</div>
+          <div class="bullet"><span></span>Full tool access &mdash; todos, email drafts, calendar, bookkeeping, all over text</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="featured-wide">
+      <svg class="featured-wide-mark" width="52" height="52" viewBox="0 0 48 48" fill="none">
+        <circle cx="24" cy="24" r="22" stroke="currentColor" stroke-width="1.5" opacity="0.3"/>
+        <circle cx="24" cy="24" r="15" stroke="currentColor" stroke-width="1.5" opacity="0.6"/>
+        <text x="24" y="30.5" text-anchor="middle" font-family="Fraunces, serif" font-size="20" font-weight="500" fill="currentColor" font-style="italic">O</text>
+      </svg>
+      <div>
+        <div class="mono-label">Odoo ERP &middot; for the business side</div>
+        <div class="featured-tagline">Running a business on Odoo? <em>60+ tools wired in.</em></div>
+        <div class="featured-bullets">
+          <div class="bullet"><span></span>CRM, helpdesk, sales, purchasing, accounting, quality</div>
+          <div class="bullet"><span></span>Auto-discovers your databases; self-hosted or cloud</div>
+          <div class="bullet"><span></span>Per-agent permissions, read-only to full CRUD</div>
+          <div class="bullet"><span></span>Query aged receivables and open tickets in plain English</div>
         </div>
       </div>
     </div>
@@ -566,14 +829,14 @@
     <div class="also-connected">
       <div class="mono-label" style="margin-bottom: 18px">Also connected</div>
       <div class="integrations-grid">
-        <div class="integ-item"><div class="integ-icon">G</div><div><div class="integ-name">Gmail</div><div class="mono-label">Tool &middot; multi-account</div></div></div>
-        <div class="integ-item"><div class="integ-icon">G</div><div><div class="integ-name">Google Calendar</div><div class="mono-label">Tool</div></div></div>
-        <div class="integ-item"><div class="integ-icon">G</div><div><div class="integ-name">Google Drive</div><div class="mono-label">Tool</div></div></div>
+        <div class="integ-item"><div class="integ-icon">T</div><div><div class="integ-name">Todoist</div><div class="mono-label">Tool</div></div></div>
         <div class="integ-item"><div class="integ-icon">Q</div><div><div class="integ-name">QuickBooks Online</div><div class="mono-label">Tool</div></div></div>
-        <div class="integ-item"><div class="integ-icon">W</div><div><div class="integ-name">WhatsApp</div><div class="mono-label">Tool</div></div></div>
+        <div class="integ-item"><div class="integ-icon">Q</div><div><div class="integ-name">QuickBooks CSV</div><div class="mono-label">Tool &middot; no OAuth</div></div></div>
+        <div class="integ-item"><div class="integ-icon">O</div><div><div class="integ-name">Odoo</div><div class="mono-label">Tool &middot; ERP</div></div></div>
         <div class="integ-item"><div class="integ-icon">B</div><div><div class="integ-name">BambooHR</div><div class="mono-label">Tool</div></div></div>
-        <div class="integ-item"><div class="integ-icon">C</div><div><div class="integ-name">CRM Lite</div><div class="mono-label">Built in</div></div></div>
+        <div class="integ-item"><div class="integ-icon">C</div><div><div class="integ-name">CRM Lite</div><div class="mono-label">Optional &middot; off by default</div></div></div>
         <div class="integ-item"><div class="integ-icon">P</div><div><div class="integ-name">Paperclip</div><div class="mono-label">Orchestration</div></div></div>
+        <div class="integ-item"><div class="integ-icon">W</div><div><div class="integ-name">WhatsApp</div><div class="mono-label">Deprecated &middot; use Telegram</div></div></div>
         <div class="integ-item"><div class="integ-icon">A</div><div><div class="integ-name">Anthropic</div><div class="mono-label">Model</div></div></div>
         <div class="integ-item"><div class="integ-icon">O</div><div><div class="integ-name">OpenAI</div><div class="mono-label">Model</div></div></div>
         <div class="integ-item"><div class="integ-icon">G</div><div><div class="integ-name">Google Gemini</div><div class="mono-label">Model</div></div></div>
@@ -659,13 +922,13 @@
 <script>
 (function() {
   var msgs = [
-    { from: 'agent', text: "Hey! I'm Parker. Looks like I just got set up \u2014 nice to meet you." },
-    { from: 'user',  text: "Welcome, Parker! You're going to be our support concierge." },
-    { from: 'agent', text: "Got it. I can see I've got Gmail and the CRM connected. Want me to start by reading through recent support emails?" },
-    { from: 'user',  text: "Yes \u2014 flag anything that's been waiting more than 24 hours." },
-    { from: 'agent', text: "On it. I found 3 tickets older than 24h. Two are shipping questions and one is a refund request. Want me to draft replies?" },
-    { from: 'user',  text: "Draft the shipping replies. I'll handle the refund myself." },
-    { from: 'agent', text: "Done \u2014 two drafts ready in Gmail. I tagged the refund ticket as urgent in the CRM so it stays on your radar." }
+    { from: 'agent', text: "Hey! I'm Penelope. Looks like I just got set up \u2014 nice to meet you." },
+    { from: 'user',  text: "Welcome, Penelope. You're going to help me keep on top of everything." },
+    { from: 'agent', text: "Happy to. I can see Gmail and your calendar are connected, and your todo list is empty. Want me to go through your inbox and pull out anything that's actually a task?" },
+    { from: 'user',  text: "Yes \u2014 and flag anything I've left sitting more than a few days." },
+    { from: 'agent', text: "Found 9. Six are real next actions, two are things you're waiting on other people for, and one is a dentist appointment that conflicts with your Thursday call." },
+    { from: 'user',  text: "Move the dentist. Everything else, file it." },
+    { from: 'agent', text: "Done \u2014 dentist moved to Thursday 2pm, and your inbox is clear. I'll keep watching and capture new ones as they come in." }
   ];
   var container = document.getElementById('chat-messages');
   var reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;

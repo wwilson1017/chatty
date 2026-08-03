@@ -1,14 +1,16 @@
 # <img src="docs/chatty-logo.svg" alt="" width="28" /> Chatty
 
-A free, open-source personal assistant for business or personal use — a simple, easy, web-based AI agent platform, not a command-line tool. Create, train, and manage your agents from a dashboard that works on any device with a browser. Learn more at [mechatty.ai](https://mechatty.ai).
+**Your assistant. Your data. Your rules.**
 
-Everything happens in the browser: creating agents, chatting, managing your todos, connecting integrations, reviewing heartbeat schedules. Run it locally or deploy to Railway and access it from your phone, tablet, or desktop — no terminal required after setup.
+A free, open-source personal AI assistant for business or personal use — a simple, easy, web-based agent platform, not a command-line tool. It reads your email, keeps your todos in a full GTD system, sits in on your calls, and works on a schedule. Everything it learns stays yours. Learn more at [mechatty.com](https://mechatty.com).
 
-Create custom AI agents with their own personality, knowledge, and tools — powered by your own API keys or local AI model. No SaaS fees, no vendor lock-in. You only pay for the AI usage you consume.
+Everything happens in the browser: creating agents, chatting, working your todo list, connecting integrations, reviewing heartbeat schedules. Run it locally or deploy to Railway and access it from your phone, tablet, or desktop — no terminal required after setup.
+
+Your conversations, memories, and files live in a SQLite database on your machine or your server — not in someone else's cloud. Bring your own API keys, or run entirely offline with Ollama. No SaaS fees, no vendor lock-in, no tier you get upsold to. You only pay for the AI usage you consume.
 
 > **New to AI agents?** Read our [plain-English guide](docs/what-is-chatty.md) — no technical knowledge required.
 
-![Chatty login — "Hire a team of agents, not just a chatbot"](docs/screenshot-login.png)
+![Chatty login — "Your assistant. Your data. Your rules."](docs/screenshot-login.png)
 
 ## Features
 
@@ -18,10 +20,15 @@ Create custom AI agents with their own personality, knowledge, and tools — pow
 - **Heartbeat** — Agents run scheduled background tasks on their own — scanning emails, checking calendars, reviewing your todo list — and notify you via browser push notifications, Telegram, or WhatsApp
 - **Reminders** — Set one-time or recurring reminders (daily, weekly, monthly, cron) that trigger your agent to take action or notify you
 - **Training mode** — Conversational onboarding that teaches your agent about you, your business, and how you like to work
+- **Memory** — A second brain that grows as you go: facts extracted from conversations, semantic vector search, temporal fact tracking, and nightly consolidation that archives what's gone dormant
+- **Conversation search** — Full-text (FTS5) search across every conversation you've ever had
+- **Meeting recording** — Upload or record audio, get it transcribed, and have your agent act on what it heard. Live meetings add real-time chunked transcription with an agent coach that speaks up mid-call only when something's worth catching
+- **Playbooks & learning loop** — When your agent notices you asking for the same thing repeatedly, it proposes a reusable playbook. Approve it and it becomes a slash command you can run on demand, editable like a document
+- **Commitments** — Inferred follow-ups: your agent notices what you promised in email and on calls, then surfaces it before you've remembered you owe it
+- **Usage & cost dashboard** — Token usage and estimated cost broken down by agent, model, and day, priced from a maintained rate table (paid models with no known rate are flagged, never silently reported as $0)
 - **Knowledge import** — Import an existing agent from [OpenClaw](https://github.com/claw-project/openclaw) or paste context from any AI tool to bootstrap a new agent in minutes
-- **Todos (GTD)** — A built-in Getting Things Done todo system your agents manage with you: inbox capture, next actions by context, projects, waiting/delegated tracking, and a weekly review view
-- **Quick capture** — A no-login `/capture` page you bookmark on your phone (type or dictate, hit send, it's in your inbox), plus instant Telegram capture: message your bot "capture buy milk" and it's logged with zero AI processing. If your instance is reachable from the public internet, flip on the secret-link option in Settings → Todos
-- **Integrations** — Gmail (multiple accounts), Google Calendar, Google Drive, QuickBooks Online, Todoist, Telegram (multiple bots), Odoo, BambooHR, Paperclip, built-in CRM (optional) (WhatsApp is deprecated/frozen — use Telegram)
+- **Todos (GTD)** — A full Getting Things Done system built in, not an integration: inbox, next actions by context, projects, waiting/delegated tracking, and a weekly review — with capture from your phone, from Telegram, or by your agent. [See below](#todos-gtd)
+- **Integrations** — Gmail (multiple accounts), Google Calendar, Google Drive, QuickBooks Online, Todoist, Telegram (multiple bots), Odoo, BambooHR, Paperclip, and CRM Lite (optional, off by default). WhatsApp is deprecated/frozen — use Telegram
 - **Agent orchestration** — Connect to [Paperclip](https://github.com/paperclipai/paperclip) for org charts, task management, and multi-agent coordination
 - **File uploads** — Drag and drop PDFs, DOCX, and text files into chat for your agent to read and analyze
 - **Two-factor auth** — Optional TOTP-based 2FA for your login
@@ -29,6 +36,27 @@ Create custom AI agents with their own personality, knowledge, and tools — pow
 - **BYO OAuth** — Bring your own Google and QuickBooks OAuth credentials for full control over your integration apps
 - **Local-first** — SQLite database, no external services required
 - **One-click deploy** — Deploy to Railway for access from any device
+
+## Todos (GTD)
+
+Chatty ships a full [Getting Things Done](https://gettingthingsdone.com/) system as a **core, always-on feature** — not an integration you have to enable. The hard part of GTD was never the method, it was keeping the list honest. Your agents do the upkeep.
+
+**The pages** live under `/todos`: Inbox, Next Actions, Projects, Waiting, Someday, Done, and a Review page that flags anything untouched for 14+ days.
+
+**The seven statuses** mirror GTD properly: `inbox`, `next_action`, `waiting_for`, `delegated`, `someday_maybe`, `done`, `dropped`. Todos carry a context (`@Calls`, `@Errands`), optional tags, and an optional project.
+
+**Capture from anywhere:**
+
+| Method | How it works |
+|---|---|
+| `/capture` page | A no-login, mobile-first page you bookmark on your phone — type or dictate, hit send, it's in your inbox. If your instance is reachable from the public internet, turn on the secret-token option in **Settings → Todos** |
+| Telegram | Message your bot `capture buy milk` — a deterministic intercept logs it instantly with zero AI processing, so it's fast and costs nothing |
+| Your agent | 11 `todo_*` tools let any agent create, triage, complete, and reorganize todos as part of a normal conversation |
+| The UI | Add and edit directly at `/todos` |
+
+**GTD coaching** is injected into every agent's system prompt so they handle your list the GTD way rather than improvising. The text is editable in **Settings** (`gtd_coaching_text`), and agents can propose updates to it themselves via `todo_update_gtd_coaching`. Clearing it disables the coaching block.
+
+![Chatty todos — GTD inbox and next actions by context](docs/screenshot-todos.png)
 
 ## Quick Start
 
@@ -73,6 +101,16 @@ Run AI models on your own hardware with no API key or usage fees:
 | Phi-4 | `ollama pull phi4` | Microsoft's compact model |
 
 Models without tool support will still chat but won't have access to memory, search, or integrations.
+
+### CLI test harness
+
+Chatty is a browser app, but there's a terminal REPL for chatting with your agents without starting the web server — useful for testing and debugging:
+
+```bash
+cd backend && ../.venv/bin/python -m cli
+```
+
+Useful flags: `--agent <slug>` to pick an agent, `--list` to see them all, `--ephemeral` to skip saving the conversation, `--readonly` to disable write tools, `--power` to skip write confirmations, `-v` for full tool args and results. Inside the REPL, `/help` lists the slash commands (`/search`, `/memory`, `/context`, `/usage`, `/agents`, `/switch`, and more).
 
 ## Import from OpenClaw
 

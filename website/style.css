@@ -17,6 +17,10 @@
   --gold-soft:   rgba(212,168,90,0.10);
   --sage:        #8EA589;
   --coral:       #D97757;
+  /* GTD status colors — kept in sync with frontend/src/todo/constants.ts STATUS_META.
+     next_action/waiting_for/someday_maybe/dropped already map to sage/gold/accent/coral. */
+  --gtd-inbox:     #7B9EC4;
+  --gtd-delegated: #D4855A;
   --display:     "Fraunces", "Source Serif 4", Georgia, serif;
   --sans:        "Geist", "Inter Tight", system-ui, sans-serif;
   --mono:        "JetBrains Mono", ui-monospace, monospace;
@@ -348,29 +352,6 @@ em { font-style: italic; }
   color: var(--ink);
 }
 .dash-agents-label { padding: 16px 36px 10px; }
-.dash-grid {
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 8px;
-  padding: 0 36px 36px;
-}
-.agent-card {
-  background: var(--bg-card);
-  border: 1px solid var(--line);
-  border-radius: 6px;
-  padding: 14px;
-  display: flex;
-  gap: 12px;
-  align-items: center;
-}
-.agent-card strong {
-  font-family: var(--display);
-  font-size: 17px;
-  letter-spacing: -0.015em;
-  display: block;
-  font-weight: 400;
-}
-.agent-card .muted { font-size: 11px; display: block; margin-top: 1px; }
 
 /* ─── Agent monograms ───────────────────────────────────── */
 .mark {
@@ -538,48 +519,91 @@ em { font-style: italic; }
 .tool-row.coral, .tool-row.coral span:last-child { color: var(--coral); }
 .msg-actions { display: flex; gap: 8px; }
 
-/* ─── Preview: CRM ──────────────────────────────────────── */
-.preview-crm { display: flex; flex-direction: column; height: 100%; }
-.crm-hero { padding: 28px 28px 22px; }
-.crm-hero .mono-label { margin-bottom: 10px; }
-.crm-total {
+/* ─── Preview: Todos (GTD) ──────────────────────────────── */
+.preview-todos { display: flex; flex-direction: column; height: 100%; }
+.todo-tabs {
+  display: flex;
+  gap: 4px;
+  padding: 12px 20px;
+  border-bottom: 1px solid var(--line);
+  background: var(--bg-card);
+  overflow: hidden;
+}
+.todo-tab {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--ink-dim);
+  padding: 5px 9px;
+  border-radius: 4px;
+  white-space: nowrap;
+}
+.todo-tab.active { color: var(--ink); background: var(--bg-raised); }
+.todo-tab .count { color: var(--gtd-inbox); margin-left: 5px; }
+.todo-body { flex: 1; padding: 18px 24px; overflow: hidden; }
+.todo-group { margin-bottom: 18px; }
+.todo-group:last-child { margin-bottom: 0; }
+.todo-group > .mono-label { margin-bottom: 8px; display: block; }
+.todo-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 9px 0;
+}
+.todo-item:not(:last-child) { border-bottom: 1px solid var(--line); }
+.todo-box {
+  width: 13px; height: 13px;
+  border: 1px solid var(--line-strong);
+  border-radius: 3px;
+  margin-top: 3px;
+  flex-shrink: 0;
+}
+.todo-text { flex: 1; font-size: 13.5px; line-height: 1.45; }
+.todo-meta { margin-top: 4px; display: flex; gap: 10px; align-items: center; }
+.todo-pill {
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  padding: 2px 6px;
+  border-radius: 3px;
+  white-space: nowrap;
+}
+.todo-pill.next      { color: var(--sage);          background: rgba(142,165,137,0.10); }
+.todo-pill.waiting   { color: var(--gold);          background: rgba(212,168,90,0.10); }
+.todo-pill.delegated { color: var(--gtd-delegated); background: rgba(212,133,90,0.10); }
+
+/* ─── Preview: Memory ───────────────────────────────────── */
+.preview-memory { display: flex; flex-direction: column; height: 100%; }
+.mem-hero { padding: 26px 28px 20px; }
+.mem-hero .mono-label { margin-bottom: 10px; }
+.mem-total {
   font-family: var(--display);
-  font-size: 38px;
+  font-size: 32px;
   font-weight: 400;
   letter-spacing: -0.02em;
-  line-height: 1.02;
+  line-height: 1.08;
 }
-.crm-sub { font-size: 20px; color: var(--ink-mute); margin-top: 4px; }
-.crm-stages { padding: 0 28px; border-top: 1px solid var(--line); }
-.crm-row {
-  padding: 14px 0;
-  border-bottom: 1px solid var(--line);
-  display: grid;
-  grid-template-columns: 120px 1fr 90px 70px;
-  gap: 16px;
+.mem-sub { font-size: 17px; color: var(--ink-mute); margin-top: 4px; }
+.mem-query {
+  display: flex;
   align-items: center;
+  gap: 10px;
+  padding: 12px 28px;
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  background: var(--bg-card);
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--ink-mute);
 }
-.crm-name {
-  font-family: var(--display);
-  font-size: 18px;
-  letter-spacing: -0.01em;
-}
-.crm-bar {
-  height: 2px;
-  background: var(--line);
-  position: relative;
-}
-.crm-bar div {
-  position: absolute;
-  top: 0; left: 0; bottom: 0;
-  background: linear-gradient(90deg, var(--accent) 0%, var(--gold) 100%);
-}
-.crm-val {
-  font-family: var(--display);
-  font-size: 16px;
-  font-weight: 400;
-  text-align: right;
-  letter-spacing: -0.01em;
+.mem-query svg { color: var(--gold); flex-shrink: 0; }
+.mem-rows { flex: 1; padding: 6px 28px; }
+.mem-foot {
+  padding: 12px 28px;
+  border-top: 1px solid var(--line);
+  background: var(--bg-card);
 }
 
 /* ─── Preview: Onboarding ───────────────────────────────── */
@@ -670,6 +694,59 @@ em { font-style: italic; }
 .hb-desc { font-size: 13px; color: var(--ink-mute); line-height: 1.45; margin-bottom: 4px; }
 .hb-row > .mono-label { white-space: nowrap; margin-top: 4px; }
 
+/* ─── Preview: Live meeting ─────────────────────────────── */
+.preview-meeting { display: flex; flex-direction: column; height: 100%; }
+.meet-panes { flex: 1; display: grid; grid-template-columns: 1fr 1fr; overflow: hidden; }
+.meet-pane { padding: 18px 20px; overflow: hidden; }
+.meet-pane + .meet-pane { border-left: 1px solid var(--line); background: var(--bg-card); }
+.meet-pane > .mono-label { display: block; margin-bottom: 14px; }
+.meet-line { font-size: 13px; line-height: 1.5; margin-bottom: 12px; color: var(--ink-mute); }
+.meet-line .speaker { color: var(--ink); }
+.meet-line.faded { opacity: 0.4; }
+.meet-nudge {
+  border: 1px solid var(--line-strong);
+  border-left: 2px solid var(--gold);
+  border-radius: 6px;
+  background: var(--bg-raised);
+  padding: 12px 14px;
+  margin-bottom: 10px;
+  font-size: 13px;
+  line-height: 1.5;
+}
+.meet-nudge .mono-label { display: block; margin-bottom: 6px; color: var(--gold); }
+.meet-live {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-left: auto;
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--coral);
+}
+.meet-live .dot {
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  background: var(--coral);
+  box-shadow: 0 0 6px var(--coral);
+}
+
+/* ─── Preview: Playbooks ────────────────────────────────── */
+.preview-playbooks { display: flex; flex-direction: column; height: 100%; }
+.pb-body { flex: 1; padding: 22px 24px; overflow: hidden; }
+.pb-chips { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 16px; }
+.pb-chip {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--ink-mute);
+  border: 1px solid var(--line-strong);
+  border-radius: 20px;
+  padding: 5px 11px;
+  white-space: nowrap;
+}
+.pb-chip.gold { color: var(--gold); border-color: rgba(212,168,90,0.35); background: var(--gold-soft); }
+
 /* ─── Features grid ─────────────────────────────────────── */
 .features-grid {
   display: grid;
@@ -706,45 +783,45 @@ em { font-style: italic; }
   color: var(--ink-mute);
 }
 
-/* ─── Sales section ────────────────────────────────────── */
-.sales-grid {
+/* ─── Todos section ────────────────────────────────────── */
+.flow-grid {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
   gap: 20px;
   margin-bottom: 60px;
 }
-.sales-card {
+.flow-card {
   padding: 32px;
   border: 1px solid var(--line);
   border-radius: 8px;
   background: var(--bg-card);
 }
-.sales-num {
+.flow-num {
   font-family: var(--mono);
   font-size: 11px;
   letter-spacing: 0.2em;
   margin-bottom: 20px;
 }
-.sales-card h4 {
+.flow-card h4 {
   font-family: var(--display);
   font-size: 22px;
   font-weight: 400;
   letter-spacing: -0.02em;
   margin-bottom: 12px;
 }
-.sales-card p {
+.flow-card p {
   font-size: 14px;
   line-height: 1.6;
   color: var(--ink-mute);
 }
-.sales-activity {
+.act-panel {
   border: 1px solid var(--line-strong);
   border-radius: 10px;
   overflow: hidden;
   background: var(--bg-elev);
   box-shadow: 0 30px 80px -20px rgba(0,0,0,0.5);
 }
-.sales-activity-header {
+.act-panel-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -752,7 +829,7 @@ em { font-style: italic; }
   border-bottom: 1px solid var(--line);
   background: var(--bg-card);
 }
-.sales-activity-agent {
+.act-panel-agent {
   display: flex;
   align-items: center;
   gap: 10px;
@@ -760,32 +837,32 @@ em { font-style: italic; }
   font-size: 15px;
   letter-spacing: -0.01em;
 }
-.sales-activity-body { padding: 4px 0; }
-.sa-row {
+.act-panel-body { padding: 4px 0; }
+.act-row {
   display: flex;
   align-items: flex-start;
   gap: 16px;
   padding: 14px 24px;
 }
-.sa-row:not(:last-child) { border-bottom: 1px solid var(--line); }
-.sa-time {
+.act-row:not(:last-child) { border-bottom: 1px solid var(--line); }
+.act-time {
   width: 70px;
   flex-shrink: 0;
   padding-top: 2px;
 }
-.sa-dot {
+.act-dot {
   width: 7px;
   height: 7px;
   border-radius: 50%;
   margin-top: 7px;
   flex-shrink: 0;
 }
-.sa-dot.gold { background: var(--gold); box-shadow: 0 0 6px var(--gold); }
-.sa-dot.sage { background: var(--sage); box-shadow: 0 0 6px var(--sage); }
-.sa-dot.coral { background: var(--coral); box-shadow: 0 0 6px var(--coral); }
-.sa-content { flex: 1; }
-.sa-action { font-size: 14px; line-height: 1.5; }
-.sa-detail { margin-top: 4px; }
+.act-dot.gold { background: var(--gold); box-shadow: 0 0 6px var(--gold); }
+.act-dot.sage { background: var(--sage); box-shadow: 0 0 6px var(--sage); }
+.act-dot.coral { background: var(--coral); box-shadow: 0 0 6px var(--coral); }
+.act-content { flex: 1; }
+.act-action { font-size: 14px; line-height: 1.5; }
+.act-detail { margin-top: 4px; }
 
 /* ─── Agents section ────────────────────────────────────── */
 .agents-grid {
@@ -998,6 +1075,29 @@ em { font-style: italic; }
   flex-shrink: 0;
 }
 .bullet.gold span { background: var(--gold); }
+
+/* Second-tier featured card — deepest integration, but not the lead story */
+.featured-wide {
+  margin-top: 20px;
+  padding: 28px 32px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--bg-card);
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 28px;
+  align-items: center;
+}
+.featured-wide .featured-tagline { font-size: 22px; margin-top: 6px; }
+.featured-wide .featured-bullets {
+  border-top: none;
+  padding-top: 10px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px 24px;
+}
+.featured-wide-mark { color: var(--ink-dim); }
+
 .also-connected { margin-top: 60px; }
 .integrations-grid {
   display: grid;
@@ -1133,12 +1233,14 @@ em { font-style: italic; }
   .hero-heading { font-size: 42px; }
   .hero-sub { font-size: 16px; }
   .features-grid { grid-template-columns: 1fr; }
-  .sales-grid { grid-template-columns: 1fr; }
-  .sa-time { width: 56px; font-size: 9px; }
-  .sa-row { padding: 12px 16px; gap: 10px; }
-  .sales-activity-header { padding: 14px 16px; }
+  .flow-grid { grid-template-columns: 1fr; }
+  .act-time { width: 56px; font-size: 9px; }
+  .act-row { padding: 12px 16px; gap: 10px; }
+  .act-panel-header { padding: 14px 16px; }
   .agents-grid { grid-template-columns: 1fr; }
   .featured-grid { grid-template-columns: 1fr; }
+  .featured-wide { grid-template-columns: 1fr; gap: 18px; padding: 24px 20px; }
+  .featured-wide .featured-bullets { grid-template-columns: 1fr; }
   .install-grid { grid-template-columns: 1fr !important; }
   .integrations-grid { grid-template-columns: 1fr; }
   .section { padding: 80px 0 60px; }
@@ -1146,11 +1248,24 @@ em { font-style: italic; }
   .screenshot-chrome { margin-left: 0; margin-right: 0; }
   .screenshot-body { height: 400px; }
   .screenshots-pair { grid-template-columns: 1fr; }
-  .dash-grid { grid-template-columns: 1fr; }
-  .crm-row { grid-template-columns: 100px 1fr 70px; }
-  .crm-row .mono-label { display: none; }
+  /* Live-meeting transcript/coach panes stack rather than squeeze to ~150px each */
+  .meet-panes { grid-template-columns: 1fr; grid-template-rows: 1fr 1fr; }
+  .meet-pane + .meet-pane { border-left: none; border-top: 1px solid var(--line); }
+  .mem-hero, .mem-query, .mem-rows, .mem-foot { padding-left: 20px; padding-right: 20px; }
+  .mem-total { font-size: 26px; }
+  .mem-sub { font-size: 15px; }
+  .todo-body { padding: 16px 18px; }
+  .todo-tabs { padding: 10px 14px; }
   .footer-inner { flex-direction: column; text-align: center; }
   .footer-links { flex-wrap: wrap; justify-content: center; }
   .chat-body { max-width: 280px; }
   .chat-demo-messages { padding: 16px; }
+}
+/* Below ~520px the wordmark + both nav buttons exceed the viewport (40px of
+   horizontal scroll on a 375px phone). Drop the GitHub button — it's still in
+   the hero and the footer — and let the CTA hold the right edge on its own. */
+@media (max-width: 520px) {
+  .nav-inner { gap: 16px; }
+  .nav-actions { margin-left: auto; }
+  .nav-actions .btn-outline { display: none; }
 }
