@@ -109,14 +109,14 @@ export function LoginPage() {
               fontSize: 54, fontWeight: 400, letterSpacing: '-0.025em',
               lineHeight: 1.1, margin: 0,
             }}>
-              Hire a team of agents,<br />not just a&nbsp;chatbot.
+              Your assistant.<br />Your data. Your&nbsp;rules.
             </h1>
             <p style={{
               fontSize: 16, color: 'rgba(237,240,244,0.52)',
               marginTop: 20, maxWidth: 420, lineHeight: 1.6,
             }}>
-              Commission a personal assistant, an AP clerk, a sales rep.
-              They learn your business, handle the tedious work, and stay quietly at their desks.
+              Create an assistant that knows you &mdash; your email, your calendar, your todos.
+              It runs on your keys, on your machine, and everything it learns stays yours.
             </p>
           </div>
 
