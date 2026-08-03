@@ -41,6 +41,15 @@ _UPDATE_FIELD_PROPS = {
         "type": "string",
         "description": "Real deadline as YYYY-MM-DD (not an aspiration). Empty string clears it.",
     },
+    "repeat": {
+        "type": "string",
+        "enum": list(service.REPEAT_OPTIONS),
+        "description": (
+            "Simple recurrence. When a repeating todo is completed, the next "
+            "occurrence is created automatically with the due date advanced. "
+            "Empty string means no repeat."
+        ),
+    },
 }
 
 TODO_TOOL_DEFS: list[dict] = [
@@ -63,7 +72,8 @@ TODO_TOOL_DEFS: list[dict] = [
         "description": (
             "List todos with filters. All filters are optional and combine with AND. "
             "Returns todos oldest-first (inbox processing order); done/dropped lists "
-            "return newest-finished first."
+            "return newest-finished first; a search with no status filter returns "
+            "open todos first, newest first."
         ),
         "input_schema": {
             "type": "object",
@@ -75,7 +85,7 @@ TODO_TOOL_DEFS: list[dict] = [
                 "starred": {"type": "boolean", "description": "Only starred (true) or unstarred (false)"},
                 "due_before": {"type": "string", "description": "due_date on or before this YYYY-MM-DD (overdue check: today's date)"},
                 "due_after": {"type": "string", "description": "due_date on or after this YYYY-MM-DD"},
-                "search": {"type": "string", "description": "Substring match on title and notes"},
+                "search": {"type": "string", "description": "Substring match on title, notes, context, tags, and project name"},
                 "limit": {"type": "integer", "description": "Max results (default 100, cap 500)"},
             },
             "required": [],

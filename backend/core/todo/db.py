@@ -85,6 +85,8 @@ def _setup_connection() -> None:
                                           'someday_maybe','done','dropped')),
             star         INTEGER NOT NULL DEFAULT 0,
             due_date     TEXT,
+            repeat       TEXT NOT NULL DEFAULT ''
+                         CHECK(repeat IN ('','daily','weekly','monthly','yearly')),
             source       TEXT NOT NULL DEFAULT 'agent',
             created_at   TEXT NOT NULL DEFAULT (datetime('now')),
             updated_at   TEXT NOT NULL DEFAULT (datetime('now')),
@@ -94,6 +96,13 @@ def _setup_connection() -> None:
         CREATE INDEX IF NOT EXISTS idx_todos_project ON todos(project_id);
         CREATE INDEX IF NOT EXISTS idx_todos_due ON todos(due_date);
     """)
+    # Migration for DBs created before the repeat column existed.
+    cols = {r[1] for r in _connection.execute("PRAGMA table_info(todos)")}
+    if "repeat" not in cols:
+        _connection.execute(
+            "ALTER TABLE todos ADD COLUMN repeat TEXT NOT NULL DEFAULT '' "
+            "CHECK(repeat IN ('','daily','weekly','monthly','yearly'))"
+        )
     _connection.commit()
     logger.info("Todo DB initialized at %s", DB_PATH)
 

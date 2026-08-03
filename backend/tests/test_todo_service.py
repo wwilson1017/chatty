@@ -179,6 +179,127 @@ class TestListTodos:
         assert len(service.list_todos(search="juice")) == 2
         assert [t["title"] for t in service.list_todos(search="100%")] == ["Buy 100% juice"]
 
+    def test_next_due_arithmetic(self, todo_db):
+        # Future base dates (never clamped to today) exercise the raw math.
+        assert service._next_due("daily", "2099-03-15") == "2099-03-16"
+        assert service._next_due("weekly", "2099-03-15") == "2099-03-22"
+        assert service._next_due("monthly", "2099-01-31") == "2099-02-28"  # clamped
+        assert service._next_due("monthly", "2099-12-15") == "2100-01-15"  # year rollover
+        assert service._next_due("yearly", "2096-02-29") == "2097-02-28"   # leap clamp
+
+    def test_next_due_invalid_repeat_raises(self, todo_db):
+        # Empty/unknown values must never silently fall through to yearly math.
+        with pytest.raises(ValueError, match="Invalid repeat"):
+            service._next_due("", "2099-01-01")
+        with pytest.raises(ValueError, match="Invalid repeat"):
+            service._next_due("bogus", "2099-01-01")
+
+    def test_next_due_never_spawns_overdue(self, todo_db):
+        import datetime
+        today = datetime.date.today()
+        # Long-overdue and missing due dates both advance from today.
+        assert service._next_due("daily", "2020-01-01") == (today + datetime.timedelta(days=1)).isoformat()
+        assert service._next_due("weekly", None) == (today + datetime.timedelta(days=7)).isoformat()
+
+    def test_next_due_advances_from_due_date_not_today(self, todo_db):
+        import datetime
+        today = datetime.date.today()
+        # Due "yesterday" (an evening completion after UTC midnight, or one day
+        # late): advancing from the due date gives today — NOT tomorrow, which
+        # clamping base-to-today first would produce, skipping a day.
+        yesterday = (today - datetime.timedelta(days=1)).isoformat()
+        assert service._next_due("daily", yesterday) == today.isoformat()
+        # Weekly overdue by 3 days keeps its anchor: due+7, not today+7.
+        due = today - datetime.timedelta(days=3)
+        assert service._next_due("weekly", due.isoformat()) == (due + datetime.timedelta(days=7)).isoformat()
+
+    def test_completing_repeating_todo_spawns_next_occurrence(self, todo_db):
+        a = service.create_todo(
+            "Water the plants", status="next_action", context="@home",
+            tags=["chore"], due_date="2099-06-01", repeat="weekly", star=1,
+        )
+        service.update_todo(a["id"], {"status": "done"})
+        todos = service.list_todos(status="next_action")
+        assert len(todos) == 1
+        nxt = todos[0]
+        assert nxt["id"] != a["id"]
+        assert nxt["title"] == "Water the plants"
+        assert nxt["due_date"] == "2099-06-08"
+        assert nxt["repeat"] == "weekly"
+        assert nxt["context"] == "@home"
+        assert nxt["tags"] == ["chore"]
+        assert nxt["star"] is False          # today's priority doesn't carry over
+        done = service.list_todos(status="done")
+        assert [t["id"] for t in done] == [a["id"]]
+
+    def test_spawn_preserves_prior_inbox_status(self, todo_db):
+        a = service.create_todo("repeating inbox", status="inbox", repeat="daily")
+        service.update_todo(a["id"], {"status": "done"})
+        spawned = service.list_todos(status="inbox")
+        assert [t["title"] for t in spawned] == ["repeating inbox"]
+        assert spawned[0]["id"] != a["id"]
+
+    def test_spawn_from_dropped_falls_back_to_next_action(self, todo_db):
+        a = service.create_todo("was dropped", status="dropped", repeat="weekly")
+        service.update_todo(a["id"], {"status": "done"})
+        spawned = service.list_todos(status="next_action")
+        assert [t["title"] for t in spawned] == ["was dropped"]
+
+    def test_non_repeating_and_reopen_do_not_spawn(self, todo_db):
+        a = service.create_todo("one-off", status="next_action")
+        service.update_todo(a["id"], {"status": "done"})
+        assert service.list_todos(status="next_action") == []
+        b = service.create_todo("weekly thing", status="next_action", repeat="weekly")
+        service.update_todo(b["id"], {"status": "done"})
+        # Editing an already-done repeating todo must not spawn again.
+        service.update_todo(b["id"], {"notes": "edited after done", "status": "done"})
+        assert len(service.list_todos(status="next_action")) == 1
+
+    def test_bulk_complete_spawns_each_repeating_todo(self, todo_db):
+        a = service.create_todo("water", status="next_action", repeat="daily")
+        b = service.create_todo("stretch", status="next_action", repeat="weekly")
+        c = service.create_todo("one-off", status="next_action")
+        service.bulk_update([a["id"], b["id"], c["id"]], {"status": "done"})
+        spawned = service.list_todos(status="next_action")
+        assert sorted(t["title"] for t in spawned) == ["stretch", "water"]
+
+    def test_clearing_repeat_while_completing_does_not_spawn(self, todo_db):
+        a = service.create_todo("was repeating", status="next_action", repeat="weekly")
+        service.update_todo(a["id"], {"repeat": "", "status": "done"})
+        assert service.list_todos(status="next_action") == []
+
+    def test_invalid_repeat_rejected(self, todo_db):
+        import pytest
+        with pytest.raises(ValueError, match="repeat"):
+            service.create_todo("x", repeat="fortnightly")
+        a = service.create_todo("y")
+        with pytest.raises(ValueError, match="repeat"):
+            service.update_todo(a["id"], {"repeat": "hourly"})
+        # "none" and case variants normalize to no-repeat
+        b = service.create_todo("z", repeat="None")
+        assert b["repeat"] == ""
+
+    def test_search_matches_context_tags_and_project_name(self, todo_db):
+        service.create_todo("a", context="@calls")
+        service.create_todo("b", tags=["errands"])
+        service.create_todo("c", project="Garage Sale")
+        service.create_todo("unrelated")
+        assert [t["title"] for t in service.list_todos(search="calls")] == ["a"]
+        assert [t["title"] for t in service.list_todos(search="errand")] == ["b"]
+        assert [t["title"] for t in service.list_todos(search="garage")] == ["c"]
+
+    def test_global_search_orders_open_before_done(self, todo_db):
+        # Repeating todos pile up done copies with identical titles; the open
+        # occurrence must win the LIMIT window in a global (no-status) search.
+        service.create_todo("Water the plants", status="done")
+        service.create_todo("Water the plants", status="done")
+        open_todo = service.create_todo("Water the plants", status="next_action")
+        results = service.list_todos(search="water")
+        assert results[0]["id"] == open_todo["id"]
+        assert [t["status"] for t in results] == ["next_action", "done", "done"]
+        # Status-filtered lists keep their existing ordering contracts.
+        assert [t["status"] for t in service.list_todos(status="done", search="water")] == ["done", "done"]
+
     def test_ordering_is_fifo(self, todo_db):
         service.create_todo("first")
         service.create_todo("second")
@@ -246,6 +367,64 @@ class TestFilters:
         filters = service.get_filters()
         assert filters["contexts"] == ["@home"]
         assert filters["tags"] == ["deep", "quick"]
+
+
+class TestMigration:
+    def test_repeat_column_added_to_pre_migration_db(self, tmp_path, monkeypatch):
+        """A DB created before the repeat column existed gets it via the
+        ALTER TABLE migration in _setup_connection, preserving existing rows."""
+        import sqlite3
+
+        monkeypatch.setattr(tododb, "DATA_DIR", tmp_path / "todo")
+        monkeypatch.setattr(tododb, "DB_PATH", tmp_path / "todo" / "todo.db")
+        (tmp_path / "todo").mkdir()
+        tododb.close_db()
+
+        # Pre-migration schema: current CREATE TABLE minus the repeat column.
+        conn = sqlite3.connect(str(tmp_path / "todo" / "todo.db"))
+        conn.executescript("""
+            CREATE TABLE projects (
+                id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                name        TEXT NOT NULL COLLATE NOCASE UNIQUE,
+                notes       TEXT NOT NULL DEFAULT '',
+                status      TEXT NOT NULL DEFAULT 'active'
+                            CHECK(status IN ('active','someday','completed','dropped')),
+                created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+                updated_at  TEXT NOT NULL DEFAULT (datetime('now'))
+            );
+            CREATE TABLE todos (
+                id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                title        TEXT NOT NULL,
+                notes        TEXT NOT NULL DEFAULT '',
+                project_id   INTEGER REFERENCES projects(id) ON DELETE SET NULL,
+                context      TEXT NOT NULL DEFAULT '',
+                tags         TEXT NOT NULL DEFAULT '[]',
+                status       TEXT NOT NULL DEFAULT 'inbox'
+                             CHECK(status IN ('inbox','next_action','waiting_for','delegated',
+                                              'someday_maybe','done','dropped')),
+                star         INTEGER NOT NULL DEFAULT 0,
+                due_date     TEXT,
+                source       TEXT NOT NULL DEFAULT 'agent',
+                created_at   TEXT NOT NULL DEFAULT (datetime('now')),
+                updated_at   TEXT NOT NULL DEFAULT (datetime('now')),
+                completed_at TEXT
+            );
+        """)
+        conn.execute("INSERT INTO todos (title) VALUES ('legacy row')")
+        conn.commit()
+        conn.close()
+
+        tododb._setup_connection()
+        try:
+            cols = {r[1] for r in tododb.get_db().execute("PRAGMA table_info(todos)")}
+            assert "repeat" in cols
+            legacy = service.list_todos(search="legacy")
+            assert len(legacy) == 1
+            assert legacy[0]["repeat"] == ""
+            fresh = service.create_todo("new repeating", repeat="weekly")
+            assert fresh["repeat"] == "weekly"
+        finally:
+            tododb.close_db()
 
 
 class TestCapture:

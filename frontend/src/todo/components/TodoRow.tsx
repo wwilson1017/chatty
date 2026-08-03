@@ -26,19 +26,29 @@ export function TodoRow({ todo, onChanged, onOpen, uncheckStatus = 'next_action'
   const isDone = todo.status === 'done' || todo.status === 'dropped';
   const overdue = !isDone && !!todo.due_date && todo.due_date < todayStr();
 
-  async function patch(fields: Record<string, unknown>) {
+  async function patch(fields: Record<string, unknown>): Promise<boolean> {
     try {
       await api(`/api/todo/todos/${todo.id}`, { method: 'PUT', body: JSON.stringify(fields) });
     } catch {
       toast.error('Failed to update todo.');
-      return;
+      return false;
     }
     onChanged();
+    return true;
+  }
+
+  async function toggleDone() {
+    const reopeningSpawned = todo.status === 'done' && !!todo.repeat;
+    if (await patch({ status: isDone ? uncheckStatus : 'done' }) && reopeningSpawned) {
+      // Completing a repeating todo already spawned its successor; reopening
+      // this one means both copies are now live.
+      toast.info('Reopened — its next occurrence already exists from when it was completed.');
+    }
   }
 
   const checkbox = (
     <button
-      onClick={e => { e.stopPropagation(); patch({ status: isDone ? uncheckStatus : 'done' }); }}
+      onClick={e => { e.stopPropagation(); toggleDone(); }}
       title={isDone ? 'Reopen' : 'Mark done'}
       style={{
         width: 20, height: 20, borderRadius: 4, flexShrink: 0,
@@ -73,6 +83,11 @@ export function TodoRow({ todo, onChanged, onOpen, uncheckStatus = 'next_action'
         <span style={{ fontSize: 13, color: INK_SOFT, whiteSpace: 'nowrap' }}>{todo.project_name}</span>
       )}
       {todo.tags.slice(0, 3).map(t => <TagChip key={t} tag={t} />)}
+      {todo.repeat && (
+        <span title={`Repeats ${todo.repeat}`} style={{ ...mono(12, INK_SOFT), whiteSpace: 'nowrap' }}>
+          ↻ {todo.repeat}
+        </span>
+      )}
       {todo.due_date && (
         <span style={{
           ...mono(12, overdue ? CORAL : INK_SOFT),

@@ -6,6 +6,8 @@ tools, the REST router, the /capture endpoints, and the Telegram capture
 intercept. Validation errors raise ValueError with a user-facing message.
 """
 
+import calendar
+import datetime
 import json
 import re
 
@@ -15,8 +17,11 @@ from core.todo.db import PROJECT_STATUSES, TODO_SOURCES, TODO_STATUSES
 _DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 MAX_TEXT_CHARS = 20_000
 
+REPEAT_OPTIONS = ("", "daily", "weekly", "monthly", "yearly")
+
 TODO_FIELDS = frozenset(
-    {"title", "notes", "project", "project_id", "context", "tags", "status", "star", "due_date"}
+    {"title", "notes", "project", "project_id", "context", "tags", "status", "star",
+     "due_date", "repeat"}
 )
 PROJECT_FIELDS = frozenset({"name", "notes", "status"})
 
@@ -49,6 +54,59 @@ def _validate_due(due_date) -> str | None:
     if not _DATE_RE.match(due):
         raise ValueError(f"due_date must be YYYY-MM-DD, got '{due_date}'")
     return due
+
+
+def _validate_repeat(repeat) -> str:
+    r = str(repeat or "").strip().lower()
+    if r == "none":
+        r = ""
+    if r not in REPEAT_OPTIONS:
+        raise ValueError(
+            f"Invalid repeat '{repeat}'. Valid: daily, weekly, monthly, yearly (or empty for none)"
+        )
+    return r
+
+
+def _advance(repeat: str, base: datetime.date) -> datetime.date:
+    """One repeat interval after `base`, clamping month-end/Feb-29 overflow."""
+    if repeat == "daily":
+        return base + datetime.timedelta(days=1)
+    if repeat == "weekly":
+        return base + datetime.timedelta(days=7)
+    if repeat == "monthly":
+        y, m = (base.year, base.month + 1) if base.month < 12 else (base.year + 1, 1)
+        return base.replace(year=y, month=m, day=min(base.day, calendar.monthrange(y, m)[1]))
+    if repeat == "yearly":
+        y = base.year + 1
+        return base.replace(year=y, day=min(base.day, calendar.monthrange(y, base.month)[1]))
+    raise ValueError(f"Invalid repeat '{repeat}'")
+
+
+def _next_due(repeat: str, due_date: str | None) -> str:
+    """Due date for the next occurrence of a repeating todo.
+
+    Advances from the old due date; re-anchors to today only when even the
+    advanced date is already past, so completing late never spawns an
+    already-overdue copy. Advancing-then-clamping (rather than clamping the
+    base first) matters because "today" here is the SERVER date — UTC on
+    Railway — while due dates carry the user's local intent: an evening
+    completion lands after UTC midnight, and clamping first would skip a day
+    on every such completion.
+
+    # simplification: next-due derives from the previous occurrence with
+    # month-end clamping, so a monthly Jan-31 repeat drifts to the 28th after
+    # February, and "today" is server-local; storing an anchor day plus a
+    # user-timezone setting is the upgrade path if either matters.
+    """
+    today = datetime.date.today()
+    try:
+        base = datetime.date.fromisoformat(due_date) if due_date else today
+    except ValueError:
+        base = today
+    nxt = _advance(repeat, base)
+    if nxt < today:  # strictly less — a due-today result is not overdue
+        nxt = _advance(repeat, today)
+    return nxt.isoformat()
 
 
 def _validate_tags(tags) -> list[str]:
@@ -107,6 +165,7 @@ def create_todo(
     status: str = "inbox",
     star=0,
     due_date: str | None = None,
+    repeat: str = "",
     source: str = "agent",
 ) -> dict:
     title = (title or "").strip()
@@ -118,6 +177,7 @@ def create_todo(
     if source not in TODO_SOURCES:
         raise ValueError(f"Invalid source '{source}'. Valid: {', '.join(TODO_SOURCES)}")
     due = _validate_due(due_date)
+    rep = _validate_repeat(repeat)
     tag_list = _validate_tags(tags)
 
     conn = tododb.get_db()
@@ -131,9 +191,9 @@ def create_todo(
                 pid = None
             cur = conn.execute(
                 """INSERT INTO todos
-                   (title, notes, project_id, context, tags, status, star, due_date, source,
-                    completed_at)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?,
+                   (title, notes, project_id, context, tags, status, star, due_date, repeat,
+                    source, completed_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
                            CASE WHEN ? = 'done' THEN datetime('now') END)""",
                 (
                     title,
@@ -144,6 +204,7 @@ def create_todo(
                     status,
                     1 if star else 0,
                     due,
+                    rep,
                     source,
                     status,
                 ),
@@ -202,6 +263,10 @@ def _apply_update(conn, todo_id: int, fields: dict) -> bool:
     if "due_date" in fields:
         sets.append("due_date = ?")
         params.append(_validate_due(fields["due_date"]))
+    if "repeat" in fields:
+        sets.append("repeat = ?")
+        params.append(_validate_repeat(fields["repeat"]))
+    just_completed = False
     if "status" in fields:
         status = _validate_status(fields["status"])
         sets.append("status = ?")
@@ -209,11 +274,31 @@ def _apply_update(conn, todo_id: int, fields: dict) -> bool:
         if status == "done":
             if row["status"] != "done":
                 sets.append("completed_at = datetime('now')")
+                just_completed = True
         else:
             sets.append("completed_at = NULL")
     sets.append("updated_at = datetime('now')")
     conn.execute(f"UPDATE todos SET {', '.join(sets)} WHERE id = ?", (*params, todo_id))
+    if just_completed:
+        _spawn_next_occurrence(conn, todo_id, row["status"])
     return True
+
+
+def _spawn_next_occurrence(conn, todo_id: int, prior_status: str) -> None:
+    """Completing a repeating todo creates its next occurrence: same fields,
+    due date advanced, star cleared (today's priority doesn't carry over).
+    Reads post-update so edits saved together with the completion carry."""
+    t = conn.execute("SELECT * FROM todos WHERE id = ?", (todo_id,)).fetchone()
+    if not t or not t["repeat"]:
+        return
+    status = prior_status if prior_status not in ("done", "dropped") else "next_action"
+    conn.execute(
+        """INSERT INTO todos
+           (title, notes, project_id, context, tags, status, star, due_date, repeat, source)
+           VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?, ?)""",
+        (t["title"], t["notes"], t["project_id"], t["context"], t["tags"],
+         status, _next_due(t["repeat"], t["due_date"]), t["repeat"], t["source"]),
+    )
 
 
 def _check_fields(fields: dict, valid_fields: frozenset = TODO_FIELDS) -> None:
@@ -320,8 +405,12 @@ def list_todos(
         params.append(_validate_due(due_after))
     if search:
         esc = f"%{_escape_like(search)}%"
-        where.append("(t.title LIKE ? ESCAPE '\\' OR t.notes LIKE ? ESCAPE '\\')")
-        params.extend([esc, esc])
+        where.append(
+            "(t.title LIKE ? ESCAPE '\\' OR t.notes LIKE ? ESCAPE '\\' "
+            "OR t.context LIKE ? ESCAPE '\\' OR t.tags LIKE ? ESCAPE '\\' "
+            "OR p.name LIKE ? ESCAPE '\\')"
+        )
+        params.extend([esc] * 5)
     sql = _SELECT_TODO
     if where:
         sql += " WHERE " + " AND ".join(where)
@@ -330,6 +419,11 @@ def list_todos(
         # window would freeze on the oldest rows and hide new completions.
         # (dropped rows have no completed_at; updated_at marks the drop.)
         sql += " ORDER BY COALESCE(t.completed_at, t.updated_at) DESC, t.id DESC LIMIT ?"
+    elif search and not status:
+        # Global search spans every status, and repeating todos accumulate
+        # done copies with identical titles — open todos must win the LIMIT
+        # window or the live occurrence vanishes behind finished ones.
+        sql += " ORDER BY (t.status IN ('done','dropped')) ASC, t.id DESC LIMIT ?"
     else:
         sql += " ORDER BY t.created_at ASC, t.id ASC LIMIT ?"
     n = 100 if limit is None else int(limit)  # `or` would turn an explicit 0 into 100
