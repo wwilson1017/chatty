@@ -15,11 +15,12 @@ token'd URL and says plainly what the tokenless mode means.
 """
 
 import hmac
+import json
 import logging
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException, Request
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, Response
 
 from core.admin_settings import load_admin_settings
 from core.todo.ratelimit import IPRateLimiter
@@ -105,7 +106,25 @@ def _page(base_path: str) -> HTMLResponse:
         return HTMLResponse(_UNBUILT_HTML, status_code=503)
     # base_path is either "/todo" or "/todo/<token>", both already restricted
     # to URL-safe characters, so it is safe inside a JSON string literal.
-    inject = f'<script>window.__CHATTY_TODO_BASE__ = "{base_path}";</script>'
+    inject = (
+        f'<script>window.__CHATTY_TODO_BASE__ = "{base_path}";</script>\n'
+        # Installability: the manifest makes Add to Home Screen produce a real
+        # standalone app (own icon, no browser chrome, opens at base_path).
+        f'  <link rel="manifest" href="{base_path}/manifest.webmanifest">\n'
+        # Pre-16.4 iOS ignores the manifest; these metas are its equivalent.
+        '  <meta name="mobile-web-app-capable" content="yes">\n'
+        '  <meta name="apple-mobile-web-app-capable" content="yes">\n'
+        '  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">\n'
+        '  <meta name="apple-mobile-web-app-title" content="Todos">\n'
+        '  <meta name="theme-color" content="#0A0C0F">'
+    )
+    # The installed icon should be the todo checkbox, not the Chatty "C".
+    # Swap the shell's apple-touch-icon; if the shell ever stops shipping
+    # one, fall back to injecting our own link.
+    if 'href="/apple-touch-icon.png"' in html:
+        html = html.replace('href="/apple-touch-icon.png"', 'href="/todo-apple-touch-icon.png"')
+    else:
+        inject += '\n  <link rel="apple-touch-icon" href="/todo-apple-touch-icon.png">'
     if "</head>" in html:
         html = html.replace("</head>", f"  {inject}\n  </head>", 1)
     else:
@@ -114,6 +133,56 @@ def _page(base_path: str) -> HTMLResponse:
         html,
         headers={"Cache-Control": "no-store", "X-Robots-Tag": "noindex, nofollow"},
     )
+
+
+def _manifest(base_path: str) -> Response:
+    """Web app manifest for the installed (Add to Home Screen) todo app.
+
+    start_url/scope carry the secret path, so the installed app always opens
+    already "authenticated" — the token is baked into the launch URL. That is
+    also why the response is no-store: it must never outlive a regenerate.
+    """
+    manifest = {
+        "name": "Todos",
+        "short_name": "Todos",
+        "description": "Your Chatty todo list",
+        "start_url": base_path,
+        "scope": base_path,
+        "display": "standalone",
+        "background_color": "#0A0C0F",
+        "theme_color": "#0A0C0F",
+        "icons": [
+            {"src": "/todo-icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable"},
+            {"src": "/todo-icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable"},
+        ],
+    }
+    return Response(
+        json.dumps(manifest),
+        media_type="application/manifest+json",
+        headers={"Cache-Control": "no-store", "X-Robots-Tag": "noindex, nofollow"},
+    )
+
+
+# ── Manifest ──────────────────────────────────────────────────────────────────
+# Registered before the page catch-all so /todo/{...}/manifest.webmanifest is
+# matched here first. No collision with tokens: the clamp strips dots, so a
+# token can never literally be "manifest.webmanifest".
+
+@router.get("/todo/manifest.webmanifest")
+async def todo_manifest(request: Request):
+    if not _enabled() or _configured_token():
+        raise _not_found()
+    _rate_or_429(request)
+    return _manifest("/todo")
+
+
+@router.get("/todo/{token}/manifest.webmanifest")
+async def todo_manifest_token(token: str, request: Request):
+    if not _enabled():
+        raise _not_found()
+    _rate_or_429(request)
+    _match_token(token, request)
+    return _manifest(f"/todo/{_configured_token()}")
 
 
 # ── Page ──────────────────────────────────────────────────────────────────────

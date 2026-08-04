@@ -160,7 +160,7 @@ export function TodoSettingsTab() {
   async function regenerateWeb() {
     const ok = await confirmDialog({
       title: 'Regenerate todo link',
-      message: 'The old todo link will stop working — update your bookmarks afterward.',
+      message: 'The old todo link will stop working — update your bookmarks, and re-add any home-screen app installed from it.',
       confirmLabel: 'Regenerate',
     });
     if (ok) await setWeb({ todo_web_token: randomToken() }, 'Failed to update the todo link.');
@@ -262,6 +262,11 @@ export function TodoSettingsTab() {
               />
               <button onClick={() => copyUrl(webUrl, 'Todo link copied.')} style={primaryBtn}>Copy</button>
             </div>
+            <p style={{ ...hint, marginTop: 8 }}>
+              On your phone, open this link and choose <strong>Add to Home Screen</strong> —
+              it installs as a full-screen app with its own icon that opens straight
+              into your list.
+            </p>
 
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 18 }}>
               <div style={{ paddingRight: 16 }}>

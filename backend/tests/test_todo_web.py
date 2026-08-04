@@ -128,6 +128,51 @@ class TestTokenMode:
         assert anon_client.get("/todo/s3cret-token").status_code == 200
 
 
+class TestManifest:
+    def test_public_manifest(self, anon_client):
+        _enable()
+        r = anon_client.get("/todo/manifest.webmanifest")
+        assert r.status_code == 200
+        assert r.headers["content-type"].startswith("application/manifest+json")
+        assert r.headers["cache-control"] == "no-store"
+        m = r.json()
+        assert m["start_url"] == "/todo"
+        assert m["scope"] == "/todo"
+        assert m["display"] == "standalone"
+        assert all(i["src"].startswith("/todo-icon-") for i in m["icons"])
+
+    def test_token_manifest_carries_token(self, anon_client):
+        _enable("s3cret-token")
+        r = anon_client.get("/todo/s3cret-token/manifest.webmanifest")
+        assert r.status_code == 200
+        assert r.json()["start_url"] == "/todo/s3cret-token"
+        assert r.json()["scope"] == "/todo/s3cret-token"
+
+    def test_token_mode_hides_bare_and_wrong(self, anon_client):
+        _enable("s3cret-token")
+        assert anon_client.get("/todo/manifest.webmanifest").status_code == 404
+        assert anon_client.get("/todo/nope/manifest.webmanifest").status_code == 404
+
+    def test_page_declares_manifest_and_ios_metas(self, anon_client, shell):
+        _enable("s3cret-token")
+        html = anon_client.get("/todo/s3cret-token").text
+        assert 'rel="manifest" href="/todo/s3cret-token/manifest.webmanifest"' in html
+        assert 'apple-mobile-web-app-capable' in html
+        assert 'apple-touch-icon' in html
+
+    def test_page_swaps_apple_touch_icon(self, anon_client, monkeypatch):
+        # A shell that ships the Chatty icon: the todo page must replace it,
+        # not add a competing second link.
+        monkeypatch.setattr(
+            web_mod, "_index_html",
+            lambda: '<html><head><link rel="apple-touch-icon" href="/apple-touch-icon.png"></head><body></body></html>',
+        )
+        _enable()
+        html = anon_client.get("/todo").text
+        assert 'href="/todo-apple-touch-icon.png"' in html
+        assert 'href="/apple-touch-icon.png"' not in html
+
+
 class TestSettingsRoundTrip:
     """What the Settings → Todos toggles actually send.
 
