@@ -112,7 +112,8 @@ async def update_admin_settings(body: dict, user=Depends(get_current_user)):
                 settings[key] = body[key]
         for _bool_key in ("always_power_mode", "write_budget_heartbeat_enabled",
                           "write_budget_interactive_enabled", "hourly_write_rate_limit_enabled",
-                          "bot_reply_limit_enabled", "commitments_enabled"):
+                          "bot_reply_limit_enabled", "commitments_enabled",
+                          "todo_web_enabled"):
             if _bool_key in settings:
                 settings[_bool_key] = bool(settings[_bool_key])
         if not isinstance(settings.get("triage_mode"), str) or settings["triage_mode"] not in VALID_TRIAGE_MODES:

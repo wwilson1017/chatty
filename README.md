@@ -54,6 +54,8 @@ Chatty ships a full [Getting Things Done](https://gettingthingsdone.com/) system
 | Your agent | 11 `todo_*` tools let any agent create, triage, complete, and reorganize todos as part of a normal conversation |
 | The UI | Add and edit directly at `/todos` |
 
+**The no-login todo link** puts the whole todo app on its own page at `/todo`, outside the dashboard — no password, no session, just your list. Turn it on in **Settings → Todos** and bookmark the link on your phone. It defaults to a secret URL (`/todo/<token>`); switching that off serves it at plain `/todo`, which means anyone who knows your server address can read and edit your todos, so only do that on a network you trust.
+
 **GTD coaching** is injected into every agent's system prompt so they handle your list the GTD way rather than improvising. The text is editable in **Settings** (`gtd_coaching_text`), and agents can propose updates to it themselves via `todo_update_gtd_coaching`. Clearing it disables the coaching block.
 
 ![Chatty todos — GTD inbox and next actions by context](docs/screenshot-todos.png)

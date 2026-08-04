@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useState } from 'react';
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
-import { api } from '../core/api/client';
+import { todoApi } from './api';
 import type { TodoFilters, TodoProject, TodoStatus } from '../core/types';
 import { useIsMobile } from '../shared/useIsMobile';
 import { MobileMenuDrawer } from '../shared/MobileMenuDrawer';
 import { ACCENT, FONT_DISPLAY, INK, INK_MUTE, INK_SOFT, LINE, LINE_STRONG, ACCENT_INK, inputStyle } from '../shared/styles';
 import { QuickAdd } from './components/QuickAdd';
+import { isTodoPublicMode, todoPath } from './publicMode';
 
 export interface TodoOutletContext {
   counts: Record<TodoStatus, number>;
@@ -24,14 +25,14 @@ const EMPTY_COUNTS: Record<TodoStatus, number> = {
 };
 
 const NAV_ITEMS = [
-  { to: '/todos', label: 'Inbox', end: true },
-  { to: '/todos/next', label: 'To Do' },
-  { to: '/todos/projects', label: 'Projects' },
-  { to: '/todos/waiting', label: 'Waiting' },
-  { to: '/todos/someday', label: 'Someday' },
-  { to: '/todos/done', label: 'Done' },
-  { to: '/todos/review', label: 'Review' },
-  { to: '/todos/search', label: 'Contexts' },
+  { to: todoPath(), label: 'Inbox', end: true },
+  { to: todoPath('/next'), label: 'To Do' },
+  { to: todoPath('/projects'), label: 'Projects' },
+  { to: todoPath('/waiting'), label: 'Waiting' },
+  { to: todoPath('/someday'), label: 'Someday' },
+  { to: todoPath('/done'), label: 'Done' },
+  { to: todoPath('/review'), label: 'Review' },
+  { to: todoPath('/search'), label: 'Contexts' },
 ];
 
 export function TodoLayout() {
@@ -44,7 +45,7 @@ export function TodoLayout() {
   const [quickAddSeq, setQuickAddSeq] = useState(0);
   const [searchText, setSearchText] = useState('');
 
-  const onSearchPage = location.pathname.startsWith('/todos/search');
+  const onSearchPage = location.pathname.startsWith(todoPath('/search'));
 
   // Keep the header box in sync with ?q= — covers deep links, Back/Forward,
   // and leaving the results page (urlQuery becomes ''). Typing is unaffected:
@@ -61,14 +62,14 @@ export function TodoLayout() {
     if (!v.trim() && !onSearchPage) return;
     const refining = onSearchPage && new URLSearchParams(location.search).has('q');
     navigate(
-      v.trim() ? `/todos/search?q=${encodeURIComponent(v)}` : '/todos/search',
+      v.trim() ? `${todoPath('/search')}?q=${encodeURIComponent(v)}` : todoPath('/search'),
       { replace: refining },
     );
   };
 
   const refreshMeta = useCallback(() => {
-    api<TodoFilters>('/api/todo/filters').then(setFilters).catch(() => {});
-    api<{ projects: TodoProject[] }>('/api/todo/projects').then(d => setProjects(d.projects)).catch(() => {});
+    todoApi<TodoFilters>('/api/todo/filters').then(setFilters).catch(() => {});
+    todoApi<{ projects: TodoProject[] }>('/api/todo/projects').then(d => setProjects(d.projects)).catch(() => {});
   }, []);
 
   useEffect(() => { refreshMeta(); }, [refreshMeta]);
@@ -100,7 +101,7 @@ export function TodoLayout() {
           display: 'flex', alignItems: 'center',
         }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-            {isMobile && (
+            {isMobile && !isTodoPublicMode && (
               <div
                 onClick={() => setShowMenu(!showMenu)}
                 style={{ cursor: 'pointer', color: INK_MUTE, fontSize: 18 }}
@@ -178,7 +179,7 @@ export function TodoLayout() {
         )}
       </div>
 
-      {isMobile && showMenu && (
+      {isMobile && showMenu && !isTodoPublicMode && (
         <MobileMenuDrawer onClose={() => setShowMenu(false)} navigate={navigate} />
       )}
 

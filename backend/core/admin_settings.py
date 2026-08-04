@@ -36,22 +36,35 @@ ADMIN_DEFAULTS = {
     "commitments_enabled": True,
     "commitments_daily_cap": 3,
     "todo_capture_token": "",
+    "todo_web_enabled": False,
+    "todo_web_token": "",
     "gtd_coaching_text": DEFAULT_GTD_COACHING,
 }
 
 _CAPTURE_TOKEN_STRIP_RE = re.compile(r"[^A-Za-z0-9_-]")
 
+# Page slugs the no-login todo app routes to. A secret token equal to one of
+# these would make /todo/<slug> ambiguous, so they can never be a token.
+RESERVED_TODO_WEB_SLUGS = {
+    "next", "projects", "waiting", "someday", "done", "review", "search",
+}
+
 
 def clamp_todo_settings(settings: dict) -> None:
     """In-place validation for the todo-gtd string settings.
 
-    Capture token must stay URL-safe (it is a path segment); coaching text is
+    Both tokens must stay URL-safe (they are path segments); coaching text is
     capped so a bad payload can't oversize every agent's system prompt.
     """
     token = settings.get("todo_capture_token")
     if not isinstance(token, str):
         token = ""
     settings["todo_capture_token"] = _CAPTURE_TOKEN_STRIP_RE.sub("", token)[:128]
+    web_token = settings.get("todo_web_token")
+    if not isinstance(web_token, str):
+        web_token = ""
+    web_token = _CAPTURE_TOKEN_STRIP_RE.sub("", web_token)[:128]
+    settings["todo_web_token"] = "" if web_token in RESERVED_TODO_WEB_SLUGS else web_token
     coaching = settings.get("gtd_coaching_text")
     if not isinstance(coaching, str):
         coaching = ADMIN_DEFAULTS["gtd_coaching_text"]

@@ -26,8 +26,15 @@ import { SomedayPage } from './todo/SomedayPage';
 import { DonePage } from './todo/DonePage';
 import { ReviewPage } from './todo/ReviewPage';
 import { SearchPage } from './todo/SearchPage';
+import { PublicTodoApp } from './todo/PublicTodoApp';
+import { isTodoPublicMode } from './todo/publicMode';
 
 export default function App() {
+  // Served at /todo[/{token}]: the todo app alone, no login, no dashboard.
+  // Nothing else mounts — AuthProvider included — so a public visitor can't
+  // reach the rest of Chatty from here.
+  if (isTodoPublicMode) return <PublicTodoApp />;
+
   return (
     <AuthProvider>
       <BrowserRouter>

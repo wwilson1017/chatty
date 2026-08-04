@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useOutletContext, useSearchParams } from 'react-router-dom';
-import { api } from '../core/api/client';
+import { todoApi } from './api';
 import type { Todo, TodoStatus } from '../core/types';
 import { useIsMobile } from '../shared/useIsMobile';
 import { LoadError } from '../shared/LoadError';
@@ -41,13 +41,13 @@ export function SearchPage() {
     try {
       let results: Todo[];
       if (q.trim()) {
-        const data = await api<{ todos: Todo[] }>(
+        const data = await todoApi<{ todos: Todo[] }>(
           `/api/todo/todos?search=${encodeURIComponent(q.trim())}&limit=500`,
         );
         results = data.todos;
       } else {
         const lists = await Promise.all(OPEN_STATUSES.map(s =>
-          api<{ todos: Todo[] }>(`/api/todo/todos?status=${s}&limit=500`)));
+          todoApi<{ todos: Todo[] }>(`/api/todo/todos?status=${s}&limit=500`)));
         results = lists.flatMap(l => l.todos);
       }
       if (mySeq !== seq.current) return; // a newer request superseded this one

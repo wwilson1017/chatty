@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useOutletContext } from 'react-router-dom';
-import { api } from '../core/api/client';
+import { todoApi } from './api';
 import type { Todo } from '../core/types';
 import { useIsMobile } from '../shared/useIsMobile';
 import { LoadError } from '../shared/LoadError';
@@ -28,7 +28,7 @@ export function SomedayPage() {
 
   const load = useCallback(async () => {
     try {
-      const data = await api<{ todos: Todo[] }>('/api/todo/todos?status=someday_maybe&limit=500');
+      const data = await todoApi<{ todos: Todo[] }>('/api/todo/todos?status=someday_maybe&limit=500');
       setTodos(data.todos);
       setLoadFailed(false);
     } catch {
@@ -44,7 +44,7 @@ export function SomedayPage() {
 
   async function activate(todo: Todo) {
     try {
-      await api(`/api/todo/todos/${todo.id}`, { method: 'PUT', body: JSON.stringify({ status: 'next_action' }) });
+      await todoApi(`/api/todo/todos/${todo.id}`, { method: 'PUT', body: JSON.stringify({ status: 'next_action' }) });
     } catch {
       toast.error('Failed to update todo.');
       return;

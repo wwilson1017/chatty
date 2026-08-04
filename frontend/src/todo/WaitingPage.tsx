@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useOutletContext } from 'react-router-dom';
-import { api } from '../core/api/client';
+import { todoApi } from './api';
 import type { Todo } from '../core/types';
 import { useIsMobile } from '../shared/useIsMobile';
 import { LoadError } from '../shared/LoadError';
@@ -31,8 +31,8 @@ export function WaitingPage() {
   const load = useCallback(async () => {
     try {
       const [w, d] = await Promise.all([
-        api<{ todos: Todo[] }>('/api/todo/todos?status=waiting_for&limit=500'),
-        api<{ todos: Todo[] }>('/api/todo/todos?status=delegated&limit=500'),
+        todoApi<{ todos: Todo[] }>('/api/todo/todos?status=waiting_for&limit=500'),
+        todoApi<{ todos: Todo[] }>('/api/todo/todos?status=delegated&limit=500'),
       ]);
       setWaiting(w.todos);
       setDelegated(d.todos);
@@ -50,7 +50,7 @@ export function WaitingPage() {
 
   async function reactivate(todo: Todo) {
     try {
-      await api(`/api/todo/todos/${todo.id}`, { method: 'PUT', body: JSON.stringify({ status: 'next_action' }) });
+      await todoApi(`/api/todo/todos/${todo.id}`, { method: 'PUT', body: JSON.stringify({ status: 'next_action' }) });
     } catch {
       toast.error('Failed to update todo.');
       return;

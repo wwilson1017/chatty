@@ -13,36 +13,18 @@ Per-IP rate limiting guards the POST endpoints (login-limiter pattern).
 import hmac
 import json
 import logging
-import time
-from collections import defaultdict
 
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import HTMLResponse
 
 from core.admin_settings import load_admin_settings
 from core.todo import service
+from core.todo.ratelimit import IPRateLimiter
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
-_RATE_WINDOW_SECONDS = 300
-_RATE_MAX_POSTS = 30
-_capture_posts: dict[str, list[float]] = defaultdict(list)
-
-
-def _check_capture_rate(ip: str) -> bool:
-    now = time.time()
-    # Drop whole expired buckets so attacker-controlled IPs can't grow the
-    # dict unboundedly (timestamps alone being pruned still leaks the keys).
-    if len(_capture_posts) > 256:
-        for stale in [k for k, v in _capture_posts.items()
-                      if not v or now - v[-1] >= _RATE_WINDOW_SECONDS]:
-            del _capture_posts[stale]
-    _capture_posts[ip] = [t for t in _capture_posts[ip] if now - t < _RATE_WINDOW_SECONDS]
-    if len(_capture_posts[ip]) >= _RATE_MAX_POSTS:
-        return False
-    _capture_posts[ip].append(now)
-    return True
+capture_limiter = IPRateLimiter(window=300, max_hits=30)
 
 
 def _configured_token() -> str:
@@ -140,7 +122,7 @@ _MAX_BODY_BYTES = 64 * 1024
 
 def _rate_or_429(request: Request) -> None:
     ip = request.client.host if request.client else "unknown"
-    if not _check_capture_rate(ip):
+    if not capture_limiter.allow(ip):
         raise HTTPException(status_code=429, detail="Too many captures — try again in a few minutes")
 
 

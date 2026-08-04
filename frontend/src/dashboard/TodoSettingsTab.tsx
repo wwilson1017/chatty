@@ -6,6 +6,8 @@ import { inputStyle, FONT_MONO, INK, INK_DIM, INK_MUTE, ACCENT, ACCENT_INK, LINE
 
 interface AdminSettings {
   todo_capture_token: string;
+  todo_web_enabled: boolean;
+  todo_web_token: string;
   gtd_coaching_text: string;
   gtd_coaching_default: string;
   [key: string]: unknown;
@@ -35,11 +37,39 @@ const ghostBtn: React.CSSProperties = {
   border: `1px solid ${LINE_STRONG}`, borderRadius: 4, fontSize: 13, cursor: 'pointer',
 };
 
+function Toggle({ on, busy, onClick, label }: {
+  on: boolean; busy: boolean; onClick: () => void; label: string;
+}) {
+  return (
+    <button
+      disabled={busy}
+      onClick={onClick}
+      aria-label={label}
+      aria-pressed={on}
+      style={{
+        position: 'relative', width: 44, height: 24, borderRadius: 12, flexShrink: 0,
+        background: on ? 'var(--color-ch-accent, #C8D1D9)' : 'rgba(230,235,242,0.14)',
+        border: 'none', cursor: 'pointer', transition: 'background 0.2s',
+        opacity: busy ? 0.6 : 1,
+      }}
+    >
+      <span style={{
+        position: 'absolute', top: 2, width: 20, height: 20,
+        borderRadius: '50%', background: '#fff',
+        boxShadow: '0 1px 3px rgba(0,0,0,0.3)',
+        transition: 'left 0.2s',
+        left: on ? 22 : 2,
+      }} />
+    </button>
+  );
+}
+
 export function TodoSettingsTab() {
   const [settings, setSettings] = useState<AdminSettings | null>(null);
   const [coaching, setCoaching] = useState('');
   const [savingCoaching, setSavingCoaching] = useState(false);
   const [tokenBusy, setTokenBusy] = useState(false);
+  const [webBusy, setWebBusy] = useState(false);
 
   useEffect(() => {
     api<AdminSettings>('/api/setup/admin-settings')
@@ -66,20 +96,23 @@ export function TodoSettingsTab() {
 
   const token = settings.todo_capture_token;
   const captureUrl = `${window.location.origin}/capture${token ? `/${token}` : ''}`;
+  const webEnabled = !!settings.todo_web_enabled;
+  const webToken = settings.todo_web_token;
+  const webUrl = `${window.location.origin}/todo${webToken ? `/${webToken}` : ''}`;
 
-  async function copyUrl() {
+  async function copyUrl(url: string, message: string) {
     try {
-      await navigator.clipboard.writeText(captureUrl);
+      await navigator.clipboard.writeText(url);
     } catch {
       // http LAN origins lack navigator.clipboard — legacy fallback
       const el = document.createElement('textarea');
-      el.value = captureUrl;
+      el.value = url;
       document.body.appendChild(el);
       el.select();
       document.execCommand('copy');
       el.remove();
     }
-    toast.success('Capture link copied.');
+    toast.success(message);
   }
 
   async function setToken(value: string) {
@@ -99,6 +132,51 @@ export function TodoSettingsTab() {
       confirmLabel: 'Regenerate',
     });
     if (ok) await setToken(randomToken());
+  }
+
+  async function setWeb(patch: Record<string, unknown>, failure: string) {
+    setWebBusy(true);
+    try {
+      await putSetting(patch);
+    } catch {
+      toast.error(failure);
+    }
+    setWebBusy(false);
+  }
+
+  // Turning it on mints a secret by default: the tokenless URL hands the whole
+  // todo list to anyone who knows the server address, so that stays opt-in.
+  async function toggleWeb() {
+    if (webEnabled) {
+      await setWeb({ todo_web_enabled: false }, 'Failed to turn off the todo link.');
+      return;
+    }
+    await setWeb(
+      { todo_web_enabled: true, ...(webToken ? {} : { todo_web_token: randomToken() }) },
+      'Failed to turn on the todo link.',
+    );
+  }
+
+  async function regenerateWeb() {
+    const ok = await confirmDialog({
+      title: 'Regenerate todo link',
+      message: 'The old todo link will stop working — update your bookmarks afterward.',
+      confirmLabel: 'Regenerate',
+    });
+    if (ok) await setWeb({ todo_web_token: randomToken() }, 'Failed to update the todo link.');
+  }
+
+  async function toggleWebSecret() {
+    if (!webToken) {
+      await setWeb({ todo_web_token: randomToken() }, 'Failed to update the todo link.');
+      return;
+    }
+    const ok = await confirmDialog({
+      title: 'Make the todo link public?',
+      message: 'Anyone who knows your server address will be able to read and edit your todos at /todo — no login, no secret.',
+      confirmLabel: 'Make it public',
+    });
+    if (ok) await setWeb({ todo_web_token: '' }, 'Failed to update the todo link.');
   }
 
   async function saveCoaching() {
@@ -129,7 +207,7 @@ export function TodoSettingsTab() {
             onFocus={e => e.target.select()}
             style={{ ...inputStyle, flex: 1, fontFamily: FONT_MONO, fontSize: 12 }}
           />
-          <button onClick={copyUrl} style={primaryBtn}>Copy</button>
+          <button onClick={() => copyUrl(captureUrl, 'Capture link copied.')} style={primaryBtn}>Copy</button>
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 18 }}>
@@ -141,24 +219,12 @@ export function TodoSettingsTab() {
                 : 'Anyone who knows your server address can post to your inbox. Turn this on to move capture to an unguessable URL.'}
             </p>
           </div>
-          <button
-            disabled={tokenBusy}
+          <Toggle
+            on={!!token}
+            busy={tokenBusy}
             onClick={() => setToken(token ? '' : randomToken())}
-            style={{
-              position: 'relative', width: 44, height: 24, borderRadius: 12, flexShrink: 0,
-              background: token ? 'var(--color-ch-accent, #C8D1D9)' : 'rgba(230,235,242,0.14)',
-              border: 'none', cursor: 'pointer', transition: 'background 0.2s',
-              opacity: tokenBusy ? 0.6 : 1,
-            }}
-          >
-            <span style={{
-              position: 'absolute', top: 2, width: 20, height: 20,
-              borderRadius: '50%', background: '#fff',
-              boxShadow: '0 1px 3px rgba(0,0,0,0.3)',
-              transition: 'left 0.2s',
-              left: token ? 22 : 2,
-            }} />
-          </button>
+            label="Secret capture link"
+          />
         </div>
         {token && (
           <button onClick={regenerate} disabled={tokenBusy} style={{ ...ghostBtn, marginTop: 10 }}>
@@ -169,6 +235,53 @@ export function TodoSettingsTab() {
           Telegram works too: message any connected bot with <code style={{ fontFamily: FONT_MONO }}>/capture buy milk</code>{' '}
           (or just "capture buy milk") for an instant, AI-free capture.
         </p>
+      </div>
+
+      {/* ── Todo web app ──────────────────────────────────────────── */}
+      <div>
+        <p style={sectionTitle}>Todo Web App</p>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <div style={{ paddingRight: 16 }}>
+            <p style={label}>Todo link</p>
+            <p style={hint}>
+              Your whole todo app — inbox, projects, review — on its own no-login page.
+              Bookmark it to reach your todos without signing in to Chatty.
+            </p>
+          </div>
+          <Toggle on={webEnabled} busy={webBusy} onClick={toggleWeb} label="Todo web app" />
+        </div>
+
+        {webEnabled && (
+          <>
+            <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
+              <input
+                readOnly
+                value={webUrl}
+                onFocus={e => e.target.select()}
+                style={{ ...inputStyle, flex: 1, fontFamily: FONT_MONO, fontSize: 12 }}
+              />
+              <button onClick={() => copyUrl(webUrl, 'Todo link copied.')} style={primaryBtn}>Copy</button>
+            </div>
+
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 18 }}>
+              <div style={{ paddingRight: 16 }}>
+                <p style={label}>Secret link</p>
+                <p style={hint}>
+                  {webToken
+                    ? 'The todo page only works at the secret URL above.'
+                    : 'Off: anyone who knows your server address can read and edit your todos at /todo.'}
+                </p>
+              </div>
+              <Toggle on={!!webToken} busy={webBusy} onClick={toggleWebSecret} label="Secret todo link" />
+            </div>
+
+            {webToken && (
+              <button onClick={regenerateWeb} disabled={webBusy} style={{ ...ghostBtn, marginTop: 10 }}>
+                Regenerate secret
+              </button>
+            )}
+          </>
+        )}
       </div>
 
       {/* ── GTD coaching ──────────────────────────────────────────── */}

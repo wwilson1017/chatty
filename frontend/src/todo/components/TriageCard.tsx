@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { api } from '../../core/api/client';
+import { todoApi } from '../api';
 import type { Todo, TodoProject } from '../../core/types';
 import { useIsMobile } from '../../shared/useIsMobile';
 import { toast } from '../../shared/toast';
@@ -46,7 +46,7 @@ export function TriageCard({ todo, projects, contexts, onProcessed, onChanged, o
     if (busy) return;
     setBusy(true);
     try {
-      await api(`/api/todo/todos/${todo.id}`, { method: 'PUT', body: JSON.stringify(fields) });
+      await todoApi(`/api/todo/todos/${todo.id}`, { method: 'PUT', body: JSON.stringify(fields) });
       (resolves ? onProcessed : onChanged)();
     } catch {
       toast.error('Failed to update todo.');
@@ -59,7 +59,7 @@ export function TriageCard({ todo, projects, contexts, onProcessed, onChanged, o
     if (busy) return;
     setBusy(true);
     try {
-      await api(`/api/todo/todos/${todo.id}`, {
+      await todoApi(`/api/todo/todos/${todo.id}`, {
         method: 'PUT',
         body: JSON.stringify({ context: context.trim(), status: 'next_action' }),
       });
@@ -87,7 +87,7 @@ export function TriageCard({ todo, projects, contexts, onProcessed, onChanged, o
     });
     if (!ok) return;
     try {
-      await api(`/api/todo/todos/${todo.id}`, { method: 'DELETE' });
+      await todoApi(`/api/todo/todos/${todo.id}`, { method: 'DELETE' });
       onProcessed();
     } catch {
       toast.error('Failed to delete todo.');

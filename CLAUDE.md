@@ -11,7 +11,7 @@
 - Optional branding: logo, company name, accent color
 - Multi-provider AI: Anthropic, OpenAI, Google Gemini, Ollama (local), Together AI — all via API key paste (no OAuth for AI providers)
 - Integrations: QuickBooks Online (OAuth), QuickBooks CSV import, Gmail (multiple accounts), Google Calendar, Google Drive, WhatsApp (Baileys bridge), Telegram (multiple bots), CRM Lite (optional, default OFF), Odoo, BambooHR, Paperclip (agent orchestration), Todoist
-- **Todos (GTD)** — core always-on feature (NOT an integration): global store in `core/todo/`, 11 `todo_*` agent tools, multi-page UI at `/todos`, GTD coaching block injected into every agent's system prompt (admin setting `gtd_coaching_text`), public no-login `/capture` page (optional secret token), deterministic Telegram "capture" intercept
+- **Todos (GTD)** — core always-on feature (NOT an integration): global store in `core/todo/`, 11 `todo_*` agent tools, multi-page UI at `/todos`, GTD coaching block injected into every agent's system prompt (admin setting `gtd_coaching_text`), public no-login `/capture` page (optional secret token), no-login `/todo[/{token}]` web app serving the whole todo UI outside the dashboard (`core/todo/web.py`, off by default), deterministic Telegram "capture" intercept
 - Agent features: memory system, dreaming/context archival, shared context across agents, scheduled actions (heartbeat), reminders (one-time and recurring), notifications (web push, Telegram, WhatsApp), knowledge import (OpenClaw, paste, folder, ZIP)
 - File uploads: PDF, DOCX, and text files via drag-and-drop in chat
 - BYO OAuth: users can bring their own Google and QuickBooks OAuth app credentials
