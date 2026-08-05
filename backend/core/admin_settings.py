@@ -45,8 +45,11 @@ _CAPTURE_TOKEN_STRIP_RE = re.compile(r"[^A-Za-z0-9_-]")
 
 # Page slugs the no-login todo app routes to. A secret token equal to one of
 # these would make /todo/<slug> ambiguous, so they can never be a token.
+# "todos" is reserved too: the token also rides the /api/todo-web/{token}
+# mount, and /api/todo-web/todos/... would match the bare public router's
+# /todos/{todo_id} routes first, shadowing the token mount.
 RESERVED_TODO_WEB_SLUGS = {
-    "next", "projects", "waiting", "someday", "done", "review", "search",
+    "next", "projects", "waiting", "someday", "done", "review", "search", "todos",
 }
 
 

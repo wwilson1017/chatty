@@ -14,6 +14,13 @@ from collections import defaultdict
 # could grow the dict unboundedly.
 _SWEEP_AT = 256
 
+# Hard ceiling on tracked IPs. The sweep only drops *expired* buckets, so a
+# flood of ever-new source IPs inside one window (spoofed X-Forwarded-For
+# behind a misconfigured proxy, or a real distributed flood) could still
+# grow the dict to rate × window. At the cap, the least-recently-hit bucket
+# is evicted to admit the newcomer, bounding memory.
+_MAX_TRACKED = 10_000
+
 
 class IPRateLimiter:
     """Fixed-window-ish counter: at most `max_hits` per `window` seconds per IP."""
@@ -29,6 +36,8 @@ class IPRateLimiter:
             for stale in [k for k, v in self.hits.items()
                           if not v or now - v[-1] >= self.window]:
                 del self.hits[stale]
+        if ip not in self.hits and len(self.hits) >= _MAX_TRACKED:
+            del self.hits[min(self.hits, key=lambda k: self.hits[k][-1] if self.hits[k] else 0.0)]
         self.hits[ip] = [t for t in self.hits[ip] if now - t < self.window]
         if len(self.hits[ip]) >= self.max_hits:
             return False

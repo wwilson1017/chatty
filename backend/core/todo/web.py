@@ -15,18 +15,16 @@ token'd URL and says plainly what the tokenless mode means.
 """
 
 import hmac
-import json
-import logging
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import HTMLResponse, Response
 
 from core.admin_settings import load_admin_settings
+from core.todo.pwa import manifest_response
 from core.todo.ratelimit import IPRateLimiter
 from core.todo.router import build_router
 
-logger = logging.getLogger(__name__)
 router = APIRouter()
 
 # Generous: one todo page view is several API calls, and this is the owner's
@@ -47,16 +45,12 @@ in <code>frontend/</code>) and reload.</p></body></html>"""
 _index_cache: tuple[float, str] | None = None
 
 
-def _settings() -> dict:
-    return load_admin_settings()
-
-
 def _enabled() -> bool:
-    return bool(_settings().get("todo_web_enabled"))
+    return bool(load_admin_settings().get("todo_web_enabled"))
 
 
 def _configured_token() -> str:
-    return _settings().get("todo_web_token", "") or ""
+    return load_admin_settings().get("todo_web_token", "") or ""
 
 
 def _client_ip(request: Request) -> str:
@@ -136,30 +130,12 @@ def _page(base_path: str) -> HTMLResponse:
 
 
 def _manifest(base_path: str) -> Response:
-    """Web app manifest for the installed (Add to Home Screen) todo app.
-
-    start_url/scope carry the secret path, so the installed app always opens
-    already "authenticated" — the token is baked into the launch URL. That is
-    also why the response is no-store: it must never outlive a regenerate.
-    """
-    manifest = {
-        "name": "Todos",
-        "short_name": "Todos",
-        "description": "Your Chatty todo list",
-        "start_url": base_path,
-        "scope": base_path,
-        "display": "standalone",
-        "background_color": "#0A0C0F",
-        "theme_color": "#0A0C0F",
-        "icons": [
-            {"src": "/todo-icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable"},
-            {"src": "/todo-icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable"},
-        ],
-    }
-    return Response(
-        json.dumps(manifest),
-        media_type="application/manifest+json",
-        headers={"Cache-Control": "no-store", "X-Robots-Tag": "noindex, nofollow"},
+    # Shared builder (core/todo/pwa.py) carries the start_url/no-store rationale.
+    return manifest_response(
+        name="Todos",
+        description="Your Chatty todo list",
+        icon_prefix="/todo-icon",
+        base_path=base_path,
     )
 
 
@@ -208,17 +184,27 @@ async def todo_web_page(request: Request, rest: str = ""):
 
 # ── API ───────────────────────────────────────────────────────────────────────
 
-async def _public_api_guard(request: Request):
+def _no_store(response: Response) -> None:
+    # These endpoints authenticate via the URL path, not an Authorization
+    # header, so RFC 7234's authenticated-response cache exemption doesn't
+    # apply — and regenerating the token must kill any cached copies.
+    response.headers["Cache-Control"] = "no-store"
+    response.headers["X-Robots-Tag"] = "noindex, nofollow"
+
+
+async def _public_api_guard(request: Request, response: Response):
     if not _enabled() or _configured_token():
         raise _not_found()
     _rate_or_429(request)
+    _no_store(response)
 
 
-async def _token_api_guard(token: str, request: Request):
+async def _token_api_guard(token: str, request: Request, response: Response):
     if not _enabled():
         raise _not_found()
     _rate_or_429(request)
     _match_token(token, request)
+    _no_store(response)
 
 
 public_api_router = build_router(_public_api_guard)

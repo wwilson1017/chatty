@@ -19,6 +19,7 @@ from fastapi.responses import HTMLResponse, Response
 
 from core.admin_settings import load_admin_settings
 from core.todo import service
+from core.todo.pwa import manifest_response
 from core.todo.ratelimit import IPRateLimiter
 
 logger = logging.getLogger(__name__)
@@ -31,10 +32,17 @@ def _configured_token() -> str:
     return load_admin_settings().get("todo_capture_token", "") or ""
 
 
+def _tokenless_or_404() -> None:
+    # The bare public paths go dark the moment a secret token is configured.
+    if _configured_token():
+        raise HTTPException(status_code=404, detail="Not found")
+
+
 _CAPTURE_HTML = """<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
+<meta name="referrer" content="same-origin">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Capture</title>
 <link rel="manifest" href="__BASE_PATH__/manifest.webmanifest">
@@ -123,27 +131,12 @@ def _page(post_path: str, base_path: str) -> HTMLResponse:
 
 
 def _manifest(base_path: str) -> Response:
-    """Web app manifest so Add to Home Screen installs Capture as a
-    standalone app. start_url carries the secret path when one is set —
-    which is also why the response is no-store (see core/todo/web.py)."""
-    manifest = {
-        "name": "Capture",
-        "short_name": "Capture",
-        "description": "Quick capture to your Chatty todo inbox",
-        "start_url": base_path,
-        "scope": base_path,
-        "display": "standalone",
-        "background_color": "#0A0C0F",
-        "theme_color": "#0A0C0F",
-        "icons": [
-            {"src": "/capture-icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable"},
-            {"src": "/capture-icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable"},
-        ],
-    }
-    return Response(
-        json.dumps(manifest),
-        media_type="application/manifest+json",
-        headers={"Cache-Control": "no-store", "X-Robots-Tag": "noindex, nofollow"},
+    # Shared builder (core/todo/pwa.py) carries the start_url/no-store rationale.
+    return manifest_response(
+        name="Capture",
+        description="Quick capture to your Chatty todo inbox",
+        icon_prefix="/capture-icon",
+        base_path=base_path,
     )
 
 
@@ -194,8 +187,7 @@ def _do_capture(text: str) -> dict:
 
 @router.get("/capture", response_class=HTMLResponse)
 async def capture_page():
-    if _configured_token():
-        raise HTTPException(status_code=404, detail="Not found")
+    _tokenless_or_404()
     return _page("/api/capture", "/capture")
 
 
@@ -204,15 +196,13 @@ async def capture_page():
 # never literally be "manifest.webmanifest".
 @router.get("/capture/manifest.webmanifest")
 async def capture_manifest():
-    if _configured_token():
-        raise HTTPException(status_code=404, detail="Not found")
+    _tokenless_or_404()
     return _manifest("/capture")
 
 
 @router.post("/api/capture")
 async def capture_post(request: Request):
-    if _configured_token():
-        raise HTTPException(status_code=404, detail="Not found")
+    _tokenless_or_404()
     _rate_or_429(request)
     return _do_capture(await _read_capture_text(request))
 

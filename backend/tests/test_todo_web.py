@@ -1,5 +1,8 @@
 """Tests for the no-login todo web app (/todo page + /api/todo-web API)."""
 
+import os
+from pathlib import Path
+
 import pytest
 from fastapi.routing import APIRoute
 
@@ -93,6 +96,18 @@ class TestPublicMode:
     def test_token_paths_404_while_public(self, anon_client, shell):
         _enable()
         assert anon_client.get("/api/todo-web/whatever/todos").status_code == 404
+
+    def test_api_responses_are_no_store(self, anon_client):
+        # The API is authenticated by URL path, not an Authorization header,
+        # so caches would otherwise be free to store todo content.
+        _enable()
+        r = anon_client.get("/api/todo-web/todos")
+        assert r.status_code == 200
+        assert r.headers["cache-control"] == "no-store"
+        _enable("s3cret-token")
+        r = anon_client.get("/api/todo-web/s3cret-token/todos")
+        assert r.status_code == 200
+        assert r.headers["cache-control"] == "no-store"
 
 
 class TestTokenMode:
@@ -200,6 +215,57 @@ class TestSettingsRoundTrip:
         saved = client.put("/api/setup/admin-settings", json={"todo_web_enabled": "yes"}).json()
         assert saved["todo_web_enabled"] is True
 
+    def test_regenerate_secret_kills_old_link(self, anon_client, client, shell):
+        client.put("/api/setup/admin-settings",
+                   json={"todo_web_enabled": True, "todo_web_token": "a"})
+        assert anon_client.get("/todo/a").status_code == 200
+        client.put("/api/setup/admin-settings", json={"todo_web_token": "b"})
+        assert anon_client.get("/todo/a").status_code == 404
+        assert anon_client.get("/todo/b").status_code == 200
+
+
+class TestIndexHtmlCache:
+    """_index_html() reads the built shell, cached on the file's mtime."""
+
+    @pytest.fixture
+    def index_file(self, tmp_path, monkeypatch):
+        f = tmp_path / "index.html"
+        monkeypatch.setattr(web_mod, "_FRONTEND_INDEX", f)
+        # The cache is module-global; start clean and let monkeypatch put the
+        # original back so no test-shell HTML leaks into other tests.
+        monkeypatch.setattr(web_mod, "_index_cache", None)
+        return f
+
+    def test_serves_caches_and_refreshes_on_mtime(self, anon_client, index_file, monkeypatch):
+        _enable()
+        index_file.write_text("<html><head></head><body>v1</body></html>")
+        assert "v1" in anon_client.get("/todo").text
+
+        # Same mtime → cache hit: the shell must not be read from disk again.
+        reads = {"count": 0}
+        real_read_text = Path.read_text
+        def spying_read_text(self, *args, **kwargs):
+            if self == index_file:
+                reads["count"] += 1
+            return real_read_text(self, *args, **kwargs)
+        monkeypatch.setattr(Path, "read_text", spying_read_text)
+        assert "v1" in anon_client.get("/todo").text
+        assert reads["count"] == 0
+
+        # New mtime → re-read. os.utime forces a distinct mtime even when the
+        # rewrite lands within the filesystem's timestamp resolution.
+        index_file.write_text("<html><head></head><body>v2</body></html>")
+        mtime = index_file.stat().st_mtime + 10
+        os.utime(index_file, (mtime, mtime))
+        assert "v2" in anon_client.get("/todo").text
+        assert reads["count"] == 1
+
+    def test_unbuilt_frontend_is_503(self, anon_client, index_file):
+        _enable()
+        r = anon_client.get("/todo")
+        assert r.status_code == 503
+        assert "Frontend build not found" in r.text
+
 
 class TestTokenClamping:
     def test_url_unsafe_characters_stripped(self):
@@ -209,6 +275,9 @@ class TestTokenClamping:
     def test_reserved_page_slug_rejected(self):
         # /todo/next must stay the "next actions" page, never a secret link.
         assert admin.set_admin_setting("todo_web_token", "next")["todo_web_token"] == ""
+        # "todos" would shadow the token API mount: /api/todo-web/todos/...
+        # matches the bare public router's /todos/{todo_id} routes first.
+        assert admin.set_admin_setting("todo_web_token", "todos")["todo_web_token"] == ""
 
     def test_non_string_becomes_empty(self):
         assert admin.set_admin_setting("todo_web_token", 12345)["todo_web_token"] == ""
