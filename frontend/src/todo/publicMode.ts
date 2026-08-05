@@ -8,10 +8,12 @@
  * /api/todo.
  */
 
-/** Client-side routes below the todo root. A secret token can never be one of
- *  these (admin_settings.RESERVED_TODO_WEB_SLUGS rejects them), which is what
- *  makes the dev-server fallback below unambiguous. */
-const PAGE_SLUGS = ['next', 'projects', 'waiting', 'someday', 'done', 'review', 'search'];
+/** Segments after /todo that can never be a secret token
+ *  (admin_settings.RESERVED_TODO_WEB_SLUGS rejects them all), which is what
+ *  makes the dev-server fallback below unambiguous. All are client-side page
+ *  routes except 'todos', reserved server-side because it would shadow the
+ *  /api/todo-web/{token} API mount. */
+const PAGE_SLUGS = ['next', 'projects', 'waiting', 'someday', 'done', 'review', 'search', 'todos'];
 
 function detectBase(): string | null {
   const injected = (window as { __CHATTY_TODO_BASE__?: string }).__CHATTY_TODO_BASE__;

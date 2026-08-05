@@ -34,6 +34,14 @@ describe('TODO_PUBLIC_BASE detection', () => {
     expect(mod.TODO_API_BASE).toBe('/api/todo-web');
   });
 
+  it("never reads the reserved 'todos' segment as a token", async () => {
+    // The backend rejects 'todos' as a token (it would shadow the
+    // /api/todo-web/{token} mount), so the dev fallback must agree.
+    const mod = await load({ location: { pathname: '/todo/todos' } });
+    expect(mod.TODO_PUBLIC_BASE).toBe('/todo');
+    expect(mod.TODO_API_BASE).toBe('/api/todo-web');
+  });
+
   it('reads a non-slug segment after /todo as the token', async () => {
     const mod = await load({ location: { pathname: '/todo/abc123' } });
     expect(mod.TODO_PUBLIC_BASE).toBe('/todo/abc123');

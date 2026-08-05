@@ -6,6 +6,7 @@ Tracks whether the user has completed or skipped the first-login setup wizard.
 
 import json
 import logging
+import secrets
 from pathlib import Path
 
 from fastapi import APIRouter, Depends
@@ -107,6 +108,7 @@ async def update_admin_settings(body: dict, user=Depends(get_current_user)):
     # (set_admin_setting) racing this PUT would otherwise be silently lost.
     with settings_write_lock:
         settings = load_admin_settings()
+        was_web_enabled = settings.get("todo_web_enabled") is True
         for key in ADMIN_DEFAULTS:
             if key in body:
                 settings[key] = body[key]
@@ -134,6 +136,14 @@ async def update_admin_settings(body: dict, user=Depends(get_current_user)):
         # Cap the follow-up budget so a bad settings payload can't oversize prompts.
         settings["commitments_daily_cap"] = min(settings["commitments_daily_cap"], 20)
         clamp_todo_settings(settings)
+        # Enable is a revocation boundary server-side, not just in the
+        # Settings UI: turning the todo link on without submitting a token in
+        # the same write mints a fresh secret, so a link leaked while the
+        # feature was off can't be revived by a bare {"todo_web_enabled": true}.
+        # An explicit todo_web_token in the body (even "") is respected.
+        if (settings.get("todo_web_enabled") and not was_web_enabled
+                and "todo_web_token" not in body):
+            settings["todo_web_token"] = secrets.token_hex(16)
         atomic_write_json(ADMIN_SETTINGS_FILE, settings)
         invalidate_cache()
     return settings

@@ -211,6 +211,19 @@ class TestSettingsRoundTrip:
         assert anon_client.get("/todo/x1").status_code == 404
         assert anon_client.get("/api/todo-web/x1/todos").status_code == 404
 
+    def test_enable_without_token_mints_fresh_secret(self, anon_client, client, shell):
+        # Off -> on is a revocation boundary on the server too: a bare
+        # {"todo_web_enabled": true} must not revive the stored (possibly
+        # leaked) token from before the feature was turned off.
+        client.put("/api/setup/admin-settings",
+                   json={"todo_web_enabled": True, "todo_web_token": "old-leaked"})
+        client.put("/api/setup/admin-settings", json={"todo_web_enabled": False})
+        saved = client.put("/api/setup/admin-settings", json={"todo_web_enabled": True}).json()
+        assert saved["todo_web_token"] != "old-leaked"
+        assert len(saved["todo_web_token"]) == 32  # server-minted token_hex(16)
+        assert anon_client.get("/todo/old-leaked").status_code == 404
+        assert anon_client.get(f"/todo/{saved['todo_web_token']}").status_code == 200
+
     def test_non_bool_fails_closed(self, client):
         # The flag opens a no-login read/write surface: only a real JSON true
         # enables it. bool() coercion would turn "yes" — and worse, "false" —
