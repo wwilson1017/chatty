@@ -211,9 +211,33 @@ class TestSettingsRoundTrip:
         assert anon_client.get("/todo/x1").status_code == 404
         assert anon_client.get("/api/todo-web/x1/todos").status_code == 404
 
-    def test_truthy_non_bool_coerced(self, client):
-        saved = client.put("/api/setup/admin-settings", json={"todo_web_enabled": "yes"}).json()
+    def test_non_bool_fails_closed(self, client):
+        # The flag opens a no-login read/write surface: only a real JSON true
+        # enables it. bool() coercion would turn "yes" — and worse, "false" —
+        # into an open door.
+        for value in ("yes", "false"):
+            saved = client.put("/api/setup/admin-settings", json={"todo_web_enabled": value}).json()
+            assert saved["todo_web_enabled"] is False
+
+    def test_invalid_token_disables_surface(self, anon_client, client, shell):
+        # An invalid secret must fail CLOSED: clearing the token while the
+        # flag stays on would silently turn the gated page into a public one.
+        for bad in ("next", "!!!", 12345):
+            client.put("/api/setup/admin-settings",
+                       json={"todo_web_enabled": True, "todo_web_token": "good-token"})
+            saved = client.put("/api/setup/admin-settings", json={"todo_web_token": bad}).json()
+            assert saved["todo_web_token"] == "", bad
+            assert saved["todo_web_enabled"] is False, bad
+            assert anon_client.get("/todo").status_code == 404, bad
+
+    def test_deliberate_empty_token_stays_enabled(self, anon_client, client, shell):
+        # Explicit "" is the UI-confirmed tokenless mode, not an invalid value.
+        saved = client.put(
+            "/api/setup/admin-settings",
+            json={"todo_web_enabled": True, "todo_web_token": ""},
+        ).json()
         assert saved["todo_web_enabled"] is True
+        assert anon_client.get("/todo").status_code == 200
 
     def test_regenerate_secret_kills_old_link(self, anon_client, client, shell):
         client.put("/api/setup/admin-settings",
@@ -281,3 +305,11 @@ class TestTokenClamping:
 
     def test_non_string_becomes_empty(self):
         assert admin.set_admin_setting("todo_web_token", 12345)["todo_web_token"] == ""
+
+    def test_invalid_token_fails_closed_on_tool_path(self):
+        # set_admin_setting (the agent-tool write path) runs the same clamp:
+        # a cleared-because-invalid secret must take the enabled flag with it.
+        admin.set_admin_setting("todo_web_enabled", True)
+        settings = admin.set_admin_setting("todo_web_token", "next")
+        assert settings["todo_web_token"] == ""
+        assert settings["todo_web_enabled"] is False

@@ -29,10 +29,15 @@ class IPRateLimiter:
         self.window = window
         self.max_hits = max_hits
         self.hits: dict[str, list[float]] = defaultdict(list)
+        self._last_sweep = 0.0
 
     def allow(self, ip: str) -> bool:
         now = time.time()
-        if len(self.hits) > _SWEEP_AT:
+        # The sweep is O(tracked IPs), so once past _SWEEP_AT a spoofed-IP
+        # flood would pay a full scan on every request. At most once per
+        # second is plenty — the cap below bounds memory between sweeps.
+        if len(self.hits) > _SWEEP_AT and now - self._last_sweep >= 1.0:
+            self._last_sweep = now
             for stale in [k for k, v in self.hits.items()
                           if not v or now - v[-1] >= self.window]:
                 del self.hits[stale]

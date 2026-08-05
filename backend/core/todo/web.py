@@ -68,12 +68,18 @@ def _not_found() -> HTTPException:
     return HTTPException(status_code=404, detail="Not found")
 
 
-def _match_token(token: str, request: Request) -> None:
+def _match_token(token: str, request: Request) -> str:
+    """Return the configured token the caller matched.
+
+    Callers must build responses from the returned value, never re-read the
+    setting: a regenerate landing between the two reads would serve the NEW
+    secret to a caller who authenticated with the old one.
+    """
     configured = _configured_token()
     # Compare as bytes: compare_digest raises TypeError on non-ASCII str,
     # which would turn a scanner's /todo/ü guess into a 500.
     if configured and hmac.compare_digest(token.encode(), configured.encode()):
-        return
+        return configured
     if not guess_limiter.allow(_client_ip(request)):
         raise HTTPException(status_code=429, detail="Too many requests — try again in a few minutes")
     raise _not_found()
@@ -157,8 +163,8 @@ async def todo_manifest_token(token: str, request: Request):
     if not _enabled():
         raise _not_found()
     _rate_or_429(request)
-    _match_token(token, request)
-    return _manifest(f"/todo/{_configured_token()}")
+    configured = _match_token(token, request)
+    return _manifest(f"/todo/{configured}")
 
 
 # ── Page ──────────────────────────────────────────────────────────────────────
@@ -174,11 +180,10 @@ async def todo_web_page(request: Request, rest: str = ""):
     if not _enabled():
         raise _not_found()
     _rate_or_429(request)
-    configured = _configured_token()
-    if not configured:
+    if not _configured_token():
         return _page("/todo")
     first = rest.split("/", 1)[0]
-    _match_token(first, request)
+    configured = _match_token(first, request)
     return _page(f"/todo/{configured}")
 
 

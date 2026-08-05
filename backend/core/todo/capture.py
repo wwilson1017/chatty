@@ -127,7 +127,12 @@ _CAPTURE_HTML = """<!doctype html>
 
 def _page(post_path: str, base_path: str) -> HTMLResponse:
     html = _CAPTURE_HTML.replace("__POST_PATH__", post_path).replace("__BASE_PATH__", base_path)
-    return HTMLResponse(html)
+    # Same as the todo page: the tokened variant embeds the secret POST path,
+    # so caches and search indexes must never keep a copy.
+    return HTMLResponse(
+        html,
+        headers={"Cache-Control": "no-store", "X-Robots-Tag": "noindex, nofollow"},
+    )
 
 
 def _manifest(base_path: str) -> Response:

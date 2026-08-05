@@ -144,15 +144,17 @@ export function TodoSettingsTab() {
     setWebBusy(false);
   }
 
-  // Turning it on mints a secret by default: the tokenless URL hands the whole
-  // todo list to anyone who knows the server address, so that stays opt-in.
+  // Turning it on always mints a fresh secret — never revives the stored one:
+  // off→on is a revocation boundary, and a link disabled because it leaked
+  // must not come back alive. (The tokenless URL hands the whole todo list to
+  // anyone who knows the server address, so that stays a separate opt-in.)
   async function toggleWeb() {
     if (webEnabled) {
       await setWeb({ todo_web_enabled: false }, 'Failed to turn off the todo link.');
       return;
     }
     await setWeb(
-      { todo_web_enabled: true, ...(webToken ? {} : { todo_web_token: randomToken() }) },
+      { todo_web_enabled: true, todo_web_token: randomToken() },
       'Failed to turn on the todo link.',
     );
   }

@@ -105,7 +105,12 @@ class TestManifest:
         assert r.json()["scope"] == "/capture/s3cret-token"
 
     def test_page_declares_manifest(self, anon_client):
-        html = anon_client.get("/capture").text
+        r = anon_client.get("/capture")
+        # The tokened variant embeds the secret POST path, so the page must
+        # carry the same no-store/noindex headers as the todo web app.
+        assert r.headers["cache-control"] == "no-store"
+        assert r.headers["x-robots-tag"] == "noindex, nofollow"
+        html = r.text
         assert 'rel="manifest" href="/capture/manifest.webmanifest"' in html
         assert "apple-mobile-web-app-capable" in html
         assert "capture-apple-touch-icon.png" in html

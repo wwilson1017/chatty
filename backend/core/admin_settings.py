@@ -63,11 +63,26 @@ def clamp_todo_settings(settings: dict) -> None:
     if not isinstance(token, str):
         token = ""
     settings["todo_capture_token"] = _CAPTURE_TOKEN_STRIP_RE.sub("", token)[:128]
-    web_token = settings.get("todo_web_token")
-    if not isinstance(web_token, str):
-        web_token = ""
-    web_token = _CAPTURE_TOKEN_STRIP_RE.sub("", web_token)[:128]
-    settings["todo_web_token"] = "" if web_token in RESERVED_TODO_WEB_SLUGS else web_token
+    # todo_web_enabled opens a no-login read/write surface, so anything but a
+    # real JSON true fails closed — unlike the lower-stakes flags that keep
+    # bool() coercion in setup/router.py.
+    settings["todo_web_enabled"] = settings.get("todo_web_enabled") is True
+    raw_web_token = settings.get("todo_web_token")
+    if raw_web_token is None:
+        raw_web_token = ""
+    if isinstance(raw_web_token, str):
+        web_token = _CAPTURE_TOKEN_STRIP_RE.sub("", raw_web_token)[:128]
+        if web_token in RESERVED_TODO_WEB_SLUGS:
+            web_token = ""
+        invalid = web_token == "" and raw_web_token != ""
+    else:
+        web_token, invalid = "", True
+    settings["todo_web_token"] = web_token
+    # A deliberately empty token is the UI-confirmed tokenless mode, but a
+    # secret that is invalid (non-string, clamps to nothing, or collides with
+    # a page slug) must disable the surface rather than silently go public.
+    if invalid:
+        settings["todo_web_enabled"] = False
     coaching = settings.get("gtd_coaching_text")
     if not isinstance(coaching, str):
         coaching = ADMIN_DEFAULTS["gtd_coaching_text"]
