@@ -114,6 +114,8 @@ SWEEP_ALLOWLIST = {
     # the optional secret lives in the URL path (todo_capture_token).
     ("GET", "/capture"),
     ("GET", "/capture/{token}"),
+    ("GET", "/capture/manifest.webmanifest"),
+    ("GET", "/capture/{token}/manifest.webmanifest"),
     ("POST", "/api/capture"),
     ("POST", "/api/capture/{token}"),
 }

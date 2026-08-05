@@ -198,7 +198,7 @@ export function TodoSettingsTab() {
         <p style={label}>Capture page</p>
         <p style={hint}>
           A no-login page that logs whatever you type straight to your todo inbox.
-          Bookmark it on your phone.
+          On your phone, use <strong>Add to Home Screen</strong> to install it as an app.
         </p>
         <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
           <input

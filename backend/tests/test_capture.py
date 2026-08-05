@@ -83,6 +83,44 @@ class TestTokenMode:
         assert anon_client.post("/api/capture/%C3%BC", json={"text": "x"}).status_code == 404
 
 
+class TestManifest:
+    def test_public_manifest(self, anon_client):
+        r = anon_client.get("/capture/manifest.webmanifest")
+        assert r.status_code == 200
+        assert r.headers["content-type"].startswith("application/manifest+json")
+        assert r.headers["cache-control"] == "no-store"
+        m = r.json()
+        assert m["start_url"] == "/capture"
+        assert m["display"] == "standalone"
+        assert all(i["src"].startswith("/capture-icon-") for i in m["icons"])
+
+    def test_token_matrix(self, anon_client):
+        _set_token("s3cret-token")
+        # Bare and wrong-token manifest paths go dark like the page
+        assert anon_client.get("/capture/manifest.webmanifest").status_code == 404
+        assert anon_client.get("/capture/wrong/manifest.webmanifest").status_code == 404
+        r = anon_client.get("/capture/s3cret-token/manifest.webmanifest")
+        assert r.status_code == 200
+        assert r.json()["start_url"] == "/capture/s3cret-token"
+        assert r.json()["scope"] == "/capture/s3cret-token"
+
+    def test_page_declares_manifest(self, anon_client):
+        html = anon_client.get("/capture").text
+        assert 'rel="manifest" href="/capture/manifest.webmanifest"' in html
+        assert "apple-mobile-web-app-capable" in html
+        assert "capture-apple-touch-icon.png" in html
+        _set_token("s3cret-token")
+        html = anon_client.get("/capture/s3cret-token").text
+        assert 'rel="manifest" href="/capture/s3cret-token/manifest.webmanifest"' in html
+
+    def test_wrong_manifest_guess_burns_rate_budget(self, anon_client, monkeypatch):
+        _set_token("s3cret-token")
+        monkeypatch.setattr(capture_mod.capture_limiter, "max_hits", 3)
+        for _ in range(3):
+            assert anon_client.get("/capture/wrong/manifest.webmanifest").status_code == 404
+        assert anon_client.get("/capture/wrong/manifest.webmanifest").status_code == 429
+
+
 class TestRateLimit:
     def test_429_after_limit(self, anon_client, monkeypatch):
         monkeypatch.setattr(capture_mod.capture_limiter, "max_hits", 3)

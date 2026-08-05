@@ -49,7 +49,7 @@ Chatty ships a full [Getting Things Done](https://gettingthingsdone.com/) system
 
 | Method | How it works |
 |---|---|
-| `/capture` page | A no-login, mobile-first page you bookmark on your phone — type or dictate, hit send, it's in your inbox. If your instance is reachable from the public internet, turn on the secret-token option in **Settings → Todos** |
+| `/capture` page | A no-login, mobile-first page you bookmark on your phone — type or dictate, hit send, it's in your inbox. Like the todo link, it ships a web app manifest, so **Add to Home Screen** installs it as a full-screen app with its own icon. If your instance is reachable from the public internet, turn on the secret-token option in **Settings → Todos** |
 | Telegram | Message your bot `capture buy milk` — a deterministic intercept logs it instantly with zero AI processing, so it's fast and costs nothing |
 | Your agent | 11 `todo_*` tools let any agent create, triage, complete, and reorganize todos as part of a normal conversation |
 | The UI | Add and edit directly at `/todos` |

@@ -15,7 +15,7 @@ import json
 import logging
 
 from fastapi import APIRouter, HTTPException, Request
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, Response
 
 from core.admin_settings import load_admin_settings
 from core.todo import service
@@ -37,6 +37,13 @@ _CAPTURE_HTML = """<!doctype html>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Capture</title>
+<link rel="manifest" href="__BASE_PATH__/manifest.webmanifest">
+<link rel="apple-touch-icon" href="/capture-apple-touch-icon.png">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Capture">
+<meta name="theme-color" content="#0A0C0F">
 <style>
   * { box-sizing: border-box; margin: 0; }
   body {
@@ -110,8 +117,34 @@ _CAPTURE_HTML = """<!doctype html>
 </html>"""
 
 
-def _page(post_path: str) -> HTMLResponse:
-    return HTMLResponse(_CAPTURE_HTML.replace("__POST_PATH__", post_path))
+def _page(post_path: str, base_path: str) -> HTMLResponse:
+    html = _CAPTURE_HTML.replace("__POST_PATH__", post_path).replace("__BASE_PATH__", base_path)
+    return HTMLResponse(html)
+
+
+def _manifest(base_path: str) -> Response:
+    """Web app manifest so Add to Home Screen installs Capture as a
+    standalone app. start_url carries the secret path when one is set —
+    which is also why the response is no-store (see core/todo/web.py)."""
+    manifest = {
+        "name": "Capture",
+        "short_name": "Capture",
+        "description": "Quick capture to your Chatty todo inbox",
+        "start_url": base_path,
+        "scope": base_path,
+        "display": "standalone",
+        "background_color": "#0A0C0F",
+        "theme_color": "#0A0C0F",
+        "icons": [
+            {"src": "/capture-icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable"},
+            {"src": "/capture-icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable"},
+        ],
+    }
+    return Response(
+        json.dumps(manifest),
+        media_type="application/manifest+json",
+        headers={"Cache-Control": "no-store", "X-Robots-Tag": "noindex, nofollow"},
+    )
 
 
 # Bounds request processing before JSON parsing (the 20k-char cap in the
@@ -163,7 +196,17 @@ def _do_capture(text: str) -> dict:
 async def capture_page():
     if _configured_token():
         raise HTTPException(status_code=404, detail="Not found")
-    return _page("/api/capture")
+    return _page("/api/capture", "/capture")
+
+
+# Registered before /capture/{token} so this path is never read as a token
+# guess. No ambiguity either way: the token clamp strips dots, so a token can
+# never literally be "manifest.webmanifest".
+@router.get("/capture/manifest.webmanifest")
+async def capture_manifest():
+    if _configured_token():
+        raise HTTPException(status_code=404, detail="Not found")
+    return _manifest("/capture")
 
 
 @router.post("/api/capture")
@@ -192,7 +235,16 @@ async def capture_page_token(token: str, request: Request):
     # line speed (the 404 itself reveals nothing).
     _rate_or_429(request)
     configured = _require_token(token)
-    return _page(f"/api/capture/{configured}")
+    return _page(f"/api/capture/{configured}", f"/capture/{configured}")
+
+
+@router.get("/capture/{token}/manifest.webmanifest")
+async def capture_manifest_token(token: str, request: Request):
+    # Same order as the page: burn the rate budget before the comparison so
+    # manifest probes can't brute-force the token any faster than page loads.
+    _rate_or_429(request)
+    configured = _require_token(token)
+    return _manifest(f"/capture/{configured}")
 
 
 @router.post("/api/capture/{token}")
