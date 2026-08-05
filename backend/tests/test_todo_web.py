@@ -1,6 +1,7 @@
 """Tests for the no-login todo web app (/todo page + /api/todo-web API)."""
 
 import os
+import re
 from pathlib import Path
 
 import pytest
@@ -243,6 +244,18 @@ class TestSettingsRoundTrip:
             assert saved["todo_web_enabled"] is False, bad
             assert anon_client.get("/todo").status_code == 404, bad
 
+    def test_null_token_fails_closed(self, anon_client, client, shell):
+        # JSON null is neither the deliberate "" tokenless mode nor a valid
+        # secret: treating it as "" would open the surface tokenless while
+        # also slipping past the mint guard (the key IS present in the body).
+        saved = client.put(
+            "/api/setup/admin-settings",
+            json={"todo_web_enabled": True, "todo_web_token": None},
+        ).json()
+        assert saved["todo_web_enabled"] is False
+        assert saved["todo_web_token"] == ""
+        assert anon_client.get("/todo").status_code == 404
+
     def test_deliberate_empty_token_stays_enabled(self, anon_client, client, shell):
         # Explicit "" is the UI-confirmed tokenless mode, not an invalid value.
         saved = client.put(
@@ -302,6 +315,10 @@ class TestIndexHtmlCache:
         r = anon_client.get("/todo")
         assert r.status_code == 503
         assert "Frontend build not found" in r.text
+        # Fires after a token match, so it gets the same no-store/noindex
+        # treatment as every other response on the surface.
+        assert r.headers["cache-control"] == "no-store"
+        assert r.headers["x-robots-tag"] == "noindex, nofollow"
 
 
 class TestTokenClamping:
@@ -326,3 +343,17 @@ class TestTokenClamping:
         settings = admin.set_admin_setting("todo_web_token", "next")
         assert settings["todo_web_token"] == ""
         assert settings["todo_web_enabled"] is False
+
+
+def test_reserved_slugs_match_frontend():
+    # The slug list lives in two languages: RESERVED_TODO_WEB_SLUGS here and
+    # PAGE_SLUGS in publicMode.ts. Adding a page to one without the other
+    # breaks routing (or lets a token shadow a page), so keep them in lockstep.
+    # backend/tests/... → repo root, same walk web.py uses for _FRONTEND_INDEX.
+    src = Path(__file__).resolve().parents[2] / "frontend" / "src" / "todo" / "publicMode.ts"
+    if not src.exists():
+        pytest.skip("frontend sources not shipped in this deployment")
+    match = re.search(r"PAGE_SLUGS\s*=\s*\[([^\]]*)\]", src.read_text(encoding="utf-8"))
+    assert match, "PAGE_SLUGS array not found in publicMode.ts"
+    frontend_slugs = set(re.findall(r"'([^']*)'", match.group(1)))
+    assert frontend_slugs == admin.RESERVED_TODO_WEB_SLUGS

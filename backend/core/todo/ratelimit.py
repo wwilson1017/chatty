@@ -7,7 +7,7 @@ brute-forcing the secret path token.
 """
 
 import time
-from collections import defaultdict
+from collections import OrderedDict
 
 # Above this many tracked IPs, whole expired buckets are dropped. Pruning
 # timestamps alone still leaks the keys, so an attacker cycling source IPs
@@ -17,8 +17,8 @@ _SWEEP_AT = 256
 # Hard ceiling on tracked IPs. The sweep only drops *expired* buckets, so a
 # flood of ever-new source IPs inside one window (spoofed X-Forwarded-For
 # behind a misconfigured proxy, or a real distributed flood) could still
-# grow the dict to rate × window. At the cap, the least-recently-hit bucket
-# is evicted to admit the newcomer, bounding memory.
+# grow the dict to rate × window. At the cap, the least-recently-touched
+# bucket is evicted to admit the newcomer, bounding memory.
 _MAX_TRACKED = 10_000
 
 
@@ -28,7 +28,10 @@ class IPRateLimiter:
     def __init__(self, window: int, max_hits: int):
         self.window = window
         self.max_hits = max_hits
-        self.hits: dict[str, list[float]] = defaultdict(list)
+        # OrderedDict as an LRU: every touched IP moves to the end, so the
+        # eviction at the cap is an O(1) popitem instead of a full scan on
+        # every request during exactly the flood the cap exists to bound.
+        self.hits: OrderedDict[str, list[float]] = OrderedDict()
         self._last_sweep = 0.0
 
     def allow(self, ip: str) -> bool:
@@ -42,8 +45,9 @@ class IPRateLimiter:
                           if not v or now - v[-1] >= self.window]:
                 del self.hits[stale]
         if ip not in self.hits and len(self.hits) >= _MAX_TRACKED:
-            del self.hits[min(self.hits, key=lambda k: self.hits[k][-1] if self.hits[k] else 0.0)]
-        self.hits[ip] = [t for t in self.hits[ip] if now - t < self.window]
+            self.hits.popitem(last=False)
+        self.hits[ip] = [t for t in self.hits.get(ip, []) if now - t < self.window]
+        self.hits.move_to_end(ip)
         if len(self.hits[ip]) >= self.max_hits:
             return False
         self.hits[ip].append(now)

@@ -22,6 +22,11 @@ def manifest_response(*, name: str, description: str, icon_prefix: str, base_pat
         "name": name,
         "short_name": name,
         "description": description,
+        # No trailing slash on purpose: the page is served (and the settings
+        # UI copies the link) at exactly base_path, and a base_path + "/"
+        # scope would put the install page itself outside its own manifest
+        # scope, degrading installability. Cost: the tokenless /todo scope
+        # also prefix-matches /todos (cosmetic, non-default mode).
         "start_url": base_path,
         "scope": base_path,
         "display": "standalone",

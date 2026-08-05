@@ -68,8 +68,6 @@ def clamp_todo_settings(settings: dict) -> None:
     # bool() coercion in setup/router.py.
     settings["todo_web_enabled"] = settings.get("todo_web_enabled") is True
     raw_web_token = settings.get("todo_web_token")
-    if raw_web_token is None:
-        raw_web_token = ""
     if isinstance(raw_web_token, str):
         web_token = _CAPTURE_TOKEN_STRIP_RE.sub("", raw_web_token)[:128]
         if web_token in RESERVED_TODO_WEB_SLUGS:
@@ -78,9 +76,12 @@ def clamp_todo_settings(settings: dict) -> None:
     else:
         web_token, invalid = "", True
     settings["todo_web_token"] = web_token
-    # A deliberately empty token is the UI-confirmed tokenless mode, but a
+    # A deliberately empty "" token is the UI-confirmed tokenless mode, but a
     # secret that is invalid (non-string, clamps to nothing, or collides with
     # a page slug) must disable the surface rather than silently go public.
+    # JSON null counts as invalid: the load path always merges the string
+    # default first, so a None here is an explicit null in a write — not the
+    # deliberate-tokenless "" — and must fail closed.
     if invalid:
         settings["todo_web_enabled"] = False
     coaching = settings.get("gtd_coaching_text")

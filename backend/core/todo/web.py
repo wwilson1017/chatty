@@ -42,6 +42,10 @@ _UNBUILT_HTML = """<!doctype html><html><head><meta charset="utf-8">
 <p>Frontend build not found. Run <code>python run.py</code> (or <code>npm run build</code>
 in <code>frontend/</code>) and reload.</p></body></html>"""
 
+# Every page response, including the unbuilt-frontend 503 (which fires after a
+# successful token match, so it must not become a cacheable/indexable oracle).
+_PAGE_HEADERS = {"Cache-Control": "no-store", "X-Robots-Tag": "noindex, nofollow"}
+
 _index_cache: tuple[float, str] | None = None
 
 
@@ -103,7 +107,7 @@ def _page(base_path: str) -> HTMLResponse:
     """Serve the SPA with the todo-only mode and its router basename injected."""
     html = _index_html()
     if not html:
-        return HTMLResponse(_UNBUILT_HTML, status_code=503)
+        return HTMLResponse(_UNBUILT_HTML, status_code=503, headers=_PAGE_HEADERS)
     # base_path is either "/todo" or "/todo/<token>", both already restricted
     # to URL-safe characters, so it is safe inside a JSON string literal.
     inject = (
@@ -129,10 +133,7 @@ def _page(base_path: str) -> HTMLResponse:
         html = html.replace("</head>", f"  {inject}\n  </head>", 1)
     else:
         html = inject + html
-    return HTMLResponse(
-        html,
-        headers={"Cache-Control": "no-store", "X-Robots-Tag": "noindex, nofollow"},
-    )
+    return HTMLResponse(html, headers=_PAGE_HEADERS)
 
 
 def _manifest(base_path: str) -> Response:
