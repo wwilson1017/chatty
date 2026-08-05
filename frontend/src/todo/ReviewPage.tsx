@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, useOutletContext } from 'react-router-dom';
-import { api } from '../core/api/client';
+import { todoApi } from './api';
+import { todoPath } from './publicMode';
 import type { Todo } from '../core/types';
 import { useIsMobile } from '../shared/useIsMobile';
 import { FONT_DISPLAY, GOLD, INK, INK_DIM, INK_SOFT, mono } from '../shared/styles';
@@ -21,9 +22,9 @@ export function ReviewPage() {
   const load = useCallback(async () => {
     try {
       const [next, waiting, delegated] = await Promise.all([
-        api<{ todos: Todo[] }>('/api/todo/todos?status=next_action&limit=500'),
-        api<{ todos: Todo[] }>('/api/todo/todos?status=waiting_for&limit=500'),
-        api<{ todos: Todo[] }>('/api/todo/todos?status=delegated&limit=500'),
+        todoApi<{ todos: Todo[] }>('/api/todo/todos?status=next_action&limit=500'),
+        todoApi<{ todos: Todo[] }>('/api/todo/todos?status=waiting_for&limit=500'),
+        todoApi<{ todos: Todo[] }>('/api/todo/todos?status=delegated&limit=500'),
       ]);
       setOpenItems([...next.todos, ...waiting.todos, ...delegated.todos]);
     } catch {
@@ -51,11 +52,11 @@ export function ReviewPage() {
   }, [openItems, projects]);
 
   const tiles: { label: string; value: number; color?: string; to: string }[] = [
-    { label: 'Inbox', value: counts.inbox, color: STATUS_META.inbox.color, to: '/todos' },
-    { label: 'Next', value: counts.next_action, color: STATUS_META.next_action.color, to: '/todos/next' },
-    { label: 'Waiting', value: counts.waiting_for + counts.delegated, color: STATUS_META.waiting_for.color, to: '/todos/waiting' },
-    { label: 'Someday', value: counts.someday_maybe, color: STATUS_META.someday_maybe.color, to: '/todos/someday' },
-    { label: 'Done', value: counts.done, color: STATUS_META.done.color, to: '/todos/done' },
+    { label: 'Inbox', value: counts.inbox, color: STATUS_META.inbox.color, to: todoPath() },
+    { label: 'Next', value: counts.next_action, color: STATUS_META.next_action.color, to: todoPath('/next') },
+    { label: 'Waiting', value: counts.waiting_for + counts.delegated, color: STATUS_META.waiting_for.color, to: todoPath('/waiting') },
+    { label: 'Someday', value: counts.someday_maybe, color: STATUS_META.someday_maybe.color, to: todoPath('/someday') },
+    { label: 'Done', value: counts.done, color: STATUS_META.done.color, to: todoPath('/done') },
   ];
 
   return (
@@ -115,7 +116,7 @@ export function ReviewPage() {
             {projectsWithoutNext.map(project => (
               <Link
                 key={project.id}
-                to={`/todos/projects/${project.id}`}
+                to={todoPath(`/projects/${project.id}`)}
                 style={{ textDecoration: 'none' }}
               >
                 <div style={{ ...cardStyle, padding: '12px 16px', fontSize: 14, color: INK }}>

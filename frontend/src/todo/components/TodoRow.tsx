@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import { api } from '../../core/api/client';
+import { todoApi } from '../api';
 import type { Todo } from '../../core/types';
 import { IconCheck, IconStar, IconStarFilled } from '../../shared/icons';
 import { useIsMobile } from '../../shared/useIsMobile';
@@ -28,7 +28,7 @@ export function TodoRow({ todo, onChanged, onOpen, uncheckStatus = 'next_action'
 
   async function patch(fields: Record<string, unknown>): Promise<boolean> {
     try {
-      await api(`/api/todo/todos/${todo.id}`, { method: 'PUT', body: JSON.stringify(fields) });
+      await todoApi(`/api/todo/todos/${todo.id}`, { method: 'PUT', body: JSON.stringify(fields) });
     } catch {
       toast.error('Failed to update todo.');
       return false;

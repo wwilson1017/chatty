@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useOutletContext } from 'react-router-dom';
-import { api } from '../core/api/client';
+import { todoApi } from './api';
 import type { Todo } from '../core/types';
 import { useIsMobile } from '../shared/useIsMobile';
 import { LoadError } from '../shared/LoadError';
@@ -27,7 +27,7 @@ export function NextActionsPage() {
 
   const load = useCallback(async () => {
     try {
-      const data = await api<{ todos: Todo[] }>('/api/todo/todos?status=next_action&limit=500');
+      const data = await todoApi<{ todos: Todo[] }>('/api/todo/todos?status=next_action&limit=500');
       setTodos(data.todos);
       setLoadFailed(false);
     } catch {

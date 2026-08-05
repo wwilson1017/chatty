@@ -49,10 +49,24 @@ Chatty ships a full [Getting Things Done](https://gettingthingsdone.com/) system
 
 | Method | How it works |
 |---|---|
-| `/capture` page | A no-login, mobile-first page you bookmark on your phone — type or dictate, hit send, it's in your inbox. If your instance is reachable from the public internet, turn on the secret-token option in **Settings → Todos** |
+| `/capture` page | A no-login, mobile-first page you bookmark on your phone — type or dictate, hit send, it's in your inbox. Like the todo link, it ships a web app manifest, so **Add to Home Screen** installs it as a full-screen app with its own icon. If your instance is reachable from the public internet, turn on the secret-token option in **Settings → Todos** |
 | Telegram | Message your bot `capture buy milk` — a deterministic intercept logs it instantly with zero AI processing, so it's fast and costs nothing |
 | Your agent | 11 `todo_*` tools let any agent create, triage, complete, and reorganize todos as part of a normal conversation |
 | The UI | Add and edit directly at `/todos` |
+
+### The no-login todo link — your list as an app
+
+The todo link puts the whole todo app on its own page at `/todo`, outside the dashboard — no password, no session, just your list. Turn it on in **Settings → Todos**, copy the link, and open it on your phone.
+
+**How the access model works.** Instead of a login, the link itself is the key. When you enable it, Chatty mints a long random secret and serves the app only at `/todo/<secret>` — the same "anyone with the link" model as a shared Google Doc, and the same one the `/capture` page uses. For you it's zero friction: tap the bookmark and you're in, nothing to type, nothing that expires. For everyone else it's closed: the URL is unguessable, wrong guesses get a plain 404 and are rate-limited, and the page tells search engines not to index it. If the link ever leaks, hit **Regenerate secret** in Settings and the old one goes dead instantly. (You *can* switch the secret off and serve it at plain `/todo`, but then anyone who knows your server address can read and edit your todos — only do that on a network you trust.)
+
+**Install it like an app.** The page ships a [web app manifest](https://developer.mozilla.org/en-US/docs/Web/Progressive_web_apps/Manifest), so your phone treats it as installable rather than as a mere bookmark:
+
+1. Open your todo link on your phone.
+2. **iPhone**: Share → **Add to Home Screen**. **Android**: menu (⋮) → **Add to Home screen** / **Install**.
+3. You get a "Todos" icon on your home screen. Tapping it opens your list **full-screen with no browser chrome at all** — no address bar, no tabs — and it appears in your app switcher as its own app.
+
+Because the manifest bakes your secret URL in as the app's start URL, the installed app always launches straight into your authenticated list — the secret becomes an invisible, installed credential. A nice side effect of losing the address bar: your secret is never displayed on screen. There's no app store and nothing to update; it's the same web page, so changes arrive on next launch. One thing to know: the installed app is pinned to the secret it was installed with, so after **Regenerate secret** you'll need to remove and re-add it from the new link.
 
 **GTD coaching** is injected into every agent's system prompt so they handle your list the GTD way rather than improvising. The text is editable in **Settings** (`gtd_coaching_text`), and agents can propose updates to it themselves via `todo_update_gtd_coaching`. Clearing it disables the coaching block.
 

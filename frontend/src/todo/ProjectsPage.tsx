@@ -10,6 +10,7 @@ import { ProjectForm } from './components/ProjectForm';
 import { ListFilterBar } from './components/ListFilterBar';
 import { updateProjectStatus } from './projectActions';
 import type { TodoOutletContext } from './TodoLayout';
+import { todoPath } from './publicMode';
 
 export function ProjectsPage() {
   const isMobile = useIsMobile();
@@ -76,7 +77,7 @@ export function ProjectsPage() {
           {visible.map(project => (
             <div
               key={project.id}
-              onClick={() => navigate(`/todos/projects/${project.id}`)}
+              onClick={() => navigate(todoPath(`/projects/${project.id}`))}
               style={isMobile
                 ? { padding: '14px', cursor: 'pointer', ...cardStyle }
                 : {

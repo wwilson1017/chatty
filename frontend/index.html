@@ -2,6 +2,9 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
+    <!-- The no-login todo shell's URL carries a secret path token; never let
+         it leak in a Referer header to the font CDN or any other origin. -->
+    <meta name="referrer" content="same-origin" />
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300..600;1,9..144,300..600&family=Inter:wght@300..600&family=Inter+Tight:wght@300..600&family=JetBrains+Mono:wght@300..500&display=swap" rel="stylesheet">

@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { api } from '../../core/api/client';
+import { todoApi } from '../api';
 import { toast } from '../../shared/toast';
 import { inputStyle } from '../../shared/styles';
 import { btnPrimary } from '../styles';
@@ -19,7 +19,7 @@ export function QuickAdd({ onAdded, isMobile }: Props) {
     if (!trimmed || saving) return;
     setSaving(true);
     try {
-      await api('/api/todo/todos', {
+      await todoApi('/api/todo/todos', {
         method: 'POST',
         body: JSON.stringify({ title: trimmed }),
       });

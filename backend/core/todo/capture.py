@@ -13,48 +13,45 @@ Per-IP rate limiting guards the POST endpoints (login-limiter pattern).
 import hmac
 import json
 import logging
-import time
-from collections import defaultdict
 
 from fastapi import APIRouter, HTTPException, Request
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, Response
 
 from core.admin_settings import load_admin_settings
 from core.todo import service
+from core.todo.pwa import manifest_response
+from core.todo.ratelimit import IPRateLimiter
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
-_RATE_WINDOW_SECONDS = 300
-_RATE_MAX_POSTS = 30
-_capture_posts: dict[str, list[float]] = defaultdict(list)
-
-
-def _check_capture_rate(ip: str) -> bool:
-    now = time.time()
-    # Drop whole expired buckets so attacker-controlled IPs can't grow the
-    # dict unboundedly (timestamps alone being pruned still leaks the keys).
-    if len(_capture_posts) > 256:
-        for stale in [k for k, v in _capture_posts.items()
-                      if not v or now - v[-1] >= _RATE_WINDOW_SECONDS]:
-            del _capture_posts[stale]
-    _capture_posts[ip] = [t for t in _capture_posts[ip] if now - t < _RATE_WINDOW_SECONDS]
-    if len(_capture_posts[ip]) >= _RATE_MAX_POSTS:
-        return False
-    _capture_posts[ip].append(now)
-    return True
+capture_limiter = IPRateLimiter(window=300, max_hits=30)
 
 
 def _configured_token() -> str:
     return load_admin_settings().get("todo_capture_token", "") or ""
 
 
+def _tokenless_or_404() -> None:
+    # The bare public paths go dark the moment a secret token is configured.
+    if _configured_token():
+        raise HTTPException(status_code=404, detail="Not found")
+
+
 _CAPTURE_HTML = """<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
+<meta name="referrer" content="same-origin">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Capture</title>
+<link rel="manifest" href="__BASE_PATH__/manifest.webmanifest">
+<link rel="apple-touch-icon" href="/capture-apple-touch-icon.png">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Capture">
+<meta name="theme-color" content="#0A0C0F">
 <style>
   * { box-sizing: border-box; margin: 0; }
   body {
@@ -128,8 +125,24 @@ _CAPTURE_HTML = """<!doctype html>
 </html>"""
 
 
-def _page(post_path: str) -> HTMLResponse:
-    return HTMLResponse(_CAPTURE_HTML.replace("__POST_PATH__", post_path))
+def _page(post_path: str, base_path: str) -> HTMLResponse:
+    html = _CAPTURE_HTML.replace("__POST_PATH__", post_path).replace("__BASE_PATH__", base_path)
+    # Same as the todo page: the tokened variant embeds the secret POST path,
+    # so caches and search indexes must never keep a copy.
+    return HTMLResponse(
+        html,
+        headers={"Cache-Control": "no-store", "X-Robots-Tag": "noindex, nofollow"},
+    )
+
+
+def _manifest(base_path: str) -> Response:
+    # Shared builder (core/todo/pwa.py) carries the start_url/no-store rationale.
+    return manifest_response(
+        name="Capture",
+        description="Quick capture to your Chatty todo inbox",
+        icon_prefix="/capture-icon",
+        base_path=base_path,
+    )
 
 
 # Bounds request processing before JSON parsing (the 20k-char cap in the
@@ -140,7 +153,7 @@ _MAX_BODY_BYTES = 64 * 1024
 
 def _rate_or_429(request: Request) -> None:
     ip = request.client.host if request.client else "unknown"
-    if not _check_capture_rate(ip):
+    if not capture_limiter.allow(ip):
         raise HTTPException(status_code=429, detail="Too many captures — try again in a few minutes")
 
 
@@ -179,15 +192,22 @@ def _do_capture(text: str) -> dict:
 
 @router.get("/capture", response_class=HTMLResponse)
 async def capture_page():
-    if _configured_token():
-        raise HTTPException(status_code=404, detail="Not found")
-    return _page("/api/capture")
+    _tokenless_or_404()
+    return _page("/api/capture", "/capture")
+
+
+# Registered before /capture/{token} so this path is never read as a token
+# guess. No ambiguity either way: the token clamp strips dots, so a token can
+# never literally be "manifest.webmanifest".
+@router.get("/capture/manifest.webmanifest")
+async def capture_manifest():
+    _tokenless_or_404()
+    return _manifest("/capture")
 
 
 @router.post("/api/capture")
 async def capture_post(request: Request):
-    if _configured_token():
-        raise HTTPException(status_code=404, detail="Not found")
+    _tokenless_or_404()
     _rate_or_429(request)
     return _do_capture(await _read_capture_text(request))
 
@@ -210,7 +230,16 @@ async def capture_page_token(token: str, request: Request):
     # line speed (the 404 itself reveals nothing).
     _rate_or_429(request)
     configured = _require_token(token)
-    return _page(f"/api/capture/{configured}")
+    return _page(f"/api/capture/{configured}", f"/capture/{configured}")
+
+
+@router.get("/capture/{token}/manifest.webmanifest")
+async def capture_manifest_token(token: str, request: Request):
+    # Same order as the page: burn the rate budget before the comparison so
+    # manifest probes can't brute-force the token any faster than page loads.
+    _rate_or_429(request)
+    configured = _require_token(token)
+    return _manifest(f"/capture/{configured}")
 
 
 @router.post("/api/capture/{token}")

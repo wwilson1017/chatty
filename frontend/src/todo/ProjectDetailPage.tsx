@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate, useOutletContext, useParams } from 'react-router-dom';
-import { api } from '../core/api/client';
+import { todoApi } from './api';
+import { todoPath } from './publicMode';
 import type { Todo, TodoProjectStatus, TodoStatus } from '../core/types';
 import { useIsMobile } from '../shared/useIsMobile';
 import { LoadError } from '../shared/LoadError';
@@ -41,7 +42,7 @@ export function ProjectDetailPage() {
 
   const load = useCallback(async () => {
     try {
-      const data = await api<{ todos: Todo[] }>(`/api/todo/todos?project=${projectId}&limit=500`);
+      const data = await todoApi<{ todos: Todo[] }>(`/api/todo/todos?project=${projectId}&limit=500`);
       setTodos(data.todos);
       setLoadFailed(false);
     } catch {
@@ -70,7 +71,7 @@ export function ProjectDetailPage() {
     if (!title || adding) return;
     setAdding(true);
     try {
-      await api('/api/todo/todos', {
+      await todoApi('/api/todo/todos', {
         method: 'POST',
         body: JSON.stringify({ title, status: 'next_action', project_id: projectId }),
       });
@@ -88,7 +89,7 @@ export function ProjectDetailPage() {
         {projects.length === 0 ? (
           <LoadingSpinner />
         ) : (
-          <LoadError label="Project not found" onRetry={() => navigate('/todos/projects')} />
+          <LoadError label="Project not found" onRetry={() => navigate(todoPath('/projects'))} />
         )}
       </div>
     );
@@ -99,7 +100,7 @@ export function ProjectDetailPage() {
   return (
     <div style={{ padding: isMobile ? '20px 16px' : '32px 44px', maxWidth: 900 }}>
       <button
-        onClick={() => navigate('/todos/projects')}
+        onClick={() => navigate(todoPath('/projects'))}
         style={{
           display: 'flex', alignItems: 'center', gap: 6,
           background: 'transparent', border: 'none', cursor: 'pointer',
@@ -207,7 +208,7 @@ export function ProjectDetailPage() {
           onSaved={(deleted) => {
             setEditProject(false);
             refreshMeta();
-            if (deleted) navigate('/todos/projects');
+            if (deleted) navigate(todoPath('/projects'));
             else reload();
           }}
         />

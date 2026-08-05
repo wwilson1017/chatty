@@ -10,9 +10,9 @@ import core.todo.capture as capture_mod
 def clean_rate_buckets():
     """The per-IP rate buckets are module-global; TestClient always presents
     the same IP, so leftover state would bleed 429s across tests."""
-    capture_mod._capture_posts.clear()
+    capture_mod.capture_limiter.clear()
     yield
-    capture_mod._capture_posts.clear()
+    capture_mod.capture_limiter.clear()
 
 
 def _set_token(token: str) -> None:
@@ -83,9 +83,52 @@ class TestTokenMode:
         assert anon_client.post("/api/capture/%C3%BC", json={"text": "x"}).status_code == 404
 
 
+class TestManifest:
+    def test_public_manifest(self, anon_client):
+        r = anon_client.get("/capture/manifest.webmanifest")
+        assert r.status_code == 200
+        assert r.headers["content-type"].startswith("application/manifest+json")
+        assert r.headers["cache-control"] == "no-store"
+        m = r.json()
+        assert m["start_url"] == "/capture"
+        assert m["display"] == "standalone"
+        assert all(i["src"].startswith("/capture-icon-") for i in m["icons"])
+
+    def test_token_matrix(self, anon_client):
+        _set_token("s3cret-token")
+        # Bare and wrong-token manifest paths go dark like the page
+        assert anon_client.get("/capture/manifest.webmanifest").status_code == 404
+        assert anon_client.get("/capture/wrong/manifest.webmanifest").status_code == 404
+        r = anon_client.get("/capture/s3cret-token/manifest.webmanifest")
+        assert r.status_code == 200
+        assert r.json()["start_url"] == "/capture/s3cret-token"
+        assert r.json()["scope"] == "/capture/s3cret-token"
+
+    def test_page_declares_manifest(self, anon_client):
+        r = anon_client.get("/capture")
+        # The tokened variant embeds the secret POST path, so the page must
+        # carry the same no-store/noindex headers as the todo web app.
+        assert r.headers["cache-control"] == "no-store"
+        assert r.headers["x-robots-tag"] == "noindex, nofollow"
+        html = r.text
+        assert 'rel="manifest" href="/capture/manifest.webmanifest"' in html
+        assert "apple-mobile-web-app-capable" in html
+        assert "capture-apple-touch-icon.png" in html
+        _set_token("s3cret-token")
+        html = anon_client.get("/capture/s3cret-token").text
+        assert 'rel="manifest" href="/capture/s3cret-token/manifest.webmanifest"' in html
+
+    def test_wrong_manifest_guess_burns_rate_budget(self, anon_client, monkeypatch):
+        _set_token("s3cret-token")
+        monkeypatch.setattr(capture_mod.capture_limiter, "max_hits", 3)
+        for _ in range(3):
+            assert anon_client.get("/capture/wrong/manifest.webmanifest").status_code == 404
+        assert anon_client.get("/capture/wrong/manifest.webmanifest").status_code == 429
+
+
 class TestRateLimit:
     def test_429_after_limit(self, anon_client, monkeypatch):
-        monkeypatch.setattr(capture_mod, "_RATE_MAX_POSTS", 3)
+        monkeypatch.setattr(capture_mod.capture_limiter, "max_hits", 3)
         for i in range(3):
             assert anon_client.post("/api/capture", json={"text": f"item {i}"}).status_code == 200
         assert anon_client.post("/api/capture", json={"text": "over"}).status_code == 429
@@ -93,7 +136,7 @@ class TestRateLimit:
     def test_wrong_token_guesses_burn_the_rate_budget(self, anon_client, monkeypatch):
         # Brute-forcing the secret must be throttled: failed guesses hit the
         # same per-IP budget as captures (404s until the cap, then 429).
-        monkeypatch.setattr(capture_mod, "_RATE_MAX_POSTS", 3)
+        monkeypatch.setattr(capture_mod.capture_limiter, "max_hits", 3)
         _set_token("s3cret-token")
         for i in range(3):
             assert anon_client.post(f"/api/capture/guess{i}", json={"text": "x"}).status_code == 404

@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { api } from '../../core/api/client';
+import { todoApi } from '../api';
 import type { TodoProject, TodoProjectStatus } from '../../core/types';
 import { toast } from '../../shared/toast';
 import { confirmDialog } from '../../shared/confirm';
@@ -29,9 +29,9 @@ export function ProjectForm({ project, onClose, onSaved }: Props) {
     try {
       const body = JSON.stringify({ name: name.trim(), notes, status });
       if (isEdit) {
-        await api(`/api/todo/projects/${project.id}`, { method: 'PUT', body });
+        await todoApi(`/api/todo/projects/${project.id}`, { method: 'PUT', body });
       } else {
-        await api('/api/todo/projects', { method: 'POST', body });
+        await todoApi('/api/todo/projects', { method: 'POST', body });
       }
       onSaved();
     } catch (err: unknown) {
@@ -50,7 +50,7 @@ export function ProjectForm({ project, onClose, onSaved }: Props) {
     });
     if (!ok) return;
     try {
-      await api(`/api/todo/projects/${project.id}`, { method: 'DELETE' });
+      await todoApi(`/api/todo/projects/${project.id}`, { method: 'DELETE' });
     } catch {
       toast.error('Failed to delete project.');
       return;

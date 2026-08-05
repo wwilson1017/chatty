@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useOutletContext } from 'react-router-dom';
-import { api } from '../../core/api/client';
+import { todoApi } from '../api';
 import type { Todo, TodoRepeat, TodoStatus } from '../../core/types';
 import { useIsMobile } from '../../shared/useIsMobile';
 import { toast } from '../../shared/toast';
@@ -49,7 +49,7 @@ export function TodoEditSheet({ todo, defaults, onClose, onSaved }: Props) {
     try {
       let pid = projectId;
       if (newProject !== null && newProject.trim()) {
-        const created = await api<{ id: number }>('/api/todo/projects', {
+        const created = await todoApi<{ id: number }>('/api/todo/projects', {
           method: 'POST', body: JSON.stringify({ name: newProject.trim() }),
         });
         pid = created.id;
@@ -60,9 +60,9 @@ export function TodoEditSheet({ todo, defaults, onClose, onSaved }: Props) {
         star, due_date: dueDate || null, repeat,
       };
       if (isEdit) {
-        await api(`/api/todo/todos/${todo.id}`, { method: 'PUT', body: JSON.stringify(body) });
+        await todoApi(`/api/todo/todos/${todo.id}`, { method: 'PUT', body: JSON.stringify(body) });
       } else {
-        await api('/api/todo/todos', { method: 'POST', body: JSON.stringify(body) });
+        await todoApi('/api/todo/todos', { method: 'POST', body: JSON.stringify(body) });
       }
       refreshMeta();
       onSaved();
@@ -82,7 +82,7 @@ export function TodoEditSheet({ todo, defaults, onClose, onSaved }: Props) {
     });
     if (!ok) return;
     try {
-      await api(`/api/todo/todos/${todo.id}`, { method: 'DELETE' });
+      await todoApi(`/api/todo/todos/${todo.id}`, { method: 'DELETE' });
     } catch {
       toast.error('Failed to delete todo.');
       return;

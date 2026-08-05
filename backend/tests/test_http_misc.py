@@ -114,9 +114,20 @@ SWEEP_ALLOWLIST = {
     # the optional secret lives in the URL path (todo_capture_token).
     ("GET", "/capture"),
     ("GET", "/capture/{token}"),
+    ("GET", "/capture/manifest.webmanifest"),
+    ("GET", "/capture/{token}/manifest.webmanifest"),
     ("POST", "/api/capture"),
     ("POST", "/api/capture/{token}"),
+    ("GET", "/todo"),                           # no-login todo web app root (subpaths ride the prefixes below)
 }
+
+# The no-login todo web app (page + its own copy of the todo API). Same trust
+# model as capture — off unless todo_web_enabled, then gated by the optional
+# secret path token — so a JWT is never involved. test_todo_web.py asserts the
+# whole surface 404s while the feature is off (the default). Trailing slashes
+# on purpose: a future bare "/todo…"-prefixed route must trip the sweep, not
+# silently ride the exemption.
+SWEEP_ALLOWLIST_PREFIXES = ("/todo/", "/api/todo-web/")
 
 
 def _protected_routes():
@@ -127,6 +138,8 @@ def _protected_routes():
         # Only APIRoutes are swept; Mount sub-apps (e.g. static files) are
         # intentionally excluded and must be audited manually if ever added.
         if not isinstance(route, APIRoute):
+            continue
+        if route.path.startswith(SWEEP_ALLOWLIST_PREFIXES):
             continue
         for method in sorted(route.methods - {"HEAD", "OPTIONS"}):
             if (method, route.path) in SWEEP_ALLOWLIST:

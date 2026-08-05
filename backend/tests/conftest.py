@@ -108,6 +108,12 @@ def http_env(agent_db, encryption_env, monkeypatch, tmp_path):
     monkeypatch.setattr(admin_mod, "ADMIN_SETTINGS_FILE", tmp_path / "admin-settings.json")
     monkeypatch.setattr(admin_mod, "_cached_settings", None)
     monkeypatch.setattr(admin_mod, "_cached_mtime", 0.0)
+    # setup/router.py imported ADMIN_SETTINGS_FILE by value, so patching
+    # core.admin_settings alone leaves PUT /api/setup/admin-settings writing
+    # the developer's real data/admin-settings.json — which reads then never
+    # see, since loads come from the tmp copy.
+    import setup.router as setup_router_mod
+    monkeypatch.setattr(setup_router_mod, "ADMIN_SETTINGS_FILE", tmp_path / "admin-settings.json")
     # Playbook GCS sync no-ops (matches playbook_env in test_playbooks_service.py).
     monkeypatch.setattr(pb_service, "upload_config", lambda *a, **k: None)
     monkeypatch.setattr(pb_service, "delete_config", lambda *a, **k: None)

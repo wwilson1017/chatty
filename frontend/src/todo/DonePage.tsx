@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useOutletContext } from 'react-router-dom';
-import { api } from '../core/api/client';
+import { todoApi } from './api';
 import type { Todo } from '../core/types';
 import { useIsMobile } from '../shared/useIsMobile';
 import { LoadError } from '../shared/LoadError';
@@ -30,7 +30,7 @@ export function DonePage() {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const data = await api<{ todos: Todo[] }>(`/api/todo/todos?status=${filter}&limit=200`);
+      const data = await todoApi<{ todos: Todo[] }>(`/api/todo/todos?status=${filter}&limit=200`);
       // Server orders done/dropped newest-finished first.
       setTodos(data.todos);
       setLoadFailed(false);

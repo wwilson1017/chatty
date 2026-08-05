@@ -125,9 +125,11 @@ export function RootErrorFallback({ error }: RootErrorFallbackProps) {
 interface RouteErrorFallbackProps {
   error: Error;
   reset: () => void;
+  /** Label for the go-home button — the no-login todo app has no dashboard. */
+  homeLabel?: string;
 }
 
-export function RouteErrorFallback({ error, reset }: RouteErrorFallbackProps) {
+export function RouteErrorFallback({ error, reset, homeLabel = 'Back to Dashboard' }: RouteErrorFallbackProps) {
   const navigate = useNavigate();
 
   // The explicit reset() matters when the crashed route IS '/': the
@@ -150,11 +152,11 @@ export function RouteErrorFallback({ error, reset }: RouteErrorFallbackProps) {
         This page hit an error
       </h2>
       <p style={{ fontSize: 13, color: INK_SOFT, lineHeight: 1.5, margin: '0 0 24px' }}>
-        The rest of the app is still running. You can head back to the dashboard or reload.
+        The rest of the app is still running. You can go back or reload.
       </p>
       <div style={{ display: 'flex', gap: 8 }}>
         <button onClick={handleBackToDashboard} style={buttonStyle}>
-          Back to Dashboard
+          {homeLabel}
         </button>
         <button onClick={() => window.location.reload()} style={secondaryButtonStyle}>
           Reload

@@ -6,9 +6,10 @@ Tracks whether the user has completed or skipped the first-login setup wizard.
 
 import json
 import logging
+import secrets
 from pathlib import Path
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Response
 
 from core.auth import get_current_user
 from core.admin_settings import (
@@ -93,23 +94,31 @@ async def complete_setup(user=Depends(get_current_user)):
 
 
 @router.get("/admin-settings")
-async def get_admin_settings(user=Depends(get_current_user)):
+async def get_admin_settings(response: Response, user=Depends(get_current_user)):
     from core.todo.coaching import DEFAULT_GTD_COACHING
 
+    # Body carries the todo secrets — a regenerated one must not outlive it in the browser cache.
+    response.headers["Cache-Control"] = "no-store"
     # gtd_coaching_default is read-only metadata for the Settings "Reset to
     # default" button — the PUT handler's ADMIN_DEFAULTS key loop ignores it.
     return {**load_admin_settings(), "gtd_coaching_default": DEFAULT_GTD_COACHING}
 
 
 @router.put("/admin-settings")
-async def update_admin_settings(body: dict, user=Depends(get_current_user)):
+async def update_admin_settings(body: dict, response: Response, user=Depends(get_current_user)):
+    # Body carries the todo secrets — a regenerated one must not outlive it in the browser cache.
+    response.headers["Cache-Control"] = "no-store"
     # Lock the whole read-modify-write: a concurrent agent-tool write
     # (set_admin_setting) racing this PUT would otherwise be silently lost.
     with settings_write_lock:
         settings = load_admin_settings()
+        was_web_enabled = settings.get("todo_web_enabled") is True
         for key in ADMIN_DEFAULTS:
             if key in body:
                 settings[key] = body[key]
+        # todo_web_enabled is deliberately absent: it opens a no-login
+        # read/write surface, so clamp_todo_settings only accepts a real JSON
+        # true — bool() here would let strings like "false" enable it.
         for _bool_key in ("always_power_mode", "write_budget_heartbeat_enabled",
                           "write_budget_interactive_enabled", "hourly_write_rate_limit_enabled",
                           "bot_reply_limit_enabled", "commitments_enabled"):
@@ -131,6 +140,15 @@ async def update_admin_settings(body: dict, user=Depends(get_current_user)):
         # Cap the follow-up budget so a bad settings payload can't oversize prompts.
         settings["commitments_daily_cap"] = min(settings["commitments_daily_cap"], 20)
         clamp_todo_settings(settings)
+        # Enable is a revocation boundary server-side, not just in the
+        # Settings UI: turning the todo link on without submitting a token in
+        # the same write mints a fresh secret, so a link leaked while the
+        # feature was off can't be revived by a bare {"todo_web_enabled": true}.
+        # Only an explicit *string* todo_web_token (even "", the deliberate
+        # tokenless mode) skips the mint — a JSON null is not a supplied token.
+        if (settings.get("todo_web_enabled") and not was_web_enabled
+                and not isinstance(body.get("todo_web_token"), str)):
+            settings["todo_web_token"] = secrets.token_hex(16)
         atomic_write_json(ADMIN_SETTINGS_FILE, settings)
         invalidate_cache()
     return settings
