@@ -11,6 +11,7 @@ import {
 } from '../../shared/styles';
 import { cardStyle, btnSecondary, btnDanger } from '../styles';
 import { SourceBadge } from './badges';
+import { InlineTitle } from './InlineTitle';
 import { formatAge } from '../util';
 
 interface Props {
@@ -110,11 +111,19 @@ export function TriageCard({ todo, projects, contexts, onProcessed, onChanged, o
   return (
     <div style={{ ...cardStyle, padding: isMobile ? '16px 14px' : '22px 24px', marginBottom: 20 }}>
       <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12, marginBottom: 8 }}>
-        <h2 style={{
-          fontFamily: FONT_DISPLAY, fontSize: isMobile ? 21 : 26, fontWeight: 400,
-          letterSpacing: '-0.01em', color: INK, margin: 0, flex: 1, lineHeight: 1.25,
-          overflowWrap: 'anywhere',
-        }}>{todo.title}</h2>
+        <h2 style={{ margin: 0, flex: 1, minWidth: 0, fontWeight: 400 }}>
+          <InlineTitle
+            todoId={todo.id}
+            title={todo.title}
+            onSaved={onChanged}
+            multiline
+            style={{
+              fontFamily: FONT_DISPLAY, fontSize: isMobile ? 21 : 26, fontWeight: 400,
+              letterSpacing: '-0.01em', color: INK, lineHeight: 1.25,
+              overflowWrap: 'anywhere',
+            }}
+          />
+        </h2>
         <button
           onClick={() => patch({ star: !todo.star }, false)}
           title={todo.star ? 'Unstar' : 'Star as today’s priority'}

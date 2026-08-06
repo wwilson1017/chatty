@@ -7,6 +7,7 @@ import { toast } from '../../shared/toast';
 import { CORAL, GOLD, INK, INK_DIM, INK_SOFT, LINE, LINE_STRONG, SAGE, mono } from '../../shared/styles';
 import { cardStyle } from '../styles';
 import { ContextChip, TagChip } from './badges';
+import { InlineTitle } from './InlineTitle';
 import { todayStr } from '../util';
 
 interface Props {
@@ -105,10 +106,17 @@ export function TodoRow({ todo, onChanged, onOpen, uncheckStatus = 'next_action'
       >
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6 }}>
           {checkbox}
-          <span style={{
-            flex: 1, fontSize: 16, color: isDone ? INK_DIM : INK,
-            textDecoration: todo.status === 'done' ? 'line-through' : 'none',
-          }}>{todo.title}</span>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <InlineTitle
+              todoId={todo.id}
+              title={todo.title}
+              onSaved={onChanged}
+              style={{
+                fontSize: 16, color: isDone ? INK_DIM : INK,
+                textDecoration: todo.status === 'done' ? 'line-through' : 'none',
+              }}
+            />
+          </div>
           {star}
         </div>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', paddingLeft: 30 }}>
@@ -133,12 +141,19 @@ export function TodoRow({ todo, onChanged, onOpen, uncheckStatus = 'next_action'
     >
       {checkbox}
       {star}
-      <span style={{
-        flex: 1, minWidth: 0, fontSize: 15,
-        color: isDone ? INK_DIM : INK,
-        textDecoration: todo.status === 'done' ? 'line-through' : 'none',
-        overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-      }}>{todo.title}</span>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <InlineTitle
+          todoId={todo.id}
+          title={todo.title}
+          onSaved={onChanged}
+          style={{
+            fontSize: 15,
+            color: isDone ? INK_DIM : INK,
+            textDecoration: todo.status === 'done' ? 'line-through' : 'none',
+            overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+          }}
+        />
+      </div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
         {meta}
         {trailing}
