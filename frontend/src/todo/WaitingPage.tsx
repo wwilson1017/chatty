@@ -9,7 +9,7 @@ import { IconPlus } from '../shared/icons';
 import { INK_DIM, INK_SOFT, mono } from '../shared/styles';
 import { pageHeading, sectionHeading, btnPrimary, btnSmall, listContainer } from './styles';
 import { STATUS_META } from './constants';
-import { formatAge, matchesFilter } from './util';
+import { formatAgeDuration, matchesFilter } from './util';
 import { TodoRow } from './components/TodoRow';
 import { TodoEditSheet } from './components/TodoEditSheet';
 import { FilterEmptyState, ListFilterBar } from './components/ListFilterBar';
@@ -72,7 +72,7 @@ export function WaitingPage() {
               onOpen={setEditTodo}
               trailing={
                 <span style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                  <span style={mono(11, INK_SOFT)}>waiting {formatAge(todo.updated_at)}</span>
+                  <span style={mono(11, INK_SOFT)}>waiting {formatAgeDuration(todo.updated_at)}</span>
                   <button
                     onClick={e => { e.stopPropagation(); reactivate(todo); }}
                     style={{ ...btnSmall, background: 'transparent', border: '1px solid rgba(230,235,242,0.14)', color: INK_SOFT }}

@@ -12,7 +12,7 @@ import {
 import { cardStyle, btnSecondary, btnDanger } from '../styles';
 import { SourceBadge } from './badges';
 import { InlineTitle } from './InlineTitle';
-import { formatAge } from '../util';
+import { formatAgeAgo } from '../util';
 
 interface Props {
   todo: Todo;
@@ -144,7 +144,7 @@ export function TriageCard({ todo, projects, contexts, onProcessed, onChanged, o
 
       <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 20 }}>
         <SourceBadge source={todo.source} />
-        <span style={mono(11, INK_DIM)}>captured {formatAge(todo.created_at)} ago</span>
+        <span style={mono(11, INK_DIM)}>captured {formatAgeAgo(todo.created_at)}</span>
       </div>
 
       {/* Step 1 — choose where it lands. Selecting is local: the item stays put
