@@ -46,6 +46,11 @@ export function TodoLayout() {
   const [searchText, setSearchText] = useState('');
 
   const onSearchPage = location.pathname.startsWith(todoPath('/search'));
+  // The inbox page carries its own capture box, under its filter bar — where
+  // you're already looking when you're working the inbox. Everywhere else it
+  // stays up here in the header.
+  const trimSlash = (p: string) => p.replace(/\/+$/, '');
+  const onInboxPage = trimSlash(location.pathname) === trimSlash(todoPath());
 
   // Keep the header box in sync with ?q= — covers deep links, Back/Forward,
   // and leaving the results page (urlQuery becomes ''). Typing is unaffected:
@@ -135,7 +140,9 @@ export function TodoLayout() {
                 aria-label="Search todos"
                 style={{ ...inputStyle, width: 200, padding: '7px 12px', fontSize: 14, marginRight: 8 }}
               />
-              <QuickAdd isMobile={false} onAdded={() => { refreshMeta(); setQuickAddSeq(s => s + 1); }} />
+              {!onInboxPage && (
+                <QuickAdd isMobile={false} onAdded={() => { refreshMeta(); setQuickAddSeq(s => s + 1); }} />
+              )}
             </>
           )}
         </div>

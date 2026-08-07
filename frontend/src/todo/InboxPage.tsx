@@ -12,6 +12,7 @@ import { TodoRow } from './components/TodoRow';
 import { TodoEditSheet } from './components/TodoEditSheet';
 import { FilterEmptyState, ListFilterBar } from './components/ListFilterBar';
 import { LoadingSpinner } from './components/LoadingSpinner';
+import { QuickAdd } from './components/QuickAdd';
 import type { TodoOutletContext } from './TodoLayout';
 
 export function InboxPage() {
@@ -59,6 +60,14 @@ export function InboxPage() {
         context={contextFilter} onContext={setContextFilter} contexts={contexts}
         isMobile={isMobile} placeholder="Search inbox..."
       />
+
+      {/* Capture sits with the inbox on desktop, right under the filters —
+          on mobile the header already carries it above the page. */}
+      {!isMobile && (
+        <div style={{ marginBottom: 24 }}>
+          <QuickAdd isMobile={false} width="100%" onAdded={reload} />
+        </div>
+      )}
 
       {loading ? (
         <LoadingSpinner />
