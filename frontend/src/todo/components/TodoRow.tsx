@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react';
+import type { CSSProperties, ReactNode } from 'react';
 import { todoApi } from '../api';
 import type { Todo } from '../../core/types';
 import { IconCheck, IconStar, IconStarFilled } from '../../shared/icons';
@@ -20,9 +20,18 @@ interface Props {
   trailing?: ReactNode;
   /** Show the project name chip (hidden inside a project's own view). */
   showProject?: boolean;
+  /**
+   * Click-to-rename the title. Off in the inbox list, where the whole row is a
+   * "bring this one to the triage card" target and an edit box in the middle of
+   * it makes skipping ahead needlessly fiddly — rename it up in the card.
+   */
+  editableTitle?: boolean;
 }
 
-export function TodoRow({ todo, onChanged, onOpen, uncheckStatus = 'next_action', trailing, showProject = true }: Props) {
+export function TodoRow({
+  todo, onChanged, onOpen, uncheckStatus = 'next_action', trailing,
+  showProject = true, editableTitle = true,
+}: Props) {
   const isMobile = useIsMobile();
   const isDone = todo.status === 'done' || todo.status === 'dropped';
   const overdue = !isDone && !!todo.due_date && todo.due_date < todayStr();
@@ -46,6 +55,12 @@ export function TodoRow({ todo, onChanged, onOpen, uncheckStatus = 'next_action'
       toast.info('Reopened — its next occurrence already exists from when it was completed.');
     }
   }
+
+  const title = (style: CSSProperties) => (
+    editableTitle
+      ? <InlineTitle todoId={todo.id} title={todo.title} onSaved={onChanged} style={style} />
+      : <div style={style}>{todo.title}</div>
+  );
 
   const checkbox = (
     <button
@@ -107,15 +122,10 @@ export function TodoRow({ todo, onChanged, onOpen, uncheckStatus = 'next_action'
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6 }}>
           {checkbox}
           <div style={{ flex: 1, minWidth: 0 }}>
-            <InlineTitle
-              todoId={todo.id}
-              title={todo.title}
-              onSaved={onChanged}
-              style={{
-                fontSize: 16, color: isDone ? INK_DIM : INK,
-                textDecoration: todo.status === 'done' ? 'line-through' : 'none',
-              }}
-            />
+            {title({
+              fontSize: 16, color: isDone ? INK_DIM : INK,
+              textDecoration: todo.status === 'done' ? 'line-through' : 'none',
+            })}
           </div>
           {star}
         </div>
@@ -142,17 +152,12 @@ export function TodoRow({ todo, onChanged, onOpen, uncheckStatus = 'next_action'
       {checkbox}
       {star}
       <div style={{ flex: 1, minWidth: 0 }}>
-        <InlineTitle
-          todoId={todo.id}
-          title={todo.title}
-          onSaved={onChanged}
-          style={{
-            fontSize: 15,
-            color: isDone ? INK_DIM : INK,
-            textDecoration: todo.status === 'done' ? 'line-through' : 'none',
-            overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-          }}
-        />
+        {title({
+          fontSize: 15,
+          color: isDone ? INK_DIM : INK,
+          textDecoration: todo.status === 'done' ? 'line-through' : 'none',
+          overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+        })}
       </div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
         {meta}

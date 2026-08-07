@@ -37,12 +37,14 @@ const DESTINATIONS: { label: string; status: TodoStatus; list: string }[] = [
 ];
 
 const NEW_CONTEXT = '__new__';
+const NEW_PROJECT = '__new__';
 
 /** Inbox processing card — clarify the head item one decision at a time. */
 export function TriageCard({ todo, projects, contexts, onProcessed, onChanged, onEdit }: Props) {
   const isMobile = useIsMobile();
   const [busy, setBusy] = useState(false);
   const [newContext, setNewContext] = useState<string | null>(null);
+  const [newProject, setNewProject] = useState<string | null>(null);
   const [destination, setDestination] = useState<TodoStatus>('next_action');
   const dest = DESTINATIONS.find(d => d.status === destination) ?? DESTINATIONS[0];
 
@@ -54,6 +56,31 @@ export function TriageCard({ todo, projects, contexts, onProcessed, onChanged, o
       (resolves ? onProcessed : onChanged)();
     } catch {
       toast.error('Failed to update todo.');
+    }
+    setBusy(false);
+  }
+
+  /**
+   * Create a project without leaving triage and file this item under it.
+   * Name only — the outcome/notes belong to the weekly review, not to
+   * clarifying one inbox item.
+   */
+  async function createProject(name: string) {
+    const value = name.trim();
+    if (busy || !value) return;
+    setBusy(true);
+    try {
+      const created = await todoApi<{ id: number }>('/api/todo/projects', {
+        method: 'POST', body: JSON.stringify({ name: value }),
+      });
+      await todoApi(`/api/todo/todos/${todo.id}`, {
+        method: 'PUT', body: JSON.stringify({ project_id: created.id }),
+      });
+      setNewProject(null);
+      // Refreshes the project list too, so the new one is in the dropdown.
+      onChanged();
+    } catch {
+      toast.error('Failed to create project.');
     }
     setBusy(false);
   }
@@ -193,15 +220,49 @@ export function TriageCard({ todo, projects, contexts, onProcessed, onChanged, o
         gridTemplateColumns: '1fr 1fr', gap: 8, alignItems: 'center',
         flexWrap: 'wrap', marginBottom: 18,
       }}>
-        <select
-          value={todo.project_id ?? ''}
-          onChange={e => patch({ project_id: e.target.value ? Number(e.target.value) : null }, false)}
-          aria-label="Project"
-          style={{ ...inputStyle, width: isMobile ? '100%' : 180, padding: '8px 10px', fontSize: 13 }}
-        >
-          <option value="">No project</option>
-          {projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-        </select>
+        {newProject === null ? (
+          <select
+            value={todo.project_id ?? ''}
+            onChange={e => {
+              if (e.target.value === NEW_PROJECT) { setNewProject(''); return; }
+              patch({ project_id: e.target.value ? Number(e.target.value) : null }, false);
+            }}
+            aria-label="Project"
+            style={{ ...inputStyle, width: isMobile ? '100%' : 180, padding: '8px 10px', fontSize: 13 }}
+          >
+            <option value="">No project</option>
+            {projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+            <option value={NEW_PROJECT}>+ New project…</option>
+          </select>
+        ) : (
+          <form
+            onSubmit={e => { e.preventDefault(); createProject(newProject); }}
+            style={{ display: 'flex', gap: 8, gridColumn: '1 / -1' }}
+          >
+            <input
+              value={newProject}
+              onChange={e => setNewProject(e.target.value)}
+              placeholder="New project name"
+              autoFocus
+              aria-label="New project name"
+              style={{ ...inputStyle, width: isMobile ? '100%' : 180, padding: '8px 10px', fontSize: 13 }}
+            />
+            <button
+              type="submit"
+              disabled={busy || !newProject.trim()}
+              style={{
+                ...btnSecondary, padding: '8px 14px', fontSize: 13,
+                borderColor: SAGE, color: INK,
+                opacity: busy || !newProject.trim() ? 0.5 : 1,
+              }}
+            >Create</button>
+            <button
+              type="button"
+              onClick={() => setNewProject(null)}
+              style={{ ...btnSecondary, padding: '8px 14px', fontSize: 13 }}
+            >Cancel</button>
+          </form>
+        )}
         <input
           type="date"
           value={todo.due_date || ''}

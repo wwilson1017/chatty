@@ -12,6 +12,7 @@ import { TodoRow } from './components/TodoRow';
 import { TodoEditSheet } from './components/TodoEditSheet';
 import { FilterEmptyState, ListFilterBar } from './components/ListFilterBar';
 import { LoadingSpinner } from './components/LoadingSpinner';
+import { QuickAdd } from './components/QuickAdd';
 import type { TodoOutletContext } from './TodoLayout';
 
 export function InboxPage() {
@@ -60,6 +61,14 @@ export function InboxPage() {
         isMobile={isMobile} placeholder="Search inbox..."
       />
 
+      {/* Capture sits with the inbox on desktop, right under the filters —
+          on mobile the header already carries it above the page. */}
+      {!isMobile && (
+        <div style={{ marginBottom: 24 }}>
+          <QuickAdd isMobile={false} width="100%" onAdded={reload} />
+        </div>
+      )}
+
       {loading ? (
         <LoadingSpinner />
       ) : loadFailed && todos.length === 0 ? (
@@ -96,6 +105,9 @@ export function InboxPage() {
                     todo={todo}
                     onChanged={reload}
                     onOpen={t => setActiveId(t.id)}
+                    // Clicking a row here means "triage this one next" — renaming
+                    // belongs to the card at the top, once it's there.
+                    editableTitle={false}
                   />
                 ))}
               </div>

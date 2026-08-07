@@ -7,10 +7,12 @@ import { btnPrimary } from '../styles';
 interface Props {
   onAdded: () => void;
   isMobile: boolean;
+  /** Box width; defaults to the header's fixed desktop width. */
+  width?: number | string;
 }
 
-/** One-line capture box in the Todos header — always lands in the inbox. */
-export function QuickAdd({ onAdded, isMobile }: Props) {
+/** One-line capture box — always lands in the inbox, wherever it is rendered. */
+export function QuickAdd({ onAdded, isMobile, width }: Props) {
   const [title, setTitle] = useState('');
   const [saving, setSaving] = useState(false);
 
@@ -32,7 +34,7 @@ export function QuickAdd({ onAdded, isMobile }: Props) {
   }
 
   return (
-    <div style={{ display: 'flex', gap: 8, width: isMobile ? '100%' : 340 }}>
+    <div style={{ display: 'flex', gap: 8, width: width ?? (isMobile ? '100%' : 340) }}>
       <input
         value={title}
         onChange={e => setTitle(e.target.value)}
