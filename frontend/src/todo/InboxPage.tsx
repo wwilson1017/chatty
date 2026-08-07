@@ -96,6 +96,9 @@ export function InboxPage() {
                     todo={todo}
                     onChanged={reload}
                     onOpen={t => setActiveId(t.id)}
+                    // Clicking a row here means "triage this one next" — renaming
+                    // belongs to the card at the top, once it's there.
+                    editableTitle={false}
                   />
                 ))}
               </div>
