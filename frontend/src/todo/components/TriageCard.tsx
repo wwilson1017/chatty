@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { todoApi } from '../api';
-import type { Todo, TodoProject } from '../../core/types';
+import type { Todo, TodoProject, TodoStatus } from '../../core/types';
 import { useIsMobile } from '../../shared/useIsMobile';
 import { toast } from '../../shared/toast';
 import { confirmDialog } from '../../shared/confirm';
@@ -11,7 +11,8 @@ import {
 } from '../../shared/styles';
 import { cardStyle, btnSecondary, btnDanger } from '../styles';
 import { SourceBadge } from './badges';
-import { formatAge } from '../util';
+import { InlineTitle } from './InlineTitle';
+import { formatAgeAgo } from '../util';
 
 interface Props {
   todo: Todo;
@@ -25,22 +26,25 @@ interface Props {
   onEdit: (todo: Todo) => void;
 }
 
-// Destinations for items that are NOT next actions. Filing as a next action is
-// the context step below — it is deliberately not a button up here.
-const MOVES: { label: string; status: string }[] = [
-  { label: '→ Waiting', status: 'waiting_for' },
-  { label: '→ Delegated', status: 'delegated' },
-  { label: '→ Someday', status: 'someday_maybe' },
+// Where the item is headed once it is filed. Picking one is a local decision —
+// nothing is written until the context step below, so the item stays in the
+// inbox (and on this card) while you keep clarifying it.
+const DESTINATIONS: { label: string; status: TodoStatus; list: string }[] = [
+  { label: 'Next action', status: 'next_action', list: 'To Do' },
+  { label: 'Waiting', status: 'waiting_for', list: 'Waiting For' },
+  { label: 'Delegated', status: 'delegated', list: 'Delegated' },
+  { label: 'Someday', status: 'someday_maybe', list: 'Someday / Maybe' },
 ];
 
 const NEW_CONTEXT = '__new__';
-const NO_CONTEXT = '__none__';
 
 /** Inbox processing card — clarify the head item one decision at a time. */
 export function TriageCard({ todo, projects, contexts, onProcessed, onChanged, onEdit }: Props) {
   const isMobile = useIsMobile();
   const [busy, setBusy] = useState(false);
   const [newContext, setNewContext] = useState<string | null>(null);
+  const [destination, setDestination] = useState<TodoStatus>('next_action');
+  const dest = DESTINATIONS.find(d => d.status === destination) ?? DESTINATIONS[0];
 
   async function patch(fields: Record<string, unknown>, resolves: boolean) {
     if (busy) return;
@@ -54,16 +58,20 @@ export function TriageCard({ todo, projects, contexts, onProcessed, onChanged, o
     setBusy(false);
   }
 
-  /** The last step: context + next_action in one write, so it leaves the inbox. */
+  /**
+   * The last step: context + the chosen destination in one write, so the item
+   * leaves the inbox. A context is always required — this is the only path out.
+   */
   async function fileUnder(context: string) {
-    if (busy) return;
+    const value = context.trim();
+    if (busy || !value) return;
     setBusy(true);
     try {
       await todoApi(`/api/todo/todos/${todo.id}`, {
         method: 'PUT',
-        body: JSON.stringify({ context: context.trim(), status: 'next_action' }),
+        body: JSON.stringify({ context: value, status: destination }),
       });
-      toast.success(context.trim() ? `Filed under ${context.trim()} → To Do` : 'Filed → To Do');
+      toast.success(`Filed under ${value} → ${dest.list}`);
       setNewContext(null);
       onProcessed();
     } catch {
@@ -75,7 +83,7 @@ export function TriageCard({ todo, projects, contexts, onProcessed, onChanged, o
   function onContextPick(value: string) {
     if (!value) return;
     if (value === NEW_CONTEXT) { setNewContext(''); return; }
-    fileUnder(value === NO_CONTEXT ? '' : value);
+    fileUnder(value);
   }
 
   async function handleDelete() {
@@ -103,11 +111,19 @@ export function TriageCard({ todo, projects, contexts, onProcessed, onChanged, o
   return (
     <div style={{ ...cardStyle, padding: isMobile ? '16px 14px' : '22px 24px', marginBottom: 20 }}>
       <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12, marginBottom: 8 }}>
-        <h2 style={{
-          fontFamily: FONT_DISPLAY, fontSize: isMobile ? 21 : 26, fontWeight: 400,
-          letterSpacing: '-0.01em', color: INK, margin: 0, flex: 1, lineHeight: 1.25,
-          overflowWrap: 'anywhere',
-        }}>{todo.title}</h2>
+        <h2 style={{ margin: 0, flex: 1, minWidth: 0, fontWeight: 400 }}>
+          <InlineTitle
+            todoId={todo.id}
+            title={todo.title}
+            onSaved={onChanged}
+            multiline
+            style={{
+              fontFamily: FONT_DISPLAY, fontSize: isMobile ? 21 : 26, fontWeight: 400,
+              letterSpacing: '-0.01em', color: INK, lineHeight: 1.25,
+              overflowWrap: 'anywhere',
+            }}
+          />
+        </h2>
         <button
           onClick={() => patch({ star: !todo.star }, false)}
           title={todo.star ? 'Unstar' : 'Star as today’s priority'}
@@ -128,30 +144,46 @@ export function TriageCard({ todo, projects, contexts, onProcessed, onChanged, o
 
       <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 20 }}>
         <SourceBadge source={todo.source} />
-        <span style={mono(11, INK_DIM)}>captured {formatAge(todo.created_at)} ago</span>
+        <span style={mono(11, INK_DIM)}>captured {formatAgeAgo(todo.created_at)}</span>
       </div>
 
-      {/* Step 1 — not a next action? Send it somewhere else and move on. */}
-      {stepLabel(1, 'NOT A NEXT ACTION?')}
+      {/* Step 1 — choose where it lands. Selecting is local: the item stays put
+          until step 3 gives it a context. */}
+      {stepLabel(1, 'WHAT KIND OF ACTION?')}
       <div style={{
         display: isMobile ? 'grid' : 'flex',
-        gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 18,
+        gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 10,
         flexWrap: 'wrap',
       }}>
-        {MOVES.map(move => (
-          <button
-            key={move.status}
-            disabled={busy}
-            onClick={() => patch({ status: move.status }, true)}
-            style={{ ...btnSecondary, padding: '10px 14px', fontSize: 14, opacity: busy ? 0.6 : 1 }}
-          >{move.label}</button>
-        ))}
+        {DESTINATIONS.map(d => {
+          const selected = d.status === destination;
+          return (
+            <button
+              key={d.status}
+              onClick={() => setDestination(d.status)}
+              aria-pressed={selected}
+              style={{
+                ...btnSecondary,
+                padding: '10px 14px', fontSize: 14,
+                borderColor: selected ? SAGE : undefined,
+                color: selected ? INK : INK_MUTE,
+                background: selected ? 'rgba(142,165,137,0.12)' : 'transparent',
+                fontWeight: selected ? 500 : 400,
+              }}
+            >{d.label}</button>
+          );
+        })}
+      </div>
+      <div style={{ marginBottom: 18 }}>
         <button
           disabled={busy}
           onClick={() => patch({ status: 'done' }, true)}
           title="It took under 2 minutes — done"
-          style={{ ...btnSecondary, padding: '10px 14px', fontSize: 14, color: SAGE, opacity: busy ? 0.6 : 1 }}
-        >Done ✓</button>
+          style={{
+            ...btnSecondary, padding: '8px 14px', fontSize: 13,
+            color: SAGE, opacity: busy ? 0.6 : 1,
+          }}
+        >Took 2 minutes — Done ✓</button>
       </div>
 
       {/* Step 2 — optional enrichment. Nothing here leaves the inbox. */}
@@ -189,11 +221,12 @@ export function TriageCard({ todo, projects, contexts, onProcessed, onChanged, o
       <div style={{
         borderTop: `1px solid ${LINE_STRONG}`, paddingTop: 16,
       }}>
-        {stepLabel(3, 'LAST STEP — SET CONTEXT')}
+        {stepLabel(3, 'LAST STEP — SET CONTEXT (REQUIRED)')}
         <p style={{ fontSize: 13, color: INK_MUTE, margin: '0 0 10px', lineHeight: 1.5 }}>
-          Where can you actually do this? Choosing a context files it under{' '}
-          <strong style={{ color: INK, fontWeight: 500 }}>To Do</strong> and clears it out of your
-          inbox — do it last.
+          Where can you actually do this? Every item needs a context before it leaves the
+          inbox. Choosing one files it under{' '}
+          <strong style={{ color: INK, fontWeight: 500 }}>{dest.list}</strong> and clears it out
+          of your inbox — do it last.
         </p>
 
         {newContext === null ? (
@@ -213,7 +246,6 @@ export function TriageCard({ todo, projects, contexts, onProcessed, onChanged, o
               <option value="">Set context…</option>
               {contexts.map(c => <option key={c} value={c}>{c}</option>)}
               <option value={NEW_CONTEXT}>+ New context…</option>
-              <option value={NO_CONTEXT}>No context — file anyway</option>
             </select>
             {todo.context && (
               <span style={mono(11, INK_DIM)}>currently {todo.context}</span>

@@ -7,11 +7,27 @@ export function daysSince(s: string): number {
   return Math.floor((Date.now() - parseDbDate(s).getTime()) / 86_400_000);
 }
 
+/** Compact age token: "today" for day zero, "Nd" beyond. */
 export function formatAge(s: string): string {
   const days = daysSince(s);
   if (days <= 0) return 'today';
   if (days === 1) return '1d';
   return `${days}d`;
+}
+
+// "today" names a point in time and "3d" measures a span, so neither slots into
+// the same sentence — each phrasing below picks the wording that reads.
+
+/** Age after a past-tense verb: "captured today", "captured 3d ago". */
+export function formatAgeAgo(s: string): string {
+  const age = formatAge(s);
+  return age === 'today' ? age : `${age} ago`;
+}
+
+/** Age as an ongoing duration: "waiting since today", "waiting for 3d". */
+export function formatAgeDuration(s: string): string {
+  const age = formatAge(s);
+  return age === 'today' ? 'since today' : `for ${age}`;
 }
 
 export function todayStr(): string {

@@ -5,7 +5,10 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { parseDbDate, daysSince, formatAge, parseTags, todayStr, matchesFilter, groupByContext } from './util';
+import {
+  parseDbDate, daysSince, formatAge, formatAgeAgo, formatAgeDuration,
+  parseTags, todayStr, matchesFilter, groupByContext,
+} from './util';
 
 describe('parseDbDate', () => {
   it('treats SQLite "YYYY-MM-DD HH:MM:SS" timestamps as UTC', () => {
@@ -41,6 +44,18 @@ describe('daysSince / formatAge', () => {
     expect(formatAge('2026-08-14 12:00:00')).toBe('1d');
     expect(daysSince('2026-08-01 12:00:00')).toBe(14);
     expect(formatAge('2026-08-01 12:00:00')).toBe('14d');
+  });
+
+  it('phrases day-zero as a point in time, not a span', () => {
+    // Regression: the triage card read "captured today ago".
+    expect(formatAgeAgo('2026-08-15 08:00:00')).toBe('today');
+    expect(formatAgeDuration('2026-08-15 08:00:00')).toBe('since today');
+  });
+
+  it('phrases a real span with the wording each sentence needs', () => {
+    expect(formatAgeAgo('2026-08-14 12:00:00')).toBe('1d ago');
+    expect(formatAgeAgo('2026-08-01 12:00:00')).toBe('14d ago');
+    expect(formatAgeDuration('2026-08-01 12:00:00')).toBe('for 14d');
   });
 
   it('todayStr returns the LOCAL date used for overdue comparisons', () => {
