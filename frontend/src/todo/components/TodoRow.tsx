@@ -56,6 +56,11 @@ export function TodoRow({
     }
   }
 
+  // A todo you can only half-read is a todo you have to open to triage, so the
+  // title wraps to as many lines as it needs on every width. `anywhere` covers
+  // the pasted-URL case, which has no break opportunity to wrap at.
+  const WRAP: CSSProperties = { overflowWrap: 'anywhere', lineHeight: 1.45 };
+
   const title = (style: CSSProperties) => (
     editableTitle
       ? <InlineTitle todoId={todo.id} title={todo.title} onSaved={onChanged} style={style} />
@@ -119,15 +124,19 @@ export function TodoRow({
         onClick={() => onOpen(todo)}
         style={{ padding: '12px 14px', cursor: 'pointer', ...cardStyle, opacity: isDone ? 0.55 : 1 }}
       >
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6 }}>
-          {checkbox}
+        {/* flex-start, not center: a wrapped title would otherwise push the
+            checkbox and star to the middle of the block instead of leaving them
+            beside the first line, where they read as controls for the row. */}
+        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, marginBottom: 6 }}>
+          <div style={{ paddingTop: 2 }}>{checkbox}</div>
           <div style={{ flex: 1, minWidth: 0 }}>
             {title({
+              ...WRAP,
               fontSize: 16, color: isDone ? INK_DIM : INK,
               textDecoration: todo.status === 'done' ? 'line-through' : 'none',
             })}
           </div>
-          {star}
+          <div style={{ paddingTop: 4 }}>{star}</div>
         </div>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', paddingLeft: 30 }}>
           {meta}
@@ -141,7 +150,9 @@ export function TodoRow({
     <div
       onClick={() => onOpen(todo)}
       style={{
-        display: 'flex', alignItems: 'center', gap: 12,
+        // flex-start so the controls and the meta cluster stay level with the
+        // first line of a title that now runs to two or three of them.
+        display: 'flex', alignItems: 'flex-start', gap: 12,
         padding: '11px 16px', cursor: 'pointer',
         borderBottom: `1px solid ${LINE}`,
         opacity: isDone ? 0.55 : 1,
@@ -149,17 +160,22 @@ export function TodoRow({
       onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = 'rgba(200,209,217,0.04)'; }}
       onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = 'transparent'; }}
     >
-      {checkbox}
-      {star}
+      <div style={{ paddingTop: 1 }}>{checkbox}</div>
+      <div style={{ paddingTop: 3 }}>{star}</div>
       <div style={{ flex: 1, minWidth: 0 }}>
         {title({
+          ...WRAP,
           fontSize: 15,
           color: isDone ? INK_DIM : INK,
           textDecoration: todo.status === 'done' ? 'line-through' : 'none',
-          overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
         })}
       </div>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
+      <div style={{
+        display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0,
+        // The meta chips keep their own line height; nudge them onto the
+        // title's baseline rather than the top of the row's content box.
+        paddingTop: 2,
+      }}>
         {meta}
         {trailing}
       </div>

@@ -1,7 +1,7 @@
 import { useState, useEffect, memo } from 'react';
 import type { ChatMessage, ToolCallInfo, PendingConfirmation, PendingPlan } from '../hooks/useAgentChat';
 import MarkdownContent from './MarkdownContent';
-import { useCopyToClipboard } from '../hooks/useCopyToClipboard';
+import { useCopyToClipboard } from '../../shared/useCopyToClipboard';
 import ReportRenderer from '../reports/ReportRenderer';
 import { AgentMark } from '../../shared/AgentMark';
 import { IconAttach, IconZap } from '../../shared/icons';
