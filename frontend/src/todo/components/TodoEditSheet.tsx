@@ -10,6 +10,8 @@ import { IconStar, IconStarFilled } from '../../shared/icons';
 import { modalOverlay, modalContent, mobileDragHandle, formTitle, btnPrimary, btnSecondary, btnDanger } from '../styles';
 import { STATUS_META, TODO_STATUS_ORDER, SOURCE_LABELS } from '../constants';
 import { parseTags } from '../util';
+import { nextActionCopyText, todoCopyText } from '../copyText';
+import { CopyButton } from './CopyButton';
 import type { TodoOutletContext } from '../TodoLayout';
 
 const NEW_PROJECT_SENTINEL = '__new__';
@@ -91,6 +93,20 @@ export function TodoEditSheet({ todo, defaults, onClose, onSaved }: Props) {
     onSaved();
   }
 
+  // Copy reads the LIVE form, not `todo` — you can retype the action and copy
+  // it before saving, and what lands on the clipboard is what is on screen.
+  // Lazy (called on click) so the string is only built when it is wanted.
+  function copyFields() {
+    return {
+      title, notes, status,
+      projectName: newProject !== null
+        ? newProject.trim() || null
+        : projects.find(p => p.id === projectId)?.name ?? null,
+      context, tags: parseTags(tagsInput),
+      dueDate: dueDate || null, repeat, star,
+    };
+  }
+
   return (
     <div style={modalOverlay(isMobile)} onClick={onClose}>
       <form
@@ -103,12 +119,31 @@ export function TodoEditSheet({ todo, defaults, onClose, onSaved }: Props) {
             <div style={mobileDragHandle} />
           </div>
         )}
-        <h2 style={formTitle}>{isEdit ? 'Edit Todo' : 'New Todo'}</h2>
+        <div style={{
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+          gap: 12, marginBottom: 20,
+        }}>
+          <h2 style={{ ...formTitle, marginBottom: 0 }}>{isEdit ? 'Edit Todo' : 'New Todo'}</h2>
+          {/* Whole todo — the heading names what this button copies. */}
+          {title.trim() && (
+            <CopyButton text={() => todoCopyText(copyFields())} label="Copy the whole todo" />
+          )}
+        </div>
         {error && <p style={{ color: CORAL, fontSize: 12, marginBottom: 12 }}>{error}</p>}
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
           <div>
-            <label style={labelStyle}>What's the next action? *</label>
+            <div style={{
+              display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+              gap: 12, marginBottom: 6,
+            }}>
+              <label style={{ ...labelStyle, marginBottom: 0 }}>What's the next action? *</label>
+              {/* Just this line — the common case is pasting the action itself
+                  into a message, without the status/project scaffolding. */}
+              {title.trim() && (
+                <CopyButton text={() => nextActionCopyText(title)} label="Copy just the next action" />
+              )}
+            </div>
             <input value={title} onChange={e => setTitle(e.target.value)} style={inputStyle} autoFocus={!isEdit} />
           </div>
 

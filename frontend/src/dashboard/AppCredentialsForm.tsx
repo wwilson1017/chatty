@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { api } from '../core/api/client';
-import { useCopyToClipboard } from '../agent/hooks/useCopyToClipboard';
+import { useCopyToClipboard } from '../shared/useCopyToClipboard';
 
 interface AppCredentialsFormProps {
   integration: 'quickbooks' | 'google';

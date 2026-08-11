@@ -66,6 +66,7 @@ export function IconStar(p: IconProps) { return <Ico d="m12 2 3.09 6.26L22 9.27l
 export function IconStarFilled(p: IconProps) { return <Ico {...p}><path d="m12 2 3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01z" fill="currentColor" /></Ico>; }
 export function IconListCheck(p: IconProps) { return <Ico d="M11 6h10M11 12h10M11 18h10M3 6l1.5 1.5L7 5M3 12l1.5 1.5L7 11M3 18l1.5 1.5L7 17" {...p} />; }
 export function IconTarget(p: IconProps) { return <Ico {...p}><circle cx="12" cy="12" r="9" /><circle cx="12" cy="12" r="5" /><circle cx="12" cy="12" r="1" fill="currentColor" /></Ico>; }
+export function IconCopy(p: IconProps) { return <Ico {...p}><rect x="9" y="9" width="12" height="12" rx="2" /><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" /></Ico>; }
 
 export function IconLogo({ size = 24, strokeWidth = 3, className, style }: IconProps) {
   return (
