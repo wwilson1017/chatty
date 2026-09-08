@@ -285,6 +285,11 @@ class HermesRuntime(AgentRuntime):
             except (HermesConnectionError, HermesRequestError, asyncio.TimeoutError) as e:
                 logger.info("Hermes event stream dropped for run %s: %s", run_id, e)
                 dropped = True
+            if terminal is None and not dropped:
+                # The stream ended cleanly without a terminal event (proxy
+                # closed it, Hermes restarted): the run may still be executing.
+                logger.info("Hermes event stream for run %s ended without a terminal event", run_id)
+                dropped = True
 
             # 7. Dropped stream → poll status (the stream cannot be resumed)
             if terminal is None and dropped:
@@ -345,6 +350,7 @@ class HermesRuntime(AgentRuntime):
             if name == "run.completed":
                 if not text and terminal.get("output"):
                     text = terminal["output"]  # no deltas arrived at all
+                    yield _sse({"type": "text", "text": text})
                 model = await self._model_label(client, run_id, creds)
                 meta = {"hermes_tools": cards, "recovered": recovered}
                 usage = terminal.get("usage") or {}

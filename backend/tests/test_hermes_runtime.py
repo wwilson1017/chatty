@@ -247,6 +247,20 @@ def test_output_used_when_no_deltas(client, hermes, hermes_agent):
     events = parse_sse(chat(client, hermes_agent))
     svc = chat_service_for(hermes_agent)
     assert svc.get_history_rows(events[0]["id"])[1]["content"] == "Only output"
+    # the browser must see it too, not only the DB
+    assert "".join(e["text"] for e in events if e["type"] == "text") == "Only output"
+
+
+def test_stream_ending_without_terminal_event_enters_recovery(client, hermes, hermes_agent):
+    hermes.scripts.append([{"event": "message.delta", "delta": "half"}])  # no run.* event
+    hermes.statuses["run-1"] = {"status": "completed", "output": "whole answer"}
+    events = parse_sse(chat(client, hermes_agent))
+    assert any(e["type"] == "text_replace" and e["text"] == "whole answer" for e in events)
+    assert events[-1]["type"] == "done"
+    svc = chat_service_for(hermes_agent)
+    conv_id = events[0]["id"]
+    assert svc.unresolved_turn(conv_id) is None
+    assert svc.get_history_rows(conv_id)[1]["content"] == "whole answer"
 
 
 def test_streamed_text_wins_over_output(client, hermes, hermes_agent):
