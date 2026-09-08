@@ -388,8 +388,6 @@ export function useAgentChat(apiPrefix: string, options?: Options) {
               // the final answer replaces whatever partial text was shown.
               flushPendingText();
               updateLastAssistant(last => ({ ...last, content: event.text || '', recovered: true }));
-            } else if (event.type === 'runtime_fallback') {
-              updateLastAssistant(last => ({ ...last, runtime: 'chatty' }));
             } else if (event.type === 'plan_ready' && (event.plan_text || event.plan)) {
               flushPendingText();
               updateLastAssistant(last => ({

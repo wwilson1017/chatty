@@ -245,6 +245,28 @@ def set_runtime(agent_id: str, runtime: str) -> dict | None:
     return get_agent(agent_id)
 
 
+def claim_hermes_runtime(agent_id: str) -> dict | None:
+    """Switch `agent_id` to Hermes only if no OTHER agent is on it — the check
+    and the update run under the same write lock so two concurrent switches
+    cannot both succeed. Returns the agent, or None when another agent holds
+    Hermes (raises ValueError if the agent does not exist)."""
+    with _write_lock:
+        db = _get_db()
+        other = db.execute(
+            "SELECT id FROM agents WHERE runtime = 'hermes' AND id != ? LIMIT 1", (agent_id,)
+        ).fetchone()
+        if other:
+            return None
+        cursor = db.execute(
+            "UPDATE agents SET runtime = 'hermes', updated_at = datetime('now') WHERE id = ?",
+            (agent_id,),
+        )
+        db.commit()
+    if cursor.rowcount == 0:
+        raise ValueError("agent not found")
+    return get_agent(agent_id)
+
+
 def count_agents_on_runtime(runtime: str) -> int:
     row = _get_db().execute(
         "SELECT COUNT(*) AS n FROM agents WHERE runtime = ?", (runtime,)

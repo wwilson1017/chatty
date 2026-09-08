@@ -537,6 +537,25 @@ async def _stream_chat(agent: dict, messages: list, training_mode: bool, convers
         lease.release()
         raise
 
+    try:
+        return await _stream_chat_response(
+            agent, config, ctx_manager, chat_service, runtime, plan, lease, request_ctx,
+            messages, conversation_id, tool_mode, approved_tool, import_mode,
+            playbook_expansion, pre_stream, playbook_slug)
+    except BaseException:
+        # Anything raised before the response generator exists (registry
+        # construction, credential reads) would otherwise leak the conversation
+        # mutex held by the plan and the admission lease.
+        try:
+            await runtime.release(plan)
+        finally:
+            lease.release()
+        raise
+
+
+async def _stream_chat_response(agent, config, ctx_manager, chat_service, runtime, plan, lease,
+                                request_ctx, messages, conversation_id, tool_mode, approved_tool,
+                                import_mode, playbook_expansion, pre_stream, playbook_slug):
     ga = config.google_accounts
     gmail_ids = ga.get("gmail", [])
     calendar_ids = ga.get("calendar", [])
@@ -727,10 +746,12 @@ async def runtime_dev_switch(agent_id: str, req: DevSwitchRequest, user=Depends(
             raise HTTPException(status_code=400, detail="Hermes is not connected")
         # One Hermes agent per connection: Hermes exposes every configured MCP
         # server to every run in a profile, so a second agent could reach the
-        # first agent's tools.
-        if agent.get("runtime") != "hermes" and agent_db.count_agents_on_runtime("hermes") >= 1:
+        # first agent's tools. Check-and-claim is atomic in the DB.
+        updated = agent_db.claim_hermes_runtime(agent_id)
+        if updated is None:
             raise HTTPException(status_code=409, detail="Another agent already runs on Hermes")
-    updated = agent_db.set_runtime(agent_id, req.runtime)
+    else:
+        updated = agent_db.set_runtime(agent_id, req.runtime)
     if req.runtime == "hermes" and not agent.get("onboarding_complete"):
         # Training (conversational onboarding) is a Chatty-only mode; a fresh
         # agent would otherwise auto-enter it and every turn would be refused.

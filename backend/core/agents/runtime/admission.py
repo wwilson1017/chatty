@@ -4,9 +4,8 @@ Chatty — turn admission.
 Two independent guards, kept separate on purpose:
 
 * a per-agent **admission lock + lease set**: every streaming turn (any
-  runtime) holds a lease for its lifetime, and an agent-level operation that
-  must see no turns in flight (cutover finish/abort, PR 3) closes admission and
-  drains the leases;
+  runtime) holds a lease for its lifetime, so an agent-level operation can see
+  whether turns are in flight;
 * a per-conversation **mutex** used by the Hermes runtime for the whole turn,
   including approvals and recovery polling, because Hermes warns against
   concurrent turns on one session.
@@ -47,7 +46,6 @@ class Lease:
 class _AgentAdmission:
     lock: asyncio.Lock = field(default_factory=asyncio.Lock)
     leases: dict[str, Lease] = field(default_factory=dict)
-    closed: bool = False
 
 
 _agents: dict[str, _AgentAdmission] = {}
@@ -64,9 +62,6 @@ def _adm(agent_id: str) -> _AgentAdmission:
 async def acquire_lease(agent_id: str, conversation_id: str | None, runtime: str) -> Lease:
     adm = _adm(agent_id)
     async with adm.lock:
-        if adm.closed:
-            raise HTTPException(status_code=409,
-                                detail="This agent is switching runtimes; try again in a moment")
         lease = Lease(uuid.uuid4().hex, agent_id, conversation_id, runtime)
         adm.leases[lease.lease_id] = lease
         return lease
@@ -74,25 +69,6 @@ async def acquire_lease(agent_id: str, conversation_id: str | None, runtime: str
 
 def active_leases(agent_id: str) -> list[Lease]:
     return list(_adm(agent_id).leases.values())
-
-
-async def close_admission(agent_id: str, drain_seconds: float = 30.0) -> bool:
-    """Refuse new turns and wait for active leases to drain. Returns False
-    (and reopens) when leases remain after the deadline."""
-    adm = _adm(agent_id)
-    async with adm.lock:
-        adm.closed = True
-    deadline = time.time() + drain_seconds
-    while adm.leases and time.time() < deadline:
-        await asyncio.sleep(0.2)
-    if adm.leases:
-        adm.closed = False
-        return False
-    return True
-
-
-def reopen_admission(agent_id: str) -> None:
-    _adm(agent_id).closed = False
 
 
 def conversation_lock(conversation_id: str) -> asyncio.Lock:

@@ -531,3 +531,68 @@ def test_history_protected_prefix_is_bounded():
     pairs = [("user", "x" * 50_000), ("assistant", "y" * 50_000), ("user", "q"), ("assistant", "a")]
     hist = build_conversation_history(_rows(pairs), None, None, budget=10_000)
     assert sum(len(m["content"]) for m in hist) <= 10_000 + 200
+
+
+# ── Runtime endpoints ─────────────────────────────────────────────────────────
+
+def test_dev_switch_gated_by_env(client, hermes, monkeypatch):
+    monkeypatch.delenv("HERMES_DEV_SWITCH", raising=False)
+    agent = make_agent(client, name="A")
+    r = client.post(f"/api/agents/{agent['id']}/runtime/dev-switch", json={"runtime": "hermes"})
+    assert r.status_code == 404
+    st = client.get(f"/api/agents/{agent['id']}/runtime/status").json()
+    assert st["runtime"] == "chatty" and st["dev_switch"] is False and st["hermes"]["connected"] is True
+
+
+def test_dev_switch_claims_hermes_once_and_marks_onboarded(client, hermes, monkeypatch):
+    monkeypatch.setenv("HERMES_DEV_SWITCH", "1")
+    a = make_agent(client, name="A")
+    b = make_agent(client, name="B")
+    assert not a["onboarding_complete"]
+    r = client.post(f"/api/agents/{a['id']}/runtime/dev-switch", json={"runtime": "hermes"})
+    assert r.status_code == 200 and r.json()["runtime"] == "hermes"
+    a2 = client.get(f"/api/agents/{a['id']}").json()
+    assert a2["runtime"] == "hermes" and a2["onboarding_complete"]
+    # one Hermes agent per connection
+    r = client.post(f"/api/agents/{b['id']}/runtime/dev-switch", json={"runtime": "hermes"})
+    assert r.status_code == 409
+    # idempotent for the holder, and switching back frees it
+    assert client.post(f"/api/agents/{a['id']}/runtime/dev-switch", json={"runtime": "hermes"}).status_code == 200
+    assert client.post(f"/api/agents/{a['id']}/runtime/dev-switch", json={"runtime": "chatty"}).json()["runtime"] == "chatty"
+    assert client.post(f"/api/agents/{b['id']}/runtime/dev-switch", json={"runtime": "hermes"}).status_code == 200
+    assert client.post(f"/api/agents/{a['id']}/runtime/dev-switch", json={"runtime": "nope"}).status_code == 400
+    # runtime is never accepted through the generic update
+    client.put(f"/api/agents/{a['id']}", json={"runtime": "hermes"})
+    assert client.get(f"/api/agents/{a['id']}").json()["runtime"] == "chatty"
+
+
+def test_settle_after_failed_user_save_keeps_transcript_complete(client, hermes, hermes_agent, monkeypatch):
+    """Client-side failure after Hermes accepted the run: the detached settle
+    task must still leave BOTH rows and a terminal journal state."""
+    import time as _t
+    from core.agents.chat_history.service import ChatHistoryService
+    real_save = ChatHistoryService.save_message
+    calls = {"n": 0}
+
+    def flaky_save(self, *a, **k):
+        if k.get("role") == "user" and k.get("runtime") == "hermes":
+            calls["n"] += 1
+            raise RuntimeError("disk full")
+        return real_save(self, *a, **k)
+
+    monkeypatch.setattr(ChatHistoryService, "save_message", flaky_save)
+    hermes.scripts.append([{"event": "run.completed", "output": "late"}])
+    hermes.statuses["run-1"] = {"status": "completed", "output": "late"}
+    events = parse_sse(chat(client, hermes_agent, "q1"))
+    assert events[-1]["type"] == "error"
+    assert hermes.stops == ["run-1"]
+    svc = chat_service_for(hermes_agent)
+    conv_id = events[0]["id"]
+    for _ in range(50):  # the settle task runs on the app loop
+        turn = svc.unresolved_turn(conv_id)
+        if turn is None:
+            break
+        _t.sleep(0.1)
+    assert svc.unresolved_turn(conv_id) is None
+    rows = svc.get_history_rows(conv_id)
+    assert [(r["role"], r["content"]) for r in rows] == [("user", "q1"), ("assistant", "late")]

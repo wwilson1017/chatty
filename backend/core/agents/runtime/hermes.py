@@ -51,6 +51,9 @@ STREAM_SILENCE_S = float(os.environ.get("HERMES_STREAM_SILENCE_S", "120"))
 POLL_INTERVAL_S = 2.0
 POLL_MAX_S = 600.0
 STOP_SETTLE_S = 60.0
+# Total wall-clock budget for reconciliation inside a request (prepare/Resolve);
+# whatever is still unresolved after this is left for the next Resolve.
+RECONCILE_BUDGET_S = float(os.environ.get("HERMES_RECONCILE_BUDGET_S", "60"))
 TERMINAL_STATUSES = {"completed", "failed", "cancelled"}
 _APPROVAL_PASSTHROUGH = ("event", "choices", "run_id", "timestamp", "request_id")
 
@@ -479,6 +482,13 @@ class HermesRuntime(AgentRuntime):
                 await asyncio.sleep(POLL_INTERVAL_S)
             row = chat_service.get_turn(turn_id) or {}
             conversation_id = row.get("conversation_id")
+            if conversation_id and status is not None and status.get("status") in TERMINAL_STATUSES:
+                # The turn may have been handed here before its user row was
+                # saved (e.g. that save failed); the transcript must not end up
+                # with a reply and no question.
+                chat_service.ensure_message(conversation_id, f"{turn_id}:user", "user",
+                                            row.get("input") or "", runtime=self.name,
+                                            turn_id=turn_id)
             if status is None:
                 chat_service.mark_turn(turn_id, "unknown")
             elif status.get("status") == "completed":
@@ -514,11 +524,14 @@ class HermesRuntime(AgentRuntime):
     async def _reconcile_locked(self, agent, conversation_id, chat_service, creds) -> dict | None:
         """Settle unresolved journal rows. Caller holds the conversation mutex."""
         client = None
+        deadline = time.time() + RECONCILE_BUDGET_S
         try:
             for _ in range(20):
                 row = chat_service.unresolved_turn(conversation_id)
                 if not row:
                     return None
+                if time.time() >= deadline:
+                    return row  # out of budget; Resolve can continue later
                 state, turn_id, run_id = row["state"], row["turn_id"], row.get("run_id")
                 if state == "submitting":
                     # Only a dead process leaves this behind (a live turn holds
@@ -533,7 +546,8 @@ class HermesRuntime(AgentRuntime):
                             client = hermes_conn.make_client(creds)
                         except (ValueError, HermesConnectionError):
                             return row
-                    settled = await self._settle_from_status(client, chat_service, row)
+                    settled = await self._settle_from_status(
+                        client, chat_service, row, deadline=deadline)
                     if not settled:
                         return chat_service.get_turn(turn_id)
                     continue
@@ -545,8 +559,11 @@ class HermesRuntime(AgentRuntime):
             if client is not None:
                 await client.aclose()
 
-    async def _settle_from_status(self, client, chat_service, row) -> bool:
-        """Returns True when the row reached done/failed."""
+    async def _settle_from_status(self, client, chat_service, row,
+                                  deadline: float | None = None) -> bool:
+        """Returns True when the row reached done/failed. `deadline` bounds the
+        stop-and-wait poll so a request-scoped reconciliation cannot outlive
+        the HTTP client."""
         turn_id, run_id, conversation_id = row["turn_id"], row["run_id"], row["conversation_id"]
         try:
             status = await client.get_run(run_id)
@@ -560,7 +577,10 @@ class HermesRuntime(AgentRuntime):
             await self._stop_quietly(client, run_id)
             chat_service.mark_turn(turn_id, "stopping")
             started = time.time()
-            while time.time() - started < STOP_SETTLE_S:
+            settle_until = started + STOP_SETTLE_S
+            if deadline is not None:
+                settle_until = min(settle_until, deadline)
+            while time.time() < settle_until:
                 await asyncio.sleep(POLL_INTERVAL_S)
                 try:
                     status = await client.get_run(run_id)

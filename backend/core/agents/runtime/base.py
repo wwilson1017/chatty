@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import abc
 from dataclasses import dataclass, field
-from typing import Any, AsyncGenerator, Callable
+from typing import Any, AsyncGenerator
 
 
 @dataclass
@@ -48,7 +48,6 @@ class TurnPlan:
     runtime: str
     context_dir: str
     gcs_prefix: str | None
-    sync_enabled: bool = True
     data: dict[str, Any] = field(default_factory=dict)
 
 
@@ -76,7 +75,3 @@ class AgentRuntime(abc.ABC):
                               tool_use_id: str, choice: str) -> dict:
         raise NotImplementedError
 
-
-# Signature the router passes for native provider construction so tests that
-# monkeypatch agents.router.get_ai_provider keep working.
-ProviderFactory = Callable[..., Any]
