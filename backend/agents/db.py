@@ -81,6 +81,9 @@ def _setup_connection() -> None:
         ("drive_write_enabled", "INTEGER NOT NULL DEFAULT 0"),
         ("google_accounts", "TEXT NOT NULL DEFAULT '{}'"),
         ("model_tier", "TEXT NOT NULL DEFAULT 'auto'"),
+        # Agent runtime: 'chatty' (native harness) or 'hermes'. Only ever
+        # changed through set_runtime() — never via the generic update path.
+        ("runtime", "TEXT NOT NULL DEFAULT 'chatty'"),
     ]:
         try:
             _connection.execute(f"ALTER TABLE agents ADD COLUMN {col} {typedef}")
@@ -221,6 +224,32 @@ def update_agent(agent_id: str, **fields) -> dict | None:
     if cursor.rowcount == 0:
         return None
     return get_agent(agent_id)
+
+
+RUNTIMES = ("chatty", "hermes")
+
+
+def set_runtime(agent_id: str, runtime: str) -> dict | None:
+    """Switch an agent's runtime. Deliberately outside UPDATABLE_FIELDS so the
+    generic PUT cannot bypass the cutover state machine."""
+    if runtime not in RUNTIMES:
+        raise ValueError(f"Unknown runtime: {runtime}")
+    with _write_lock:
+        cursor = _get_db().execute(
+            "UPDATE agents SET runtime = ?, updated_at = datetime('now') WHERE id = ?",
+            (runtime, agent_id),
+        )
+        _get_db().commit()
+    if cursor.rowcount == 0:
+        return None
+    return get_agent(agent_id)
+
+
+def count_agents_on_runtime(runtime: str) -> int:
+    row = _get_db().execute(
+        "SELECT COUNT(*) AS n FROM agents WHERE runtime = ?", (runtime,)
+    ).fetchone()
+    return row["n"] if row else 0
 
 
 def delete_agent(agent_id: str) -> bool:

@@ -80,6 +80,13 @@ AVAILABLE_INTEGRATIONS = {
         "icon": "📎",
         "auth_type": "api_key",
     },
+    "hermes": {
+        "name": "Hermes",
+        "description": "Run an agent on your Hermes (Nous Research) gateway — Chatty becomes its UI",
+        "icon": "☤",
+        "auth_type": "api_key",
+        "kind": "runtime",
+    },
     "todoist": {
         "name": "Todoist",
         "description": "Todoist — tasks, projects, labels, and productivity tracking",

@@ -46,8 +46,10 @@ export interface PendingConfirmation {
   // DB id of the pending assistant row, echoed back on approval so the backend
   // reconciles the exact row even when a provider reuses tool ids (Gemini).
   msgId?: string;
-  status: 'pending' | 'approved' | 'denied';
+  status: 'pending' | 'approved' | 'denied' | 'resolved' | 'expired' | 'uncertain';
   description?: string;
+  // Hermes approval cards: answered in place by id, never by a chat re-send.
+  approval?: { choices: string[]; actionable: boolean; runtime: 'hermes'; note?: string };
 }
 
 export interface PendingPlan {
@@ -73,10 +75,14 @@ export interface ChatMessage {
   attachments?: { name: string; size: number }[];
   hidden?: boolean;
   pendingConfirm?: PendingConfirmation;
+  // Hermes approvals keyed by request id — several may be pending at once.
+  pendingConfirms?: Record<string, PendingConfirmation>;
   pendingPlan?: PendingPlan;
   reports?: InlineReport[];
   model?: string;
   tier?: string;
+  runtime?: 'chatty' | 'hermes';   // which runtime answered (fallback tag when it differs)
+  recovered?: boolean;             // content came from Hermes run status after a dropped stream
   playbook?: { slug: string; name: string };
   compacted?: boolean;  // context was compacted just before this turn's response
   // Live audio-transcription progress (pre-stream phase of an upload turn).
@@ -352,17 +358,38 @@ export function useAgentChat(apiPrefix: string, options?: Options) {
               }));
             } else if (event.type === 'confirm' && event.tool) {
               flushPendingText();
-              updateLastAssistant(last => ({
-                ...last,
-                pendingConfirm: {
-                  tool: event.tool,
-                  args: event.args || {},
-                  toolUseId: event.tool_use_id || '',
-                  msgId: event.msg_id,
-                  status: 'pending',
-                  description: event.description,
-                },
-              }));
+              const confirm: PendingConfirmation = {
+                tool: event.tool,
+                args: event.args || {},
+                toolUseId: event.tool_use_id || '',
+                msgId: event.msg_id,
+                status: 'pending',
+                description: event.description,
+                approval: event.approval,
+              };
+              if (event.approval?.runtime === 'hermes') {
+                updateLastAssistant(last => ({
+                  ...last,
+                  pendingConfirms: { ...(last.pendingConfirms || {}), [confirm.toolUseId]: confirm },
+                }));
+              } else {
+                updateLastAssistant(last => ({ ...last, pendingConfirm: confirm }));
+              }
+            } else if (event.type === 'confirm_resolved' && event.tool_use_id) {
+              updateLastAssistant(last => {
+                const cur = last.pendingConfirms?.[event.tool_use_id];
+                if (!cur) return last;
+                const status = event.outcome === 'denied' ? 'denied'
+                  : cur.status === 'approved' || cur.status === 'denied' ? cur.status : 'resolved';
+                return { ...last, pendingConfirms: { ...last.pendingConfirms, [event.tool_use_id]: { ...cur, status } } };
+              });
+            } else if (event.type === 'text_replace') {
+              // Recovered from Hermes run status after the live stream dropped:
+              // the final answer replaces whatever partial text was shown.
+              flushPendingText();
+              updateLastAssistant(last => ({ ...last, content: event.text || '', recovered: true }));
+            } else if (event.type === 'runtime_fallback') {
+              updateLastAssistant(last => ({ ...last, runtime: 'chatty' }));
             } else if (event.type === 'plan_ready' && (event.plan_text || event.plan)) {
               flushPendingText();
               updateLastAssistant(last => ({
@@ -392,11 +419,12 @@ export function useAgentChat(apiPrefix: string, options?: Options) {
               options?.onTitleUpdate?.(event.conversation_id, event.title);
             } else if (event.type === 'done') {
               flushPendingText();
-              if (event.model || event.tier) {
+              if (event.model || event.tier || event.runtime) {
                 updateLastAssistant(last => ({
                   ...last,
                   ...(event.model && { model: event.model }),
                   ...(event.tier && { tier: event.tier }),
+                  ...(event.runtime && { runtime: event.runtime }),
                 }));
               }
             } else if (event.type === 'error') {
@@ -438,8 +466,35 @@ export function useAgentChat(apiPrefix: string, options?: Options) {
     }
   }, [trainingMode, trainingType, toolMode, planMode, conversationId, apiPrefix, options, scheduleFlush, flushPendingText, updateLastAssistant]);
 
+  // ── Hermes approval cards: answer by request id, no chat re-send ──
+  const answerHermesApproval = useCallback(async (msgId: string, toolUseId: string, choice: 'once' | 'deny') => {
+    const msg = messagesRef.current.find(m => m.id === msgId);
+    const card = msg?.pendingConfirms?.[toolUseId];
+    if (!card || card.status !== 'pending' || !card.approval?.actionable) return;
+    const setStatus = (status: PendingConfirmation['status']) => setMessages(prev => prev.map(m =>
+      m.id === msgId && m.pendingConfirms?.[toolUseId]
+        ? { ...m, pendingConfirms: { ...m.pendingConfirms, [toolUseId]: { ...m.pendingConfirms[toolUseId], status } } }
+        : m
+    ));
+    try {
+      const token = getToken();
+      const res = await fetch(`${apiPrefix}/tool/execute`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+        body: JSON.stringify({ kind: 'hermes', conversation_id: conversationId, tool_use_id: toolUseId, choice }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (res.ok && body.ok) setStatus(choice === 'once' ? 'approved' : 'denied');
+      else if (body.outcome === 'expired') setStatus('expired');
+      else setStatus('uncertain');
+    } catch {
+      setStatus('uncertain');
+    }
+  }, [apiPrefix, conversationId]);
+
   // ── Approve a pending confirmation ──
-  const approveAction = useCallback(async (msgId: string) => {
+  const approveAction = useCallback(async (msgId: string, hermesToolUseId?: string) => {
+    if (hermesToolUseId) return answerHermesApproval(msgId, hermesToolUseId, 'once');
     const msg = messagesRef.current.find(m => m.id === msgId);
     if (!msg?.pendingConfirm || msg.pendingConfirm.status !== 'pending') return;
 
@@ -475,16 +530,17 @@ export function useAgentChat(apiPrefix: string, options?: Options) {
         tool, args, toolUseId, msgId: pendingRowId, result: { error: errMsg },
       });
     }
-  }, [apiPrefix, sendMessage]);
+  }, [apiPrefix, sendMessage, answerHermesApproval]);
 
   // ── Deny a pending confirmation ──
-  const denyAction = useCallback((msgId: string) => {
+  const denyAction = useCallback((msgId: string, hermesToolUseId?: string) => {
+    if (hermesToolUseId) { void answerHermesApproval(msgId, hermesToolUseId, 'deny'); return; }
     setMessages(prev => prev.map(m =>
       m.id === msgId && m.pendingConfirm
         ? { ...m, pendingConfirm: { ...m.pendingConfirm, status: 'denied' as const } }
         : m
     ));
-  }, []);
+  }, [answerHermesApproval]);
 
   // ── Training mode ──
   const setTrainingMode = useCallback((on: boolean, type?: TrainingType, kickoff?: string) => {

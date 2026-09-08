@@ -170,8 +170,18 @@ class ChatRequest(BaseModel):
 
 
 class ToolExecuteRequest(BaseModel):
-    tool: str
-    args: dict
+    # kind="native" (default): execute an approved native write tool.
+    # kind="hermes": answer a Hermes approval card bound to `tool_use_id`.
+    kind: str = "native"
+    tool: str = ""
+    args: dict = {}
+    conversation_id: str | None = None
+    tool_use_id: str | None = None
+    choice: str | None = None  # "once" | "deny"
+
+
+class ResolveTurnRequest(BaseModel):
+    action: str = "retry_reconcile"  # or "mark_failed"
 
 
 class ContextWriteRequest(BaseModel):
@@ -481,13 +491,22 @@ async def get_avatar(agent_id: str, user=Depends(get_current_user)):
 
 # ── Per-agent: Chat (shared helper) ──────────────────────────────────────────
 
-def _stream_chat(agent: dict, messages: list, training_mode: bool, conversation_id: str | None,
-                  training_type: str | None = None, plan_mode: bool = False,
-                  tool_mode: str = "normal", approved_tool: dict | None = None,
-                  import_mode: bool = False, has_attachments: bool = False,
-                  playbook_expansion: str | None = None, pre_stream=None,
-                  playbook_slug: str | None = None):
-    """Build provider, registry, and return a StreamingResponse for agent chat."""
+async def _stream_chat(agent: dict, messages: list, training_mode: bool, conversation_id: str | None,
+                        training_type: str | None = None, plan_mode: bool = False,
+                        tool_mode: str = "normal", approved_tool: dict | None = None,
+                        import_mode: bool = False, has_attachments: bool = False,
+                        playbook_expansion: str | None = None, pre_stream=None,
+                        playbook_slug: str | None = None):
+    """Admit the turn, pick its runtime, preflight, then stream.
+
+    Order matters: (1) admission lease, (2) durable unresolved-turn guard,
+    (3) runtime.prepare — all before the StreamingResponse exists so every
+    refusal is a real HTTP error. The lease and the runtime plan are released
+    in the response generator's `finally` once streaming has started.
+    """
+    from core.agents.runtime import RequestCtx, get_runtime, guard_unresolved
+    from core.agents.runtime import admission
+
     config = build_agent_config(agent)
     ctx_manager = get_context_manager(agent["slug"])
     chat_service = get_chat_service(agent["slug"])
@@ -498,26 +517,25 @@ def _stream_chat(agent: dict, messages: list, training_mode: bool, conversation_
     except Exception:
         pass  # Non-critical — search will degrade gracefully
 
-    store = CredentialStore()
-
-    # ── Tier resolution ──────────────────────────────────────────────
-    # model_override takes absolute precedence — skip all tier logic
-    triage_info: dict | None = None
-    resolved_model = config.model_override or None
-
-    if not resolved_model and config.model_tier != "auto":
-        from core.providers.tiers import resolve_tier_model
-        provider_key = config.provider_override or store.data.get("active_provider", "")
-        resolved_model = resolve_tier_model(provider_key, config.model_tier)
-        triage_info = {"tier": config.model_tier, "method": "manual"}
-
-    provider = get_ai_provider(
-        agent_provider=config.provider_override or None,
-        agent_model=resolved_model,
-        agent_model_tier=config.model_tier if not resolved_model else None,
+    request_ctx = RequestCtx(
+        training_mode=training_mode, training_type=training_type, plan_mode=plan_mode,
+        import_mode=import_mode, has_attachments=has_attachments,
+        upload=pre_stream is not None or has_attachments, playbook_slug=playbook_slug,
     )
-    if not provider:
-        raise HTTPException(status_code=400, detail="No AI provider configured")
+    conversation = chat_service.get_external_state(conversation_id) if conversation_id else None
+    runtime = get_runtime(agent, conversation)
+
+    lease = await admission.acquire_lease(agent["id"], conversation_id, runtime.name)
+    try:
+        await guard_unresolved(agent, conversation_id, chat_service)
+        plan = await runtime.prepare(
+            agent=agent, config=config, conversation_id=conversation_id,
+            request_ctx=request_ctx, chat_service=chat_service,
+            provider_factory=get_ai_provider,
+        )
+    except BaseException:
+        lease.release()
+        raise
 
     ga = config.google_accounts
     gmail_ids = ga.get("gmail", [])
@@ -542,8 +560,8 @@ def _stream_chat(agent: dict, messages: list, training_mode: bool, conversation_
     }
     reminder_handlers, sa_handlers = build_agent_handlers(agent["slug"])
     registry = ToolRegistry(
-        context_dir=config.context_dir,
-        gcs_prefix=config.gcs_prefix,
+        context_dir=plan.context_dir,
+        gcs_prefix=plan.gcs_prefix,
         google_connected=google_connected,
         gmail_account_ids=gmail_ids,
         calendar_account_ids=calendar_ids,
@@ -562,12 +580,11 @@ def _stream_chat(agent: dict, messages: list, training_mode: bool, conversation_
         if import_session:
             registry._import_session = import_session
 
+    store = CredentialStore()
     _, anthropic_profile = store.get_active_profile(provider_override="anthropic")
     anthropic_api_key = (anthropic_profile or {}).get("key", "")
 
     async def event_generator():
-        nonlocal triage_info, provider
-
         # Pre-stream phase (e.g. audio transcription): yields SSE progress
         # events and mutates `messages` before the AI turn starts. A yielded
         # error event aborts the turn (the generator returns without setting
@@ -596,60 +613,22 @@ def _stream_chat(agent: dict, messages: list, training_mode: bool, conversation_
                 yield _sse({"type": "error", "error": e.detail})
                 return
 
-        # Run auto-triage if tier is "auto" and we haven't resolved yet
-        if not triage_info and config.model_tier == "auto" and not config.model_override:
-            skip_triage = training_mode or plan_mode or approved_tool is not None
-            if not skip_triage:
-                from core.providers.tiers import supports_auto_triage
-                provider_key = config.provider_override or store.data.get("active_provider", "")
-                if supports_auto_triage(provider_key):
-                    from core.providers.triage import classify_tier, extract_classifier_credentials
-                    last_user = next((m for m in reversed(messages) if m.get("role") == "user"), None)
-                    raw_content = last_user.get("content", "") if last_user else ""
-                    user_text = raw_content if isinstance(raw_content, str) else " ".join(
-                        p.get("text", "") for p in raw_content if isinstance(p, dict) and p.get("type") == "text"
-                    )
-                    creds = extract_classifier_credentials(provider_key, store)
-                    tier, method = await classify_tier(
-                        user_message=user_text,
-                        provider=provider_key,
-                        credentials=creds,
-                        conversation_id=conversation_id,
-                        has_attachments=has_attachments,
-                    )
-                    triage_info = {"tier": tier, "method": method}
-                    if tier != "top":
-                        from core.providers.tiers import resolve_tier_model
-                        resolved = resolve_tier_model(provider_key, tier)
-                        if resolved:
-                            new_provider = get_ai_provider(
-                                agent_provider=config.provider_override or None,
-                                agent_model=resolved,
-                            )
-                            if new_provider:
-                                provider = new_provider
-
-        async for event in ai_service.chat(
-            config=config,
-            provider=provider,
-            registry=registry,
-            ctx_manager=ctx_manager,
-            messages=messages,
-            training_mode=training_mode,
-            training_type=training_type,
-            plan_mode=plan_mode,
-            import_mode=import_mode,
-            conversation_id=conversation_id,
-            chat_service=chat_service,
-            anthropic_api_key=anthropic_api_key,
-            integration_tool_defs=integration_tool_defs or None,
-            tool_mode=tool_mode,
-            approved_tool=approved_tool,
+        inner = runtime.stream_turn(
+            plan,
+            agent=agent, config=config, registry=registry, chat_service=chat_service,
+            ctx_manager=ctx_manager, messages=messages, conversation_id=conversation_id,
+            tool_mode=tool_mode, approved_tool=approved_tool, request_ctx=request_ctx,
+            integration_tool_defs=integration_tool_defs,
             integration_tool_modes=integration_tool_modes,
-            triage_info=triage_info,
-            playbook_expansion=effective_expansion,
-        ):
-            yield event
+            playbook_expansion=effective_expansion, anthropic_api_key=anthropic_api_key,
+        )
+        try:
+            async for event in inner:
+                yield event
+        finally:
+            # Close the runtime generator explicitly so its own `finally`
+            # (stop/settle for a live Hermes run) runs deterministically.
+            await inner.aclose()
 
     async def guarded_generator():
         # Advisory busy lease: the live-meeting coach defers its turns (and
@@ -666,6 +645,10 @@ def _stream_chat(agent: dict, messages: list, training_mode: bool, conversation_
         finally:
             if conversation_id:
                 clear_conversation_busy(conversation_id)
+            try:
+                await runtime.release(plan)
+            finally:
+                lease.release()
 
     return StreamingResponse(
         guarded_generator(),
@@ -702,10 +685,75 @@ async def agent_chat(agent_id: str, req: ChatRequest, user=Depends(get_current_u
         playbook_expansion = _build_playbook_expansion(
             agent["slug"], req.messages, req.playbook_slug)
 
-    return _stream_chat(agent, req.messages, req.training_mode, req.conversation_id,
+    return await _stream_chat(agent, req.messages, req.training_mode, req.conversation_id,
                         training_type=req.training_type, plan_mode=req.plan_mode,
                         tool_mode=tool_mode, approved_tool=req.approved_tool,
                         import_mode=import_mode, playbook_expansion=playbook_expansion)
+
+
+# ── Per-agent: Runtime (Hermes) ───────────────────────────────────────────────
+
+class DevSwitchRequest(BaseModel):
+    runtime: str
+
+
+@router.get("/{agent_id}/runtime/status")
+async def runtime_status(agent_id: str, user=Depends(get_current_user)):
+    """Current runtime plus Hermes connection health for the Runtime card."""
+    import os
+    agent = _get_agent_or_404(agent_id)
+    from integrations.hermes import onboarding as hermes_conn
+    hermes = await hermes_conn.status()
+    return {
+        "runtime": agent.get("runtime", "chatty"),
+        "hermes": hermes,
+        "dev_switch": os.environ.get("HERMES_DEV_SWITCH") == "1",
+    }
+
+
+@router.post("/{agent_id}/runtime/dev-switch")
+async def runtime_dev_switch(agent_id: str, req: DevSwitchRequest, user=Depends(get_current_user)):
+    """Developer-only runtime flip (no reseed). Enabled by HERMES_DEV_SWITCH=1;
+    the guided cutover flow replaces this."""
+    import os
+    if os.environ.get("HERMES_DEV_SWITCH") != "1":
+        raise HTTPException(status_code=404, detail="Not found")
+    agent = _get_agent_or_404(agent_id)
+    if req.runtime not in agent_db.RUNTIMES:
+        raise HTTPException(status_code=400, detail="Unknown runtime")
+    if req.runtime == "hermes":
+        from integrations.hermes import onboarding as hermes_conn
+        if not hermes_conn.connection_enabled():
+            raise HTTPException(status_code=400, detail="Hermes is not connected")
+        # One Hermes agent per connection: Hermes exposes every configured MCP
+        # server to every run in a profile, so a second agent could reach the
+        # first agent's tools.
+        if agent.get("runtime") != "hermes" and agent_db.count_agents_on_runtime("hermes") >= 1:
+            raise HTTPException(status_code=409, detail="Another agent already runs on Hermes")
+    updated = agent_db.set_runtime(agent_id, req.runtime)
+    if req.runtime == "hermes" and not agent.get("onboarding_complete"):
+        # Training (conversational onboarding) is a Chatty-only mode; a fresh
+        # agent would otherwise auto-enter it and every turn would be refused.
+        agent_db.update_agent(agent_id, onboarding_complete=1)
+    invalidate_cache(agent["slug"])
+    return {"runtime": updated["runtime"]}
+
+
+@router.post("/{agent_id}/conversations/{conv_id}/resolve")
+async def resolve_conversation_turn(
+    agent_id: str, conv_id: str, req: ResolveTurnRequest, user=Depends(get_current_user)
+):
+    """Settle an unresolved Hermes turn: retry reconciliation, or mark it failed
+    (the user's decision for ambiguous/unknown outcomes)."""
+    agent = _get_agent_or_404(agent_id)
+    if req.action not in ("retry_reconcile", "mark_failed"):
+        raise HTTPException(status_code=400, detail="Unknown action")
+    chat_service = get_chat_service(agent["slug"])
+    if not chat_service.get_external_state(conv_id):
+        raise HTTPException(status_code=404, detail="Conversation not found")
+    from core.agents.runtime.hermes import HermesRuntime
+    return await HermesRuntime().resolve(agent=agent, conversation_id=conv_id,
+                                         chat_service=chat_service, action=req.action)
 
 
 # ── Per-agent: Plan mode approve/iterate ──────────────────────────────────────
@@ -733,7 +781,7 @@ async def plan_approve(agent_id: str, req: PlanApproveRequest, user=Depends(get_
         "role": "user",
         "content": f"[Plan Approved] Execute this plan:\n\n{req.plan_text}",
     })
-    return _stream_chat(agent, messages, False, req.conversation_id,
+    return await _stream_chat(agent, messages, False, req.conversation_id,
                         tool_mode="power")
 
 
@@ -746,7 +794,7 @@ async def plan_iterate(agent_id: str, req: PlanIterateRequest, user=Depends(get_
         "role": "user",
         "content": req.feedback or "Please revise the plan.",
     })
-    return _stream_chat(agent, messages, False, req.conversation_id,
+    return await _stream_chat(agent, messages, False, req.conversation_id,
                         plan_mode=True)
 
 
@@ -835,7 +883,8 @@ async def list_conversations(
 ):
     agent = _get_agent_or_404(agent_id)
     chat_service = get_chat_service(agent["slug"])
-    return {"conversations": chat_service.list_conversations(limit, offset)}
+    return {"conversations": [_public_conversation(agent, c)
+                              for c in chat_service.list_conversations(limit, offset)]}
 
 
 @router.post("/{agent_id}/conversations")
@@ -846,6 +895,18 @@ async def create_conversation(agent_id: str, user=Depends(get_current_user)):
 
 
 _UI_RESULT_PREVIEW_CAP = 2000  # matches the activity-log preview cap
+
+# Conversation columns that belong to the runtime layer, never to the browser.
+_INTERNAL_CONV_COLS = ("external_session_id", "external_connection_id",
+                       "context_snapshot", "external_synced_seq")
+
+
+def _public_conversation(agent: dict, conv: dict) -> dict:
+    """Strip runtime-internal columns and add the computed effective runtime."""
+    from core.agents.runtime import effective_runtime
+    out = {k: v for k, v in conv.items() if k not in _INTERNAL_CONV_COLS}
+    out["effective_runtime"] = effective_runtime(agent, conv)
+    return out
 
 
 def _merge_tool_result_previews(message: dict) -> None:
@@ -894,6 +955,11 @@ async def get_conversation(agent_id: str, conv_id: str, user=Depends(get_current
     for m in result.get("messages", []):
         _merge_tool_result_previews(m)
         m.pop("tool_results", None)
+    result = _public_conversation(agent, result)
+    unresolved = chat_service.unresolved_turn(conv_id)
+    if unresolved:
+        from core.agents.runtime.hermes import turn_public
+        result["unresolved_turn"] = turn_public(unresolved)
     return result
 
 
@@ -1299,7 +1365,7 @@ async def agent_chat_upload(
             pre_stream = _build_transcription_pre_stream(
                 agent, messages, audio_items, audio_temp_dir, body.get("conversation_id"))
 
-        return _stream_chat(
+        return await _stream_chat(
             agent, messages, body.get("training_mode", False), body.get("conversation_id"),
             training_type=body.get("training_type"), plan_mode=body.get("plan_mode", False),
             tool_mode=body.get("tool_mode", "normal"), approved_tool=body.get("approved_tool"),
@@ -1317,8 +1383,21 @@ async def agent_chat_upload(
 
 @router.post("/{agent_id}/tool/execute")
 async def tool_execute(agent_id: str, req: ToolExecuteRequest, user=Depends(get_current_user)):
-    """Execute a write tool after user approval (confirmation flow)."""
+    """Execute a write tool after user approval (confirmation flow), or
+    answer a Hermes approval card (kind="hermes")."""
     agent = _get_agent_or_404(agent_id)
+    if req.kind == "hermes":
+        if not req.conversation_id or not req.tool_use_id or req.choice not in ("once", "deny"):
+            raise HTTPException(status_code=400, detail="conversation_id, tool_use_id and choice are required")
+        from core.agents.runtime import get_runtime
+        runtime = get_runtime(agent, None)
+        if runtime.name != "hermes":
+            raise HTTPException(status_code=400, detail="This agent is not running on Hermes")
+        return await runtime.handle_approval(
+            agent=agent, conversation_id=req.conversation_id,
+            tool_use_id=req.tool_use_id, choice=req.choice)
+    if not req.tool:
+        raise HTTPException(status_code=400, detail="tool is required")
     config = build_agent_config(agent)
 
     ga = config.google_accounts

@@ -168,6 +168,47 @@ class ChatHistoryDB:
         if "compaction_first_kept_seq" not in conv_cols:
             conn.execute("ALTER TABLE conversations ADD COLUMN compaction_first_kept_seq INTEGER")
 
+        # External runtime (Hermes): which remote session this conversation
+        # maps to, on which connection, the context snapshot sent as run
+        # instructions, and the last seq known to be mirrored remotely.
+        for col, typedef in (
+            ("external_session_id", "TEXT"),
+            ("external_runtime", "TEXT"),
+            ("external_connection_id", "TEXT"),
+            ("context_snapshot", "TEXT"),
+            ("external_synced_seq", "INTEGER"),
+        ):
+            if col not in conv_cols:
+                conn.execute(f"ALTER TABLE conversations ADD COLUMN {col} {typedef}")
+        # Which runtime produced a row (existing rows are native), the durable
+        # turn it belongs to, and display-only metadata (Hermes tool cards,
+        # recovered flag) that must never be mistaken for native tool history.
+        for col, typedef in (
+            ("runtime", "TEXT NOT NULL DEFAULT 'chatty'"),
+            ("turn_id", "TEXT"),
+            ("display_meta", "TEXT"),
+        ):
+            if col not in msg_cols:
+                conn.execute(f"ALTER TABLE messages ADD COLUMN {col} {typedef}")
+
+        # Durable journal for external-runtime turns: written BEFORE the run is
+        # submitted so a crash at any point leaves an explicit state, never an
+        # inference from the last message row.
+        conn.executescript("""
+            CREATE TABLE IF NOT EXISTS external_turns (
+                turn_id TEXT PRIMARY KEY,
+                conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+                state TEXT NOT NULL CHECK(state IN (
+                    'submitting','submitted','done','failed','stopping','ambiguous','unknown')),
+                run_id TEXT,
+                input TEXT NOT NULL DEFAULT '',
+                created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+            );
+            CREATE INDEX IF NOT EXISTS idx_external_turns_conv
+                ON external_turns(conversation_id, created_at);
+        """)
+
         conn.commit()
 
     def _setup_fts(self, conn: sqlite3.Connection) -> None:

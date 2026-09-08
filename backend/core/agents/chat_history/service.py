@@ -113,6 +113,9 @@ class ChatHistoryService:
         tool_calls: str | None = None,
         model: str = "",
         tool_results: str | None = None,
+        runtime: str = "chatty",
+        turn_id: str | None = None,
+        display_meta: str | None = None,
     ) -> None:
         """Insert or replace a message and bump conversation updated_at.
 
@@ -133,15 +136,168 @@ class ChatHistoryService:
                 seq = row["next_seq"]
             db.execute(
                 """INSERT OR REPLACE INTO messages
-                   (id, conversation_id, role, content, seq, tool_calls, tool_results, model)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
-                (msg_id, conversation_id, role, content, seq, tool_calls, tool_results, model),
+                   (id, conversation_id, role, content, seq, tool_calls, tool_results, model,
+                    runtime, turn_id, display_meta)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (msg_id, conversation_id, role, content, seq, tool_calls, tool_results, model,
+                 runtime or "chatty", turn_id, display_meta),
             )
             db.execute(
                 "UPDATE conversations SET updated_at = datetime('now') WHERE id = ?",
                 (conversation_id,),
             )
             db.commit()
+
+    def ensure_message(
+        self,
+        conversation_id: str,
+        msg_id: str,
+        role: str,
+        content: str,
+        *,
+        runtime: str = "chatty",
+        turn_id: str | None = None,
+        display_meta: str | None = None,
+        model: str = "",
+    ) -> bool:
+        """Insert-if-missing (never INSERT OR REPLACE, never reallocates seq).
+
+        Used by crash recovery, where the same row may be ensured more than
+        once and an existing row's content and position must be preserved.
+        Returns True when a row was inserted.
+        """
+        db = self._db.get_db()
+        with self._db.write_lock():
+            if db.execute("SELECT 1 FROM messages WHERE id = ?", (msg_id,)).fetchone():
+                return False
+            row = db.execute(
+                "SELECT COALESCE(MAX(seq), -1) + 1 AS next_seq FROM messages WHERE conversation_id = ?",
+                (conversation_id,),
+            ).fetchone()
+            db.execute(
+                """INSERT INTO messages
+                   (id, conversation_id, role, content, seq, model, runtime, turn_id, display_meta)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (msg_id, conversation_id, role, content, row["next_seq"], model,
+                 runtime, turn_id, display_meta),
+            )
+            db.execute(
+                "UPDATE conversations SET updated_at = datetime('now') WHERE id = ?",
+                (conversation_id,),
+            )
+            db.commit()
+        return True
+
+    # ── External runtime (Hermes) state ───────────────────────────────────
+
+    def get_external_state(self, conversation_id: str) -> dict | None:
+        """Internal full-row accessor for the runtime layer. The HTTP
+        serializers strip these columns; this method never does."""
+        db = self._db.get_db()
+        row = db.execute(
+            "SELECT id, mode, external_session_id, external_runtime, external_connection_id, "
+            "context_snapshot, external_synced_seq, compaction_summary, compaction_first_kept_seq "
+            "FROM conversations WHERE id = ?",
+            (conversation_id,),
+        ).fetchone()
+        return dict(row) if row else None
+
+    def set_external_session(self, conversation_id: str, session_id: str, runtime: str,
+                             connection_id: str, snapshot: str) -> None:
+        db = self._db.get_db()
+        with self._db.write_lock():
+            db.execute(
+                "UPDATE conversations SET external_session_id = ?, external_runtime = ?, "
+                "external_connection_id = ?, context_snapshot = ? WHERE id = ?",
+                (session_id, runtime, connection_id, snapshot, conversation_id),
+            )
+            db.commit()
+
+    def set_external_synced_seq(self, conversation_id: str, seq: int) -> None:
+        db = self._db.get_db()
+        with self._db.write_lock():
+            db.execute(
+                "UPDATE conversations SET external_synced_seq = ? WHERE id = ?",
+                (seq, conversation_id),
+            )
+            db.commit()
+
+    def get_history_rows(self, conversation_id: str) -> list[dict]:
+        """All rows with the columns the history builder needs (text-only
+        consumers ignore tool columns; the compaction helper needs seq)."""
+        db = self._db.get_db()
+        rows = db.execute(
+            "SELECT id, role, content, seq, runtime, turn_id, tool_calls, tool_results "
+            "FROM messages WHERE conversation_id = ? ORDER BY seq",
+            (conversation_id,),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+    def last_seq(self, conversation_id: str) -> int:
+        db = self._db.get_db()
+        row = db.execute(
+            "SELECT COALESCE(MAX(seq), -1) AS s FROM messages WHERE conversation_id = ?",
+            (conversation_id,),
+        ).fetchone()
+        return row["s"] if row else -1
+
+    # ── External turn journal ─────────────────────────────────────────────
+
+    def open_turn(self, turn_id: str, conversation_id: str, input_text: str) -> None:
+        db = self._db.get_db()
+        with self._db.write_lock():
+            db.execute(
+                "INSERT INTO external_turns (turn_id, conversation_id, state, input) "
+                "VALUES (?, ?, 'submitting', ?)",
+                (turn_id, conversation_id, input_text),
+            )
+            db.commit()
+
+    def mark_turn(self, turn_id: str, state: str, run_id: str | None = None) -> None:
+        db = self._db.get_db()
+        with self._db.write_lock():
+            if run_id is not None:
+                db.execute(
+                    "UPDATE external_turns SET state = ?, run_id = ?, updated_at = datetime('now') "
+                    "WHERE turn_id = ?",
+                    (state, run_id, turn_id),
+                )
+            else:
+                db.execute(
+                    "UPDATE external_turns SET state = ?, updated_at = datetime('now') "
+                    "WHERE turn_id = ?",
+                    (state, turn_id),
+                )
+            db.commit()
+
+    def delete_turn(self, turn_id: str) -> None:
+        db = self._db.get_db()
+        with self._db.write_lock():
+            db.execute("DELETE FROM external_turns WHERE turn_id = ?", (turn_id,))
+            db.commit()
+
+    def get_turn(self, turn_id: str) -> dict | None:
+        db = self._db.get_db()
+        row = db.execute("SELECT * FROM external_turns WHERE turn_id = ?", (turn_id,)).fetchone()
+        return dict(row) if row else None
+
+    def unresolved_turn(self, conversation_id: str) -> dict | None:
+        """Oldest journal row that is neither done nor failed, or None."""
+        db = self._db.get_db()
+        row = db.execute(
+            "SELECT * FROM external_turns WHERE conversation_id = ? "
+            "AND state NOT IN ('done', 'failed') ORDER BY created_at LIMIT 1",
+            (conversation_id,),
+        ).fetchone()
+        return dict(row) if row else None
+
+    def unresolved_turns_for_agent(self) -> list[dict]:
+        """Every unresolved journal row in this agent's chat.db."""
+        db = self._db.get_db()
+        rows = db.execute(
+            "SELECT * FROM external_turns WHERE state NOT IN ('done', 'failed') ORDER BY created_at"
+        ).fetchall()
+        return [dict(r) for r in rows]
 
     # ── Persistent-context helpers ────────────────────────────────────────
 

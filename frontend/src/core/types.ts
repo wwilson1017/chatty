@@ -21,6 +21,7 @@ export interface Agent {
   telegram_bot_token?: string;
   telegram_bot_username?: string;
   telegram_group_enabled: boolean;
+  runtime?: 'chatty' | 'hermes';
   alert_count?: number;
   created_at: string;
   updated_at: string;
@@ -105,6 +106,8 @@ export interface Conversation {
   updated_at: string;
   message_count?: number;
   preview?: string;
+  external_runtime?: string | null;
+  effective_runtime?: RuntimeName;
 }
 
 export interface Message {
@@ -114,6 +117,17 @@ export interface Message {
   content: string;
   created_at: string;
   seq: number;
+  runtime?: 'chatty' | 'hermes';
+  display_meta?: string;
+}
+
+export type RuntimeName = 'chatty' | 'hermes';
+
+export interface UnresolvedTurn {
+  turn_id: string;
+  state: string;
+  input: string;
+  created_at?: string;
 }
 
 export interface Provider {

@@ -9,8 +9,8 @@ import { formatBubbleTime } from '../utils/dateFormat';
 
 interface Props {
   message: ChatMessage;
-  onApprove?: (msgId: string) => void;
-  onDeny?: (msgId: string) => void;
+  onApprove?: (msgId: string, toolUseId?: string) => void;
+  onDeny?: (msgId: string, toolUseId?: string) => void;
   onApprovePlan?: (msgId: string) => void;
   onIteratePlan?: (msgId: string) => void;
   agentName?: string;
@@ -224,10 +224,15 @@ function ConfirmationCard({ confirm, onApprove, onDeny }: {
   onApprove?: () => void;
   onDeny?: () => void;
 }) {
-  const bg = confirm.status === 'approved' ? 'rgba(142,165,137,0.08)' : confirm.status === 'denied' ? 'rgba(217,119,87,0.08)' : 'rgba(212,168,90,0.06)';
-  const border = confirm.status === 'approved' ? 'rgba(142,165,137,0.2)' : confirm.status === 'denied' ? 'rgba(217,119,87,0.2)' : 'rgba(212,168,90,0.15)';
-  const dotColor = confirm.status === 'approved' ? '#8EA589' : confirm.status === 'denied' ? '#D97757' : '#D4A85A';
-  const statusLabel = confirm.status === 'approved' ? 'Approved' : confirm.status === 'denied' ? 'Denied' : 'Awaiting approval';
+  const settled = confirm.status === 'resolved' || confirm.status === 'expired' || confirm.status === 'uncertain';
+  const bg = confirm.status === 'approved' ? 'rgba(142,165,137,0.08)' : confirm.status === 'denied' ? 'rgba(217,119,87,0.08)' : settled ? 'rgba(34,40,48,0.55)' : 'rgba(212,168,90,0.06)';
+  const border = confirm.status === 'approved' ? 'rgba(142,165,137,0.2)' : confirm.status === 'denied' ? 'rgba(217,119,87,0.2)' : settled ? 'rgba(230,235,242,0.07)' : 'rgba(212,168,90,0.15)';
+  const dotColor = confirm.status === 'approved' ? '#8EA589' : confirm.status === 'denied' ? '#D97757' : settled ? 'rgba(237,240,244,0.38)' : '#D4A85A';
+  const statusLabel = {
+    approved: 'Approved', denied: 'Denied', resolved: 'Resolved on Hermes',
+    expired: 'Expired on Hermes', uncertain: 'Hermes did not confirm', pending: 'Awaiting approval',
+  }[confirm.status] || 'Awaiting approval';
+  const actionable = confirm.approval ? confirm.approval.actionable : true;
 
   return (
     <div style={{ marginTop: 12, borderRadius: 6, border: `1px solid ${border}`, background: bg, padding: 12 }}>
@@ -238,7 +243,10 @@ function ConfirmationCard({ confirm, onApprove, onDeny }: {
       <p style={{ fontSize: 12, color: 'rgba(237,240,244,0.62)', marginBottom: 8 }}>
         {confirm.description || `Execute ${confirm.tool}`}
       </p>
-      {confirm.status === 'pending' && (
+      {confirm.approval?.note && (
+        <p style={{ fontSize: 11, color: 'rgba(212,168,90,0.9)', marginBottom: 8 }}>{confirm.approval.note}</p>
+      )}
+      {confirm.status === 'pending' && actionable && (
         <div style={{ display: 'flex', gap: 8 }}>
           <button onClick={onApprove} style={{
             padding: '5px 12px', fontSize: 12, fontWeight: 500, borderRadius: 4,
@@ -485,6 +493,20 @@ function AgentMessageBubbleInner({ message, onApprove, onDeny, onApprovePlan, on
             onApprove={() => onApprove?.(message.id)}
             onDeny={() => onDeny?.(message.id)}
           />
+        )}
+        {/* Hermes approval cards — several may be pending, each answered by id */}
+        {message.pendingConfirms && Object.values(message.pendingConfirms).map(c => (
+          <ConfirmationCard
+            key={c.toolUseId}
+            confirm={c}
+            onApprove={() => onApprove?.(message.id, c.toolUseId)}
+            onDeny={() => onDeny?.(message.id, c.toolUseId)}
+          />
+        ))}
+        {message.recovered && (
+          <div style={{ marginTop: 6, fontSize: 10, color: 'rgba(237,240,244,0.38)', letterSpacing: '0.06em', textTransform: 'uppercase' }}>
+            recovered from Hermes after the connection dropped
+          </div>
         )}
 
         {/* Plan */}
