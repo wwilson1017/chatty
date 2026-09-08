@@ -701,13 +701,20 @@ async def agent_chat(agent_id: str, req: ChatRequest, user=Depends(get_current_u
     # provider-bound message for this turn.
     playbook_expansion = None
     if req.playbook_slug:
-        playbook_expansion = _build_playbook_expansion(
-            agent["slug"], req.messages, req.playbook_slug)
+        from core.agents.runtime import effective_runtime
+        if effective_runtime(agent, None) == "hermes":
+            # Playbooks are a Chatty-only mode; let the runtime preflight refuse
+            # the request with its own 400 instead of resolving the slug first.
+            pass
+        else:
+            playbook_expansion = _build_playbook_expansion(
+                agent["slug"], req.messages, req.playbook_slug)
 
     return await _stream_chat(agent, req.messages, req.training_mode, req.conversation_id,
                         training_type=req.training_type, plan_mode=req.plan_mode,
                         tool_mode=tool_mode, approved_tool=req.approved_tool,
-                        import_mode=import_mode, playbook_expansion=playbook_expansion)
+                        import_mode=import_mode, playbook_expansion=playbook_expansion,
+                        playbook_slug=req.playbook_slug)
 
 
 # ── Per-agent: Runtime (Hermes) ───────────────────────────────────────────────

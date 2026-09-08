@@ -101,11 +101,13 @@ export function AgentPage() {
 
   const importCompleteRef = useRef<((id: string) => void) | null>(null);
   const onboardingCompleteRef = useRef<(() => void) | null>(null);
+  const unresolvedTurnRef = useRef<(() => Promise<void>) | null>(null);
 
   const chat = useAgentChat(apiPrefix, {
     onTitleUpdate: handleTitleUpdate,
     onImportComplete: (id) => importCompleteRef.current?.(id),
     onOnboardingComplete: () => onboardingCompleteRef.current?.(),
+    onUnresolvedTurn: () => { void unresolvedTurnRef.current?.(); },
   });
 
   // Live meeting recorder + coach. The hook reads these callbacks through a
@@ -142,6 +144,12 @@ export function AgentPage() {
       await convs.loadConversations();
       const msgs = await convs.selectConversation(newConversationId);
       if (msgs) chat.loadMessages(msgs, newConversationId);
+    };
+    unresolvedTurnRef.current = async () => {
+      // Refresh sidebar metadata so the Resolve banner appears without a reselect.
+      await convs.loadConversations();
+      const id = convs.activeId ?? chat.conversationId;
+      if (id) await convs.selectConversation(id);
     };
     onboardingCompleteRef.current = () => {
       if (agentId) api<AgentRow>(`/api/agents/${agentId}`).then(a => { setAgent(a); chat.setTrainingMode(false); }).catch(() => { chat.setTrainingMode(false); });

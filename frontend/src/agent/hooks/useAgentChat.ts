@@ -112,6 +112,9 @@ interface Options {
   onTitleUpdate?: (convId: string, title: string) => void;
   onImportComplete?: (newConversationId: string) => void;
   onOnboardingComplete?: () => void;
+  // A Hermes turn ended in an unresolved journal state (or a 409 reported one):
+  // the page should refresh conversation metadata so the Resolve banner shows.
+  onUnresolvedTurn?: (convId: string | null) => void;
 }
 
 export function useAgentChat(apiPrefix: string, options?: Options) {
@@ -270,11 +273,17 @@ export function useAgentChat(apiPrefix: string, options?: Options) {
         // fail-fast "needs an OpenAI or Google Gemini API key") instead of
         // a generic failure — the whole point of a pre-stream 400.
         let detail = '';
-        try { detail = (await res.json())?.detail || ''; } catch { /* not JSON */ }
+        let unresolved = false;
+        try {
+          const d = (await res.json())?.detail;
+          if (d && typeof d === 'object') { detail = d.message || ''; unresolved = !!d.turn; }
+          else detail = d || '';
+        } catch { /* not JSON */ }
         updateLastAssistant(last => ({
           ...last,
           content: last.content || `**Error:** ${detail || `Request failed (${res.status})`}`,
         }));
+        if (unresolved) options?.onUnresolvedTurn?.(conversationId);
         return;
       }
 
@@ -431,6 +440,9 @@ export function useAgentChat(apiPrefix: string, options?: Options) {
                 ...last,
                 content: last.content + `\n\n**Error:** ${event.error}`,
               }));
+              if (typeof event.error === 'string' && event.error.includes('unresolved')) {
+                options?.onUnresolvedTurn?.(conversationId);
+              }
             }
           } catch { /* skip malformed */ }
         }

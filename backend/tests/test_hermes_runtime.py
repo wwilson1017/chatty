@@ -278,6 +278,8 @@ def test_chatty_only_modes_rejected(client, hermes, hermes_agent):
     assert "training" in resp.json()["detail"]
     resp = chat(client, hermes_agent, plan_mode=True)
     assert resp.status_code == 400
+    resp = chat(client, hermes_agent, playbook_slug="daily-review")
+    assert resp.status_code == 400 and "playbook" in resp.json()["detail"]
     assert hermes.runs == []
     assert not admission.active_leases(hermes_agent["id"])
 
@@ -610,3 +612,30 @@ def test_settle_after_failed_user_save_keeps_transcript_complete(client, hermes,
     assert svc.unresolved_turn(conv_id) is None
     rows = svc.get_history_rows(conv_id)
     assert [(r["role"], r["content"]) for r in rows] == [("user", "q1"), ("assistant", "late")]
+
+
+def test_mark_failed_refuses_to_clear_a_live_run(client, hermes, hermes_agent):
+    hermes.scripts.append([{"event": "run.completed", "output": "ok"}])
+    conv_id = parse_sse(chat(client, hermes_agent))[0]["id"]
+    svc = chat_service_for(hermes_agent)
+    svc.open_turn("t-live", conv_id, "still running")
+    svc.mark_turn("t-live", "submitted", "run-live")
+    hermes.statuses["run-live"] = {"status": "running"}
+    # Hermes keeps reporting "running" even after stop: the guard must hold.
+    import core.agents.runtime.hermes as hmod
+    hmod_settle = hmod.STOP_SETTLE_S
+    hmod.STOP_SETTLE_S = 0.1
+    try:
+        r = client.post(f"/api/agents/{hermes_agent['id']}/conversations/{conv_id}/resolve",
+                        json={"action": "mark_failed"})
+    finally:
+        hmod.STOP_SETTLE_S = hmod_settle
+    assert r.status_code == 409
+    assert hermes.stops[-1] == "run-live"
+    assert svc.get_turn("t-live")["state"] == "stopping"
+    # once Hermes reports terminal, the same action settles it
+    hermes.statuses["run-live"] = {"status": "cancelled"}
+    r = client.post(f"/api/agents/{hermes_agent['id']}/conversations/{conv_id}/resolve",
+                    json={"action": "mark_failed"})
+    assert r.json()["resolved"] is True
+    assert svc.get_turn("t-live")["state"] == "failed"

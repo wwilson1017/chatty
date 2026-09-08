@@ -619,6 +619,17 @@ class HermesRuntime(AgentRuntime):
         try:
             if action == "mark_failed":
                 row = chat_service.unresolved_turn(conversation_id)
+                if row and row["state"] not in ("ambiguous", "unknown"):
+                    # A submitted/stopping row names a run Hermes may still be
+                    # executing: reconcile (stop + wait for terminal) first, and
+                    # only a terminal outcome may clear the durable guard.
+                    still = await self._reconcile_locked(agent, conversation_id, chat_service,
+                                                         hermes_conn.get_connection())
+                    if still and still["state"] not in ("ambiguous", "unknown"):
+                        raise HTTPException(status_code=409, detail={
+                            "message": "Hermes has not confirmed this run stopped; try again",
+                            "turn": turn_public(still)})
+                    row = still
                 if row:
                     chat_service.ensure_message(
                         conversation_id, f"{row['turn_id']}:user", "user",
