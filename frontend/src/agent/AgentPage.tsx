@@ -16,6 +16,8 @@ import AgentRemindersPanel from './components/AgentRemindersPanel';
 import { ConversationSidebar } from './components/ConversationSidebar';
 import { AvatarPicker } from './components/AvatarPicker';
 import { AvatarMenu } from './components/AvatarMenu';
+import { RuntimeBadge, UnresolvedTurnBanner } from './components/RuntimeCard';
+import { useRuntimeStatus } from './hooks/useRuntimeStatus';
 import { AgentMark } from '../shared/AgentMark';
 import { useIsMobile } from '../shared/useIsMobile';
 import { MobileMenuDrawer } from '../shared/MobileMenuDrawer';
@@ -40,6 +42,7 @@ interface AgentRow {
   telegram_group_enabled: boolean;
   model_tier?: string;
   provider_override?: string;
+  runtime?: 'chatty' | 'hermes';
 }
 
 type Tab = 'chat' | 'knowledge' | 'playbooks' | 'reports' | 'reminders' | 'heartbeat';
@@ -84,6 +87,7 @@ export function AgentPage() {
   const [tierLabels, setTierLabels] = useState<Record<string, string>>({});
   const [globalModelTier, setGlobalModelTier] = useState<ModelTier>('auto');
   const isMobile = useIsMobile();
+  const runtimeStatus = useRuntimeStatus(agentId);
   const prevOnboardingComplete = useRef<boolean | null>(null);
 
   const apiPrefix = `/api/agents/${agentId}`;
@@ -97,11 +101,13 @@ export function AgentPage() {
 
   const importCompleteRef = useRef<((id: string) => void) | null>(null);
   const onboardingCompleteRef = useRef<(() => void) | null>(null);
+  const unresolvedTurnRef = useRef<(() => Promise<void>) | null>(null);
 
   const chat = useAgentChat(apiPrefix, {
     onTitleUpdate: handleTitleUpdate,
     onImportComplete: (id) => importCompleteRef.current?.(id),
     onOnboardingComplete: () => onboardingCompleteRef.current?.(),
+    onUnresolvedTurn: () => { void unresolvedTurnRef.current?.(); },
   });
 
   // Live meeting recorder + coach. The hook reads these callbacks through a
@@ -138,6 +144,12 @@ export function AgentPage() {
       await convs.loadConversations();
       const msgs = await convs.selectConversation(newConversationId);
       if (msgs) chat.loadMessages(msgs, newConversationId);
+    };
+    unresolvedTurnRef.current = async () => {
+      // Refresh sidebar metadata so the Resolve banner appears without a reselect.
+      await convs.loadConversations();
+      const id = convs.activeId ?? chat.conversationId;
+      if (id) await convs.selectConversation(id);
     };
     onboardingCompleteRef.current = () => {
       if (agentId) api<AgentRow>(`/api/agents/${agentId}`).then(a => { setAgent(a); chat.setTrainingMode(false); }).catch(() => { chat.setTrainingMode(false); });
@@ -420,6 +432,12 @@ export function AgentPage() {
 
   const letter = agent.agent_name.charAt(0);
   const trainLabel = agent.onboarding_complete ? `Improve ${agent.agent_name}` : `Train ${agent.agent_name}`;
+  // The runtime a new turn dispatches to: the active conversation's computed
+  // value when we have one (cutover conversations differ), else the agent's.
+  const activeConv = convs.conversations.find(c => c.id === convs.activeId);
+  const effectiveRuntime: 'chatty' | 'hermes' =
+    activeConv?.effective_runtime ?? (agent.runtime === 'hermes' ? 'hermes' : 'chatty');
+  const onHermes = effectiveRuntime === 'hermes';
   const showTopBar = activeTab !== 'chat' || topBarVisible;
 
   return (
@@ -493,8 +511,8 @@ export function AgentPage() {
             </div>
           )}
 
-          {/* Plan mode toggle — hidden on mobile */}
-          {!isMobile && activeTab === 'chat' && (
+          {/* Plan mode toggle — hidden on mobile and on Hermes */}
+          {!isMobile && activeTab === 'chat' && !onHermes && (
             <button
               onClick={handleTogglePlanMode}
               style={{
@@ -509,8 +527,8 @@ export function AgentPage() {
             </button>
           )}
 
-          {/* Train/Improve — hidden on mobile */}
-          {!isMobile && activeTab === 'chat' && !chat.trainingMode && (
+          {/* Train/Improve — hidden on mobile and on Hermes */}
+          {!isMobile && activeTab === 'chat' && !chat.trainingMode && !onHermes && (
             <button
               onClick={agent.onboarding_complete ? handleStartImprove : handleStartOnboarding}
               style={{
@@ -523,6 +541,19 @@ export function AgentPage() {
             >
               {trainLabel}
             </button>
+          )}
+
+          {!isMobile && activeTab === 'chat' && agentId && (
+            <RuntimeBadge
+              agentId={agentId}
+              effectiveRuntime={effectiveRuntime}
+              status={runtimeStatus.status}
+              onSwitched={() => {
+                runtimeStatus.refresh();
+                api<AgentRow>(`/api/agents/${agentId}`).then(setAgent).catch(() => {});
+                convs.loadConversations();
+              }}
+            />
           )}
 
           {/* Tab switcher — inline on desktop */}
@@ -824,6 +855,18 @@ export function AgentPage() {
                 onRename={convs.renameConversation}
               />
             )}
+            {activeConv?.unresolved_turn && agentId && convs.activeId && (
+              <UnresolvedTurnBanner
+                agentId={agentId}
+                conversationId={convs.activeId}
+                turn={activeConv.unresolved_turn}
+                onResolved={async () => {
+                  const id = convs.activeId!;
+                  const msgs = await convs.selectConversation(id);
+                  if (msgs) chat.loadMessages(msgs, id);
+                }}
+              />
+            )}
             <AgentChatPanel
               messages={chat.messages}
               isStreaming={chat.isStreaming}
@@ -846,12 +889,13 @@ export function AgentPage() {
               conversationSource={convs.conversations.find(c => c.id === convs.activeId)?.source}
               importMode={convs.conversations.find(c => c.id === convs.activeId)?.mode === 'import'}
               greetingPending={chat.greetingPending}
-              playbooks={chat.trainingMode ? undefined : pb.playbooks}
+              effectiveRuntime={effectiveRuntime}
+              playbooks={chat.trainingMode || onHermes ? undefined : pb.playbooks}
               onOpenPlaybooks={() => setActiveTab('playbooks')}
               liveStatus={live.status}
               liveError={live.errorMsg}
               onStartLive={
-                chat.trainingMode || chat.planMode
+                chat.trainingMode || chat.planMode || onHermes
                   || convs.conversations.find(c => c.id === convs.activeId)?.mode === 'import'
                   ? undefined
                   : (prep) => { void live.start(prep); }

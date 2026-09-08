@@ -20,6 +20,11 @@ export interface Conversation {
   updated_at: string;
   message_count?: number;
   preview?: string;
+  // Session provenance (which runtime created it) vs the runtime a new turn
+  // dispatches to now — the UI gates controls on the latter.
+  external_runtime?: string | null;
+  effective_runtime?: 'chatty' | 'hermes';
+  unresolved_turn?: { turn_id: string; state: string; input: string } | null;
 }
 
 export function useConversations(apiPrefix: string) {
@@ -72,12 +77,17 @@ export function useConversations(apiPrefix: string) {
     try {
       const data = await api<{
         id: string; title: string;
-        messages: { id: string; role: string; content: string; seq: number; tool_calls?: string; model?: string; created_at?: string }[];
+        effective_runtime?: 'chatty' | 'hermes';
+        unresolved_turn?: { turn_id: string; state: string; input: string } | null;
+        messages: { id: string; role: string; content: string; seq: number; tool_calls?: string; model?: string; created_at?: string; runtime?: string; display_meta?: string }[];
       }>(`${apiPrefix}/conversations/${id}`);
       // A newer selection started while this one was in flight — discard it
       // (null is the callers' existing do-nothing path).
       if (seq !== selectSeqRef.current) return null;
       setActiveId(id);
+      setConversations(prev => prev.map(c => c.id === id
+        ? { ...c, effective_runtime: data.effective_runtime ?? c.effective_runtime, unresolved_turn: data.unresolved_turn ?? null }
+        : c));
       return data.messages.map(m => {
         const parsedTimestamp = parseServerTimestamp(m.created_at);
         const msg: ChatMessage = {
@@ -86,7 +96,27 @@ export function useConversations(apiPrefix: string) {
           content: m.content,
           timestamp: parsedTimestamp ? parsedTimestamp.getTime() : 0,
           model: m.model,
+          runtime: m.runtime === 'hermes' ? 'hermes' : 'chatty',
         };
+        if (m.display_meta) {
+          // Hermes tool activity is display-only metadata (never native tool history).
+          try {
+            const meta = JSON.parse(m.display_meta);
+            if (Array.isArray(meta?.hermes_tools) && meta.hermes_tools.length > 0) {
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              msg.toolCalls = meta.hermes_tools.map((c: any) => ({
+                tool: c.tool || '',
+                toolUseId: c.tool_use_id || '',
+                args: c.preview ? { preview: c.preview } : undefined,
+                status: c.status === 'error' ? 'error' as const : 'done' as const,
+                startedAt: 0,
+                elapsedMs: c.elapsed_ms,
+                durationMs: c.elapsed_ms,
+              }));
+            }
+            if (meta?.recovered) msg.recovered = true;
+          } catch { /* ignore corrupted display_meta */ }
+        }
         if (m.tool_calls) {
           try {
             const parsed = JSON.parse(m.tool_calls);

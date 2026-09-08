@@ -58,6 +58,8 @@ interface Props {
   onSwitchTier?: (tier: ModelTier) => void;
   playbooks?: PlaybookSummary[];
   onOpenPlaybooks?: () => void;
+  // 'hermes' hides Chatty-only affordances (uploads, tier, playbooks).
+  effectiveRuntime?: 'chatty' | 'hermes';
   liveStatus?: LiveStatus;
   onStartLive?: (prep?: string) => void;
   liveError?: string | null;
@@ -79,7 +81,7 @@ export function AgentChatPanel({
   contextUsage, toolMode, onToolModeChange, alwaysPowerMode, agentName, agentSlug, conversationSource, importMode, onCancelImport,
   greetingPending,
   modelTier, tierLabels, onSwitchTier,
-  playbooks, onOpenPlaybooks,
+  playbooks, onOpenPlaybooks, effectiveRuntime,
   liveStatus, onStartLive, liveError,
 }: Props) {
   const [input, setInput] = useState('');
@@ -501,12 +503,14 @@ export function AgentChatPanel({
 
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
             <div style={{ display: 'flex', gap: 12, alignItems: 'center', color: '#EDF0F4' }}>
-              <div
-                onClick={() => fileInputRef.current?.click()}
-                style={{ cursor: 'pointer', color: 'rgba(237,240,244,0.62)' }}
-              >
-                <IconAttach size={16} strokeWidth={1.85} />
-              </div>
+              {effectiveRuntime !== 'hermes' && (
+                <div
+                  onClick={() => fileInputRef.current?.click()}
+                  style={{ cursor: 'pointer', color: 'rgba(237,240,244,0.62)' }}
+                >
+                  <IconAttach size={16} strokeWidth={1.85} />
+                </div>
+              )}
               {onStartLive && (
                 <div
                   onClick={() => {
@@ -564,7 +568,13 @@ export function AgentChatPanel({
               )}
 
               {/* Model tier toggle */}
-              {tierLabels && Object.keys(tierLabels).length > 0 && onSwitchTier && !isMobile && (
+              {effectiveRuntime === 'hermes' && !isMobile && (
+                <span title="Model selection belongs to Hermes while this agent runs there"
+                  style={{ fontSize: 10, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'rgba(237,240,244,0.38)' }}>
+                  model: Hermes
+                </span>
+              )}
+              {tierLabels && Object.keys(tierLabels).length > 0 && onSwitchTier && !isMobile && effectiveRuntime !== 'hermes' && (
                 <div
                   title="Model tier"
                   style={{

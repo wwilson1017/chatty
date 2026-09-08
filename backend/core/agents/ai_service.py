@@ -1382,7 +1382,7 @@ async def chat(
                                         if persist and conversation_id else messages)
                         maybe_schedule_review(config, conversation_id, _review_msgs,
                                               accumulated_text, all_tool_calls, iteration)
-                    done_event = {"type": "done", "model": model_used}
+                    done_event = {"type": "done", "model": model_used, "runtime": "chatty"}
                     if triage_info:
                         done_event["tier"] = triage_info.get("tier")
                     yield _sse(done_event)
@@ -1406,7 +1406,7 @@ async def chat(
                                 if persist and conversation_id else messages)
                 maybe_schedule_review(config, conversation_id, _review_msgs,
                                       accumulated_text, all_tool_calls, iteration)
-            done_event = {"type": "done", "model": model_used}
+            done_event = {"type": "done", "model": model_used, "runtime": "chatty"}
             if triage_info:
                 done_event["tier"] = triage_info.get("tier")
             yield _sse(done_event)
@@ -1508,7 +1508,7 @@ async def chat(
                 _log_chat_completion(config.slug, conversation_id, "chat", "ok",
                                     accumulated_text, all_tool_calls, model_used,
                                     total_input_tokens, total_output_tokens, chat_start_time, provider_name)
-                done_event = {"type": "done", "model": model_used}
+                done_event = {"type": "done", "model": model_used, "runtime": "chatty"}
                 if triage_info:
                     done_event["tier"] = triage_info.get("tier")
                 yield _sse(done_event)
@@ -1670,7 +1670,7 @@ async def chat(
             _log_chat_completion(config.slug, conversation_id, "chat", "ok",
                                 accumulated_text, all_tool_calls, model_used,
                                 total_input_tokens, total_output_tokens, chat_start_time, provider_name)
-            done_event = {"type": "done", "model": model_used}
+            done_event = {"type": "done", "model": model_used, "runtime": "chatty"}
             if triage_info:
                 done_event["tier"] = triage_info.get("tier")
             yield _sse(done_event)

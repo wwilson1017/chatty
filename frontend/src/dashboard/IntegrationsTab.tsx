@@ -47,6 +47,9 @@ export function IntegrationsTab() {
   const [bambooSubdomain, setBambooSubdomain] = useState('');
   const [bambooKey, setBambooKey] = useState('');
   const [todoistToken, setTodoistToken] = useState('');
+  const [hermesUrl, setHermesUrl] = useState('');
+  const [hermesKey, setHermesKey] = useState('');
+  const [hermesInsecure, setHermesInsecure] = useState(false);
   const [pcUrl, setPcUrl] = useState('');
   const [pcEmail, setPcEmail] = useState('');
   const [pcPassword, setPcPassword] = useState('');
@@ -225,6 +228,27 @@ export function IntegrationsTab() {
       const data = await api<{ integrations: Integration[] }>('/api/integrations');
       setIntegrations(data.integrations);
     } catch (err: unknown) { setError(err instanceof Error ? err.message : 'Setup failed'); }
+    finally { setSaving(false); }
+  }
+
+  async function setupHermes() {
+    setSaving(true); setError('');
+    try {
+      await api('/api/integrations/hermes/setup', { method: 'POST', body: JSON.stringify({ base_url: hermesUrl, api_key: hermesKey, allow_insecure: hermesInsecure }) });
+      setSetupFor(null);
+      const data = await api<{ integrations: Integration[] }>('/api/integrations');
+      setIntegrations(data.integrations);
+    } catch (err: unknown) { setError(err instanceof Error ? err.message : 'Setup failed'); }
+    finally { setSaving(false); }
+  }
+
+  async function disconnectHermes() {
+    setSaving(true); setError('');
+    try {
+      await api('/api/integrations/hermes/disconnect', { method: 'POST' });
+      const data = await api<{ integrations: Integration[] }>('/api/integrations');
+      setIntegrations(data.integrations);
+    } catch (err: unknown) { setError(err instanceof Error ? err.message : 'Disconnect failed'); }
     finally { setSaving(false); }
   }
 
@@ -561,6 +585,25 @@ export function IntegrationsTab() {
               </div>
             )}
 
+            {/* Hermes disconnect + reconfigure */}
+            {integration.id === 'hermes' && integration.configured && (
+              <div style={{ marginTop: 8, display: 'flex', gap: 8, alignItems: 'center' }}>
+                <span style={{ fontSize: 11, color: 'rgba(237,240,244,0.38)' }}>
+                  Switch an agent to Hermes from its chat page (developer switch) — one agent per connection.
+                </span>
+                <button onClick={() => setSetupFor('hermes')} style={{
+                  fontSize: 11, padding: '4px 8px', borderRadius: 4,
+                  background: 'transparent', color: 'rgba(237,240,244,0.38)',
+                  border: 'none', cursor: 'pointer',
+                }}>Reconfigure</button>
+                <button onClick={disconnectHermes} disabled={saving} style={{
+                  fontSize: 11, padding: '4px 8px', borderRadius: 4,
+                  background: 'transparent', color: '#D97757',
+                  border: 'none', cursor: 'pointer', opacity: saving ? 0.5 : 1,
+                }}>Disconnect</button>
+              </div>
+            )}
+
             {/* Paperclip agent mapping */}
             {integration.id === 'paperclip' && integration.enabled && integration.configured && (
               <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px solid rgba(230,235,242,0.07)' }}>
@@ -853,6 +896,23 @@ export function IntegrationsTab() {
                     <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
                       <button onClick={() => setSetupFor(null)} style={{ flex: 1, padding: '8px 16px', fontSize: 13, borderRadius: 4, border: '1px solid rgba(230,235,242,0.14)', background: 'transparent', color: 'rgba(237,240,244,0.62)', cursor: 'pointer' }}>Cancel</button>
                       <button onClick={setupBambooHR} disabled={saving} style={{ flex: 1, padding: '8px 16px', fontSize: 13, borderRadius: 4, background: 'var(--color-ch-accent, #C8D1D9)', color: '#0E1013', border: 'none', cursor: 'pointer', fontWeight: 500, opacity: saving ? 0.5 : 1 }}>{saving ? 'Connecting...' : 'Connect'}</button>
+                    </div>
+                  </>
+                )}
+                {integration.id === 'hermes' && (
+                  <>
+                    <p style={{ fontSize: 12, color: 'rgba(237,240,244,0.50)', lineHeight: 1.5, marginBottom: 4 }}>
+                      Point Chatty at your Hermes gateway&rsquo;s API server (enable <code>platforms.api_server</code> with an <code>API_SERVER_KEY</code>). Your Hermes must be reachable from this server; a laptop behind NAT needs a tunnel.
+                    </p>
+                    <input placeholder="Hermes URL (https://hermes.example.com or http://localhost:8642)" value={hermesUrl} onChange={e => setHermesUrl(e.target.value)} style={inputStyle} />
+                    <input placeholder="API_SERVER_KEY" type="password" value={hermesKey} onChange={e => setHermesKey(e.target.value)} style={inputStyle} />
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: 'rgba(237,240,244,0.50)' }}>
+                      <input type="checkbox" checked={hermesInsecure} onChange={e => setHermesInsecure(e.target.checked)} />
+                      Allow plain http to a non-local address (not recommended)
+                    </label>
+                    <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
+                      <button onClick={() => setSetupFor(null)} style={{ flex: 1, padding: '8px 16px', fontSize: 13, borderRadius: 4, border: '1px solid rgba(230,235,242,0.14)', background: 'transparent', color: 'rgba(237,240,244,0.62)', cursor: 'pointer' }}>Cancel</button>
+                      <button onClick={setupHermes} disabled={saving || !hermesUrl.trim()} style={{ flex: 1, padding: '8px 16px', fontSize: 13, borderRadius: 4, background: 'var(--color-ch-accent, #C8D1D9)', color: '#0E1013', border: 'none', cursor: 'pointer', fontWeight: 500, opacity: saving || !hermesUrl.trim() ? 0.5 : 1 }}>{saving ? 'Connecting...' : 'Connect'}</button>
                     </div>
                   </>
                 )}

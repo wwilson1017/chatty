@@ -50,6 +50,12 @@ class ToolModeRequest(BaseModel):
     tool_mode: str
 
 
+class HermesSetupRequest(BaseModel):
+    base_url: str = Field(..., max_length=2048)
+    api_key: str = Field("", max_length=512)
+    allow_insecure: bool = False
+
+
 # ── Routes ────────────────────────────────────────────────────────────────────
 
 @router.get("")
@@ -135,6 +141,42 @@ async def setup_todoist(body: TodoistSetupRequest, user=Depends(get_current_user
     if not result["ok"]:
         raise HTTPException(status_code=400, detail=result["error"])
     return result
+
+
+@router.post("/hermes/setup")
+async def setup_hermes(body: HermesSetupRequest, user=Depends(get_current_user)):
+    """Connect to a Hermes gateway's API server (one connection per install)."""
+    from .hermes.onboarding import setup
+    from .registry import get_credentials
+    from agents import db as agent_db
+    existing = get_credentials("hermes")
+    changed = (existing.get("base_url") or "").rstrip("/") != body.base_url.strip().rstrip("/") \
+        or (existing.get("api_key") or "") != body.api_key
+    if changed and existing.get("base_url") and agent_db.count_agents_on_runtime("hermes") > 0:
+        raise HTTPException(
+            status_code=409,
+            detail="Switch every agent back to Chatty before pointing at a different Hermes")
+    result = await setup(body.base_url, body.api_key, body.allow_insecure)
+    if not result["ok"]:
+        raise HTTPException(status_code=400, detail=result["error"])
+    return result
+
+
+@router.get("/hermes/status")
+async def hermes_status(user=Depends(get_current_user)):
+    from .hermes.onboarding import status
+    return await status()
+
+
+@router.post("/hermes/disconnect")
+async def disconnect_hermes(user=Depends(get_current_user)):
+    from .registry import save_credentials
+    from agents import db as agent_db
+    if agent_db.count_agents_on_runtime("hermes") > 0:
+        raise HTTPException(status_code=409,
+                            detail="Switch every agent back to Chatty before disconnecting Hermes")
+    save_credentials("hermes", {})
+    return {"ok": True}
 
 
 @router.post("/todoist/disconnect")
