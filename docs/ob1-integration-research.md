@@ -54,7 +54,7 @@ Chatty already has the bones: `core/agents/memory/` (FTS5 search),
 content fingerprinting, more import recipes, skill packs, and — most
 importantly — **portability across AI tools** via MCP.
 
-The hard constraint from `CLAUDE.md`: no required Postgres, no external
+The hard constraint from `AGENTS.md`: no required Postgres, no external
 services. Chatty must remain SQLite-only and one-click-deployable on Railway.
 
 ## Approach 1 — Integrate with OB1 directly
@@ -109,7 +109,7 @@ use."*
 
 ### Skip / defer
 
-- Adopting Supabase/Postgres — against `CLAUDE.md`'s no-external-services
+- Adopting Supabase/Postgres — against `AGENTS.md`'s no-external-services
   principle; `sqlite-vec` covers ~95% of the value.
 - Slack / Discord capture bots — Telegram + WhatsApp already serve that role
   for the small-business audience.

@@ -450,7 +450,7 @@ def test_usage_transcription_counts_as_chat(reminders_db):
 def test_usage_transcription_zero_duration_flags_unknown(reminders_db):
     """FIX 5: a paid transcription model with audio_seconds=0 (duration lost,
     e.g. no ffprobe) must be flagged pricing-unknown, not silently priced at
-    a genuine $0 — mirrors CLAUDE.md's "never silently report $0 for a paid
+    a genuine $0 — mirrors AGENTS.md's "never silently report $0 for a paid
     model" rule."""
     from core.agents.activity_log import log_transcription_event
     from core.agents.usage.service import get_usage_summary

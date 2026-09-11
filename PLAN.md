@@ -26,7 +26,7 @@ Building **Chatty** — a standalone, brandable personal AI agent platform. Sing
 
 ```
 chatty/
-├── CLAUDE.md
+├── AGENTS.md
 ├── .gitignore
 ├── .env.example
 │
@@ -400,12 +400,12 @@ Individual agents can optionally override the global provider/model.
 | `branding/storage.py` | Save/load branding from `data/branding/` |
 | `frontend/src/dashboard/*` | Dashboard page, agent cards, create modal, settings |
 | `frontend/src/setup/*` | Provider setup (OAuth + token entry) |
-| `CLAUDE.md` | Project instructions |
+| `AGENTS.md` | Project instructions |
 
 ## Build Order
 
 ### Step 1: Repository setup
-- `git init`, `.gitignore`, `CLAUDE.md`, `.env.example`
+- `git init`, `.gitignore`, `AGENTS.md`, `.env.example`
 - Create GitHub repo (`WWilson1017/personal-ai-agent`)
 
 ### Step 2: Backend core — config, auth, Google clients
