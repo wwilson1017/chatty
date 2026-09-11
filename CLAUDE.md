@@ -176,33 +176,13 @@ The model selector is **dynamic** — each provider's `list_models()` fetches li
 
 **Every PR that adds/changes models or touches `core/providers/` or `core/agents/usage/` MUST run the `price-check` skill first** (`.claude/skills/price-check/`) and include any resulting `pricing.py` / `PRICING.md` changes in the same PR. The skill pulls current rates from official pricing pages, never fabricates a rate, and skips re-fetching if pricing was already verified in the chat.
 
-## Session Knowledge
+## Solution Docs (`docs/solutions/`)
 
-Two shared knowledge resources live in the repo. Read them at the start of a session when the work touches areas they cover; run `/coach` (`.claude/skills/coach/`) at the end of a session to capture new lessons.
-
-### Coach Lessons (`.claude/coach-lessons.md`)
-
-Behavioral instincts extracted from past development sessions, each carrying an evidence record:
-
-```
-- `[✓2 ✗0 · 2026-07-19]` **When** <trigger> → **do** <action> → **because** <reason>
-```
-
-`✓` = sessions where the instinct was followed, `✗` = sessions where a correction had to happen, date = last evidence event. Scan the `## Index` block at the top, grep the quoted phrase for the full instinct, and apply what's relevant. Instincts with ✓ ≥ 3 get promoted into this file's "Proven Instincts (coach)" section below; the `/coach` skill maintains evidence, lifecycle, and the index automatically.
-
-### Solution Docs (`docs/solutions/`)
-
-Non-trivial problems solved in past sessions are written up in `docs/solutions/` (categorized, with YAML frontmatter). Search there before re-deriving a fix or pattern: `grep -ri <keyword> docs/solutions/`.
-
-## Proven Instincts (coach)
-
-Promoted from `.claude/coach-lessons.md` after ≥3 confirmed sessions; `/coach` maintains this section.
-
-- **When** running the backend from a git worktree → **do** use the main checkout's absolute venv path (e.g. `/Users/willwilson/ai/chatty/.venv/bin/python`), not relative (`../../.venv/bin/python`) → **because** worktrees live under `.claude/worktrees/<name>/backend/` and the relative path resolves to a nonexistent location
+Non-trivial problems solved in past sessions are written up in `docs/solutions/` (categorized, with YAML frontmatter). Search there before re-deriving a fix or pattern: `grep -ri <keyword> docs/solutions/`. When you solve one, write it up there directly — that is the one knowledge store besides this file.
 
 ## Worktrees
 
-Worktrees live in `.claude/worktrees/` within the repo. Use `/wt <feature name>` to create one, `/dwt` to clean up. Branch from `master`, PR back to `master`.
+Worktrees live in `.claude/worktrees/` within the repo. Use `/wt <feature name>` to create one, `/dwt` to clean up. Branch from `master`, PR back to `master`. Run the backend with the main checkout's absolute venv path (`<main clone>/.venv/bin/python`), never a relative `../../.venv` — worktrees sit two levels deeper, so the relative path resolves to nothing.
 
 ## Blueprints
 
