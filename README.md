@@ -176,6 +176,7 @@ Chatty connects to your existing business tools so your agents can answer questi
 | [Todoist](docs/todoist-setup.md) | API token | Create, manage, complete, and organize tasks and projects |
 | [Odoo](docs/odoo-setup.md) | API key | Sales, inventory, accounting, HR, and more from your Odoo ERP |
 | [BambooHR](docs/bamboohr-setup.md) | API key | Employee directory, time off, and HR data |
+| Second Brain | URL + API key | Point an agent's memory tools at a personal [`brain`](https://github.com/wwilson1017/brain) server instead of its own memory (per-agent `memory_backend`, set in the Knowledge tab) |
 
 ## Deploy to Railway
 

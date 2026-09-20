@@ -10,6 +10,7 @@ Available integrations:
   bamboohr    — BambooHR HR system
   crm_lite    — Built-in lightweight CRM
   whatsapp    — WhatsApp (stub)
+  brain       — second-brain server (per-agent memory backend, no tools of its own)
 """
 
 import json
@@ -84,6 +85,12 @@ AVAILABLE_INTEGRATIONS = {
         "name": "Todoist",
         "description": "Todoist — tasks, projects, labels, and productivity tracking",
         "icon": "✅",
+        "auth_type": "api_key",
+    },
+    "brain": {
+        "name": "Second Brain",
+        "description": "A personal `brain` server — agents with memory backend 'brain' read and write it instead of their own memory",
+        "icon": "🧠",
         "auth_type": "api_key",
     },
 }

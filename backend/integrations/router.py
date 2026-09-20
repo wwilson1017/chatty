@@ -46,6 +46,11 @@ class TodoistSetupRequest(BaseModel):
     api_token: str = Field(..., min_length=1, max_length=256)
 
 
+class BrainSetupRequest(BaseModel):
+    base_url: str = Field(..., min_length=1, max_length=2048)
+    api_key: str = Field("", max_length=512)
+
+
 class ToolModeRequest(BaseModel):
     tool_mode: str
 
@@ -142,6 +147,24 @@ async def disconnect_todoist(user=Depends(get_current_user)):
     """Disconnect Todoist: remove stored credentials."""
     from .registry import save_credentials
     save_credentials("todoist", {})
+    return {"ok": True}
+
+
+@router.post("/brain/setup")
+async def setup_brain(body: BrainSetupRequest, user=Depends(get_current_user)):
+    """Configure and validate the second-brain server (GET /health)."""
+    from .brain.onboarding import setup
+    result = setup(base_url=body.base_url, api_key=body.api_key)
+    if not result["ok"]:
+        raise HTTPException(status_code=400, detail=result["error"])
+    return result
+
+
+@router.post("/brain/disconnect")
+async def disconnect_brain(user=Depends(get_current_user)):
+    """Disconnect the second brain: remove stored credentials (agents fall back to errors, not data loss)."""
+    from .registry import save_credentials
+    save_credentials("brain", {})
     return {"ok": True}
 
 

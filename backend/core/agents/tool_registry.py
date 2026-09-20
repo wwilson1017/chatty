@@ -204,6 +204,11 @@ class ToolRegistry:
         return {"error": f"Unknown context tool: {tool_name}"}
 
     async def _execute_memory(self, tool_name: str, args: dict) -> dict:
+        from agents.engine import get_brain_backend
+        brain = get_brain_backend(self.agent_slug)
+        if brain is not None:  # memory_backend == 'brain': same tools, remote second brain
+            return brain.execute(tool_name, args)
+
         from core.agents.tools.memory_tools import (
             append_daily_note, read_daily_note, list_daily_notes,
             list_meetings, read_meeting,

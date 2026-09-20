@@ -154,6 +154,7 @@ class UpdateAgentRequest(BaseModel):
     drive_write_enabled: bool | None = None
     google_accounts: dict | None = None
     model_tier: str | None = None
+    memory_backend: str | None = None
     telegram_enabled: bool | None = None
     telegram_group_enabled: bool | None = None
 
@@ -264,6 +265,11 @@ async def update_agent(agent_id: str, body: UpdateAgentRequest, user=Depends(get
 
     if "model_override" in updates and updates["model_override"]:
         updates["model_tier"] = "auto"
+
+    if "memory_backend" in updates:
+        from agents.engine import MEMORY_BACKENDS
+        if updates["memory_backend"] not in MEMORY_BACKENDS:
+            raise HTTPException(status_code=400, detail=f"memory_backend must be one of: {', '.join(MEMORY_BACKENDS)}")
 
     if "google_accounts" in updates:
         ga = updates["google_accounts"]

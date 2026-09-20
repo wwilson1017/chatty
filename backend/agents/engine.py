@@ -148,8 +148,40 @@ async def _backfill_vectors(db):
         logger.debug("Vector backfill error: %s", e)
 
 
+MEMORY_BACKENDS = ("builtin", "brain")
+
+
+def memory_backend_for(slug: str) -> str:
+    """``builtin`` (per-agent memory.db + context/) or ``brain`` (remote second brain)."""
+    if not slug:
+        return "builtin"
+    try:
+        from .db import get_agent_by_slug
+        row = get_agent_by_slug(slug)
+    except Exception:  # registry not initialised (CLI harness, unit tests) → builtin
+        return "builtin"
+    backend = (row or {}).get("memory_backend") or "builtin"
+    return backend if backend in MEMORY_BACKENDS else "builtin"
+
+
+def get_brain_backend(slug: str):
+    """A ``BrainBackend`` for a brain-backed agent, else None (builtin memory)."""
+    if memory_backend_for(slug) != "brain":
+        return None
+    from core.agents.memory.brain_backend import BrainBackend
+    from integrations.registry import get_credentials
+    creds = get_credentials("brain")
+    return BrainBackend(creds.get("base_url", ""), creds.get("api_key", ""), agent_slug=slug)
+
+
 def ensure_memory_db(slug: str):
-    """Ensure the MemoryDB is initialized for this agent. Called lazily."""
+    """Ensure the MemoryDB is initialized for this agent. Called lazily.
+
+    None for a brain-backed agent: its memory lives in the second brain, so
+    nothing here should open (or reindex) a local memory.db for it.
+    """
+    if memory_backend_for(slug) == "brain":
+        return None
     return _get_initialized_memory_db(slug)
 
 

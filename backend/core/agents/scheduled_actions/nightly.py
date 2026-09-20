@@ -66,6 +66,12 @@ def run_nightly_jobs() -> None:
 
         slug = agent["slug"]
         agent_name = agent["agent_name"]
+        if agent.get("memory_backend") == "brain":
+            # Every step below rewrites the local memory (daily notes, MEMORY.md,
+            # facts, observations); a brain-backed agent's memory lives in the
+            # second brain, which runs its own nightly consolidation.
+            logger.info("nightly: %s uses the brain backend — skipped", agent_name)
+            continue
         ctx_manager = get_context_manager(slug)
         chat_service = get_chat_service(slug)
 
