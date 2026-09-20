@@ -164,14 +164,20 @@ def memory_backend_for(slug: str) -> str:
     return backend if backend in MEMORY_BACKENDS else "builtin"
 
 
+@lru_cache(maxsize=32)
+def _brain_backend(slug: str, base_url: str, api_key: str):
+    """One ``BrainBackend`` (one httpx.Client) per agent + credentials; a re-setup gets a fresh one."""
+    from core.agents.memory.brain_backend import BrainBackend
+    return BrainBackend(base_url, api_key, agent_slug=slug)
+
+
 def get_brain_backend(slug: str):
     """A ``BrainBackend`` for a brain-backed agent, else None (builtin memory)."""
     if memory_backend_for(slug) != "brain":
         return None
-    from core.agents.memory.brain_backend import BrainBackend
     from integrations.registry import get_credentials
     creds = get_credentials("brain")
-    return BrainBackend(creds.get("base_url", ""), creds.get("api_key", ""), agent_slug=slug)
+    return _brain_backend(slug, creds.get("base_url", ""), creds.get("api_key", ""))
 
 
 def ensure_memory_db(slug: str):

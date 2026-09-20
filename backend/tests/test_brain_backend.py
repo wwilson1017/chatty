@@ -43,7 +43,12 @@ class FakeBrain:
                 "engine": "sqlite",
             })
         if path == "/facts" and method == "POST":
-            return httpx.Response(200, json={"id": 9, **body, "ok": True})
+            return httpx.Response(200, json={
+                "id": 9, "subject": body["subject"], "predicate": body["predicate"], "object": body["object"],
+                "valid_from": "2026-09-20", "memory_type": body.get("memory_type"), "origin_class": "agent",
+                "importance": 3, "supersedes_id": None, "observed_at": None, "harness": "chatty",
+                "agent": body.get("agent"), "ok": True,
+            })
         if path == "/facts" and method == "GET":
             return httpx.Response(200, json=self.facts)
         if path == "/facts/1/invalidate":
@@ -95,7 +100,7 @@ class TestRouteMapping:
     def test_add_fact_carries_provenance(self, backend, fake):
         out = backend.execute("add_fact", {"subject": " people/x ", "predicate": "role", "object": "ceo",
                                            "confidence": 0.8})
-        assert out["ok"] and out["id"] == 9
+        assert out["ok"] and out["id"] == 9 and out["harness"] == "chatty"
         assert fake.requests[-1][3] == {
             "subject": "people/x", "predicate": "role", "object": "ceo", "confidence": 0.8, "created_by": "chatty",
             "origin_class": "agent", "harness": "chatty", "agent": "tom",
@@ -187,3 +192,36 @@ def _with_transport(backend, fake):
         return None
     return BrainBackend(backend.base_url, "k", agent_slug=backend.agent_slug,
                         transport=httpx.MockTransport(fake.handler))
+
+
+class TestShapeParity:
+    """Every supported tool answers with at least the keys the builtin backend returns."""
+
+    def test_builtin_keys_are_a_subset_of_brain_keys(self, backend, tmp_path):
+        from core.agents.memory.search_tools import add_fact, invalidate_fact, query_facts, search_memory
+        from core.agents.tools.memory_tools import append_daily_note, list_daily_notes, read_daily_note, read_memory
+
+        ctx = str(tmp_path / "context")
+        (tmp_path / "context").mkdir()
+        fact = add_fact(ctx, "", subject="people/x", predicate="role", object="ceo")
+        builtin = {
+            "append_daily_note": append_daily_note(ctx, "", "hello"),
+            "read_daily_note": read_daily_note(ctx, "", "2026-09-20"),
+            "list_daily_notes": list_daily_notes(ctx, ""),
+            "read_memory": read_memory(ctx, ""),
+            "search_memory": search_memory(ctx, "", "ceo"),
+            "add_fact": fact,
+            "query_facts": query_facts(ctx, "", subject="people/x"),
+            "invalidate_fact": invalidate_fact(ctx, "", fact["id"]),
+        }
+        args = {
+            "append_daily_note": {"content": "hello"}, "read_daily_note": {"date": "2026-09-20"},
+            "list_daily_notes": {}, "read_memory": {}, "search_memory": {"query": "ceo"},
+            "add_fact": {"subject": "people/x", "predicate": "role", "object": "ceo"},
+            "query_facts": {"subject": "people/x"}, "invalidate_fact": {"fact_id": 1},
+        }
+        for tool, expected in builtin.items():
+            got = backend.execute(tool, args[tool])
+            assert "error" not in got, (tool, got)
+            missing = set(expected) - set(got)
+            assert not missing, f"{tool}: brain result lacks {missing}"

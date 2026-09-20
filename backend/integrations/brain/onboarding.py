@@ -15,7 +15,11 @@ def setup(base_url: str, api_key: str = "") -> dict:
         return {"ok": False, "error": f"Connection failed — {e}"}
     if resp.status_code in (401, 403):
         return {"ok": False, "error": "Connection failed — check the API key"}
-    if resp.status_code != 200 or not resp.json().get("ok"):
+    try:
+        health = resp.json()
+    except ValueError:
+        return {"ok": False, "error": f"Connection failed — /health returned non-JSON ({resp.status_code})"}
+    if resp.status_code != 200 or not isinstance(health, dict) or not health.get("ok"):
         return {"ok": False, "error": f"Connection failed — /health returned {resp.status_code}"}
     save_credentials("brain", {"base_url": base_url, "api_key": api_key, "enabled": True})
-    return {"ok": True, "home": resp.json().get("home", "")}
+    return {"ok": True, "home": health.get("home", "")}

@@ -100,7 +100,10 @@ class BrainBackend:
         date = args.get("date") or ""
         if not date:
             return {"error": "date is required"}
-        return self._get(f"/daily/{date}")
+        data = self._get(f"/daily/{date}")
+        if "error" not in data and data.get("content"):
+            data["content"] = _sanitize(data["content"])
+        return data
 
     def _list_daily_notes(self, args: dict) -> dict:
         data = self._get("/daily", limit=_clamp(args.get("limit", 30), 30, 365))
@@ -166,11 +169,12 @@ class BrainBackend:
         return self._post(f"/facts/{fact_id}/invalidate", valid_to=args.get("valid_to"))
 
 
-def _clamp(value, default: int, maximum: int) -> int:
+def _clamp(value, on_error: int, maximum: int) -> int:
+    """``value`` as an int in 1..maximum; *on_error* when it is not a number."""
     try:
         return max(1, min(int(value), maximum))
     except (TypeError, ValueError):
-        return default
+        return on_error
 
 
 def _sanitize(text: str) -> str:
