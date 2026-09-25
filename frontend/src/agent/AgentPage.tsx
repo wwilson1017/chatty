@@ -39,6 +39,7 @@ interface AgentRow {
   telegram_bot_username: string;
   telegram_group_enabled: boolean;
   model_tier?: string;
+  memory_backend?: string;
   provider_override?: string;
 }
 
@@ -878,7 +879,26 @@ export function AgentPage() {
             />
           </>
         ) : activeTab === 'knowledge' ? (
-          <AgentContextEditor agentId={agentId!} />
+          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 16px', fontSize: 12, color: 'rgba(237,240,244,0.62)', borderBottom: '1px solid rgba(230,235,242,0.08)' }}>
+              Memory backend
+              <select
+                value={agent.memory_backend || 'builtin'}
+                onChange={async (e) => {
+                  const memory_backend = e.target.value;
+                  try {
+                    const updated = await api<AgentRow>(`/api/agents/${agentId}`, { method: 'PUT', body: JSON.stringify({ memory_backend }) });
+                    setAgent(updated);
+                  } catch { toast.error('Failed to change the memory backend.'); }
+                }}
+                style={{ background: 'transparent', color: '#EDF0F4', border: '1px solid rgba(230,235,242,0.14)', borderRadius: 4, padding: '4px 8px', fontSize: 12 }}
+              >
+                <option value="builtin">Built-in (this agent&apos;s memory.db)</option>
+                <option value="brain">Second brain (Settings &rarr; Integrations)</option>
+              </select>
+            </label>
+            <AgentContextEditor agentId={agentId!} />
+          </div>
         ) : activeTab === 'playbooks' ? (
           <div style={{ flex: 1, overflow: 'auto' }}>
             <PlaybooksPanel

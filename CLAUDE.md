@@ -166,6 +166,19 @@ Tools appear for agents automatically when their integration is enabled globally
 
 Tools that modify external data (send email, create event, upload file) must set `writes: True` in their tool definition. Chatty's `tool_mode` system will require user confirmation before executing write tools in "normal" mode. Write tools (excluding `context_memory` tools) are also subject to per-turn write budgets and optional hourly rate limits configured in admin settings.
 
+## Second brain backend
+
+Each agent has a `memory_backend` column (`agents` table, `builtin` | `brain`, editable in the agent's Knowledge tab). `builtin` is the per-agent `memory.db` + `context/` folder. `brain` points the **same memory tools** (`append_daily_note`, `read_daily_note`, `list_daily_notes`, `read_memory`, `search_memory`, `add_fact`, `query_facts`, `invalidate_fact`) at a personal [`brain`](https://github.com/wwilson1017/brain) server over HTTP — `core/agents/memory/brain_backend.py`, routed from `ToolRegistry._execute_memory` via `agents.engine.get_brain_backend(slug)`. Tool names and schemas are untouched, so prompts and playbooks survive the switch. `update_memory` is refused (the brain's `MEMORY.md` is owner-maintained); `list_meetings`, `read_meeting`, `consolidate_memory` and `complete_commitment` return "not supported". `ensure_memory_db()` returns `None` for a brain-backed agent and the nightly job skips it (the brain runs its own consolidation). Context files, playbooks, chat history and every other per-agent store stay local.
+
+Setup (the template for any teammate wiring a harness to the brain):
+
+1. `uv tool install -e ~/ai/brain && BRAIN_HOME=~/brain brain init`
+2. Serve it: mount `brain.server.router` behind an `X-Api-Key` middleware (the CAKE IoT bridge does at `/brain`), or standalone `BRAIN_HOME=~/brain uvicorn brain.server:app --port 8799` (no auth of its own — LAN/Tailscale only).
+3. Settings → Integrations → **Second Brain**: base URL (the mount point, e.g. `https://host/brain`) + API key. Setup validates `GET /health`; credentials are stored encrypted like every other integration.
+4. Agent → Knowledge tab → Memory backend → **Second brain**.
+
+Tests: `backend/tests/test_brain_backend.py` (httpx `MockTransport`, no network).
+
 ## Model Pricing
 
 The model selector is **dynamic** — each provider's `list_models()` fetches live from the provider's API (Anthropic/OpenAI/Google/Together/Ollama), cached with a fallback to the hardcoded `*_MODELS` constants. New models appear automatically; no code change needed to add one to the dropdown.
