@@ -14,6 +14,8 @@ Route map (brain → Chatty result shape):
   add_fact      → POST /facts          query_facts     → GET /facts
   invalidate_fact → POST /facts/{id}/invalidate
   update_memory → refused: the brain's MEMORY.md is owner-maintained (AGENTS.md)
+  propose_change → POST /propose     list_proposals → GET /review?harness=chatty
+    (structural changes are PROPOSED, the owner accepts them via the brain CLI)
   GET /context  → the prompt's MEMORY section (context_text)
 """
 
@@ -26,7 +28,11 @@ logger = logging.getLogger(__name__)
 
 # The long-term tools a brain-backed agent routes here. Daily notes, meetings,
 # commitments and consolidate_memory stay on the local builtin implementation.
-BRAIN_TOOLS = frozenset({"read_memory", "update_memory", "search_memory", "add_fact", "query_facts", "invalidate_fact"})
+BRAIN_TOOLS = frozenset({
+    "read_memory", "update_memory", "search_memory", "add_fact", "query_facts", "invalidate_fact",
+    "propose_change", "list_proposals",
+})
+PROPOSAL_KINDS = ("merge-people", "move-note", "memory-section", "rule", "agents-md")
 BRAIN_WRITE_TOOLS = frozenset({"add_fact", "update_memory", "invalidate_fact"})
 # Appended to the brain write tools' descriptions (from Hermes' memory tool).
 BRAIN_SKIP_TEXT = (
@@ -181,6 +187,37 @@ class BrainBackend:
         except (TypeError, ValueError):
             return {"error": "fact_id must be an integer"}
         return self._post(f"/facts/{fact_id}/invalidate", valid_to=args.get("valid_to"))
+
+    # ── proposals (brain/review/propose.py) ──────────────────────────────
+
+    def _propose_change(self, args: dict) -> dict:
+        kind = (args.get("kind") or "").strip()
+        if kind not in PROPOSAL_KINDS:
+            return {"error": f"kind must be one of: {', '.join(PROPOSAL_KINDS)}"}
+        payload = args.get("payload")
+        if not isinstance(payload, dict) or not payload:
+            return {"error": "payload must be a non-empty object"}
+        reason = (args.get("reason") or "").strip()
+        if not reason:
+            return {"error": "reason is required"}
+        return self._post(
+            "/propose", kind=kind, payload=payload, reason=reason, evidence=(args.get("evidence") or None),
+            origin_class="agent", harness="chatty", agent=self.agent_slug or None,
+        )
+
+    def _list_proposals(self, args: dict) -> dict:
+        status = args.get("status") or "pending"
+        if status not in ("pending", "rejected", "all"):
+            return {"error": "status must be pending, rejected or all"}
+        data = self._get("/review", kind=args.get("kind"), status=status, harness="chatty")
+        if isinstance(data, dict) and "error" in data:
+            return data
+        rows = data if isinstance(data, list) else data.get("proposals", []) if isinstance(data, dict) else []
+        for row in rows:
+            for key in ("line", "reason", "decision"):
+                if isinstance(row.get(key), str):
+                    row[key] = _sanitize(row[key])
+        return {"proposals": rows, "total": len(rows)}
 
 
 def _clamp(value, on_error: int, maximum: int) -> int:
