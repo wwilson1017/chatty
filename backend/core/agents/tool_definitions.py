@@ -1706,6 +1706,61 @@ NOTIFY_USER_TOOLS = [
 ]
 
 
+# Advertised only to brain-backed agents (memory_backend == "brain"). Executed by
+# BrainBackend via ToolRegistry._execute_memory (kind "memory"). propose_change is
+# a proposal, not a write, so background turns keep it; heartbeats drop it
+# (scheduled_actions.processor._build_tools).
+BRAIN_ONLY_TOOLS = [
+    {
+        "name": "propose_change",
+        "description": (
+            "Propose a structural change to the second brain for the owner to accept: merge duplicate "
+            "people pages, move a note to another domain, update a MEMORY.md section, add a review rule, "
+            "or change AGENTS.md. You cannot make these changes yourself. Check `list_proposals` first — "
+            "a rejected proposal carries the owner's reason; don't re-propose without new evidence."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "kind": {
+                    "type": "string",
+                    "enum": ["merge-people", "move-note", "memory-section", "rule", "agents-md"],
+                    "description": "What kind of change",
+                },
+                "payload": {
+                    "type": "object",
+                    "description": (
+                        "merge-people: {keep, drop: slug or [slugs]} · move-note: {path, to} · "
+                        "memory-section: {section, text} · rule: {text, section?} · agents-md: {text, section?}"
+                    ),
+                },
+                "reason": {"type": "string", "description": "Why this change is right, in one or two sentences"},
+                "evidence": {"type": "string", "description": "Optional: the notes, facts or quotes that support it"},
+            },
+            "required": ["kind", "payload", "reason"],
+        },
+        "kind": "memory",
+        "writes": False,
+        "context_memory": True,
+    },
+    {
+        "name": "list_proposals",
+        "description": "List your pending or rejected proposals to the second brain (rejected ones carry the owner's reason).",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "kind": {"type": "string", "description": "Optional filter: merge-people, move-note, memory-section, rule, agents-md"},
+                "status": {"type": "string", "enum": ["pending", "rejected", "all"], "description": "Default pending"},
+            },
+            "required": [],
+        },
+        "kind": "memory",
+        "writes": False,
+        "context_memory": True,
+    },
+]
+
+
 def _memory_tools_for(memory_backend: str, background_mode: bool) -> list[dict]:
     """MEMORY_TOOLS, adjusted for a brain-backed agent: the brain write tools
     carry the SKIP guidance, and background turns (heartbeats, crons) drop them
@@ -1721,6 +1776,7 @@ def _memory_tools_for(memory_backend: str, background_mode: bool) -> list[dict]:
                 continue
             t = {**t, "description": t["description"] + BRAIN_SKIP_TEXT}
         out.append(t)
+    out.extend(BRAIN_ONLY_TOOLS)
     return out
 
 
