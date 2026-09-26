@@ -127,6 +127,23 @@ class TestToolPolicy:
         heartbeat = names(background_mode=True, memory_backend="brain")
         assert builtin - heartbeat == {"add_fact", "update_memory", "invalidate_fact"}
         assert {"append_daily_note", "read_daily_note", "list_daily_notes", "search_memory", "query_facts"} <= heartbeat
+        # proposals are brain-only; a proposal is not a write, so background turns keep it
+        assert {"propose_change", "list_proposals"} <= heartbeat and not {"propose_change", "list_proposals"} & builtin
+        assert {"propose_change", "list_proposals"} <= names(memory_backend="brain")
+
+    def test_heartbeat_runs_drop_propose_change_but_crons_keep_it(self, monkeypatch):
+        import agents.engine as engine_mod
+        import agents.tool_loader as tool_loader_mod
+        from core.agents.scheduled_actions import processor
+
+        monkeypatch.setattr(engine_mod, "memory_backend_for", lambda slug: "brain")
+        monkeypatch.setattr(tool_loader_mod, "load_integration_tools", lambda: ([], {}))
+        monkeypatch.setattr(tool_loader_mod, "build_agent_handlers", lambda slug: ({}, {}))
+        agent = {"slug": "tom", "id": "1", "agent_name": "Tom", "google_accounts": {}}
+        heartbeat = {t["name"] for t in processor._build_tools("tom", agent, background_mode=True, heartbeat=True)[0]}
+        cron = {t["name"] for t in processor._build_tools("tom", agent, background_mode=True)[0]}
+        assert "propose_change" not in heartbeat and "list_proposals" in heartbeat
+        assert "propose_change" in cron and cron - heartbeat == {"propose_change"}
 
     def test_chat_turns_keep_them_with_skip_text(self):
         from core.agents.tool_definitions import MEMORY_TOOLS, get_tool_definitions

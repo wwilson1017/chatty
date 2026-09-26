@@ -53,6 +53,15 @@ class FakeBrain:
             return httpx.Response(200, json=self.facts)
         if path == "/facts/1/invalidate":
             return httpx.Response(200, json={"id": 1, "valid_to": body.get("valid_to") or "today", "ok": True})
+        if path == "/propose" and method == "POST":
+            if body["kind"] == "rule" and "dup" in body["reason"]:
+                return httpx.Response(200, json={"id": 8, "kind": "rule", "outcome": "duplicate", "status": "rejected",
+                                                 "line": "rule: x", "previous_rejection": {"id": 8, "reason": "no", "at": "2026-09-25"}})
+            return httpx.Response(200, json={"id": 12, "kind": body["kind"], "outcome": "proposed", "status": "pending",
+                                             "line": f"{body['kind']}: {body['payload']}"})
+        if path == "/review" and method == "GET":
+            return httpx.Response(200, json=[{"id": 8, "kind": "rule", "status": "rejected", "line": "rule: x\u200b",
+                                              "payload": {"text": "x"}, "reason": "dup", "decision": "no"}])
         if path == "/boom":
             return httpx.Response(500, json={"error": "RuntimeError: x"})
         return httpx.Response(404, json={"detail": "Not Found"})
@@ -115,6 +124,31 @@ class TestRouteMapping:
         assert backend.execute("invalidate_fact", {"fact_id": "1", "valid_to": "2026-09-01"})["valid_to"] == "2026-09-01"
         assert fake.requests[-1] == ("POST", "/brain/facts/1/invalidate", {}, {"valid_to": "2026-09-01"})
         assert backend.execute("invalidate_fact", {"fact_id": "x"}) == {"error": "fact_id must be an integer"}
+
+    def test_propose_change(self, backend, fake):
+        out = backend.execute("propose_change", {
+            "kind": "merge-people", "payload": {"keep": "people/will", "drop": ["people/will-wilson"]},
+            "reason": "same person", "evidence": "both cite will@tncheesecake.com",
+        })
+        assert out["outcome"] == "proposed" and out["id"] == 12
+        assert fake.requests[-1] == ("POST", "/brain/propose", {}, {
+            "kind": "merge-people", "payload": {"keep": "people/will", "drop": ["people/will-wilson"]},
+            "reason": "same person", "evidence": "both cite will@tncheesecake.com",
+            "origin_class": "agent", "harness": "chatty", "agent": "tom",
+        })
+        dup = backend.execute("propose_change", {"kind": "rule", "payload": {"text": "x"}, "reason": "dup of 8"})
+        assert dup["outcome"] == "duplicate" and dup["previous_rejection"]["reason"] == "no"
+        assert backend.execute("propose_change", {"kind": "delete-everything", "payload": {"a": 1}, "reason": "r"})["error"].startswith("kind must be")
+        assert backend.execute("propose_change", {"kind": "rule", "payload": {}, "reason": "r"}) == {"error": "payload must be a non-empty object"}
+        assert backend.execute("propose_change", {"kind": "rule", "payload": {"text": "x"}, "reason": " "}) == {"error": "reason is required"}
+
+    def test_list_proposals(self, backend, fake):
+        out = backend.execute("list_proposals", {"status": "rejected", "kind": "rule"})
+        assert out["total"] == 1 and out["proposals"][0]["line"] == "rule: x"  # zero-width char stripped
+        assert fake.requests[-1] == ("GET", "/brain/review", {"kind": "rule", "status": "rejected", "harness": "chatty"}, None)
+        backend.execute("list_proposals", {})
+        assert fake.requests[-1][2] == {"status": "pending", "harness": "chatty"}
+        assert backend.execute("list_proposals", {"status": "accepted"}) == {"error": "status must be pending, rejected or all"}
 
     def test_unknown(self, backend):
         assert backend.execute("nope", {}) == {"error": "nope is a local memory tool, not a brain tool"}
