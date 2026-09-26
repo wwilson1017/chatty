@@ -168,7 +168,13 @@ Tools that modify external data (send email, create event, upload file) must set
 
 ## Second brain backend
 
-Each agent has a `memory_backend` column (`agents` table, `builtin` | `brain`, editable in the agent's Knowledge tab). `builtin` is the per-agent `memory.db` + `context/` folder. `brain` points the **same memory tools** (`append_daily_note`, `read_daily_note`, `list_daily_notes`, `read_memory`, `search_memory`, `add_fact`, `query_facts`, `invalidate_fact`) at a personal [`brain`](https://github.com/wwilson1017/brain) server over HTTP — `core/agents/memory/brain_backend.py`, routed from `ToolRegistry._execute_memory` via `agents.engine.get_brain_backend(slug)`. Tool names and schemas are untouched, so prompts and playbooks survive the switch. `update_memory` is refused (the brain's `MEMORY.md` is owner-maintained); `list_meetings`, `read_meeting`, `consolidate_memory` and `complete_commitment` return "not supported". `ensure_memory_db()` returns `None` for a brain-backed agent and the nightly job skips it (the brain runs its own consolidation). Context files, playbooks, chat history and every other per-agent store stay local.
+Each agent has a `memory_backend` column (`agents` table, `builtin` | `brain`, editable in the agent's Knowledge tab). `builtin` is the per-agent `memory.db` + `context/` folder. `brain` moves **long-term memory only** to a personal [`brain`](https://github.com/wwilson1017/brain) server over HTTP — the brain is a resource, not a replacement for the agent's own context.
+
+**What moves to the brain (long-term):** the prompt's MEMORY section — `agents.engine.get_context_manager(slug)` hands the `ContextManager` the agent's `BrainBackend`, and `load_all_context()` (the one builder every prompt path uses: chat, WhatsApp, reminders, heartbeats, crons, the live coach) puts `## MEMORY (second brain)` = `GET /context` (≤8,000 chars, cached 60 s per agent, 5 s timeout, `[brain unavailable — tool reads still work]` on failure) where local `MEMORY.md` would go. The tools in `BRAIN_TOOLS` (`core/agents/memory/brain_backend.py`): `read_memory`, `search_memory` (brain `results` **plus** local daily/topic `local_results`, merged in `ToolRegistry._execute_memory`), `add_fact`, `query_facts`, `invalidate_fact`; `update_memory` is refused (the brain's `MEMORY.md` is owner-maintained). Tool names and schemas are untouched. The brain write tools carry the `BRAIN_SKIP_TEXT` guidance in chat and are **dropped from background turns** (`get_tool_definitions(memory_backend="brain", background_mode=True)` — heartbeat findings belong in the local daily note, never the brain).
+
+**What stays local (short-term and persona), unchanged from builtin:** every `context/` file (soul, identity, user, HEARTBEAT, topic notes), `daily/` and the daily-note tools (`append_daily_note`, `read_daily_note`, `list_daily_notes`), meetings, commitments, conversation history, today's-note injection, manifests and the relevance pre-fetch. Nothing is moved or archived on switch. `ensure_memory_db()` is `None` for a brain-backed agent (no local `memory.db`), so local search hits come from `ContextManager.relevance_prefetch`.
+
+**Nightly:** the daily-note summary, dreaming and archive steps run locally as for any agent; the consolidation step becomes `memory/processor.process_brain_promotion` — the same `consolidate_memory` synthesis over the local daily notes (starting from the brain's `MEMORY.md`), whose sink posts only the lines the brain does not already carry as one `POST /daily` entry (`type=consolidation`, `[chatty:<slug>] …`) instead of rewriting local `MEMORY.md`; the `memory.db` steps (fact decay, observations, commitments) are skipped. `consolidate_memory` as a chat tool is refused for brain agents.
 
 Setup (the template for any teammate wiring a harness to the brain):
 
@@ -177,7 +183,7 @@ Setup (the template for any teammate wiring a harness to the brain):
 3. Settings → Integrations → **Second Brain**: base URL (the mount point, e.g. `https://host/brain`) + API key. Setup validates `GET /health`; credentials are stored encrypted like every other integration.
 4. Agent → Knowledge tab → Memory backend → **Second brain**.
 
-Tests: `backend/tests/test_brain_backend.py` (httpx `MockTransport`, no network).
+Tests: `backend/tests/test_brain_backend.py` (httpx `MockTransport`, no network) and `backend/tests/test_brain_prompt_context.py` (prompt block, tool policy, merged search, nightly promotion, and a source check that no prompt path builds its own `ContextManager`).
 
 ## Model Pricing
 

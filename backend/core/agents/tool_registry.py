@@ -205,9 +205,19 @@ class ToolRegistry:
 
     async def _execute_memory(self, tool_name: str, args: dict) -> dict:
         from agents.engine import get_brain_backend
+        from core.agents.memory.brain_backend import BRAIN_TOOLS
         brain = get_brain_backend(self.agent_slug)
-        if brain is not None:  # memory_backend == 'brain': same tools, remote second brain
-            return brain.execute(tool_name, args)
+        if brain is not None and tool_name in BRAIN_TOOLS:
+            # memory_backend == 'brain': long-term tools go to the second brain;
+            # daily notes, meetings and commitments stay local (below).
+            result = brain.execute(tool_name, args)
+            if tool_name == "search_memory" and "error" not in result:
+                result["local_results"] = _local_memory_hits(self.context_dir, self.gcs_prefix, args.get("query", ""))
+                result["local_total"] = len(result["local_results"])
+            return result
+        if brain is not None and tool_name == "consolidate_memory":
+            return {"error": "consolidate_memory is not available on the brain backend: the nightly job "
+                             "promotes durable items from your daily notes to the brain"}
 
         from core.agents.tools.memory_tools import (
             append_daily_note, read_daily_note, list_daily_notes,
@@ -815,3 +825,20 @@ class ToolRegistry:
                 return await executor(**args)
             return executor(**args)
         return {"error": f"Invalid executor for tool: {tool_name}"}
+
+
+
+def _local_memory_hits(context_dir: str, gcs_prefix: str, query: str, limit: int = 8) -> list[dict]:
+    """Daily-note / topic-file hits for a brain-backed agent's search_memory.
+
+    simplification: BM25-lite over context/ (ContextManager.relevance_prefetch),
+    since a brain-backed agent has no local memory.db; swap for search_memory_async
+    if local FTS is ever wanted here.
+    """
+    from pathlib import Path
+    from core.agents.context_manager import ContextManager
+    hits = ContextManager(Path(context_dir), gcs_prefix).relevance_prefetch(query)
+    return [
+        {"source_type": h["kind"], "title": h["name"], "snippet": h["content"][:400]}
+        for h in hits[:limit]
+    ]

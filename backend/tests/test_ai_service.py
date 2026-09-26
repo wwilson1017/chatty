@@ -119,6 +119,7 @@ def mock_ctx():
     ctx.meetings_manifest.return_value = ""
     ctx.today_daily_note_text.return_value = ""
     ctx.relevance_prefetch.return_value = ""
+    ctx.brain = None  # builtin memory backend
     ctx.data_dir = "/tmp/fake"
     ctx.gcs_prefix = ""
     return ctx

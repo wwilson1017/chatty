@@ -66,12 +66,12 @@ def run_nightly_jobs() -> None:
 
         slug = agent["slug"]
         agent_name = agent["agent_name"]
-        if agent.get("memory_backend") == "brain":
-            # Every step below rewrites the local memory (daily notes, MEMORY.md,
-            # facts, observations); a brain-backed agent's memory lives in the
-            # second brain, which runs its own nightly consolidation.
-            logger.info("nightly: %s uses the brain backend — skipped", agent_name)
-            continue
+        # Brain-backed agent: short-term steps (daily summary, dreaming, archive)
+        # run locally as usual; consolidation promotes durable items to the brain
+        # instead of rewriting local MEMORY.md; the memory.db steps (fact decay,
+        # observations, commitments) have no local memory.db to work on.
+        from agents.engine import get_brain_backend
+        brain = get_brain_backend(slug)
         ctx_manager = get_context_manager(slug)
         chat_service = get_chat_service(slug)
 
@@ -86,9 +86,13 @@ def run_nightly_jobs() -> None:
         # 2. Memory consolidation
         if api_key:
             try:
-                from core.agents.memory.processor import process_memory_consolidation
-                result = process_memory_consolidation(agent_name, ctx_manager, api_key, days=7)
-                logger.info("nightly memory_consolidation %s: ok=%s", agent_name, result.get("ok"))
+                from core.agents.memory.processor import process_brain_promotion, process_memory_consolidation
+                if brain is not None:
+                    result = process_brain_promotion(agent_name, ctx_manager, brain, api_key, days=1)
+                    logger.info("nightly brain_promotion %s: ok=%s promoted=%s", agent_name, result.get("ok"), result.get("promoted"))
+                else:
+                    result = process_memory_consolidation(agent_name, ctx_manager, api_key, days=7)
+                    logger.info("nightly memory_consolidation %s: ok=%s", agent_name, result.get("ok"))
             except Exception as e:
                 logger.warning("nightly memory_consolidation failed for %s: %s", agent_name, e)
 
@@ -101,7 +105,7 @@ def run_nightly_jobs() -> None:
             logger.warning("nightly dreaming failed for %s: %s", agent_name, e)
 
         # 4. Fact confidence decay (Sundays only)
-        if datetime.now(_LOCAL_TZ).weekday() == 6:
+        if brain is None and datetime.now(_LOCAL_TZ).weekday() == 6:
             try:
                 from core.agents.memory.db import get_instance as _get_memory_db
                 config = build_agent_config(agent)
@@ -125,6 +129,8 @@ def run_nightly_jobs() -> None:
             logger.warning("nightly archive failed for %s: %s", agent_name, e)
 
         # 6. Observation extraction from yesterday's conversations
+        if brain is not None:
+            continue
         try:
             from core.agents.memory.observer import extract_observations
             from agents.engine import ensure_memory_db

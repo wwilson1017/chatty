@@ -1,29 +1,44 @@
 """
-Chatty — Second-brain memory backend.
+Chatty — Second-brain memory backend (LONG-TERM memory only).
 
 An agent whose ``memory_backend`` is ``brain`` keeps its memory tools (same
-names, same schemas as ``MEMORY_TOOLS``) but every call goes to a ``brain``
-server (https://github.com/wwilson1017/brain, ``brain/server/router.py``) over
-HTTP instead of the per-agent ``memory.db`` + ``context/``.  ``ToolRegistry
-._execute_memory`` dispatches here when ``agents.engine.get_brain_backend``
-returns an instance.
+names, same schemas as ``MEMORY_TOOLS``) but the long-term ones go to a
+``brain`` server (https://github.com/wwilson1017/brain, ``brain/server/router.py``)
+over HTTP.  Short-term memory — daily notes, meetings, topic files, persona —
+stays in the per-agent ``context/`` exactly as with the builtin backend.
+``ToolRegistry._execute_memory`` dispatches ``BRAIN_TOOLS`` here when
+``agents.engine.get_brain_backend`` returns an instance; everything else runs locally.
 
 Route map (brain → Chatty result shape):
-  append_daily_note → POST /daily          read_daily_note → GET /daily/{date}
-  list_daily_notes  → GET /daily           read_memory     → GET /memory
-  search_memory     → GET /search          add_fact        → POST /facts
-  query_facts       → GET /facts           invalidate_fact → POST /facts/{id}/invalidate
-  update_memory     → refused: the brain's MEMORY.md is owner-maintained (AGENTS.md)
-  list_meetings / read_meeting / consolidate_memory / complete_commitment → not supported
+  read_memory   → GET /memory          search_memory   → GET /search (+ local daily/topic hits, merged by the registry)
+  add_fact      → POST /facts          query_facts     → GET /facts
+  invalidate_fact → POST /facts/{id}/invalidate
+  update_memory → refused: the brain's MEMORY.md is owner-maintained (AGENTS.md)
+  GET /context  → the prompt's MEMORY section (context_text)
 """
 
 import logging
+import time
 
 import httpx
 
 logger = logging.getLogger(__name__)
 
-UNSUPPORTED = {"list_meetings", "read_meeting", "consolidate_memory", "complete_commitment"}
+# The long-term tools a brain-backed agent routes here. Daily notes, meetings,
+# commitments and consolidate_memory stay on the local builtin implementation.
+BRAIN_TOOLS = frozenset({"read_memory", "update_memory", "search_memory", "add_fact", "query_facts", "invalidate_fact"})
+BRAIN_WRITE_TOOLS = frozenset({"add_fact", "update_memory", "invalidate_fact"})
+# Appended to the brain write tools' descriptions (from Hermes' memory tool).
+BRAIN_SKIP_TEXT = (
+    " Skip: task progress, completed-work logs, temporary status, assistant actions, in-progress state, "
+    "and negative claims about tools or access (they go stale and harden into refusals). When in doubt, store less."
+)
+# GET /context — the brain's session-start block, injected into the system
+# prompt in place of the local MEMORY.md + topic notes + daily manifest.
+CONTEXT_MAX_CHARS = 8_000
+CONTEXT_TTL_SECONDS = 60.0     # heartbeats fire every 60s; don't hammer the bridge
+CONTEXT_TIMEOUT_SECONDS = 5.0  # prompt assembly is on the request path
+CONTEXT_UNAVAILABLE = "[brain unavailable — tool reads still work]"
 UPDATE_MEMORY_REFUSED = (
     "update_memory is not available on the brain backend: MEMORY.md there is maintained by its owner "
     "and the nightly job. Record the durable fact with add_fact, or the event with append_daily_note."
@@ -47,9 +62,29 @@ class BrainBackend:
         # transport lets tests plug in httpx.MockTransport — no sockets
         self._client = httpx.Client(base_url=self.base_url or "http://unconfigured", timeout=timeout,
                                     headers=headers, transport=transport)
+        self._context_cache: tuple[float, str] | None = None  # (expires_at, text)
 
     def close(self) -> None:
         self._client.close()
+
+    # ── system-prompt memory block ───────────────────────────────────────
+
+    def context_text(self, max_chars: int = CONTEXT_MAX_CHARS) -> str:
+        """The brain's ``GET /context`` text for the system prompt, cached per instance
+        for CONTEXT_TTL_SECONDS. Failures are cached too, as CONTEXT_UNAVAILABLE, so a
+        dead bridge costs one 5 s timeout per minute, not one per turn."""
+        now = time.monotonic()
+        if self._context_cache and self._context_cache[0] > now:
+            return self._context_cache[1]
+        data = self._request("GET", "/context", params={"max_chars": max_chars},
+                             timeout=CONTEXT_TIMEOUT_SECONDS)
+        if "error" in data:
+            logger.warning("brain /context unavailable: %s", data["error"])
+            text = CONTEXT_UNAVAILABLE
+        else:
+            text = (data.get("text") or "").strip() or "(the brain has no memory content yet)"
+        self._context_cache = (now + CONTEXT_TTL_SECONDS, text)
+        return text
 
     # ── transport ────────────────────────────────────────────────────────
 
@@ -79,35 +114,14 @@ class BrainBackend:
     # ── dispatch ─────────────────────────────────────────────────────────
 
     def execute(self, tool_name: str, args: dict) -> dict:
-        if tool_name in UNSUPPORTED:
-            return {"error": f"{tool_name} is not supported by the brain backend"}
+        if tool_name not in BRAIN_TOOLS:
+            return {"error": f"{tool_name} is a local memory tool, not a brain tool"}
         if tool_name == "update_memory":
             return {"error": UPDATE_MEMORY_REFUSED}
         handler = getattr(self, f"_{tool_name}", None)
         if handler is None:
             return {"error": f"Unknown memory tool: {tool_name}"}
         return handler(args)
-
-    def _append_daily_note(self, args: dict) -> dict:
-        content = (args.get("content") or "").strip()
-        if not content:
-            return {"error": "content is required"}
-        # simplification: the brain stamps entries "now"; a `date` argument is
-        # ignored and the returned `date` says which day was written.
-        return self._post("/daily", content=content, type=args.get("memory_type"))
-
-    def _read_daily_note(self, args: dict) -> dict:
-        date = args.get("date") or ""
-        if not date:
-            return {"error": "date is required"}
-        data = self._get(f"/daily/{date}")
-        if "error" not in data and data.get("content"):
-            data["content"] = _sanitize(data["content"])
-        return data
-
-    def _list_daily_notes(self, args: dict) -> dict:
-        data = self._get("/daily", limit=_clamp(args.get("limit", 30), 30, 365))
-        return data if "error" in data else {"notes": data.get("notes", [])}
 
     def _read_memory(self, args: dict) -> dict:
         data = self._get("/memory")

@@ -240,6 +240,7 @@ def _build_tools(agent_slug: str, agent: dict, *, background_mode: bool = False)
     real_tools_dir = str(Path(config.context_dir).parent / "real_tools")
     dynamic_real_tools = load_all_real_tools(real_tools_dir)
 
+    from agents.engine import memory_backend_for
     tool_defs = get_tool_definitions(
         integration_tools=integration_tool_defs,
         dynamic_real_tools=dynamic_real_tools or None,
@@ -254,6 +255,7 @@ def _build_tools(agent_slug: str, agent: dict, *, background_mode: bool = False)
         multi_calendar=len(calendar_ids) > 1,
         multi_drive=len(drive_ids) > 1,
         background_mode=background_mode,
+        memory_backend=memory_backend_for(agent_slug),
     )
 
     integration_modes = {name: get_tool_mode(name) for name in INTEGRATION_MODULES}

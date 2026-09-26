@@ -134,12 +134,17 @@ def _first_headline(content: str) -> str:
 class ContextManager:
     """Per-agent context file manager parameterized by data dir and GCS prefix."""
 
-    def __init__(self, data_dir: Path, gcs_prefix: str):
+    def __init__(self, data_dir: Path, gcs_prefix: str, brain=None):
         self.data_dir = data_dir
         self.tools_dir = data_dir / "tools"
         self.daily_dir = data_dir / "daily"
         self.meetings_dir = data_dir / "meetings"
         self.gcs_prefix = gcs_prefix
+        # BrainBackend when the agent's memory_backend is "brain" (set by
+        # agents.engine.get_context_manager): the prompt's MEMORY section then
+        # comes from the brain's GET /context instead of local MEMORY.md.
+        # Everything else (persona files, topic notes, daily/) stays local.
+        self.brain = brain
 
     def ensure_dir(self):
         """Create the data directory if it doesn't exist."""
@@ -207,15 +212,17 @@ class ContextManager:
         # Load MEMORY.md second — the living snapshot. Always included if it
         # exists with content; no size gate (consolidation keeps it tight).
         memory_file = self.data_dir / "MEMORY.md"
-        if memory_file.exists():
+        if self.brain is not None:
+            section = f"## MEMORY (second brain)\n\n{sanitize_memory_content(self.brain.context_text())}"
+            parts.append(section)
+            total += len(section)
+        elif memory_file.exists():
             memory_content = memory_file.read_text(encoding="utf-8").strip()
             if memory_content:
                 section = f"## MEMORY\n\n{memory_content}"
                 parts.append(section)
                 total += len(section)
                 loaded_files.append("MEMORY.md")
-
-
 
         truncated = False
         for f in files:

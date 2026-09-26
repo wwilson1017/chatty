@@ -16,7 +16,7 @@ import threading
 import uuid
 
 from agents.db import get_agent_by_slug
-from agents.engine import build_agent_config, get_context_manager, get_chat_service
+from agents.engine import build_agent_config, get_context_manager, get_chat_service, memory_backend_for
 from core.agents.background_runner import run_background_turn
 from core.agents.tool_registry import ToolRegistry
 from core.agents.tool_definitions import get_tool_definitions
@@ -244,6 +244,7 @@ def _process_message_locked(
         multi_gmail=len(gmail_ids) > 1,
         multi_calendar=len(calendar_ids) > 1,
         multi_drive=len(drive_ids) > 1,
+        memory_backend=memory_backend_for(agent_slug),
     )
 
     # Apply integration permission ceilings — messaging channels have no approval UI,

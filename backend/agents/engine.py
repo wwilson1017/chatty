@@ -95,10 +95,17 @@ def build_agent_config(agent_row: dict) -> AgentConfig:
 
 
 def get_context_manager(slug: str) -> ContextManager:
-    """Return a ContextManager for the given agent slug."""
+    """Return a ContextManager for the given agent slug.
+
+    Every prompt path (chat, WhatsApp, reminders, heartbeats, crons, coach)
+    builds its knowledge block through this, so the brain switch lives here:
+    a brain-backed agent's manager injects the brain's /context text in place
+    of local MEMORY.md / topic notes / daily/.
+    """
     return ContextManager(
         data_dir=_context_dir(slug),
         gcs_prefix=_gcs_prefix(slug) + "context/",
+        brain=get_brain_backend(slug),
     )
 
 

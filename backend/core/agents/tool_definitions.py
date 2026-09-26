@@ -1706,6 +1706,24 @@ NOTIFY_USER_TOOLS = [
 ]
 
 
+def _memory_tools_for(memory_backend: str, background_mode: bool) -> list[dict]:
+    """MEMORY_TOOLS, adjusted for a brain-backed agent: the brain write tools
+    carry the SKIP guidance, and background turns (heartbeats, crons) drop them
+    entirely — a heartbeat's "X is WORKING" belongs in the local daily note, not
+    the second brain."""
+    if memory_backend != "brain":
+        return list(MEMORY_TOOLS)
+    from core.agents.memory.brain_backend import BRAIN_SKIP_TEXT, BRAIN_WRITE_TOOLS
+    out = []
+    for t in MEMORY_TOOLS:
+        if t["name"] in BRAIN_WRITE_TOOLS:
+            if background_mode:
+                continue
+            t = {**t, "description": t["description"] + BRAIN_SKIP_TEXT}
+        out.append(t)
+    return out
+
+
 def get_tool_definitions(
     gmail_enabled: bool = False,
     calendar_enabled: bool = False,
@@ -1729,6 +1747,7 @@ def get_tool_definitions(
     multi_calendar: bool = False,
     multi_drive: bool = False,
     background_mode: bool = False,
+    memory_backend: str = "builtin",
 ) -> list[dict]:
     """Return the full list of tool definitions for the given feature flags.
 
@@ -1747,7 +1766,7 @@ def get_tool_definitions(
     tools.extend(DATETIME_TOOLS)
     tools.extend(CHAT_HISTORY_TOOLS)
     if memory_enabled:
-        tools.extend(MEMORY_TOOLS)
+        tools.extend(_memory_tools_for(memory_backend, background_mode))
         tools.extend(PLAYBOOK_TOOLS)
     if shared_context_enabled:
         tools.extend(SHARED_CONTEXT_TOOLS)
