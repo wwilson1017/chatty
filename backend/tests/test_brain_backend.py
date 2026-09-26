@@ -291,6 +291,16 @@ class TestRoutingSwitch:
         valid_from = run("query_facts", {"subject": "people/x"})["facts"][0]["valid_from"]
         assert run("query_facts", {"subject": "people/x", "since": valid_from, "until": valid_from})["total"] == 1
         assert run("query_facts", {"subject": "people/x", "until": "2000-01-01"}) == {"facts": [], "total": 0}
+        # the date filter looks past the requested limit, then cuts to it
+        for i in range(3):
+            run("add_fact", {"subject": "people/y", "predicate": f"p{i}", "object": "v"})
+        assert run("query_facts", {"subject": "people/y", "since": valid_from, "limit": 2})["total"] == 2
+
+        # a malformed replacement is rejected BEFORE the old fact is touched
+        assert run("invalidate_fact", {"fact_id": first["id"], "replacement": {"object": "coo"}}) == {
+            "error": "replacement must be an object with subject, predicate and object",
+        }
+        assert run("query_facts", {"subject": "people/x"})["total"] == 1
 
         out = run("invalidate_fact", {"fact_id": first["id"], "correction": True,
                                       "replacement": {"subject": "people/x", "predicate": "role", "object": "coo"}})

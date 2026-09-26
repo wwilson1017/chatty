@@ -265,33 +265,41 @@ class ToolRegistry:
                 memory_type=args.get("memory_type"), confidence=args.get("confidence", 1.0),
             )
         elif tool_name == "query_facts":
+            since, until = args.get("since"), args.get("until")
+            try:
+                limit = max(1, min(int(args.get("limit", 50)), 500))
+            except (TypeError, ValueError):
+                limit = 50
             out = query_facts(
                 ctx_dir, prefix,
                 subject=args.get("subject"), predicate=args.get("predicate"),
                 as_of=args.get("as_of"), memory_type=args.get("memory_type"),
                 include_expired=args.get("include_expired", False),
-                limit=args.get("limit", 50),
+                # simplification: since/until post-filter on ISO valid_from over the full window
+                # (500 = query_facts' cap), then cut to limit; the brain does it server-side
+                limit=500 if (since or until) else limit,
             )
-            # simplification: since/until post-filter on valid_from (the brain does it server-side)
-            since, until = args.get("since"), args.get("until")
             if "facts" in out and (since or until):
                 out["facts"] = [f for f in out["facts"]
                                 if (not since or (f.get("valid_from") or "") >= since)
-                                and (not until or (f.get("valid_from") or "") <= until)]
+                                and (not until or (f.get("valid_from") or "") <= until)][:limit]
                 out["total"] = len(out["facts"])
             return out
         elif tool_name == "invalidate_fact":
+            replacement = args.get("replacement")
+            if replacement is not None and not (isinstance(replacement, dict) and all(
+                    (replacement.get(k) or "").strip() for k in ("subject", "predicate", "object"))):
+                return {"error": "replacement must be an object with subject, predicate and object"}
             out = invalidate_fact(
                 ctx_dir, prefix,
                 fact_id=args["fact_id"], valid_to=args.get("valid_to"),
             )
-            replacement = args.get("replacement")
-            if out.get("ok") and isinstance(replacement, dict):
+            if out.get("ok") and replacement is not None:
                 # simplification: local facts have no supersede/correction link; invalidate + add
                 out["replacement"] = add_fact(
                     ctx_dir, prefix,
-                    subject=replacement.get("subject", ""), predicate=replacement.get("predicate", ""),
-                    object=replacement.get("object", ""), memory_type=args.get("memory_type"),
+                    subject=replacement["subject"], predicate=replacement["predicate"],
+                    object=replacement["object"], memory_type=args.get("memory_type"),
                 )
             return out
         elif tool_name == "consolidate_memory":
