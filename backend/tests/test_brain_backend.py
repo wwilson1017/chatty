@@ -71,19 +71,12 @@ def backend(fake):
 
 
 class TestRouteMapping:
-    def test_append_daily_note(self, backend, fake):
-        out = backend.execute("append_daily_note", {"content": "Met Thandi", "memory_type": "person"})
-        assert out == {"date": "2026-09-20", "path": "/b/daily/2026-09-20.md", "ok": True}
-        assert fake.requests[-1] == ("POST", "/brain/daily", {}, {"content": "Met Thandi", "type": "person"})
-        assert backend.execute("append_daily_note", {"content": "  "}) == {"error": "content is required"}
-
-    def test_read_and_list_daily(self, backend, fake):
-        assert backend.execute("read_daily_note", {"date": "2026-09-20"})["exists"] is True
-        assert backend.execute("read_daily_note", {}) == {"error": "date is required"}
-        assert backend.execute("list_daily_notes", {"limit": "999"}) == {
-            "notes": [{"date": "2026-09-20", "headline": "hello"}],
-        }
-        assert fake.requests[-1][2] == {"limit": "365"}
+    def test_daily_notes_are_local_not_brain(self, backend, fake):
+        for name in ("append_daily_note", "read_daily_note", "list_daily_notes", "list_meetings", "complete_commitment"):
+            assert backend.execute(name, {"content": "x", "date": "2026-09-20"}) == {
+                "error": f"{name} is a local memory tool, not a brain tool",
+            }
+        assert fake.requests == []  # never touched the brain's /daily routes
 
     def test_read_memory_is_sanitized_and_update_refused(self, backend):
         content = backend.execute("read_memory", {})["content"]
@@ -123,10 +116,8 @@ class TestRouteMapping:
         assert fake.requests[-1] == ("POST", "/brain/facts/1/invalidate", {}, {"valid_to": "2026-09-01"})
         assert backend.execute("invalidate_fact", {"fact_id": "x"}) == {"error": "fact_id must be an integer"}
 
-    def test_unsupported_and_unknown(self, backend):
-        for name in ("list_meetings", "read_meeting", "consolidate_memory", "complete_commitment"):
-            assert backend.execute(name, {}) == {"error": f"{name} is not supported by the brain backend"}
-        assert backend.execute("nope", {}) == {"error": "Unknown memory tool: nope"}
+    def test_unknown(self, backend):
+        assert backend.execute("nope", {}) == {"error": "nope is a local memory tool, not a brain tool"}
 
 
 class TestFailures:
@@ -164,6 +155,11 @@ class TestRoutingSwitch:
         assert out["content"].startswith("# MEMORY") and fake.requests[-1][1] == "/memory"
         assert not (ctx / "MEMORY.md").exists() and not (ctx / "memory.db").exists()
 
+        # short-term memory stays local: the daily note lands in context/daily/, not the brain
+        out = asyncio.run(reg.execute_tool("append_daily_note", {"content": "Gmail is WORKING"}, "memory"))
+        assert out["ok"] and (ctx / "daily" / f"{out['date']}.md").read_text().endswith("Gmail is WORKING\n")
+        assert all(path != "/brain/daily" for _, path, _, _ in fake.requests)
+
         # a builtin agent still uses the local context dir
         local = ToolRegistry(context_dir=str(ctx), gcs_prefix="", agent_slug="other")
         assert asyncio.run(local.execute_tool("read_memory", {}, "memory")) == {"content": ""}
@@ -199,15 +195,12 @@ class TestShapeParity:
 
     def test_builtin_keys_are_a_subset_of_brain_keys(self, backend, tmp_path):
         from core.agents.memory.search_tools import add_fact, invalidate_fact, query_facts, search_memory
-        from core.agents.tools.memory_tools import append_daily_note, list_daily_notes, read_daily_note, read_memory
+        from core.agents.tools.memory_tools import read_memory
 
         ctx = str(tmp_path / "context")
         (tmp_path / "context").mkdir()
         fact = add_fact(ctx, "", subject="people/x", predicate="role", object="ceo")
         builtin = {
-            "append_daily_note": append_daily_note(ctx, "", "hello"),
-            "read_daily_note": read_daily_note(ctx, "", "2026-09-20"),
-            "list_daily_notes": list_daily_notes(ctx, ""),
             "read_memory": read_memory(ctx, ""),
             "search_memory": search_memory(ctx, "", "ceo"),
             "add_fact": fact,
@@ -215,8 +208,7 @@ class TestShapeParity:
             "invalidate_fact": invalidate_fact(ctx, "", fact["id"]),
         }
         args = {
-            "append_daily_note": {"content": "hello"}, "read_daily_note": {"date": "2026-09-20"},
-            "list_daily_notes": {}, "read_memory": {}, "search_memory": {"query": "ceo"},
+            "read_memory": {}, "search_memory": {"query": "ceo"},
             "add_fact": {"subject": "people/x", "predicate": "role", "object": "ceo"},
             "query_facts": {"subject": "people/x"}, "invalidate_fact": {"fact_id": 1},
         }

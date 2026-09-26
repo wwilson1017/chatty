@@ -490,7 +490,7 @@ def _build_system_prompt(
         ])
         parts.append(_information_priority_instructions())
         parts.append(_knowledge_management_instructions())
-        parts.append(_memory_instructions())
+        parts.append(_memory_instructions(brain=getattr(ctx_manager, "brain", None) is not None))
         parts.append(_playbook_instructions())
         parts.append(get_report_instructions())
         parts.append(get_scheduling_instructions())
@@ -667,8 +667,21 @@ Playbooks store HOW this business does things — procedures, not facts.
 - Facts ("the Smith account is net-30") belong in memory; procedures ("how we chase overdue invoices") belong in playbooks."""
 
 
-def _memory_instructions() -> str:
+def _memory_instructions(brain: bool = False) -> str:
     """Instructions for using the memory system (daily notes, MEMORY.md, search)."""
+    if brain:
+        return """## Memory System
+
+Your long-term memory lives in a second brain (a personal knowledge base you share with its owner); short-term memory stays in your local files:
+
+- **MEMORY (second brain)** — the block at the top of your prompt is the brain's session-start summary (its MEMORY.md, index and the last few days' headlines), refreshed each minute. `read_memory` returns the brain's full current MEMORY.md. It is maintained by its owner — `update_memory` is not available; record durable knowledge with `add_fact` instead.
+- **Daily Notes (local)** — `append_daily_note` logs significant events, decisions and information as they happen, in your own daily note. Task progress, status and heartbeat findings belong here, never in the brain. A nightly job promotes the durable items to the brain.
+- **Facts (brain)** — `add_fact` records durable entity-relationship facts in the brain; `query_facts` reads them. Skip task progress, completed-work logs, temporary status and in-progress state — when in doubt, store less.
+- **Search** — `search_memory` returns brain hits (`results`) plus your local daily-note and topic-file hits (`local_results`).
+- **Shared Context** — `list_shared_context` / `read_shared_context` / `write_shared_context` for knowledge shared across all agents.
+- **Conversation History** — `search_conversation_history` for past discussions.
+
+**Memory guideline:** When asked about past events, decisions, or conversations, check `search_memory` (brain and local) and `search_conversation_history` rather than guessing. If the memory block above says the brain is unavailable, say so when memory matters — don't fabricate."""
     return """## Memory System
 
 You have a structured memory system beyond basic context files:
@@ -882,6 +895,7 @@ async def chat(
     gmail_caps = google_capabilities_union(gmail_ids)
     cal_caps = google_capabilities_union(cal_ids)
     drive_caps = google_capabilities_union(drive_ids)
+    from agents.engine import memory_backend_for
     tool_defs = get_tool_definitions(
         integration_tools=integration_tool_defs,
         dynamic_real_tools=dynamic_real_tools or None,
@@ -895,6 +909,7 @@ async def chat(
         multi_gmail=len(gmail_ids) > 1,
         multi_calendar=len(cal_ids) > 1,
         multi_drive=len(drive_ids) > 1,
+        memory_backend=memory_backend_for(config.slug),
     )
     kind_map = _build_kind_map(tool_defs)
     writes_map = build_writes_map(tool_defs)
@@ -1722,6 +1737,7 @@ async def run_sync(
     gmail_caps = google_capabilities_union(gmail_ids)
     cal_caps = google_capabilities_union(cal_ids)
     drive_caps = google_capabilities_union(drive_ids)
+    from agents.engine import memory_backend_for
     tool_defs = get_tool_definitions(
         integration_tools=integration_tool_defs,
         dynamic_real_tools=dynamic_real_tools or None,
@@ -1734,6 +1750,7 @@ async def run_sync(
         multi_gmail=len(gmail_ids) > 1,
         multi_calendar=len(cal_ids) > 1,
         multi_drive=len(drive_ids) > 1,
+        memory_backend=memory_backend_for(config.slug),
     )
 
     # Apply integration permission ceilings — messaging channels have no approval UI,

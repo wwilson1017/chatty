@@ -49,6 +49,7 @@ from .engine import (
     get_chat_service,
     ensure_memory_db,
     invalidate_cache,
+    memory_backend_for,
     DATA_DIR,
 )
 from .templates import seed_context_files
@@ -1370,6 +1371,7 @@ async def tool_execute(agent_id: str, req: ToolExecuteRequest, user=Depends(get_
         calendar_write_enabled=cal_caps["calendar_write_enabled"],
         drive_read_enabled=drive_caps["drive_read_enabled"],
         drive_write_enabled=drive_caps["drive_write_enabled"],
+        memory_backend=memory_backend_for(agent["slug"]),
     )
     writes_map = build_writes_map(tool_defs)
     if not writes_map.get(req.tool, False):
