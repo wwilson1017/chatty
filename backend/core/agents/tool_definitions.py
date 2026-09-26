@@ -299,6 +299,10 @@ MEMORY_TOOLS = [
                 "object": {"type": "string", "description": "The value (e.g. 'Acme Corp')"},
                 "memory_type": {"type": "string", "description": "Optional type: person, decision, etc."},
                 "confidence": {"type": "number", "description": "Confidence 0.0-1.0 (default 1.0)"},
+                "correction": {
+                    "type": "boolean",
+                    "description": "When this replaces an earlier fact: correction=true when the old fact was never true (a mistake), false when it simply stopped being true (default false)",
+                },
             },
             "required": ["subject", "predicate", "object"],
         },
@@ -315,6 +319,8 @@ MEMORY_TOOLS = [
                 "subject": {"type": "string", "description": "Filter by subject (partial match)"},
                 "predicate": {"type": "string", "description": "Filter by predicate (partial match)"},
                 "as_of": {"type": "string", "description": "Point-in-time view (YYYY-MM-DD)"},
+                "since": {"type": "string", "description": "Only facts valid from this date or later (YYYY-MM-DD)"},
+                "until": {"type": "string", "description": "Only facts valid from this date or earlier (YYYY-MM-DD)"},
                 "memory_type": {"type": "string", "description": "Filter by memory type"},
                 "include_expired": {"type": "boolean", "description": "Include expired facts (default false)"},
                 "limit": {"type": "integer", "description": "Max results (default 50)"},
@@ -327,12 +333,26 @@ MEMORY_TOOLS = [
     },
     {
         "name": "invalidate_fact",
-        "description": "Mark a fact as no longer valid by setting its valid_to date.",
+        "description": "Mark a fact as no longer valid by setting its valid_to date, optionally recording the fact that replaces it.",
         "input_schema": {
             "type": "object",
             "properties": {
                 "fact_id": {"type": "integer", "description": "The fact ID to invalidate"},
                 "valid_to": {"type": "string", "description": "End date (default: today)"},
+                "replacement": {
+                    "type": "object",
+                    "description": "Optional new fact that supersedes this one: {subject, predicate, object}",
+                    "properties": {
+                        "subject": {"type": "string"},
+                        "predicate": {"type": "string"},
+                        "object": {"type": "string"},
+                    },
+                    "required": ["subject", "predicate", "object"],
+                },
+                "correction": {
+                    "type": "boolean",
+                    "description": "With a replacement: correction=true when the old fact was never true (a mistake), false when it simply stopped being true (default false)",
+                },
             },
             "required": ["fact_id"],
         },

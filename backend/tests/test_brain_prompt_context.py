@@ -53,7 +53,7 @@ class TestPromptBlock:
         # short-term / persona context is untouched: persona, topic notes, daily manifests
         assert "I am Tom." in text and "Will." in text and "LOCAL TOPIC NOTE" in text
         assert text.index("I am Tom.") < text.index("Will runs TNC") < text.index("LOCAL TOPIC NOTE")
-        assert calls == [("GET", "/context", {"max_chars": "8000"}, b"")]
+        assert calls == [("GET", "/context", {"max_chars": "8000", "agent": "tom"}, b"")]
         assert "2026-09-20" in cm.daily_notes_manifest() and "projects.md" in cm.topic_files_manifest()
         assert sorted(h["kind"] for h in cm.relevance_prefetch("cheesecake")) == ["daily", "topic"]
 
