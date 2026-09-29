@@ -12,7 +12,8 @@ stays in the per-agent ``context/`` exactly as with the builtin backend.
 Route map (brain → Chatty result shape):
   read_memory   → GET /memory          search_memory   → GET /search (+ local daily/topic hits, merged by the registry)
   add_fact      → POST /facts          query_facts     → GET /facts
-  invalidate_fact → POST /facts/{id}/invalidate
+  invalidate_fact → POST /facts/{id}/invalidate, or POST /facts/{id}/supersede when a replacement is given
+Every read passes ``agent=<slug>`` so the brain's confidential exclusion is per agent.
   update_memory → refused: the brain's MEMORY.md is owner-maintained (AGENTS.md)
   propose_change → POST /propose     list_proposals → GET /review?harness=chatty
     (structural changes are PROPOSED, the owner accepts them via the brain CLI)
@@ -49,6 +50,13 @@ UPDATE_MEMORY_REFUSED = (
     "update_memory is not available on the brain backend: MEMORY.md there is maintained by its owner "
     "and the nightly job. Record the durable fact with add_fact, or the event with append_daily_note."
 )
+FUZZY_SUBJECT_NOTE = (
+    "subject did not resolve to a known person or exact subject; these are substring matches — "
+    "check the subjects before relying on them"
+)
+# Chatty's search_memory source_type vocabulary → the brain's /search kind list
+# (note|fact|daily|person|memory). Unknown values pass through unchanged.
+SOURCE_TYPE_TO_KIND = {"topic": "note"}
 NOT_CONFIGURED = "brain integration is not configured (Settings → Integrations → Second Brain)"
 UNREACHABLE = "brain unreachable"
 
@@ -82,8 +90,8 @@ class BrainBackend:
         now = time.monotonic()
         if self._context_cache and self._context_cache[0] > now:
             return self._context_cache[1]
-        data = self._request("GET", "/context", params={"max_chars": max_chars},
-                             timeout=CONTEXT_TIMEOUT_SECONDS)
+        params = {"max_chars": max_chars, **({"agent": self.agent_slug} if self.agent_slug else {})}
+        data = self._request("GET", "/context", params=params, timeout=CONTEXT_TIMEOUT_SECONDS)
         if "error" in data:
             logger.warning("brain /context unavailable: %s", data["error"])
             text = CONTEXT_UNAVAILABLE
@@ -137,41 +145,56 @@ class BrainBackend:
         query = (args.get("query") or "").strip()
         if not query:
             return {"error": "query is required"}
-        # simplification: source_type / memory_type / date filters are not forwarded —
-        # the brain's /search takes only q + limit; add them there first if needed.
-        data = self._get("/search", q=query, limit=_clamp(args.get("limit", 20), 20, 100))
+        source_type = (args.get("source_type") or "").strip() or None
+        # memory_type is not forwarded: the brain's /search has no such filter.
+        data = self._get(
+            "/search", q=query, limit=_clamp(args.get("limit", 20), 20, 100),
+            since=args.get("date_from") or None, until=args.get("date_to") or None,
+            kind=SOURCE_TYPE_TO_KIND.get(source_type, source_type), agent=self.agent_slug or None,
+        )
         if "error" in data:
             return data
         results = data.get("results", [])
         for r in results:
-            for key in ("title", "snippet"):
+            for key in ("title", "snippet", "subject", "predicate", "object"):
                 if r.get(key):
                     r[key] = _sanitize(r[key])
-        out = {"query": query, "results": results, "total": len(results)}
+        # fact hits ride inside results (kind == "fact"); the brain's top-level "facts" is their count
+        facts = data.get("facts")
+        if not isinstance(facts, list):
+            facts = [r for r in results if r.get("kind") == "fact"]
+        out = {"query": query, "results": results, "total": len(results), "facts": facts}
         if data.get("index") == "incomplete":
             out["warning"] = "brain index incomplete — some notes may be missing from these results"
         return out
+
+    def _fact_body(self, args: dict) -> dict:
+        return dict(
+            subject=args["subject"].strip(), predicate=args["predicate"].strip(), object=args["object"].strip(),
+            memory_type=args.get("memory_type"), confidence=args.get("confidence", 1.0),
+            correction=True if args.get("correction") else None,
+            created_by="chatty", origin_class="agent", harness="chatty", agent=self.agent_slug or None,
+        )
 
     def _add_fact(self, args: dict) -> dict:
         for key in ("subject", "predicate", "object"):
             if not (args.get(key) or "").strip():
                 return {"error": f"{key} is required"}
-        return self._post(
-            "/facts",
-            subject=args["subject"].strip(), predicate=args["predicate"].strip(), object=args["object"].strip(),
-            memory_type=args.get("memory_type"), confidence=args.get("confidence", 1.0),
-            created_by="chatty", origin_class="agent", harness="chatty", agent=self.agent_slug or None,
-        )
+        return _describe_write(self._post("/facts", **self._fact_body(args)))
 
     def _query_facts(self, args: dict) -> dict:
         data = self._get(
-            "/facts", subject=args.get("subject"), predicate=args.get("predicate"), as_of=args.get("as_of"),
+            "/facts", subject=args.get("subject"), predicate=args.get("predicate"), as_of=args.get("as_of") or None,
+            since=args.get("since") or None, until=args.get("until") or None,
             include_expired=bool(args.get("include_expired", False)), limit=_clamp(args.get("limit", 50), 50, 500),
-            track_retrieval=True,
+            track_retrieval=True, agent=self.agent_slug or None,
         )
         if isinstance(data, dict) and "error" in data:
             return data
-        facts = data if isinstance(data, list) else []
+        # object shape {facts, match, person, ...}; a bare list is the pre-e73c5f5 brain
+        if isinstance(data, list):
+            data = {"facts": data}
+        facts = data.get("facts") or []
         memory_type = args.get("memory_type")
         if memory_type:  # /facts has no memory_type filter; apply it here
             facts = [f for f in facts if f.get("memory_type") == memory_type]
@@ -179,14 +202,24 @@ class BrainBackend:
             for key in ("subject", "predicate", "object"):
                 if fact.get(key):
                     fact[key] = _sanitize(fact[key])
-        return {"facts": facts, "total": len(facts)}
+        out = {"facts": facts, "total": len(facts), "match": data.get("match"), "person": data.get("person")}
+        if out["match"] == "fuzzy":
+            out["note"] = FUZZY_SUBJECT_NOTE
+        return out
 
     def _invalidate_fact(self, args: dict) -> dict:
         try:
             fact_id = int(args.get("fact_id"))
         except (TypeError, ValueError):
             return {"error": "fact_id must be an integer"}
-        return self._post(f"/facts/{fact_id}/invalidate", valid_to=args.get("valid_to"))
+        replacement = args.get("replacement")
+        if replacement is None:
+            return self._post(f"/facts/{fact_id}/invalidate", valid_to=args.get("valid_to"))
+        if not isinstance(replacement, dict) or not all((replacement.get(k) or "").strip()
+                                                         for k in ("subject", "predicate", "object")):
+            return {"error": "replacement must be an object with subject, predicate and object"}
+        body = self._fact_body({**replacement, "correction": args.get("correction")})
+        return _describe_write(self._post(f"/facts/{fact_id}/supersede", **body))
 
     # ── proposals (brain/review/propose.py) ──────────────────────────────
 
@@ -218,6 +251,19 @@ class BrainBackend:
                 if isinstance(row.get(key), str):
                     row[key] = _sanitize(row[key])
         return {"proposals": rows, "total": len(rows)}
+
+
+def _describe_write(data: dict) -> dict:
+    """Tell the model what the brain did with the triple: reused an existing fact, or replaced others."""
+    if "error" in data:
+        return data
+    if data.get("existing"):
+        data["note"] = f"already recorded as fact #{data.get('id')} — no duplicate written"
+    elif data.get("superseded"):
+        ids = ", ".join(f"#{i}" for i in data["superseded"])
+        how = "marked never true (correction)" if data.get("correction_of") else "expired"
+        data["note"] = f"replaced fact {ids} ({how})"
+    return data
 
 
 def _clamp(value, on_error: int, maximum: int) -> int:
