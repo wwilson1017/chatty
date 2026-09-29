@@ -130,3 +130,25 @@ class TestCrmDemotion:
         save_credentials("crm_lite", {"enabled": True})
         disable("crm_lite")
         assert is_enabled("crm_lite") is False
+
+
+class TestBrainReconfigure:
+    def test_status_exposes_url_not_key_and_blank_key_is_kept(self, registry_dir, monkeypatch):
+        import httpx
+        from integrations.brain import onboarding
+        from integrations.registry import get_credentials, list_integrations, save_credentials
+
+        save_credentials("brain", {"base_url": "https://old/brain", "api_key": "secret", "enabled": True})
+        brain = next(i for i in list_integrations() if i["id"] == "brain")
+        assert brain["base_url"] == "https://old/brain"
+        assert "secret" not in str(brain)
+
+        seen = {}
+        def fake_get(url, headers, timeout):
+            seen["headers"] = headers
+            return httpx.Response(200, json={"ok": True})
+        monkeypatch.setattr(onboarding.httpx, "get", fake_get)
+        assert onboarding.setup("https://new/brain/", "")["ok"]
+        assert seen["headers"] == {"X-Api-Key": "secret"}
+        assert get_credentials("brain")["base_url"] == "https://new/brain"
+        assert get_credentials("brain")["api_key"] == "secret"

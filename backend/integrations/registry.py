@@ -378,6 +378,8 @@ def list_integrations() -> list[dict]:
                 entry["scope_grants"] = only.get("scope_grants", {})
             if any(a.get("connection_status") == "broken" for a in accounts.values()):
                 entry["connection_status"] = "broken"
+        if key == "brain" and creds:
+            entry["base_url"] = creds.get("base_url", "")  # never the api_key
         if meta.get("auth_type") in ("oauth2", "oauth2_scoped"):
             from .app_credentials import has_app_credentials
             entry["has_app_credentials"] = has_app_credentials(key)

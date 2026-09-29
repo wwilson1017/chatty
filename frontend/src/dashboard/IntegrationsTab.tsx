@@ -253,6 +253,16 @@ export function IntegrationsTab() {
     finally { setSaving(false); }
   }
 
+  async function disconnectBrain() {
+    setSaving(true); setError('');
+    try {
+      await api('/api/integrations/brain/disconnect', { method: 'POST' });
+      const data = await api<{ integrations: Integration[] }>('/api/integrations');
+      setIntegrations(data.integrations);
+    } catch (err: unknown) { setError(err instanceof Error ? err.message : 'Disconnect failed'); }
+    finally { setSaving(false); }
+  }
+
   async function setupPaperclip() {
     setSaving(true); setError('');
     try {
@@ -575,6 +585,22 @@ export function IntegrationsTab() {
               </div>
             )}
 
+            {/* Brain disconnect + reconfigure */}
+            {integration.id === 'brain' && integration.configured && (
+              <div style={{ marginTop: 8, display: 'flex', gap: 8, alignItems: 'center' }}>
+                <button onClick={() => { setBrainUrl(integration.base_url || ''); setBrainKey(''); setSetupFor('brain'); setError(''); }} style={{
+                  fontSize: 11, padding: '4px 8px', borderRadius: 4,
+                  background: 'transparent', color: 'rgba(237,240,244,0.38)',
+                  border: 'none', cursor: 'pointer',
+                }}>Reconfigure</button>
+                <button onClick={disconnectBrain} disabled={saving} style={{
+                  fontSize: 11, padding: '4px 8px', borderRadius: 4,
+                  background: 'transparent', color: '#D97757',
+                  border: 'none', cursor: 'pointer', opacity: saving ? 0.5 : 1,
+                }}>Disconnect</button>
+              </div>
+            )}
+
             {/* Paperclip agent mapping */}
             {integration.id === 'paperclip' && integration.enabled && integration.configured && (
               <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px solid rgba(230,235,242,0.07)' }}>
@@ -888,7 +914,7 @@ export function IntegrationsTab() {
                       URL of your <code>brain</code> server (the mount point, e.g. https://host/brain) and its API key. Then set an agent&apos;s memory backend to &ldquo;brain&rdquo; in its Knowledge tab.
                     </p>
                     <input placeholder="Brain URL (https://host/brain)" value={brainUrl} onChange={e => setBrainUrl(e.target.value)} style={inputStyle} />
-                    <input placeholder="API key" type="password" value={brainKey} onChange={e => setBrainKey(e.target.value)} style={inputStyle} />
+                    <input placeholder={integration.configured ? 'API key (leave blank to keep current)' : 'API key'} type="password" value={brainKey} onChange={e => setBrainKey(e.target.value)} style={inputStyle} />
                     <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
                       <button onClick={() => setSetupFor(null)} style={{ flex: 1, padding: '8px 16px', fontSize: 13, borderRadius: 4, border: '1px solid rgba(230,235,242,0.14)', background: 'transparent', color: 'rgba(237,240,244,0.62)', cursor: 'pointer' }}>Cancel</button>
                       <button onClick={setupBrain} disabled={saving || !brainUrl.trim()} style={{ flex: 1, padding: '8px 16px', fontSize: 13, borderRadius: 4, background: 'var(--color-ch-accent, #C8D1D9)', color: '#0E1013', border: 'none', cursor: 'pointer', fontWeight: 500, opacity: saving || !brainUrl.trim() ? 0.5 : 1 }}>{saving ? 'Connecting...' : 'Connect'}</button>
