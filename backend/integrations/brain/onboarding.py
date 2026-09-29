@@ -2,12 +2,16 @@
 
 import httpx
 
-from integrations.registry import save_credentials
+from integrations.registry import get_credentials, save_credentials
 
 
 def setup(base_url: str, api_key: str = "") -> dict:
-    """GET /health on the brain server, then store the URL + key encrypted."""
+    """GET /health on the brain server, then store the URL + key encrypted.
+
+    A blank key on reconfigure keeps the stored one (the UI never sees it).
+    """
     base_url = base_url.strip().rstrip("/")
+    api_key = api_key or get_credentials("brain").get("api_key", "")
     headers = {"X-Api-Key": api_key} if api_key else {}
     try:
         resp = httpx.get(f"{base_url}/health", headers=headers, timeout=10)
