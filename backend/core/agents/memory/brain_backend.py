@@ -15,13 +15,18 @@ Route map (brain → Chatty result shape):
   invalidate_fact → POST /facts/{id}/invalidate, or POST /facts/{id}/supersede when a replacement is given
 Every read passes ``agent=<slug>`` so the brain's confidential exclusion is per agent.
   update_memory → refused: the brain's MEMORY.md is owner-maintained (AGENTS.md)
-  propose_change → POST /propose     list_proposals → GET /review?harness=chatty
-    (structural changes are PROPOSED, the owner accepts them via the brain CLI)
+  propose_change → POST /propose     list_proposals → GET /review?harness=chatty&agent=<slug>
+  review_proposal → POST /review/{id}/decide
+    (structural changes are PROPOSED; a curator's merge/move/archive/unlocked memory-section applies
+    at once — the response says ``applied`` — and a curator may accept/reject other agents' proposals;
+    rules, AGENTS.md and locked MEMORY.md sections always wait for the owner)
   GET /context  → the prompt's MEMORY section (context_text)
 """
 
 import logging
+import re
 import time
+from urllib.parse import quote
 
 import httpx
 
@@ -31,9 +36,10 @@ logger = logging.getLogger(__name__)
 # commitments and consolidate_memory stay on the local builtin implementation.
 BRAIN_TOOLS = frozenset({
     "read_memory", "update_memory", "search_memory", "add_fact", "query_facts", "invalidate_fact",
-    "propose_change", "list_proposals",
+    "propose_change", "list_proposals", "review_proposal",
 })
-PROPOSAL_KINDS = ("merge-people", "move-note", "memory-section", "rule", "agents-md")
+PROPOSAL_KINDS = ("merge-people", "move-note", "archive-note", "memory-section", "rule", "agents-md")
+OWNER_ONLY_KINDS = ("rule", "agents-md")  # a memory-section on a locked section is owner-only too (brain decides)
 BRAIN_WRITE_TOOLS = frozenset({"add_fact", "update_memory", "invalidate_fact"})
 # Appended to the brain write tools' descriptions (from Hermes' memory tool).
 BRAIN_SKIP_TEXT = (
@@ -53,6 +59,10 @@ UPDATE_MEMORY_REFUSED = (
 FUZZY_SUBJECT_NOTE = (
     "subject did not resolve to a known person or exact subject; these are substring matches — "
     "check the subjects before relying on them"
+)
+NOT_A_CURATOR = (
+    "you are not a curator of this brain — only a curator may accept or reject proposals; "
+    "propose_change still files them for the owner"
 )
 # Chatty's search_memory source_type vocabulary → the brain's /search kind list
 # (note|fact|daily|person|memory). Unknown values pass through unchanged.
@@ -180,7 +190,7 @@ class BrainBackend:
         for key in ("subject", "predicate", "object"):
             if not (args.get(key) or "").strip():
                 return {"error": f"{key} is required"}
-        return _describe_write(self._post("/facts", **self._fact_body(args)))
+        return _describe_write(self._post("/facts", **self._fact_body(args)), sent_subject=args["subject"].strip())
 
     def _query_facts(self, args: dict) -> dict:
         data = self._get(
@@ -219,7 +229,7 @@ class BrainBackend:
                                                          for k in ("subject", "predicate", "object")):
             return {"error": "replacement must be an object with subject, predicate and object"}
         body = self._fact_body({**replacement, "correction": args.get("correction")})
-        return _describe_write(self._post(f"/facts/{fact_id}/supersede", **body))
+        return _describe_write(self._post(f"/facts/{fact_id}/supersede", **body), sent_subject=body["subject"])
 
     # ── proposals (brain/review/propose.py) ──────────────────────────────
 
@@ -233,30 +243,105 @@ class BrainBackend:
         reason = (args.get("reason") or "").strip()
         if not reason:
             return {"error": "reason is required"}
-        return self._post(
+        data = self._post(
             "/propose", kind=kind, payload=payload, reason=reason, evidence=(args.get("evidence") or None),
             origin_class="agent", harness="chatty", agent=self.agent_slug or None,
         )
+        return _describe_proposal(data, kind)
 
     def _list_proposals(self, args: dict) -> dict:
         status = args.get("status") or "pending"
-        if status not in ("pending", "rejected", "all"):
-            return {"error": "status must be pending, rejected or all"}
-        data = self._get("/review", kind=args.get("kind"), status=status, harness="chatty")
+        if status not in ("pending", "rejected", "accepted", "all"):
+            return {"error": "status must be pending, rejected, accepted or all"}
+        # no kind → the brain returns structural proposals only (it sees harness/agent); "extraction" and
+        # "all" are its group names; anything else is one kind or a comma list, passed through
+        kind = (args.get("kind") or "").strip() or None
+        mine = args.get("mine", True)
+        data = self._get("/review", kind=kind, status=status, harness="chatty", agent=self.agent_slug or None,
+                         mine="true" if mine else None)
         if isinstance(data, dict) and "error" in data:
             return data
         rows = data if isinstance(data, list) else data.get("proposals", []) if isinstance(data, dict) else []
         for row in rows:
-            for key in ("line", "reason", "decision"):
-                if isinstance(row.get(key), str):
-                    row[key] = _sanitize(row[key])
+            _sanitize_proposal(row)
         return {"proposals": rows, "total": len(rows)}
 
+    def _review_proposal(self, args: dict) -> dict:
+        pid = str(args.get("id") or "").strip()
+        if not pid:
+            return {"error": "id is required (from list_proposals)"}
+        decision = (args.get("decision") or "").strip()
+        if decision not in ("accept", "reject"):
+            return {"error": "decision must be accept or reject"}
+        reason = (args.get("reason") or "").strip() or None
+        if decision == "reject" and not reason:
+            return {"error": "a rejection needs a reason — the proposer reads it before re-proposing"}
+        data = self._post(  # pid is model-supplied: quote it so it stays one path segment
+            f"/review/{quote(pid, safe='')}/decide", decision=decision, reason=reason, domain=(args.get("domain") or None),
+            harness="chatty", agent=self.agent_slug or None,
+        )
+        if "error" in data:
+            if _brain_status(data) == 403:
+                return {"error": NOT_A_CURATOR}
+            if _brain_status(data) == 404:
+                return {"error": f"no proposal with id {pid} — check list_proposals"}
+            return {"error": _plain_error(data)}  # 400: owner-only kind, bad decision …
+        if decision == "accept" and data.get("outcome") == "rejected":
+            data["note"] = f"not written — the brain's gate rejected it instead: {data.get('reason')}"
+        elif data.get("outcome") == "accepted":
+            data["note"] = "accepted and written to the brain"
+        return data
 
-def _describe_write(data: dict) -> dict:
-    """Tell the model what the brain did with the triple: reused an existing fact, or replaced others."""
+
+def _describe_proposal(data: dict, kind: str) -> dict:
+    """Tell the model whether its proposal landed now or waits for the owner."""
     if "error" in data:
         return data
+    if data.get("applied"):
+        data["note"] = f"applied immediately (you are a curator) — decided by {data.get('decided_by')}"
+    elif data.get("apply_error"):
+        data["note"] = f"queued, but applying it failed: {data['apply_error']} — left pending for the owner"
+    elif kind in OWNER_ONLY_KINDS:
+        data["note"] = f"pending the owner's review: {kind} is owner-only"
+    elif data.get("outcome") == "duplicate":
+        data["note"] = "already pending — not queued twice"
+    else:
+        data["note"] = ("pending the owner's review (a locked MEMORY.md section is owner-only; "
+                        "other changes apply at once only for a curator)")
+    return data
+
+
+def _sanitize_proposal(row: dict) -> None:
+    for key in ("line", "reason", "decision", "subject", "predicate", "object", "title", "body"):
+        if isinstance(row.get(key), str):
+            row[key] = _sanitize(row[key])
+    decision = row.get("decision")  # the brain's decision is an object carrying the reviewer's reason
+    if isinstance(decision, dict) and isinstance(decision.get("reason"), str):
+        decision["reason"] = _sanitize(decision["reason"])
+
+
+def _brain_status(data: dict) -> int | None:
+    """The HTTP status behind a ``_request`` error, or None for a transport/config failure."""
+    m = re.match(r"brain error \((\d+)\): ", data.get("error") or "")
+    return int(m.group(1)) if m else None
+
+
+def _plain_error(data: dict) -> str:
+    """The brain's own message, without the ``brain error (NNN): `` prefix."""
+    return re.sub(r"^brain error \(\d+\): ", "", data.get("error") or "")
+
+
+def _describe_write(data: dict, sent_subject: str = "") -> dict:
+    """Tell the model what the brain did with the triple: reused an existing fact, replaced others, or
+    resolved the subject to a canonical people page. A 400 (the age gate: "store the birth date…")
+    comes back verbatim so the model learns the rule, not a status code."""
+    if "error" in data:
+        if _brain_status(data) == 400:
+            data["error"] = _plain_error(data)
+        return data
+    resolved = data.get("subject")
+    if resolved and sent_subject and resolved != sent_subject:
+        data["subject_note"] = f"subject {sent_subject!r} resolved to {resolved!r} — use that name from now on"
     if data.get("existing"):
         data["note"] = f"already recorded as fact #{data.get('id')} — no duplicate written"
     elif data.get("superseded"):
