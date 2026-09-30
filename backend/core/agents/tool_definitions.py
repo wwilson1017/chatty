@@ -1727,30 +1727,33 @@ NOTIFY_USER_TOOLS = [
 
 
 # Advertised only to brain-backed agents (memory_backend == "brain"). Executed by
-# BrainBackend via ToolRegistry._execute_memory (kind "memory"). propose_change is
-# a proposal, not a write, so background turns keep it; heartbeats drop it
-# (scheduled_actions.processor._build_tools).
+# BrainBackend via ToolRegistry._execute_memory (kind "memory"). propose_change and
+# review_proposal are proposals/decisions, not writes, so background turns keep them;
+# heartbeats drop both (scheduled_actions.processor._build_tools).
 BRAIN_ONLY_TOOLS = [
     {
         "name": "propose_change",
         "description": (
-            "Propose a structural change to the second brain for the owner to accept: merge duplicate "
-            "people pages, move a note to another domain, update a MEMORY.md section, add a review rule, "
-            "or change AGENTS.md. You cannot make these changes yourself. Check `list_proposals` first — "
-            "a rejected proposal carries the owner's reason; don't re-propose without new evidence."
+            "Propose a structural change to the second brain: merge duplicate people pages, move a note to "
+            "another domain, archive a note (never ask for a deletion — archive it), update a MEMORY.md "
+            "section, add a review rule, or change AGENTS.md. If you are one of the brain's curators, "
+            "merge-people / move-note / archive-note / memory-section changes apply at once (the result says "
+            "`applied: true`); rules, AGENTS.md and the locked MEMORY.md sections (Identity, Preferences & "
+            "Rules) always wait for the owner, as does everything from a non-curator. Check `list_proposals` "
+            "first — a rejected proposal carries the reviewer's reason; don't re-propose without new evidence."
         ),
         "input_schema": {
             "type": "object",
             "properties": {
                 "kind": {
                     "type": "string",
-                    "enum": ["merge-people", "move-note", "memory-section", "rule", "agents-md"],
+                    "enum": ["merge-people", "move-note", "archive-note", "memory-section", "rule", "agents-md"],
                     "description": "What kind of change",
                 },
                 "payload": {
                     "type": "object",
                     "description": (
-                        "merge-people: {keep, drop: slug or [slugs]} · move-note: {path, to} · "
+                        "merge-people: {keep, drop: slug or [slugs]} · move-note: {path, to} · archive-note: {path} · "
                         "memory-section: {section, text} · rule: {text, section?} · agents-md: {text, section?}"
                     ),
                 },
@@ -1765,14 +1768,56 @@ BRAIN_ONLY_TOOLS = [
     },
     {
         "name": "list_proposals",
-        "description": "List your pending or rejected proposals to the second brain (rejected ones carry the owner's reason).",
+        "description": (
+            "List proposals in the second brain's review inbox. Default: your own pending structural proposals "
+            "(merge-people, move-note, archive-note, memory-section, rule, agents-md). kind=extraction lists the "
+            "fact/note/person/preference/decision/lesson rows extracted from transcripts (a curator decides "
+            "those with `review_proposal`); kind=all lists both. Rejected rows carry the reviewer's reason."
+        ),
         "input_schema": {
             "type": "object",
             "properties": {
-                "kind": {"type": "string", "description": "Optional filter: merge-people, move-note, memory-section, rule, agents-md"},
-                "status": {"type": "string", "enum": ["pending", "rejected", "all"], "description": "Default pending"},
+                "kind": {
+                    "type": "string",
+                    "description": (
+                        "Optional: extraction, all, or one kind (merge-people, move-note, archive-note, "
+                        "memory-section, rule, agents-md, fact, note, person, preference, decision, lesson). "
+                        "Omit for structural proposals only."
+                    ),
+                },
+                "status": {
+                    "type": "string", "enum": ["pending", "rejected", "accepted", "all"],
+                    "description": "Default pending",
+                },
+                "mine": {
+                    "type": "boolean",
+                    "description": "Default true: only proposals you filed. false: every agent's (what a curator reviews)",
+                },
             },
             "required": [],
+        },
+        "kind": "memory",
+        "writes": False,
+        "context_memory": True,
+    },
+    {
+        "name": "review_proposal",
+        "description": (
+            "Accept or reject a proposal in the second brain's review inbox — curators only (anyone else gets "
+            "a refusal). Accept writes it exactly as the owner would (a fact, note or person page; a structural "
+            "change is applied); reject records your reason for the proposer. Rules, AGENTS.md and locked "
+            "MEMORY.md sections are owner-only and cannot be decided here. An accepted age fact is rejected by "
+            "the brain's gate instead (store the birth date). Read the row with `list_proposals` first."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "id": {"type": "string", "description": "The proposal id from list_proposals"},
+                "decision": {"type": "string", "enum": ["accept", "reject"]},
+                "reason": {"type": "string", "description": "Why (required for reject; the proposer reads it)"},
+                "domain": {"type": "string", "description": "Accept only: override the proposal's domain folder"},
+            },
+            "required": ["id", "decision"],
         },
         "kind": "memory",
         "writes": False,

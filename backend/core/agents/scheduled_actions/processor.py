@@ -207,13 +207,18 @@ def _within_active_hours(action: dict) -> bool:
         return current_minutes >= start_minutes or current_minutes < end_minutes
 
 
+# Brain tools a heartbeat never gets: proposing structure and deciding proposals are judgement calls.
+HEARTBEAT_EXCLUDED_BRAIN_TOOLS = frozenset({"propose_change", "review_proposal"})
+
+
 def _build_tools(agent_slug: str, agent: dict, *, background_mode: bool = False,
                  heartbeat: bool = False) -> tuple[list[dict], ToolRegistry, dict]:
     """Build full tool definitions and registry with integration parity.
 
     Returns (tool_defs, registry, account_info_map). ``heartbeat`` drops
-    ``propose_change``: a checklist sweep every N minutes is not the place to
-    file structural proposals against the owner's second brain.
+    ``propose_change`` and ``review_proposal``: a checklist sweep every N minutes
+    is not the place to file structural proposals against the owner's second
+    brain, nor to decide what enters its long-term memory (chat, cron and coach only).
     """
     from agents.tool_loader import load_integration_tools, build_agent_handlers, INTEGRATION_MODULES
     from agents.engine import build_agent_config
@@ -266,7 +271,7 @@ def _build_tools(agent_slug: str, agent: dict, *, background_mode: bool = False,
         t for t in tool_defs
         if not (t.get("integration") and t.get("writes")
                 and integration_modes.get(t["integration"]) == "read-only")
-        and not (heartbeat and t["name"] == "propose_change")
+        and not (heartbeat and t["name"] in HEARTBEAT_EXCLUDED_BRAIN_TOOLS)
     ]
 
     registry = ToolRegistry(

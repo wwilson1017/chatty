@@ -27,6 +27,7 @@ class FakeBrain:
         self.legacy_facts = False     # pre-e73c5f5 brain: GET /facts answers a bare list
         self.existing = False         # POST /facts: same triple already recorded
         self.superseded: list[int] = []
+        self.curator = False          # the brain's config.curators names chatty/tom
 
     def handler(self, request: httpx.Request) -> httpx.Response:
         body = json.loads(request.content) if request.content else None
@@ -51,8 +52,13 @@ class FakeBrain:
                 "index": "incomplete", "engine": "sqlite", "facts": 1, "params": dict(request.url.params),
             })
         if path in ("/facts", "/facts/1/supersede") and method == "POST":
+            if body["predicate"] == "age" or body["object"].endswith("years old"):
+                return httpx.Response(400, json={"error": "store the birth date (predicate birth_date), ages go stale"})
+            # the people layer resolves a name to its page: "Becca" → people/becca-wilson
+            subject = "people/becca-wilson" if body["subject"] == "Becca" else body["subject"]
             return httpx.Response(200, json={
-                "id": 9, "subject": body["subject"], "predicate": body["predicate"], "object": body["object"],
+                "id": 9, "subject": subject, "subject_text": body["subject"],
+                "predicate": body["predicate"], "object": body["object"],
                 "valid_from": "2026-09-20", "memory_type": body.get("memory_type"), "origin_class": "agent",
                 "importance": 3, "supersedes_id": self.superseded[0] if self.superseded else None,
                 "observed_at": None, "harness": "chatty", "agent": body.get("agent"), "ok": True,
@@ -72,12 +78,42 @@ class FakeBrain:
         if path == "/propose" and method == "POST":
             if body["kind"] == "rule" and "dup" in body["reason"]:
                 return httpx.Response(200, json={"id": 8, "kind": "rule", "outcome": "duplicate", "status": "rejected",
-                                                 "line": "rule: x", "previous_rejection": {"id": 8, "reason": "no", "at": "2026-09-25"}})
-            return httpx.Response(200, json={"id": 12, "kind": body["kind"], "outcome": "proposed", "status": "pending",
-                                             "line": f"{body['kind']}: {body['payload']}"})
+                                                 "line": "rule: x", "applied": False,
+                                                 "previous_rejection": {"id": 8, "reason": "no", "at": "2026-09-25"}})
+            out = {"id": 12, "kind": body["kind"], "outcome": "proposed", "status": "pending",
+                   "line": f"{body['kind']}: {body['payload']}", "applied": False}
+            curates = self.curator and body["kind"] not in ("rule", "agents-md")
+            if curates and body["payload"].get("section") == "Identity":  # locked section: owner-only
+                pass
+            elif curates and body["payload"].get("path") == "tnc/broken.md":
+                out["apply_error"] = "tnc/broken.md: no such note"
+            elif curates:
+                out.update({"applied": True, "status": "accepted", "decided_by": "curator:chatty/tom",
+                            "result": {"written": f"{body['kind']} applied"}})
+            return httpx.Response(200, json=out)
         if path == "/review" and method == "GET":
-            return httpx.Response(200, json=[{"id": 8, "kind": "rule", "status": "rejected", "line": "rule: x\u200b",
-                                              "payload": {"text": "x"}, "reason": "dup", "decision": "no"}])
+            rows = [{"id": 8, "kind": "rule", "status": "rejected", "line": "rule: x\u200b",
+                     "payload": {"text": "x"}, "reason": "dup", "decision": {"decision": "rejected", "reason": "no\u200b"}}]
+            if request.url.params.get("kind") in ("extraction", "all"):
+                rows.append({"id": "x1", "kind": "fact", "status": "pending", "subject": "Becca", "predicate": "age",
+                             "object": "12 years old\u200b", "harness": "brain-extract", "agent": None})
+            return httpx.Response(200, json=rows)
+        if path.startswith("/review/") and path.endswith("/decide") and method == "POST":
+            pid = path.split("/")[2]
+            if not self.curator:
+                return httpx.Response(403, json={"error": "chatty/tom is not a curator (config.curators)"})
+            if pid == "missing":
+                return httpx.Response(404, json={"error": "missing"})
+            if pid == "r9":
+                return httpx.Response(400, json={"error": "rule proposals are owner-only; accept r9 by hand"})
+            if body["decision"] == "reject":
+                return httpx.Response(200, json={"id": pid, "outcome": "rejected", "reason": body["reason"],
+                                                 "decided_by": "curator:chatty/tom"})
+            if pid == "x1":  # an age triple: the gate rejects instead of writing
+                return httpx.Response(200, json={"id": pid, "outcome": "rejected", "decided_by": "curator:chatty/tom",
+                                                 "reason": "store the birth date (predicate birth_date), ages go stale"})
+            return httpx.Response(200, json={"id": pid, "outcome": "accepted", "decided_by": "curator:chatty/tom",
+                                             "written": "fact #31", "domain": body.get("domain") or "family"})
         if path == "/boom":
             return httpx.Response(500, json={"error": "RuntimeError: x"})
         return httpx.Response(404, json={"detail": "Not Found"})
@@ -141,6 +177,18 @@ class TestRouteMapping:
         assert backend.execute("add_fact", {"subject": "a", "predicate": "", "object": "c"}) == {
             "error": "predicate is required",
         }
+
+    def test_add_fact_age_gate_and_resolved_subject(self, backend, fake):
+        out = backend.execute("add_fact", {"subject": "Becca", "predicate": "age", "object": "40"})
+        assert out == {"error": "store the birth date (predicate birth_date), ages go stale"}  # verbatim, no status prefix
+        out = backend.execute("add_fact", {"subject": "Becca", "predicate": "birth_date", "object": "1986-05-01"})
+        assert out["subject"] == "people/becca-wilson" and out["subject_text"] == "Becca"
+        assert out["subject_note"] == "subject 'Becca' resolved to 'people/becca-wilson' — use that name from now on"
+        out = backend.execute("add_fact", {"subject": "people/x", "predicate": "role", "object": "ceo"})
+        assert out["subject"] == "people/x" and "subject_note" not in out
+        # the supersede path is the same write
+        out = backend.execute("invalidate_fact", {"fact_id": 1, "replacement": {"subject": "Becca", "predicate": "role", "object": "12 years old"}})
+        assert out == {"error": "store the birth date (predicate birth_date), ages go stale"}
 
     def test_add_fact_surfaces_existing_and_superseded(self, backend, fake):
         args = {"subject": "people/x", "predicate": "role", "object": "coo"}
@@ -207,7 +255,8 @@ class TestRouteMapping:
             "kind": "merge-people", "payload": {"keep": "people/will", "drop": ["people/will-wilson"]},
             "reason": "same person", "evidence": "both cite will@tncheesecake.com",
         })
-        assert out["outcome"] == "proposed" and out["id"] == 12
+        assert out["outcome"] == "proposed" and out["id"] == 12 and out["applied"] is False
+        assert out["note"].startswith("pending the owner's review")
         assert fake.requests[-1] == ("POST", "/brain/propose", {}, {
             "kind": "merge-people", "payload": {"keep": "people/will", "drop": ["people/will-wilson"]},
             "reason": "same person", "evidence": "both cite will@tncheesecake.com",
@@ -219,13 +268,71 @@ class TestRouteMapping:
         assert backend.execute("propose_change", {"kind": "rule", "payload": {}, "reason": "r"}) == {"error": "payload must be a non-empty object"}
         assert backend.execute("propose_change", {"kind": "rule", "payload": {"text": "x"}, "reason": " "}) == {"error": "reason is required"}
 
+    def test_propose_archive_note_is_a_kind(self, backend, fake):
+        out = backend.execute("propose_change", {"kind": "archive-note", "payload": {"path": "tnc/old.md"}, "reason": "superseded"})
+        assert out["outcome"] == "proposed" and fake.requests[-1][3]["kind"] == "archive-note"
+        assert fake.requests[-1][3]["payload"] == {"path": "tnc/old.md"}
+
+    def test_propose_change_as_curator_reports_applied_or_owner_only(self, backend, fake):
+        fake.curator = True
+        out = backend.execute("propose_change", {"kind": "archive-note", "payload": {"path": "tnc/old.md"}, "reason": "stale"})
+        assert out["applied"] is True and out["decided_by"] == "curator:chatty/tom"
+        assert out["result"] == {"written": "archive-note applied"}
+        assert out["note"] == "applied immediately (you are a curator) — decided by curator:chatty/tom"
+        # rules and AGENTS.md never apply, even for a curator
+        out = backend.execute("propose_change", {"kind": "rule", "payload": {"text": "x"}, "reason": "r"})
+        assert out["applied"] is False and out["note"] == "pending the owner's review: rule is owner-only"
+        # a locked MEMORY.md section: the brain leaves it pending and the note says why that can happen
+        out = backend.execute("propose_change", {"kind": "memory-section", "payload": {"section": "Identity", "text": "t"}, "reason": "r"})
+        assert out["applied"] is False and "locked MEMORY.md section is owner-only" in out["note"]
+        # an apply that failed stays pending for the owner, with the error
+        out = backend.execute("propose_change", {"kind": "archive-note", "payload": {"path": "tnc/broken.md"}, "reason": "r"})
+        assert out["applied"] is False and out["apply_error"] == "tnc/broken.md: no such note"
+        assert out["note"] == "queued, but applying it failed: tnc/broken.md: no such note — left pending for the owner"
+
     def test_list_proposals(self, backend, fake):
         out = backend.execute("list_proposals", {"status": "rejected", "kind": "rule"})
         assert out["total"] == 1 and out["proposals"][0]["line"] == "rule: x"  # zero-width char stripped
-        assert fake.requests[-1] == ("GET", "/brain/review", {"kind": "rule", "status": "rejected", "harness": "chatty"}, None)
+        assert out["proposals"][0]["decision"]["reason"] == "no"                # …inside the decision object too
+        assert fake.requests[-1] == ("GET", "/brain/review", {"kind": "rule", "status": "rejected", "harness": "chatty",
+                                                              "agent": "tom", "mine": "true"}, None)
+        # default: my own pending structural proposals — no kind, so the brain (seeing harness/agent) picks structural
         backend.execute("list_proposals", {})
-        assert fake.requests[-1][2] == {"status": "pending", "harness": "chatty"}
-        assert backend.execute("list_proposals", {"status": "accepted"}) == {"error": "status must be pending, rejected or all"}
+        assert fake.requests[-1][2] == {"status": "pending", "harness": "chatty", "agent": "tom", "mine": "true"}
+        # a curator reviewing the extraction inbox: kind=extraction, everyone's rows
+        out = backend.execute("list_proposals", {"kind": "extraction", "mine": False})
+        assert fake.requests[-1][2] == {"kind": "extraction", "status": "pending", "harness": "chatty", "agent": "tom"}
+        assert out["total"] == 2 and out["proposals"][1]["object"] == "12 years old"  # sanitized extraction fields
+        backend.execute("list_proposals", {"kind": "all", "status": "accepted"})
+        assert fake.requests[-1][2]["kind"] == "all" and fake.requests[-1][2]["status"] == "accepted"
+        assert backend.execute("list_proposals", {"status": "nope"}) == {"error": "status must be pending, rejected, accepted or all"}
+
+    def test_review_proposal(self, backend, fake):
+        from core.agents.memory.brain_backend import NOT_A_CURATOR
+        # not a curator: the 403 is a readable refusal, not a status code
+        assert backend.execute("review_proposal", {"id": "x1", "decision": "accept"}) == {"error": NOT_A_CURATOR}
+        assert fake.requests[-1] == ("POST", "/brain/review/x1/decide", {},
+                                     {"decision": "accept", "harness": "chatty", "agent": "tom"})
+        fake.curator = True
+        out = backend.execute("review_proposal", {"id": "p7", "decision": "accept", "domain": "tnc", "reason": "solid"})
+        assert out["outcome"] == "accepted" and out["written"] == "fact #31" and out["domain"] == "tnc"
+        assert out["note"] == "accepted and written to the brain"
+        assert fake.requests[-1][3] == {"decision": "accept", "reason": "solid", "domain": "tnc", "harness": "chatty", "agent": "tom"}
+        out = backend.execute("review_proposal", {"id": "p7", "decision": "reject", "reason": "wrong person"})
+        assert out["outcome"] == "rejected" and fake.requests[-1][3]["reason"] == "wrong person"
+        # an accepted age triple: the gate rejects instead of writing, and the note says so
+        out = backend.execute("review_proposal", {"id": "x1", "decision": "accept"})
+        assert out["outcome"] == "rejected"
+        assert out["note"] == "not written — the brain's gate rejected it instead: store the birth date (predicate birth_date), ages go stale"
+        # owner-only kind (400) and unknown id (404) are plain messages
+        assert backend.execute("review_proposal", {"id": "r9", "decision": "accept"}) == {"error": "rule proposals are owner-only; accept r9 by hand"}
+        assert backend.execute("review_proposal", {"id": "missing", "decision": "accept"}) == {"error": "no proposal with id missing — check list_proposals"}
+        # argument checks never reach the brain
+        n = len(fake.requests)
+        assert backend.execute("review_proposal", {"id": "", "decision": "accept"}) == {"error": "id is required (from list_proposals)"}
+        assert backend.execute("review_proposal", {"id": "p7", "decision": "maybe"}) == {"error": "decision must be accept or reject"}
+        assert backend.execute("review_proposal", {"id": "p7", "decision": "reject"})["error"].startswith("a rejection needs a reason")
+        assert len(fake.requests) == n
 
     def test_unknown(self, backend):
         assert backend.execute("nope", {}) == {"error": "nope is a local memory tool, not a brain tool"}
