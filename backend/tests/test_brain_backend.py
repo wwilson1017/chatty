@@ -19,6 +19,7 @@ class FakeBrain:
 
     def __init__(self):
         self.requests: list[tuple[str, str, dict, dict | None]] = []
+        self.raw_paths: list[str] = []
         self.facts = [
             {"id": 1, "subject": "people/x", "predicate": "role", "object": "ceo", "memory_type": "person"},
             {"id": 2, "subject": "people/x", "predicate": "likes", "object": "tea\u200b", "memory_type": None},
@@ -32,6 +33,7 @@ class FakeBrain:
     def handler(self, request: httpx.Request) -> httpx.Response:
         body = json.loads(request.content) if request.content else None
         self.requests.append((request.method, request.url.path, dict(request.url.params), body))
+        self.raw_paths.append(request.url.raw_path.decode())  # the wire form: url.path is already decoded
         assert request.headers.get("x-api-key") == "k"
         path, method = request.url.path.removeprefix("/brain"), request.method
         if path == "/daily" and method == "POST":
@@ -335,7 +337,7 @@ class TestRouteMapping:
         assert len(fake.requests) == n
         # a model-supplied id stays one path segment
         backend.execute("review_proposal", {"id": "../facts", "decision": "accept"})
-        assert fake.requests[-1][1] == "/brain/review/..%2Ffacts/decide"
+        assert fake.raw_paths[-1] == "/brain/review/..%2Ffacts/decide"
 
     def test_unknown(self, backend):
         assert backend.execute("nope", {}) == {"error": "nope is a local memory tool, not a brain tool"}
