@@ -333,6 +333,9 @@ class TestRouteMapping:
         assert backend.execute("review_proposal", {"id": "p7", "decision": "maybe"}) == {"error": "decision must be accept or reject"}
         assert backend.execute("review_proposal", {"id": "p7", "decision": "reject"})["error"].startswith("a rejection needs a reason")
         assert len(fake.requests) == n
+        # a model-supplied id stays one path segment
+        backend.execute("review_proposal", {"id": "../facts", "decision": "accept"})
+        assert fake.requests[-1][1] == "/brain/review/..%2Ffacts/decide"
 
     def test_unknown(self, backend):
         assert backend.execute("nope", {}) == {"error": "nope is a local memory tool, not a brain tool"}

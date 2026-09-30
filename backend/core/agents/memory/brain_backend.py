@@ -26,6 +26,7 @@ Every read passes ``agent=<slug>`` so the brain's confidential exclusion is per 
 import logging
 import re
 import time
+from urllib.parse import quote
 
 import httpx
 
@@ -275,8 +276,8 @@ class BrainBackend:
         reason = (args.get("reason") or "").strip() or None
         if decision == "reject" and not reason:
             return {"error": "a rejection needs a reason — the proposer reads it before re-proposing"}
-        data = self._post(
-            f"/review/{pid}/decide", decision=decision, reason=reason, domain=(args.get("domain") or None),
+        data = self._post(  # pid is model-supplied: quote it so it stays one path segment
+            f"/review/{quote(pid, safe='')}/decide", decision=decision, reason=reason, domain=(args.get("domain") or None),
             harness="chatty", agent=self.agent_slug or None,
         )
         if "error" in data:
