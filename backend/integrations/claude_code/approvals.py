@@ -47,12 +47,9 @@ def _approval_chat(job: dict, agent: dict) -> str | None:
     route = json.loads(job["route"]) if job["route"] else {}
     if route.get("channel") == "telegram" and route.get("chat_id"):
         return str(route["chat_id"])
-    from integrations.telegram.state import get_db as get_tg_db
-    row = get_tg_db().execute(
-        "SELECT platform_user_id FROM user_mappings WHERE agent_id = ? AND platform = 'telegram' LIMIT 1",
-        (agent["id"],),
-    ).fetchone()
-    return str(row["platform_user_id"]) if row else None
+    from integrations.telegram.state import first_telegram_user
+    user = first_telegram_user(agent["id"])
+    return str(user) if user else None
 
 
 def _message(job: dict, agent: dict) -> str:
@@ -63,9 +60,8 @@ def _message(job: dict, agent: dict) -> str:
     excerpt = parent_excerpt(job)
     if excerpt:
         lines.append(f"Continues job {job['parent_job_id']}: {excerpt}")
-    # Fenced so the Markdown→HTML send shows the task verbatim (links stay visible, nothing renders).
-    task = job["task"].replace("```", "`​``")
-    return "\n".join(lines) + f"\n\nThe exact task:\n```\n{task}\n```"
+    # Sent with plain=True: the task is untrusted, so nothing in it may render.
+    return "\n".join(lines) + f"\n\nThe exact task:\n{job['task']}"
 
 
 def request_approval(job: dict) -> str:
@@ -84,7 +80,7 @@ def request_approval(job: dict) -> str:
             {"text": "Run sandbox", "callback_data": f"cc:{job['id']}:sandbox"},
             {"text": "Cancel", "callback_data": f"cc:{job['id']}:cancel"},
         ]]}
-        sent = tg.send_message(chat_id, _message(job, agent), token, reply_markup=buttons)
+        sent = tg.send_message(chat_id, _message(job, agent), token, reply_markup=buttons, plain=True)
         last = sent[-1]
         last = last.get("result", last)  # tolerate the raw API envelope
         ref = {"chat_id": chat_id, "message_id": last["message_id"]}
@@ -189,11 +185,14 @@ def expire_stale() -> None:
     for r in db.query("SELECT * FROM jobs WHERE status = 'pending_approval' "
                       "AND approval_expires_at <= datetime('now')"):
         job = dict(r)
-        if not db.finish_job(job["id"], "expired", "approval expired", notify=False):
-            continue
-        _edit_message(job, "expired")
-        deliver_background_result(
-            job["agent_slug"], "Claude Code job expired",
-            f"Claude Code job {job['id']} expired — full access wasn't approved within {db.APPROVAL_TTL_HOURS} h.",
-            route=json.loads(job["route"]) if job["route"] else None,
-        )
+        try:
+            if not db.finish_job(job["id"], "expired", "approval expired", notify=False):
+                continue
+            _edit_message(job, "expired")
+            deliver_background_result(
+                job["agent_slug"], "Claude Code job expired",
+                f"Claude Code job {job['id']} expired — full access wasn't approved within {db.APPROVAL_TTL_HOURS} h.",
+                route=json.loads(job["route"]) if job["route"] else None,
+            )
+        except Exception:
+            logger.warning("Claude Code job %s: expiring the approval failed", job["id"], exc_info=True)

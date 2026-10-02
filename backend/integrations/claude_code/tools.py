@@ -17,6 +17,7 @@ logger = logging.getLogger(__name__)
 
 TASK_MAX_CHARS = 8000
 FULL_TASK_MAX_CHARS = 3500  # the approval message shows the task verbatim and must fit one Telegram message
+MAX_PENDING_APPROVALS = 3  # open full-access requests per agent
 BACKGROUND_BUDGET = 10  # background jobs per agent per rolling 24 h
 
 _PREAMBLE_COMMON = (
@@ -112,6 +113,10 @@ def delegate(task: str, runner: str | None = None, level: str | None = None,
             ).fetchone()[0]
             if used >= BACKGROUND_BUDGET:
                 return {"error": f"Background job budget reached ({BACKGROUND_BUDGET} per 24 h). Ask the owner, or try later."}
+        if level == "full" and conn.execute(
+                "SELECT COUNT(*) FROM jobs WHERE agent_slug = ? AND status = 'pending_approval'",
+                (slug,)).fetchone()[0] >= MAX_PENDING_APPROVALS:
+            return {"error": f"You already have {MAX_PENDING_APPROVALS} full-access requests waiting for the owner; wait for those first."}
         job_id = db.insert_job(
             agent_slug=slug, origin=origin, runner=runner, mode=level, task=task,
             prompt=build_prompt(level, task), conversation_id=_ctx.get("conversation_id"),

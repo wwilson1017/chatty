@@ -163,12 +163,7 @@ def _safe_process_callback(agent_slug: str, callback_query: dict, bot_token: str
     cq_id = callback_query.get("id", "")
     try:
         if str(callback_query.get("data") or "").startswith("cc:"):
-            try:
-                from integrations.claude_code.approvals import handle_telegram_callback
-            except ImportError:
-                logger.warning("Telegram callback: claude_code approvals unavailable")
-                answer_callback_query(cq_id, "Not available", bot_token)
-                return
+            from integrations.claude_code.approvals import handle_telegram_callback
             handle_telegram_callback(agent_slug, callback_query, bot_token)
             return
         answer_callback_query(cq_id, "", bot_token)

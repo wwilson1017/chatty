@@ -34,6 +34,15 @@ def get_db() -> sqlite3.Connection:
     return _get_db()
 
 
+def first_telegram_user(agent_id: str) -> str | None:
+    """The agent's first mapped Telegram user id (single-user app: the owner)."""
+    row = _get_db().execute(
+        "SELECT platform_user_id FROM user_mappings WHERE agent_id = ? AND platform = 'telegram' LIMIT 1",
+        (agent_id,),
+    ).fetchone()
+    return row["platform_user_id"] if row else None
+
+
 def _migrate_user_mappings_v2(conn: sqlite3.Connection) -> None:
     """Migrate user_mappings from UNIQUE(platform, platform_user_id) to
     UNIQUE(platform, platform_user_id, agent_id) so one Telegram user

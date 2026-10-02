@@ -90,6 +90,7 @@ def current_setup(paths: Paths) -> dict:
         "browser": BROWSER_RULE in settings.get("permissions", {}).get("allow", []),
         "codex": ("codex" in profile if profile else True) and bool(shutil.which(commands["codex"])),
         "jobs": profile.get("max_concurrent", 1),
+        "max_codex": profile.get("max_codex", 1),
         "refuse": (settings.get("sandbox") or {}).get("failIfUnavailable") is True,
         "commands": commands,
         "resume": {r: profile.get(r, {}).get("resume", r == "claude") is True for r in RUNNERS},
@@ -104,7 +105,7 @@ def profile_text(c: dict) -> str:
 
 ceiling = {q(c["ceiling"])}   # look, sandbox or full
 max_concurrent = {c["jobs"]}   # jobs at once, all runners
-max_codex = 1        # of which Codex
+max_codex = {c["max_codex"]}        # of which Codex
 
 [claude]
 command = {q(c["commands"]["claude"])}
@@ -136,6 +137,8 @@ def write_setup(paths: Paths, c: dict) -> None:
         sandbox["sandbox"]["failIfUnavailable"] = True
     (paths.config_dir / "sandbox-settings.json").write_text(json.dumps(sandbox, indent=2) + "\n")
     look = _render("look-settings.json", paths)
+    if c["refuse"]:
+        look["sandbox"]["failIfUnavailable"] = True
     (paths.config_dir / "look-settings.json").write_text(json.dumps(look, indent=2) + "\n")
     (paths.config_dir / "profiles.toml").write_text(profile_text(c))
     old = paths.config_dir / "safe-settings.json"  # 0.1.0; kept as .bak in case it was hand-edited

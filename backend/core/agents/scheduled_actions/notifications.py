@@ -38,7 +38,7 @@ def _try_telegram(agent_slug: str, message: str, action: dict | None = None, for
     try:
         from agents.db import list_agents
         from integrations.telegram.client import send_message
-        from integrations.telegram.state import get_db as get_tg_db
+        from integrations.telegram.state import first_telegram_user
 
         agents = list_agents()
         agent = next((a for a in agents if a["slug"] == agent_slug), None)
@@ -47,15 +47,10 @@ def _try_telegram(agent_slug: str, message: str, action: dict | None = None, for
 
         bot_token = agent["telegram_bot_token"]
 
-        tg_conn = get_tg_db()
-        row = tg_conn.execute(
-            "SELECT platform_user_id FROM user_mappings WHERE agent_id = ? AND platform = 'telegram' LIMIT 1",
-            (agent["id"],),
-        ).fetchone()
-        if not row:
+        chat_id = first_telegram_user(agent["id"])
+        if not chat_id:
             return False
 
-        chat_id = row["platform_user_id"]
         action_type = (action or {}).get("action_type", "heartbeat")
         action_name = (action or {}).get("name", "")
 

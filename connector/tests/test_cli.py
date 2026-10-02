@@ -40,7 +40,9 @@ def test_pair_writes_private_config_and_setup_files(fake, tmp_path):
     assert settings["sandbox"]["allowUnsandboxedCommands"] is False
     look = json.loads((paths.config_dir / "look-settings.json").read_text())
     assert {"Edit", "Write", f"Read(/{Path.home()}/.ssh/**)"} <= set(look["permissions"]["deny"])
-    assert look["permissions"]["allow"] == settings["permissions"]["allow"]
+    # look drops git log/show/diff (--output=<file> writes files)
+    assert set(look["permissions"]["allow"]) < set(settings["permissions"]["allow"])
+    assert not {"Bash(git log:*)", "Bash(git show:*)", "Bash(git diff:*)"} & set(look["permissions"]["allow"])
     assert look["sandbox"]["autoAllowBashIfSandboxed"] is False
 
     cmd_setup(Namespace(yes=True, ceiling="look"), paths)
@@ -72,13 +74,16 @@ def test_setup_interactive_then_yes_keeps_values(tmp_path, monkeypatch, capsys):
     paths = Paths(tmp_path / "cfg", tmp_path / "s", tmp_path / "d")
     answers(monkeypatch, "9", "3", "maybe", "y", "n", "2", "y", "")  # bad inputs are asked again
     assert cmd_setup(Namespace(), paths) == 0
-    print(capsys.readouterr().out)  # pytest -s shows the transcript
+    assert capsys.readouterr().out.count("Choose 1-3") >= 2  # the bad answer "9" was asked again
 
     def check():
         profile = load_profile(paths)
         settings = json.loads((paths.config_dir / "sandbox-settings.json").read_text())
         assert profile["ceiling"] == "full" and profile["max_concurrent"] == 2 and "codex" not in profile
         assert settings["sandbox"]["failIfUnavailable"] is True
+        look = json.loads((paths.config_dir / "look-settings.json").read_text())
+        assert look["sandbox"]["failIfUnavailable"] is True
+        assert "Bash(git diff:*)" not in look["permissions"]["allow"]
         assert "Bash(playwright-cli:*)" in settings["permissions"]["allow"]
     check()
     monkeypatch.setattr(sys.stdin, "isatty", lambda: False)
@@ -102,7 +107,7 @@ def test_migrates_0_1_0_profile_and_run_refuses_it(tmp_path, capsys):
     paths.config_dir.mkdir()
     (paths.config_dir / "config.toml").write_text('url = "http://x"\ntoken = "t"\n')
     (paths.config_dir / "profiles.toml").write_text(
-        'max_concurrent = 2\nmax_codex = 1\n[claude]\ncommand = "my-claude"\nsafe = []\nfull = []\n'
+        'max_concurrent = 2\nmax_codex = 2\n[claude]\ncommand = "my-claude"\nsafe = []\nfull = []\n'
         "timeout = { safe = 1, full = 1 }\nresume = false\n")
     (paths.config_dir / "safe-settings.json").write_text("{}")
     with pytest.raises(ValueError, match="0.1.0"):
@@ -113,6 +118,7 @@ def test_migrates_0_1_0_profile_and_run_refuses_it(tmp_path, capsys):
     assert cmd_setup(Namespace(yes=True), paths) == 0
     profile = load_profile(paths)
     assert profile["ceiling"] == "sandbox" and profile["max_concurrent"] == 2
+    assert profile["max_codex"] == 2
     assert profile["claude"]["command"] == "my-claude" and profile["claude"]["resume"] is False
     assert not (paths.config_dir / "safe-settings.json").exists()
     assert (paths.config_dir / "safe-settings.json.bak").read_text() == "{}"

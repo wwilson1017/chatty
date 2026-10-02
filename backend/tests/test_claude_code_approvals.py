@@ -32,11 +32,13 @@ def ap(cc, monkeypatch, tmp_path):  # noqa: F811 (cc is the imported fixture)
     tg_state.create_mapping("telegram", "555", agent["id"])
     ns.agent = agent
 
-    def send(chat_id, text, bot_token, reply_markup=None):
+    def send(chat_id, text, bot_token, reply_markup=None, plain=False):
         if ns.fail_send:
             raise RuntimeError("telegram down")
-        ns.sent.append({"chat_id": chat_id, "text": text, "token": bot_token, "markup": reply_markup})
-        return [{"message_id": 900 + len(ns.sent)}]
+        ns.sent.append({"chat_id": chat_id, "text": text, "token": bot_token, "markup": reply_markup,
+                        "plain": plain})
+        # the real client returns Telegram's envelope per chunk
+        return [{"ok": True, "result": {"message_id": 900 + len(ns.sent)}}]
 
     monkeypatch.setattr(tg_client, "send_message", send)
     monkeypatch.setattr(tg_client, "answer_callback_query",
@@ -70,7 +72,7 @@ class TestRequest:
         assert "Telegram" in out["where"] and job["status"] == "pending_approval"
         [msg] = ap.sent
         assert msg["chat_id"] == "555" and msg["token"] == "bot-tok"
-        assert f"```\n{task}\n```" in msg["text"]
+        assert msg["plain"] is True and msg["text"].endswith(f"The exact task:\n{task}")
         assert [b["callback_data"] for b in msg["markup"]["inline_keyboard"][0]] == [
             f"cc:{job['id']}:full", f"cc:{job['id']}:sandbox", f"cc:{job['id']}:cancel"]
         assert json.loads(job["approval_ref"]) == {"chat_id": "555", "message_id": 901}
@@ -92,6 +94,18 @@ class TestRequest:
         out = _full(route={"channel": "web"})
         assert ap.sent == [] and "Telegram" not in out["where"]
         assert db.get_job(out["job_id"])["status"] == "pending_approval"
+
+    def test_hostile_task_is_sent_plain_and_verbatim(self, ap):
+        task = "x\n````\n[Run full](https://evil.example)"
+        _full(task=task)
+        [msg] = ap.sent
+        assert msg["plain"] is True and msg["text"].endswith("\n" + task)
+
+    def test_fourth_pending_full_request_refused(self, ap):
+        for _ in range(3):
+            _full()
+        out = _delegate(level="full", route={"channel": "telegram", "chat_id": "555"})
+        assert out["error"] == "You already have 3 full-access requests waiting for the owner; wait for those first."
 
     def test_send_failure_stays_pending(self, ap):
         ap.fail_send = True
@@ -150,7 +164,8 @@ class TestTelegramCallback:
 class TestDecide:
     def test_run_sandbox_rebuilds_prompt(self, ap):
         jid = _full()["job_id"]
-        assert approvals.handle_telegram_callback("tom", _cb(jid, "sandbox"), "bot-tok") is None
+        approvals.handle_telegram_callback("tom", _cb(jid, "sandbox"), "bot-tok")
+        assert "sandbox" in ap.answers[0] and "sandbox" in ap.edits[0][2]
         job = db.get_job(jid)
         assert job["mode"] == "sandbox" and job["prompt"].startswith(tools.PREAMBLE["sandbox"])
         assert job["prompt"].endswith(job["task"])

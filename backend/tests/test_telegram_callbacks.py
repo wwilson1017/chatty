@@ -53,6 +53,15 @@ class TestReplyMarkup:
         assert mock_post.call_args_list[1][1]["json"]["reply_markup"] == markup
 
     @patch("integrations.telegram.client.httpx.post")
+    def test_plain_sends_verbatim_without_parse_mode(self, mock_post):
+        mock_post.return_value = _ok()
+        text = "task\n````\n[x](https://evil)"
+        markup = {"inline_keyboard": []}
+        tg_client.send_message(1, text, "bot:tok", reply_markup=markup, plain=True)
+        body = mock_post.call_args[1]["json"]
+        assert body["text"] == text and "parse_mode" not in body and body["reply_markup"] == markup
+
+    @patch("integrations.telegram.client.httpx.post")
     def test_no_markup_by_default(self, mock_post):
         mock_post.return_value = _ok()
         tg_client.send_message(1, "hi", "bot:tok")
@@ -142,14 +151,6 @@ class TestWebhookCallbacks:
                         headers={"X-Telegram-Bot-Api-Secret-Token": "wrong"})
         assert r.status_code == 200
         assert calls["cc"] == [] and calls["answered"] == []
-
-    def test_missing_approvals_module_answers(self, webhook, monkeypatch):
-        client, calls, _ = webhook
-        monkeypatch.setitem(sys.modules, "integrations.claude_code.approvals", None)  # → ImportError
-        client.post("/webhook/ally", json=_cb("cc:7:full"),
-                    headers={"X-Telegram-Bot-Api-Secret-Token": SECRET})
-        assert calls["cc"] == []
-        assert calls["answered"] == [("cq1", "Not available", "bot:tok")]
 
     def test_messages_still_flow(self, webhook):
         client, _, processed = webhook

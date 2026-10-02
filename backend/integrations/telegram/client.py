@@ -30,13 +30,16 @@ ALLOWED_UPDATES = ["message", "callback_query"]
 
 def send_message(
     chat_id: int | str, text: str, bot_token: str, reply_markup: dict | None = None,
+    plain: bool = False,
 ) -> list[dict]:
     """Send a text message to a Telegram chat.
 
     Converts Markdown to Telegram HTML for formatting.  Falls back to plain
     text if HTML conversion or parsing fails.  Raises ``TelegramSendError``
     on delivery failure so callers can react.  ``reply_markup`` (e.g. an
-    inline keyboard) is attached to the last chunk only.
+    inline keyboard) is attached to the last chunk only.  ``plain=True`` skips
+    the Markdown conversion and sends the text verbatim with no parse_mode
+    (for untrusted text that must not render).
     """
     if not bot_token:
         logger.warning("No Telegram bot token — cannot send message")
@@ -47,7 +50,7 @@ def send_message(
     for i, chunk in enumerate(chunks):
         extra = {"reply_markup": reply_markup} if reply_markup and i == len(chunks) - 1 else {}
         try:
-            html_chunk = markdown_to_telegram_html(chunk)
+            html_chunk = None if plain else markdown_to_telegram_html(chunk)
         except Exception:
             html_chunk = None
 
@@ -98,17 +101,7 @@ def set_webhook(url: str, bot_token: str, secret_token: str | None = None) -> di
     if secret_token:
         payload["secret_token"] = secret_token
 
-    try:
-        resp = httpx.post(
-            f"{_base_url(bot_token)}/setWebhook",
-            json=payload,
-            timeout=30,
-        )
-        resp.raise_for_status()
-        return resp.json()
-    except httpx.HTTPError as e:
-        logger.error("Telegram setWebhook failed: %s", e)
-        return {"ok": False, "error": str(e)}
+    return _post("setWebhook", payload, bot_token)
 
 
 def answer_callback_query(callback_query_id: str, text: str, bot_token: str) -> dict:
@@ -142,19 +135,7 @@ def _post(method: str, payload: dict, bot_token: str) -> dict:
 
 def delete_webhook(bot_token: str) -> dict:
     """Remove the webhook for this bot token."""
-    if not bot_token:
-        return {"ok": False, "error": "No bot token provided"}
-
-    try:
-        resp = httpx.post(
-            f"{_base_url(bot_token)}/deleteWebhook",
-            timeout=30,
-        )
-        resp.raise_for_status()
-        return resp.json()
-    except httpx.HTTPError as e:
-        logger.error("Telegram deleteWebhook failed: %s", e)
-        return {"ok": False, "error": str(e)}
+    return _post("deleteWebhook", {}, bot_token)
 
 
 def get_me(bot_token: str) -> dict:
