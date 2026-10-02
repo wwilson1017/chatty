@@ -10,18 +10,16 @@ It polls Chatty over HTTPS for queued jobs, so nothing on your network is expose
 
 Requires Python 3.11+, and `claude` (and/or `codex`) installed and logged in for the user that will run the connector.
 
+In Chatty: **Settings → Integrations → Claude Code → Connect**. Paste the one command the card shows:
+
 ```bash
-uv tool install "git+https://github.com/WWilson1017/chatty#subdirectory=connector"
+uv tool install --reinstall "git+https://github.com/WWilson1017/chatty#subdirectory=connector" && chatty-connector pair https://your-chatty.example.com 123456
 # or from a checkout:  uv tool install ./connector
 ```
 
+`pair` then asks whether to run the health check (`doctor`) and whether to install and start the background service (`install-service`). Press Enter for yes to both, or pass `--yes`. Without a terminal it only pairs.
+
 ## Pair
-
-In Chatty: **Settings → Integrations → Claude Code → Connect**. Copy the pair command it shows:
-
-```bash
-chatty-connector pair https://your-chatty.example.com 123456
-```
 
 This writes `~/.config/chatty-connector/`:
 - `config.toml`: the Chatty URL and the connector token (mode 0600; Chatty only stores its hash)
@@ -44,8 +42,8 @@ It checks that Chatty answers (it never claims a job), that the CLIs run, that a
 chatty-connector install-service
 ```
 
-- **Linux:** writes `~/.config/systemd/user/chatty-connector.service`. Then run `systemctl --user daemon-reload && systemctl --user enable --now chatty-connector`, and `loginctl enable-linger $USER` so it keeps running when you're logged out. Logs: `journalctl --user -u chatty-connector -f`.
-- **macOS:** writes `~/Library/LaunchAgents/com.chatty.connector.plist`. Start it with `launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.chatty.connector.plist`. Logs: `~/Library/Logs/chatty-connector.log`.
+- **Linux:** writes `~/.config/systemd/user/chatty-connector.service`, reloads systemd, enables and (re)starts it, and turns on linger so it keeps running when you're logged out (if `loginctl enable-linger` needs root, it prints the `sudo` command). Logs: `journalctl --user -u chatty-connector -f`.
+- **macOS:** writes `~/Library/LaunchAgents/com.chatty.connector.plist` and (re)loads it with `launchctl`. Logs: `~/Library/Logs/chatty-connector.log`.
 
 The unit captures your current `PATH` so it can find `claude` and `codex`. Re-run `install-service` if they move.
 
@@ -111,7 +109,7 @@ Each job chain gets its own directory, `~/.local/share/chatty-connector/jobs/<ke
 
 **Restarts.** Job state lives in `~/.local/state/chatty-connector/`. After a restart the connector stops anything left over, reports those jobs to Chatty as `failed: connector restarted`, and only then takes new work. Results that hadn't reached Chatty yet are re-sent.
 
-**Disconnecting.** When you disconnect or re-pair in Chatty, the connector stops every job the next time it checks in, then exits. To reconnect, run `pair` again and restart the service: `systemctl --user restart chatty-connector` on Linux (the unit deliberately doesn't restart itself after a rejected token), or `launchctl kickstart -k gui/$(id -u)/com.chatty.connector` on macOS.
+**Disconnecting.** When you disconnect or re-pair in Chatty, the connector stops every job the next time it checks in, then exits. To reconnect, run `pair` again and answer yes to the service prompt (or run `install-service`), which restarts it. The unit deliberately doesn't restart itself after a rejected token.
 
 ## Cleaning up
 

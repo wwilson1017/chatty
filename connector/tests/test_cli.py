@@ -4,6 +4,7 @@ import sys
 from argparse import Namespace
 from pathlib import Path
 
+import pytest
 import tomllib
 from chatty_connector.cli import cmd_doctor, cmd_install_service, cmd_pair
 from chatty_connector.runner import Paths
@@ -44,10 +45,38 @@ def test_doctor_fails_when_not_paired(paths, capsys):
     assert "not paired" in capsys.readouterr().out
 
 
-def test_install_service_writes_systemd_unit(tmp_path, monkeypatch, fake_cli):
+def test_install_service_writes_unit_and_starts_it(tmp_path, monkeypatch, fake_cli):
+    from chatty_connector import cli
+    calls = []
+    monkeypatch.setattr(cli, "_sh", lambda *a: calls.append(a) or True)
+    monkeypatch.setattr(cli.subprocess, "run", lambda *a, **k: Namespace(stdout="Linger=yes", returncode=0))
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
     monkeypatch.setattr(sys, "platform", "linux")
     assert cmd_install_service(Namespace(), None) == 0
+    assert ("systemctl", "--user", "restart", "chatty-connector") in calls  # restart: re-pair leaves it stopped
+    assert not any(c[0] == "loginctl" for c in calls)  # linger already on
     unit = (tmp_path / "systemd/user/chatty-connector.service").read_text()
     assert f"ExecStart={sys.executable} -m chatty_connector.cli run" in unit
     assert "RestartPreventExitStatus=78" in unit and "WantedBy=default.target" in unit
+
+
+def test_pair_without_a_terminal_only_pairs(fake, tmp_path, monkeypatch, capsys):
+    from chatty_connector import cli
+    monkeypatch.setattr(cli, "cmd_doctor", lambda *a: pytest.fail("doctor ran"))
+    monkeypatch.setattr(cli, "cmd_install_service", lambda *a: pytest.fail("service installed"))
+    monkeypatch.setattr(sys.stdin, "isatty", lambda: False)
+    paths = Paths(tmp_path / "cfg", tmp_path / "s", tmp_path / "d")
+    assert cmd_pair(Namespace(url=fake.url, code="123456"), paths) == 0
+    assert "Later: chatty-connector doctor" in capsys.readouterr().out
+
+
+def test_pair_wizard_runs_doctor_then_service(fake, tmp_path, monkeypatch):
+    from chatty_connector import cli
+    ran = []
+    monkeypatch.setattr(cli, "cmd_doctor", lambda *a: ran.append("doctor") or 0)
+    monkeypatch.setattr(cli, "cmd_install_service", lambda *a: ran.append("service") or 0)
+    monkeypatch.setattr(sys.stdin, "isatty", lambda: True)
+    monkeypatch.setattr("builtins.input", lambda q: "")  # Enter = yes
+    paths = Paths(tmp_path / "cfg", tmp_path / "s", tmp_path / "d")
+    assert cmd_pair(Namespace(url=fake.url, code="123456"), paths) == 0
+    assert ran == ["doctor", "service"]
