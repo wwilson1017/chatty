@@ -110,6 +110,7 @@ SWEEP_ALLOWLIST = {
     ("GET", "/api/branding/logo"),              # served in <img>/CSS tags
     ("POST", "/api/messaging/whatsapp/webhook"),  # Baileys sidecar, X-Api-Key auth
     ("POST", "/api/integrations/paperclip/heartbeat"),  # X-Webhook-Secret auth
+    ("POST", "/api/connector/pair"),            # one-time pair code (rate-limited); the rest is bearer-guarded
     # Quick-capture is deliberately public (phone bookmark, no login);
     # the optional secret lives in the URL path (todo_capture_token).
     ("GET", "/capture"),

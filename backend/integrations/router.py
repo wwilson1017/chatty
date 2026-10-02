@@ -168,6 +168,54 @@ async def disconnect_brain(user=Depends(get_current_user)):
     return {"ok": True}
 
 
+# ── Claude Code connector (pairing + jobs card; the connector's own API is /api/connector) ──
+
+class ClaudeCodeAgentsRequest(BaseModel):
+    disabled_agents: list[str] = Field(default_factory=list, max_length=200)
+
+
+@router.post("/claude_code/pair-code")
+def claude_code_pair_code(user=Depends(get_current_user)):
+    from .claude_code.connector_api import create_pair_code
+    return create_pair_code()
+
+
+@router.get("/claude_code/status")
+def claude_code_status(user=Depends(get_current_user)):
+    from .claude_code.connector_api import status
+    return status()
+
+
+@router.post("/claude_code/disconnect")
+def claude_code_disconnect(user=Depends(get_current_user)):
+    from .claude_code.connector_api import disconnect
+    return disconnect()
+
+
+@router.get("/claude_code/jobs")
+def claude_code_jobs(limit: int = 20, user=Depends(get_current_user)):
+    from .claude_code.connector_api import list_jobs
+    return list_jobs(limit)
+
+
+@router.post("/claude_code/jobs/{job_id}/cancel")
+def claude_code_cancel_job(job_id: str, user=Depends(get_current_user)):
+    from .claude_code.connector_api import cancel_job
+    return cancel_job(job_id)
+
+
+@router.post("/claude_code/capabilities/refresh")
+def claude_code_refresh_capabilities(user=Depends(get_current_user)):
+    from .claude_code.connector_api import refresh_capabilities
+    return refresh_capabilities()
+
+
+@router.put("/claude_code/agents")
+def claude_code_set_agents(body: ClaudeCodeAgentsRequest, user=Depends(get_current_user)):
+    from .claude_code.connector_api import set_disabled_agents
+    return set_disabled_agents(body.disabled_agents)
+
+
 @router.post("/quickbooks/setup")
 async def setup_quickbooks(user=Depends(get_current_user)):
     """Start QuickBooks OAuth flow. Returns {flow_id, auth_url} for the
