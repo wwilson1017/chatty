@@ -47,7 +47,7 @@ def cron_env(monkeypatch):
     monkeypatch.setattr(processor, "_resolve_agent", lambda slug: {
         "slug": slug, "agent_name": "Tom", "provider_override": None, "model_override": None,
     })
-    monkeypatch.setattr(processor, "_build_tools", lambda *a, **k: ([], None, None))
+    monkeypatch.setattr(processor, "_build_tools", lambda *a, **k: ([], types.SimpleNamespace(), None))
     monkeypatch.setattr(processor, "_make_lease_renewer", lambda *a, **k: (lambda *_a, **_k: None))
     monkeypatch.setattr(processor, "_mark_and_alert", lambda *a, **k: True)
 
@@ -184,7 +184,7 @@ def hb_env(monkeypatch, tmp_path):
     monkeypatch.setattr(processor, "_resolve_agent", lambda slug: {
         "slug": slug, "agent_name": "Tom", "provider_override": None, "model_override": None,
     })
-    monkeypatch.setattr(processor, "_build_tools", lambda *a, **k: ([], None, None))
+    monkeypatch.setattr(processor, "_build_tools", lambda *a, **k: ([], types.SimpleNamespace(), None))
     monkeypatch.setattr(processor, "_make_lease_renewer", lambda *a, **k: (lambda *_a, **_k: None))
     monkeypatch.setattr(processor, "_mark_and_alert", lambda *a, **k: True)
     monkeypatch.setattr(processor, "_build_error_context", lambda *a, **k: "")

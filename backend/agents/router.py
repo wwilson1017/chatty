@@ -562,6 +562,10 @@ def _stream_chat(agent: dict, messages: list, training_mode: bool, conversation_
         reminder_handlers=reminder_handlers,
         scheduled_action_handlers=sa_handlers,
     )
+    # The owner typing in web chat. Set here, not inside ai_service.chat(),
+    # because the CLI also calls chat() and stays a background origin.
+    registry._turn_origin = "user"
+    registry._turn_route = {"channel": "web"}
 
     if import_mode and conversation_id:
         from agents.import_service.sessions import get_session_by_conversation

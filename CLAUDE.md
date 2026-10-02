@@ -10,7 +10,7 @@
 - User creates agents from a dashboard; each has name/personality/knowledge via conversational onboarding (training mode)
 - Optional branding: logo, company name, accent color
 - Multi-provider AI: Anthropic, OpenAI, Google Gemini, Ollama (local), Together AI — all via API key paste (no OAuth for AI providers)
-- Integrations: QuickBooks Online (OAuth), QuickBooks CSV import, Gmail (multiple accounts), Google Calendar, Google Drive, WhatsApp (Baileys bridge), Telegram (multiple bots), CRM Lite (optional, default OFF), Odoo, BambooHR, Paperclip (agent orchestration), Todoist
+- Integrations: QuickBooks Online (OAuth), QuickBooks CSV import, Gmail (multiple accounts), Google Calendar, Google Drive, WhatsApp (Baileys bridge), Telegram (multiple bots), CRM Lite (optional, default OFF), Odoo, BambooHR, Paperclip (agent orchestration), Todoist, Claude Code (agents delegate tasks to the user's own Claude Code/Codex via `chatty-connector`)
 - **Todos (GTD)** — core always-on feature (NOT an integration): global store in `core/todo/`, 11 `todo_*` agent tools, multi-page UI at `/todos`, GTD coaching block injected into every agent's system prompt (admin setting `gtd_coaching_text`), public no-login `/capture` page (optional secret token), no-login `/todo[/{token}]` web app serving the whole todo UI outside the dashboard (`core/todo/web.py`, off by default), deterministic Telegram "capture" intercept
 - Agent features: memory system, dreaming/context archival, shared context across agents, scheduled actions (heartbeat), reminders (one-time and recurring), notifications (web push, Telegram, WhatsApp), knowledge import (OpenClaw, paste, folder, ZIP)
 - File uploads: PDF, DOCX, and text files via drag-and-drop in chat
@@ -111,9 +111,11 @@ backend/
 │   ├── providers/                   # AI provider abstraction (Anthropic, OpenAI, Gemini, Ollama, Together AI)
 │   ├── todo/                        # Todo (GTD) core feature: db, service, tools, REST router, /capture page, coaching
 │   └── agents/                      # Agent engine (ai_service, tool_registry, context_manager, chat_history, memory, dreaming, shared_context, reminders, scheduled_actions, alerts, notifications)
-├── integrations/                    # Google (Gmail/Calendar/Drive), QuickBooks, QB CSV, Telegram, WhatsApp, CRM (optional), Odoo, BambooHR, Paperclip
+├── integrations/                    # Google (Gmail/Calendar/Drive), QuickBooks, QB CSV, Telegram, WhatsApp, CRM (optional), Odoo, BambooHR, Paperclip, Claude Code
 ├── branding/                        # Logo/name/color
 └── whatsapp-bridge/                 # Node.js Baileys sidecar
+
+connector/                           # chatty-connector: separate pip package the user runs next to their Claude Code
 
 frontend/src/
 ├── agent/                           # Agent chat page + components (includes heartbeat panel, reminders panel)
@@ -184,6 +186,17 @@ Setup (the template for any teammate wiring a harness to the brain):
 4. Agent → Knowledge tab → Memory backend → **Second brain**.
 
 Tests: `backend/tests/test_brain_backend.py` (httpx `MockTransport`, no network) and `backend/tests/test_brain_prompt_context.py` (prompt block, tool policy, merged search, nightly promotion, and a source check that no prompt path builds its own `ContextManager`).
+
+## Claude Code connector
+
+`integrations/claude_code/` lets agents hand tasks to the user's own Claude Code or Codex. `connector/` is a separate package (`chatty-connector`, httpx only) that the user installs on their machine, pairs with a one-time code from the integration card, and runs as a service. It **polls outbound** (`/api/connector/*`, bearer token, only the sha256 is stored) and runs `claude -p` / `codex exec` per job. Agent tools: `delegate`, `job_get`, `job_list`, `job_cancel`, `connector_info` (`writes: False`; they gate themselves). User guide: `docs/claude-code-connector.md`; design record: `connector/SPIKE.md`.
+
+**Trust model.** Chatty guarantees the *gate*, not the sandbox:
+- `full` runs only after the owner approves the verbatim task, requested from a user-originated turn (PR 2; until then `delegate(mode="full")` is refused).
+- Background, group, Paperclip and job-completion turns can only queue `safe` jobs, 10 per agent per rolling 24 h. Turn origin is server-injected via `_ctx`, never taken from the model.
+- What `safe` can actually do is the user's `safe` profile (`profiles.toml` + `safe-settings.json`); its strength is the user's responsibility. Without a working OS sandbox it is "deny rules only".
+
+**Invariants.** `db.finish_job()` is the only code path that makes a job terminal (results, lost/stale jobs, cancels, disconnect, re-pair). Completion runs the agent's background turn **at most once**; everything after it goes through the idempotent `completion.finalize()`, which recovery paths re-run and which never invokes a turn. Tests: `backend/tests/test_claude_code.py`, `connector/tests/`.
 
 ## Model Pricing
 

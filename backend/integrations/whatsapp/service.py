@@ -63,6 +63,7 @@ _INTEGRATION_MODULES = {
     "qb_csv": ("integrations.qb_csv.tools", "QB_CSV_TOOL_DEFS"),
     "paperclip": ("integrations.paperclip.tools", "PAPERCLIP_TOOL_DEFS"),
     "todoist": ("integrations.todoist.tools", "TODOIST_TOOL_DEFS"),
+    "claude_code": ("integrations.claude_code.tools", "CLAUDE_CODE_TOOL_DEFS"),
 }
 
 
@@ -225,6 +226,9 @@ def _process_message_locked(
         drive_account_ids=drive_ids,
         account_info_map=account_info_map,
     )
+    registry._current_conversation_id = chatty_conv_id
+    registry._turn_origin = "user"
+    registry._turn_route = {"channel": "whatsapp", "chat_id": phone}
 
     # 9. Build tool definitions
     dynamic_real_tools = load_all_real_tools(agent_slug)

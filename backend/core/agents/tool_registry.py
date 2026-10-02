@@ -112,6 +112,10 @@ class ToolRegistry:
         self.agent_name = agent_name
         self._notify_user_called = False
         self._current_conversation_id: str | None = None
+        # Who started this turn. Only the web chat endpoint and the private
+        # Telegram/WhatsApp paths set "user"; everything else stays background.
+        self._turn_origin: str = "background"
+        self._turn_route: dict | None = None
 
         # Derived paths
         agent_data_dir = str(Path(context_dir).parent)
@@ -838,13 +842,27 @@ class ToolRegistry:
         "download_odoo_pdf", "create_odoo_attachment",
     }
 
+    # Claude Code connector tools: get a server-built turn context, never the caller's.
+    _CONTEXT_AWARE_TOOLS = frozenset({
+        "delegate", "job_get", "job_list", "job_cancel", "connector_info",
+    })
+
     async def _execute_integration(self, tool_name: str, args: dict) -> dict:
         executor = self.integration_executors.get(tool_name)
         if not executor:
             return {"error": f"Integration tool not available: {tool_name}"}
         if callable(executor):
+            args = {k: v for k, v in args.items() if k != "_ctx"}
             if tool_name in self._CACHE_AWARE_TOOLS:
                 args = {**args, "cache_dir": self.file_cache_dir}
+            if tool_name in self._CONTEXT_AWARE_TOOLS:
+                args["_ctx"] = {
+                    "agent_slug": self.agent_slug,
+                    "agent_name": self.agent_name,
+                    "conversation_id": self._current_conversation_id,
+                    "origin": self._turn_origin,
+                    "route": self._turn_route,
+                }
             import asyncio
             if asyncio.iscoroutinefunction(executor):
                 return await executor(**args)
