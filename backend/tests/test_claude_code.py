@@ -236,7 +236,7 @@ class TestClaiming:
 
     def test_full_job_with_mismatched_approval_never_claimed(self, cc):
         jid = db.insert_job(agent_slug="tom", origin="user", runner="claude", mode="full",
-                            task="x", prompt=tools.build_prompt("full", "x"))
+                            task="x", prompt="x")
         _set(jid, decision="full", approved_prompt_sha256="0" * 64)
         assert _poll(cc, free={"claude": 1})["jobs"] == []
         assert db.get_job(jid)["status"] == "cancelled"
@@ -252,6 +252,25 @@ class TestClaiming:
         assert job["status"] == "failed" and job["finish_reason"] == "lost by connector"
         assert _poll(cc, free={"claude": 1})["jobs"] == []
         assert cc.submitted == [jid]
+
+    def test_fresh_claim_missing_from_running_is_not_lost(self, cc):
+        jid = _delegate()["job_id"]
+        _poll(cc, free={"claude": 1})
+        _poll(cc, running=[])  # claimed moments ago: grace period
+        assert db.get_job(jid)["status"] == "running"
+        _set(jid, claimed_at="2000-01-01 00:00:00")
+        _poll(cc, running=[])
+        assert db.get_job(jid)["status"] == "failed"
+
+    def test_lost_system_job_is_never_notified(self, cc):
+        jid = db.insert_job(agent_slug="", origin="system", runner="claude", mode="safe",
+                            task="caps", prompt="caps")
+        _poll(cc, free={"claude": 1})
+        _set(jid, claimed_at="2000-01-01 00:00:00")
+        _poll(cc, running=[])
+        job = db.get_job(jid)
+        assert job["status"] == "failed" and job["completion_status"] == "none"
+        assert jid not in cc.submitted
 
     def test_cancelled_owned_job_is_listed_in_cancel(self, cc):
         jid = _delegate()["job_id"]

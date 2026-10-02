@@ -26,7 +26,7 @@ RUNNERS = ("claude", "codex")
 RESULT_CAP = 100_000
 LINE_LIMIT = 4 * 1024 * 1024
 STDERR_TAIL = 2000
-ID_RE = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
+ID_RE = re.compile(r"[A-Za-z0-9_-]{1,64}")
 
 
 class Revoked(Exception):
@@ -405,7 +405,7 @@ class Connector:
 
     def accept(self, spec: dict) -> None:
         job_id, key = str(spec.get("id")), str(spec.get("workdir_key"))
-        if not (ID_RE.match(job_id) and ID_RE.match(key) and spec.get("runner") in RUNNERS
+        if not (ID_RE.fullmatch(job_id) and ID_RE.fullmatch(key) and spec.get("runner") in RUNNERS
                 and spec.get("mode") in ("safe", "full") and isinstance(spec.get("prompt"), str)):
             log.error("ignoring malformed job from Chatty: %r", {k: spec.get(k) for k in ("id", "runner", "mode")})
             return

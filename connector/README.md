@@ -61,6 +61,7 @@ Chatty does **not** guarantee what `safe` can do on this machine. That's whateve
 - runs Claude Code with `--permission-mode acceptEdits` and `safe-settings.json`
 - turns on Claude Code's OS sandbox for shell commands, with `allowUnsandboxedCommands: false`
 - denies reading `~/.ssh`, `~/.aws`, `~/.config/gh`, `.env` files and this connector's own config, and denies editing the connector config and `~/.claude`
+- also denies reading `~/.codex`, `~/.netrc`, `~/.npmrc`, gcloud/kube/docker/gnupg config and `~/.claude/.credentials.json`, and writing `.claude/` in the job dir (no planting hooks or settings)
 - denies `git push`, `gh pr`, `gh release`, `gh repo` and package publishing
 
 Its limits, plainly:

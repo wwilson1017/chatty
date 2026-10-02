@@ -16,7 +16,6 @@ from . import db
 logger = logging.getLogger(__name__)
 
 TASK_MAX_CHARS = 8000
-FULL_TASK_MAX_CHARS = 3500  # so a PR 2 approval message fits one Telegram message
 BACKGROUND_BUDGET = 10  # background jobs per agent per rolling 24 h
 
 _PREAMBLE_COMMON = (
@@ -32,10 +31,7 @@ PREAMBLE = {
         "open issues or PRs, or send anything anywhere.\n"
         "- End with a concise summary of what you did and found.\n"
     ),
-    "full": _PREAMBLE_COMMON + (
-        "- Pushing branches and opening issues or PRs is allowed only when the task asks for it.\n"
-        "- End with a concise summary of what you did and found.\n"
-    ),
+    # "full" mode (and its preamble / task cap) arrives in PR 2 with the approval gate.
 }
 
 
@@ -64,7 +60,7 @@ def delegate(task: str, runner: str | None = None, mode: str = "safe",
     if mode not in ("safe", "full"):
         return {"error": "mode must be 'safe' or 'full'"}
     if mode == "full":
-        # PR 2 adds the owner-approval gate (origin must be 'user', FULL_TASK_MAX_CHARS).
+        # PR 2 adds the owner-approval gate (origin must be 'user').
         return {"error": "Full access is not available yet — use mode='safe'."}
     if len(task) > TASK_MAX_CHARS:
         return {"error": f"task is too long ({len(task)} chars, max {TASK_MAX_CHARS})"}

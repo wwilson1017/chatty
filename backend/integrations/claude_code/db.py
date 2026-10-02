@@ -28,7 +28,6 @@ DATA_DIR = Path(__file__).resolve().parent.parent.parent / "data" / "claude_code
 DB_PATH = DATA_DIR / "jobs.db"
 GCS_KEY = "claude_code/jobs.db"
 
-ACTIVE_STATUSES = ("pending_approval", "queued", "running")
 TERMINAL_STATUSES = ("done", "failed", "cancelled", "expired")
 ONLINE_WINDOW_S = 90  # the connector polls every 5 s (with backoff)
 
@@ -213,7 +212,7 @@ def finish_job(job_id: str, status: str, reason: str, *, notify: bool,
     """Make a job terminal. Returns False if it was already terminal (first write wins).
 
     notify=True queues the completion turn (completion_status='pending') in the
-    same UPDATE. running_generation restricts the transition to a job that is
+    same UPDATE, except for system-origin jobs (no agent to tell). running_generation restricts the transition to a job that is
     `running` under that pairing (the /result path). Extra fields: any of
     _RESULT_FIELDS (session_id is kept when not given).
     """
@@ -223,6 +222,9 @@ def finish_job(job_id: str, status: str, reason: str, *, notify: bool,
         raise ValueError(f"finish_job: unknown fields {bad}")
     sets = ["status = ?", "finish_reason = ?", "finished_at = datetime('now')"]
     params: list = [status, reason]
+    db = get_db()
+    row = db.execute("SELECT origin FROM jobs WHERE id = ?", (job_id,)).fetchone()
+    notify = notify and not (row and row["origin"] == "system")
     if notify:
         sets.append("completion_status = 'pending'")
     for k, v in fields.items():
@@ -234,7 +236,6 @@ def finish_job(job_id: str, status: str, reason: str, *, notify: bool,
         where += " AND status = 'running' AND pair_generation = ?"
         params.append(running_generation)
 
-    db = get_db()
     with _write_lock:
         changed = db.execute(f"UPDATE jobs SET {', '.join(sets)} WHERE {where}", params).rowcount == 1
         if commit:
