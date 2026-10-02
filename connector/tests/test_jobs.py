@@ -183,3 +183,15 @@ def test_detached_descendant_is_stopped_before_result(fake, paths, tmp_path):
     assert writer.exists() and writer.stat().st_mtime <= fake.result_times["1"]
     assert not growing(writer) and not unit_active("chatty-job-1.scope")
     assert not conn.jobs or not any(j.busy for j in conn.jobs.values())
+
+
+def test_start_ready_enforces_max_concurrent_even_if_overclaimed(fake, paths, containment):
+    # free() offers a slot per runner, so the server can hand over more jobs than max_concurrent allows.
+    conn = make_connector(fake, paths, containment)
+    for i in (1, 2):
+        conn.accept({"id": f"j{i}", "runner": "claude", "mode": "safe", "workdir_key": f"k{i}",
+                     "prompt": json.dumps({"sleep": 30})})
+    conn.start_ready()
+    assert sum(j.busy for j in conn.jobs.values()) == 1
+    fake.cancel = ["j1", "j2"]
+    pump(conn, lambda: {"j1", "j2"} <= set(fake.results))

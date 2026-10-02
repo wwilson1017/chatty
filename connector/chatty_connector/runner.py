@@ -444,12 +444,20 @@ class Connector:
                 log.warning("result upload for job %s got HTTP %s, will retry", job.id, r.status_code)
 
     def start_ready(self) -> None:
-        busy = {j.data["workdir_key"] for j in self.jobs.values() if j.busy}
+        running = [j for j in self.jobs.values() if j.busy]
+        busy = {j.data["workdir_key"] for j in running}
+        slots = self.profile.get("max_concurrent", 1) - len(running)
+        codex_slots = self.profile.get("max_codex", 1) - sum(j.data["runner"] == "codex" for j in running)
         for job in list(self.jobs.values()):
             if job.state != "waiting" or job.thread is not None:
                 continue
             if job.data["workdir_key"] in busy:
                 continue  # an earlier job in this workspace has not fully exited yet
+            # free() offers a slot per runner, so the server can hand us more than the cap; extras wait here
+            if slots <= 0 or (job.data["runner"] == "codex" and codex_slots <= 0):
+                continue
+            slots -= 1
+            codex_slots -= job.data["runner"] == "codex"
             busy.add(job.data["workdir_key"])
             job.thread = threading.Thread(target=self._execute, args=(job,), daemon=True)
             job.thread.start()
