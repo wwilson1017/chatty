@@ -5,6 +5,7 @@ an explicit ``bot_token`` — there is no global fallback.  Telegram's Bot API
 is HTTP/webhook-based so no persistent connections are needed.
 """
 
+import json
 import logging
 
 import httpx
@@ -24,12 +25,18 @@ def _base_url(bot_token: str) -> str:
     return f"https://api.telegram.org/bot{bot_token}"
 
 
-def send_message(chat_id: int | str, text: str, bot_token: str) -> list[dict]:
+ALLOWED_UPDATES = ["message", "callback_query"]
+
+
+def send_message(
+    chat_id: int | str, text: str, bot_token: str, reply_markup: dict | None = None,
+) -> list[dict]:
     """Send a text message to a Telegram chat.
 
     Converts Markdown to Telegram HTML for formatting.  Falls back to plain
     text if HTML conversion or parsing fails.  Raises ``TelegramSendError``
-    on delivery failure so callers can react.
+    on delivery failure so callers can react.  ``reply_markup`` (e.g. an
+    inline keyboard) is attached to the last chunk only.
     """
     if not bot_token:
         logger.warning("No Telegram bot token — cannot send message")
@@ -37,7 +44,8 @@ def send_message(chat_id: int | str, text: str, bot_token: str) -> list[dict]:
 
     chunks = _chunk_text(text, MAX_CHUNK_LENGTH)
     results = []
-    for chunk in chunks:
+    for i, chunk in enumerate(chunks):
+        extra = {"reply_markup": reply_markup} if reply_markup and i == len(chunks) - 1 else {}
         try:
             html_chunk = markdown_to_telegram_html(chunk)
         except Exception:
@@ -51,19 +59,20 @@ def send_message(chat_id: int | str, text: str, bot_token: str) -> list[dict]:
                         "chat_id": chat_id,
                         "text": html_chunk,
                         "parse_mode": "HTML",
+                        **extra,
                     },
                     timeout=30,
                 )
                 if resp.status_code == 400 and "parse" in resp.text.lower():
                     resp = httpx.post(
                         f"{_base_url(bot_token)}/sendMessage",
-                        json={"chat_id": chat_id, "text": chunk},
+                        json={"chat_id": chat_id, "text": chunk, **extra},
                         timeout=30,
                     )
             else:
                 resp = httpx.post(
                     f"{_base_url(bot_token)}/sendMessage",
-                    json={"chat_id": chat_id, "text": chunk},
+                    json={"chat_id": chat_id, "text": chunk, **extra},
                     timeout=30,
                 )
             resp.raise_for_status()
@@ -85,7 +94,7 @@ def set_webhook(url: str, bot_token: str, secret_token: str | None = None) -> di
     if not bot_token:
         return {"ok": False, "error": "No bot token provided"}
 
-    payload: dict = {"url": url}
+    payload: dict = {"url": url, "allowed_updates": ALLOWED_UPDATES}
     if secret_token:
         payload["secret_token"] = secret_token
 
@@ -99,6 +108,35 @@ def set_webhook(url: str, bot_token: str, secret_token: str | None = None) -> di
         return resp.json()
     except httpx.HTTPError as e:
         logger.error("Telegram setWebhook failed: %s", e)
+        return {"ok": False, "error": str(e)}
+
+
+def answer_callback_query(callback_query_id: str, text: str, bot_token: str) -> dict:
+    """Acknowledge an inline-button press (stops the client's spinner)."""
+    payload: dict = {"callback_query_id": callback_query_id}
+    if text:
+        payload["text"] = text
+    return _post("answerCallbackQuery", payload, bot_token)
+
+
+def edit_message_text(chat_id: int | str, message_id: int, text: str, bot_token: str) -> dict:
+    """Replace a sent message's text (plain text; drops its inline keyboard)."""
+    return _post(
+        "editMessageText",
+        {"chat_id": chat_id, "message_id": message_id, "text": text[:MAX_CHUNK_LENGTH]},
+        bot_token,
+    )
+
+
+def _post(method: str, payload: dict, bot_token: str) -> dict:
+    if not bot_token:
+        return {"ok": False, "error": "No bot token provided"}
+    try:
+        resp = httpx.post(f"{_base_url(bot_token)}/{method}", json=payload, timeout=30)
+        resp.raise_for_status()
+        return resp.json()
+    except httpx.HTTPError as e:
+        logger.warning("Telegram %s failed: %s", method, e)
         return {"ok": False, "error": str(e)}
 
 
@@ -153,7 +191,8 @@ def get_updates(bot_token: str, offset: int | None = None, timeout: int = 30) ->
     if not bot_token:
         return []
 
-    params: dict = {"timeout": timeout, "allowed_updates": ["message"]}
+    # Query params must carry the array JSON-encoded; a list would become repeated keys.
+    params: dict = {"timeout": timeout, "allowed_updates": json.dumps(ALLOWED_UPDATES)}
     if offset is not None:
         params["offset"] = offset
 

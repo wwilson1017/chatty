@@ -174,6 +174,14 @@ class ClaudeCodeAgentsRequest(BaseModel):
     disabled_agents: list[str] = Field(default_factory=list, max_length=200)
 
 
+class ClaudeCodeAccessRequest(BaseModel):
+    level: Literal["look", "sandbox", "full"]
+
+
+class ClaudeCodeDecideRequest(BaseModel):
+    decision: Literal["full", "sandbox", "cancel"]
+
+
 @router.post("/claude_code/pair-code")
 def claude_code_pair_code(user=Depends(get_current_user)):
     from .claude_code.connector_api import create_pair_code
@@ -214,6 +222,18 @@ def claude_code_refresh_capabilities(user=Depends(get_current_user)):
 def claude_code_set_agents(body: ClaudeCodeAgentsRequest, user=Depends(get_current_user)):
     from .claude_code.connector_api import set_disabled_agents
     return set_disabled_agents(body.disabled_agents)
+
+
+@router.put("/claude_code/access")
+def claude_code_set_access(body: ClaudeCodeAccessRequest, user=Depends(get_current_user)):
+    from .claude_code.connector_api import set_access_level
+    return set_access_level(body.level)
+
+
+@router.post("/claude_code/jobs/{job_id}/decide")
+def claude_code_decide(job_id: str, body: ClaudeCodeDecideRequest, user=Depends(get_current_user)):
+    from .claude_code.connector_api import decide_job
+    return decide_job(job_id, body.decision)
 
 
 @router.post("/quickbooks/setup")

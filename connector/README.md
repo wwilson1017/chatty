@@ -4,7 +4,7 @@ Lets your [Chatty](https://github.com/WWilson1017/chatty) agents hand tasks to *
 
 It polls Chatty over HTTPS for queued jobs, so nothing on your network is exposed. For each job it runs `claude -p` (or `codex exec`) headless in its own directory, then posts the result, the session id and the usage back to Chatty.
 
-**Your environment, your risk.** Whatever your Claude Code can do on this machine (MCP servers, logins, CLAUDE.md, tools), a job can do. The connector only decides *which profile* a job runs under. Read "Safe vs full" before you install it.
+**Your environment, your risk.** Whatever your Claude Code can do on this machine (MCP servers, logins, CLAUDE.md, tools), a job can do. The connector only decides *which level* a job runs at, and never above the ceiling you set here. Read "Access levels" before you install it.
 
 ## Install
 
@@ -17,16 +17,43 @@ uv tool install --reinstall "git+https://github.com/WWilson1017/chatty#subdirect
 # or from a checkout:  uv tool install ./connector
 ```
 
-`pair` then asks whether to run the health check (`doctor`) and whether to install and start the background service (`install-service`). Press Enter for yes to both, or pass `--yes`. Without a terminal it only pairs.
+`pair` then runs `setup` (below), asks whether to run the health check (`doctor`), and whether to install and start the background service (`install-service`). Press Enter to take the defaults, or pass `--yes`. Without a terminal it pairs and keeps the current setup (a first pair gets the defaults).
 
-## Pair
+## Setup: what this machine allows
 
-This writes `~/.config/chatty-connector/`:
-- `config.toml`: the Chatty URL and the connector token (mode 0600; Chatty only stores its hash)
-- `profiles.toml`: how each job mode runs (edit freely)
-- `safe-settings.json`: the starter Claude Code settings for `safe` jobs, with your absolute paths filled in
+```bash
+chatty-connector setup
+```
 
-Existing `profiles.toml` and `safe-settings.json` are never overwritten.
+A short wizard you can re-run any time. It shows what it found (claude, codex, gh, playwright-cli, and whether the OS sandbox works), then asks:
+
+1. **The ceiling:** the most Chatty may ask of this machine: Look only, Sandbox (the default) or Full. In Chatty you pick a level per connection *within* that ceiling; higher options are greyed out there.
+2. **Browser in Sandbox jobs?** [y/N] Allows `playwright-cli`. A browser can submit forms, so this is a real widening.
+3. **Codex?** [Y/n] Only asked if Codex is installed.
+4. **Jobs at once** [1]
+5. **Refuse jobs when the sandbox can't start?** [y/N] Off means Sandbox jobs fall back to deny rules only (see below).
+
+It prints a summary, asks to save, writes the files below, and restarts the background service if it is installed. Enter keeps the value shown in brackets, which is your current setting.
+
+For scripts: `chatty-connector setup --yes` keeps every current value; `--ceiling look|sandbox|full` and `--browser` / `--no-browser` change just those. With no terminal it behaves like `--yes`.
+
+It writes `~/.config/chatty-connector/`:
+- `config.toml` (from `pair`): the Chatty URL and the connector token (mode 0600; Chatty only stores its hash)
+- `profiles.toml`: the ceiling and how each level runs
+- `sandbox-settings.json` and `look-settings.json`: the Claude Code settings for those levels, with your absolute paths filled in
+
+`setup` regenerates these three files each time, so hand edits are overwritten (it keeps each runner's `command` and `resume`). To change something, re-run `setup`.
+
+## Upgrading from 0.1.0
+
+0.1.0 had two modes, `safe` and `full`. A 0.1.0 connector gets no jobs from an updated Chatty, and after upgrading, `run` refuses the old `profiles.toml` (the service stays stopped) until you run setup:
+
+```bash
+uv tool install --reinstall "git+https://github.com/WWilson1017/chatty#subdirectory=connector"
+chatty-connector setup
+```
+
+`setup` starts from your old values (ceiling Sandbox, which is what `safe` was), writes the new files, renames `safe-settings.json` to `safe-settings.json.bak`, and restarts the service. Chatty shows "Update your connector" until a 0.2.0 connector checks in.
 
 ## Check it
 
@@ -34,7 +61,7 @@ Existing `profiles.toml` and `safe-settings.json` are never overwritten.
 chatty-connector doctor
 ```
 
-It checks that Chatty answers (it never claims a job), that the CLIs run, that a one-turn `claude` ping works with the safe profile, that the profiles parse, whether the OS sandbox can start, and that job containment works. It prints `sandbox: available` or `sandbox: unavailable (…; safe profile = deny rules only)`.
+It checks that Chatty answers (it never claims a job), that the CLIs run, that a one-turn `claude` ping works at the Sandbox level, that the profiles parse, the ceiling and extras, whether the OS sandbox can start, and that job containment works. It prints `sandbox: available` or `sandbox: unavailable (…; sandbox level = deny rules only)`.
 
 ## Run it as a service
 
@@ -49,47 +76,59 @@ The unit captures your current `PATH` so it can find `claude` and `codex`. Re-ru
 
 `chatty-connector run` runs it in the foreground.
 
-## Safe vs full
+## Access levels
 
-Chatty guarantees the **gate**:
-- a job runs under your `full` profile only after you approved its exact text
-- everything else (scheduled actions, background turns, group chats, job-completion turns) can only use `safe`, within a budget of 10 jobs per agent per day
+| Level | Claude Code | Codex |
+|---|---|---|
+| **Look only** | `--permission-mode default` + `look-settings.json`: no file edits anywhere, only the read-only `gh`/`git` commands below | `--sandbox read-only` |
+| **Sandbox** | `--permission-mode acceptEdits` + `sandbox-settings.json`: edits in the job's own folder, shell commands in the OS sandbox | `--sandbox workspace-write` |
+| **Full** | `--dangerously-skip-permissions` | `--dangerously-bypass-approvals-and-sandbox` |
 
-Chatty does **not** guarantee what `safe` can do on this machine. That's whatever your `safe` profile enforces. The starter profile:
-- runs Claude Code with `--permission-mode acceptEdits` and `safe-settings.json`
-- turns on Claude Code's OS sandbox for shell commands, with `allowUnsandboxedCommands: false`
-- denies reading `~/.ssh`, `~/.aws`, `~/.config/gh`, `.env` files and this connector's own config, and denies editing the connector config and `~/.claude`
-- also denies reading `~/.codex`, `~/.netrc`, `~/.npmrc`, gcloud/kube/docker/gnupg config and `~/.claude/.credentials.json`, and writing `.claude/` in the job dir (no planting hooks or settings)
-- denies `git push`, `gh pr`, `gh release`, `gh repo` and package publishing
+**The ceiling is enforced here.** The connector reports its ceiling on every check-in, and a job above it fails immediately with `above this machine's ceiling`, whatever Chatty sent. Only `setup` on this machine raises it.
 
-Its limits, plainly:
-- **The sandbox covers shell commands only.** MCP servers and hooks run outside it, with your full permissions.
-- **Without a working sandbox, `safe` is "deny rules only".** On Linux the sandbox needs `bubblewrap` and `socat`, and unprivileged user namespaces. Ubuntu 24.04 blocks those by default through AppArmor (`kernel.apparmor_restrict_unprivileged_userns=1`), so `doctor` reports the sandbox as unavailable there. Claude Code then runs shell commands *unsandboxed* and prints a warning. The deny rules still apply, and in headless mode any command that would need approval (for example `bash -c …` or `python -c …`) is refused. To make safe jobs fail instead of running without the sandbox, add `"failIfUnavailable": true` under `"sandbox"` in `safe-settings.json`.
+Chatty guarantees the **gate** below the ceiling:
+- a Full job runs only after you approve its exact text (Telegram buttons or the integration card); chat and Telegram requests default to Sandbox
+- scheduled actions, background turns and job-completion turns never go above Sandbox, within a budget of 10 jobs per agent per day
+
+Chatty does **not** guarantee what a level can do on this machine. That's whatever the settings files enforce. Both settings files:
+- turn on Claude Code's OS sandbox for shell commands, with `allowUnsandboxedCommands: false`
+- deny reading `~/.ssh`, `~/.aws`, `~/.config/gh`, `.env` files and this connector's own config
+- also deny reading `~/.codex`, `~/.netrc`, `~/.npmrc`, gcloud/kube/docker/gnupg config and `~/.claude/.credentials.json`
+- deny `git push`, `gh pr`, `gh release`, `gh repo` and package publishing
+
+`sandbox-settings.json` also denies editing the connector config, `~/.claude` and `.claude/` in the job dir (no planting hooks or settings). `look-settings.json` denies `Edit`, `Write` and `NotebookEdit` outright, and sets `autoAllowBashIfSandboxed: false`, so the sandbox never waves a shell command through.
+
+Their limits, plainly:
+- **The sandbox covers shell commands only.** MCP servers and hooks run outside it, with your full permissions, at every level.
+- **Without a working sandbox, Sandbox is "deny rules only".** On Linux the sandbox needs `bubblewrap` and `socat`, and unprivileged user namespaces. Ubuntu 24.04 blocks those by default through AppArmor (`kernel.apparmor_restrict_unprivileged_userns=1`), so `doctor` reports the sandbox as unavailable there. Claude Code then runs shell commands *unsandboxed* and prints a warning. The deny rules still apply, and in headless mode any command that would need approval (for example `bash -c …` or `python -c …`) is refused. To make Sandbox jobs fail instead, answer yes to "Refuse jobs when the sandbox can't start" in `setup`.
 - Deny rules match command prefixes. They are a speed bump, not a proof.
-- **Read-only allow list.** Headless `safe` jobs can't answer approval prompts, so any shell command not explicitly allowed is refused. The starter file allows read-only `gh` (`issue/pr list|view`, `pr diff|checks`, `repo view`, `run list|view`, `search`) and `git` (`log`, `status`, `diff`, `show`, `clone`). The write forms (`gh pr create`, `gh issue create`, `gh api`, `git push` and the like) are denied. Add to `permissions.allow` for anything else you want `safe` jobs to run, for example `"Bash(playwright-cli:*)"` for browsing. Note that a browser can submit forms, so that is a real widening. If your sandbox works, `gh` can't read `~/.config/gh` from inside it; remove that path from `sandbox.filesystem.denyRead` or give jobs a read-only `GH_TOKEN`.
+- **Read-only allow list.** Headless jobs can't answer approval prompts, so any shell command not explicitly allowed is refused. Both files allow read-only `gh` (`issue/pr list|view`, `pr diff|checks`, `repo view`, `run list|view`, `search`) and `git` (`log`, `status`, `diff`, `show`, `clone`). The write forms (`gh pr create`, `gh issue create`, `gh api`, `git push` and the like) are denied. The browser extra adds `Bash(playwright-cli:*)` to Sandbox. If your sandbox works, `gh` can't read `~/.config/gh` from inside it; give jobs a read-only `GH_TOKEN` if they need it.
 
-Chatty also prepends a fixed preamble to every job: never spend money, never send email or messages as you, never deploy to production, never merge PRs.
+Chatty also prepends a fixed preamble to every job that matches its level: Look only reads and reports; no level spends money, sends email or messages as you, deploys to production, or merges PRs.
 
 ## Profiles
 
-`profiles.toml`:
+`profiles.toml` (generated by `setup`):
 
 ```toml
-max_concurrent = 1   # jobs at once
-max_codex = 1        # of which Codex
+ceiling = "sandbox"   # look, sandbox or full
+max_concurrent = 1    # jobs at once
+max_codex = 1         # of which Codex
 
 [claude]
 command = "claude"
-safe = ["--permission-mode", "acceptEdits", "--settings", "{config_dir}/safe-settings.json"]
+look = ["--permission-mode", "default", "--settings", "{config_dir}/look-settings.json"]
+sandbox = ["--permission-mode", "acceptEdits", "--settings", "{config_dir}/sandbox-settings.json"]
 full = ["--dangerously-skip-permissions"]
-timeout = { safe = 1800, full = 7200 }   # seconds
+timeout = { look = 1800, sandbox = 1800, full = 7200 }   # seconds
 resume = true
 
-[codex]   # optional
+[codex]   # only if you said yes to Codex
 command = "codex"
-safe = ["--sandbox", "workspace-write"]
+look = ["--sandbox", "read-only"]
+sandbox = ["--sandbox", "workspace-write"]
 full = ["--dangerously-bypass-approvals-and-sandbox"]
-timeout = { safe = 1800, full = 7200 }
+timeout = { look = 1800, sandbox = 1800, full = 7200 }
 resume = false
 ```
 
@@ -97,7 +136,7 @@ The connector adds the fixed flags itself: `-p --output-format stream-json --ver
 
 `resume` tells Chatty whether follow-ups can continue a session. Leave it `false` for Codex if your `command` is a wrapper that throws its session state away (for example a per-run `CODEX_HOME`). Chatty then asks for a fresh job instead.
 
-Restart the service after editing.
+`setup` carries over each runner's `command` and `resume`, so a wrapper like `codex-isolated` (or a Codex `resume = true` you made work) survives a re-run. Anything else you edit by hand is overwritten by the next `setup`; restart the service after a hand edit.
 
 ## Where jobs run
 

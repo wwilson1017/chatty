@@ -51,8 +51,8 @@ def _sha256(s: str) -> str:
 
 
 def _queue_system_job() -> str:
-    return db.insert_job(agent_slug="", origin="system", runner="claude", mode="safe",
-                         task=CAPABILITIES_TASK, prompt=build_prompt("safe", CAPABILITIES_TASK))
+    return db.insert_job(agent_slug="", origin="system", runner="claude", mode="look",
+                         task=CAPABILITIES_TASK, prompt=build_prompt("look", CAPABILITIES_TASK))
 
 
 # ── Card actions (called from the authed integrations router) ────────────────
@@ -72,7 +72,7 @@ def disconnect() -> dict:
     conn = db.get_db()
     with db.write_lock():
         db.set_state("pair_generation", db.generation() + 1, commit=False)
-        for key in ("last_seen", "version", "runners"):
+        for key in ("last_seen", "version", "runners", "ceiling"):
             conn.execute("DELETE FROM connector_state WHERE key = ?", (key,))
         conn.commit()
         rows = conn.execute("SELECT id, status FROM jobs WHERE status IN ('queued','pending_approval','running')").fetchall()
@@ -81,8 +81,9 @@ def disconnect() -> dict:
                 db.finish_job(r["id"], "failed", "connector disconnected", notify=False)
             else:
                 db.finish_job(r["id"], "cancelled", "connector disconnected", notify=False)
-        disabled = db.creds().get("disabled_agents", [])
-        save_credentials("claude_code", {"disabled_agents": disabled} if disabled else {})
+        # The owner's choices survive a disconnect; everything about the pairing goes.
+        save_credentials("claude_code", {k: v for k, v in db.creds().items()
+                                         if k in ("disabled_agents", "access_level") and v})
     return {"ok": True, "stopped": len(rows)}
 
 
@@ -100,7 +101,20 @@ def status() -> dict:
         "capabilities": db.get_state("capabilities"),
         "disabled_agents": c.get("disabled_agents", []),
         "pair_code_expires_at": db.iso_z(c.get("pair_code_expires_at")),
+        "ceiling": db.ceiling(),
+        "access_level": db.access_level(),
+        "approvals": pending_approvals(),
     }
+
+
+def pending_approvals() -> list[dict]:
+    from .approvals import parent_excerpt
+    rows = db.query("SELECT * FROM jobs WHERE status = 'pending_approval' ORDER BY created_at, rowid")
+    return [{
+        "id": r["id"], "agent_slug": r["agent_slug"], "runner": r["runner"], "task": r["task"],
+        "parent_job_id": r["parent_job_id"], "parent_excerpt": parent_excerpt(dict(r)),
+        "expires_at": db.iso_z(r["approval_expires_at"]),
+    } for r in rows]
 
 
 def list_jobs(limit: int) -> dict:
@@ -133,6 +147,22 @@ def set_disabled_agents(slugs: list[str]) -> dict:
         c["disabled_agents"] = sorted(set(slugs))
         save_credentials("claude_code", c)
     return {"ok": True, "disabled_agents": c["disabled_agents"]}
+
+
+def set_access_level(level: str) -> dict:
+    with db.write_lock():
+        c = db.creds()
+        c["access_level"] = level
+        save_credentials("claude_code", c)
+    return {"ok": True, "access_level": level}
+
+
+def decide_job(job_id: str, decision: str) -> dict:
+    from .approvals import decide
+    result = decide(job_id, decision, via="card", decided_by="owner")
+    if "error" in result:
+        raise HTTPException(status_code=404 if result.get("not_found") else 409, detail=result["error"])
+    return result
 
 
 # ── Connector API ────────────────────────────────────────────────────────────
@@ -194,6 +224,7 @@ class PollRequest(BaseModel):
     runners: dict[str, dict] = Field(default_factory=dict)
     free: dict[str, int] = Field(default_factory=dict)
     running: list[str] = Field(default_factory=list, max_length=1000)
+    ceiling: Literal["look", "sandbox", "full"] | None = None  # None: a 0.1.x connector — it claims nothing
 
 
 def _cancel_at_claim(job: dict, reason: str) -> None:
@@ -210,6 +241,7 @@ def poll(body: PollRequest, gen: int = Depends(connector_auth)):
             raise HTTPException(status_code=401, detail="Invalid connector token")
         db.set_state("last_seen", time.time(), commit=False)
         db.set_state("version", body.version, commit=False)
+        db.set_state("ceiling", body.ceiling, commit=False)
         db.set_state("runners", {k: {"resume": bool(v.get("resume"))} for k, v in list(body.runners.items())[:10]},
                      commit=False)
         if owned:
@@ -240,9 +272,11 @@ def poll(body: PollRequest, gen: int = Depends(connector_auth)):
         free = {k: max(0, int(v)) for k, v in body.free.items()}
         enabled = bool(db.creds().get("enabled"))
         disabled_agents = set(db.creds().get("disabled_agents") or [])
+        access = db.level_rank(db.access_level())
+        top = db.level_rank(body.ceiling)
         for row in conn.execute(
             "SELECT * FROM jobs WHERE status = 'queued' ORDER BY created_at, rowid"
-        ).fetchall():
+        ).fetchall() if body.ceiling else ():
             job = dict(row)
             if free.get(job["runner"], 0) <= 0:
                 continue
@@ -255,7 +289,14 @@ def poll(body: PollRequest, gen: int = Depends(connector_auth)):
             if job["parent_job_id"] and (not parent or parent["pair_generation"] != gen):
                 _cancel_at_claim(job, "that workspace is on a previous connector")
                 continue
-            # 3. Full jobs run only with an approval bound to this exact prompt.
+            # 3. Levels re-checked at claim: the machine's ceiling, then the owner's access level.
+            if db.level_rank(job["mode"]) > top:
+                _cancel_at_claim(job, "above this machine's ceiling")
+                continue
+            if db.level_rank(job["mode"]) > access:
+                _cancel_at_claim(job, "access level lowered")
+                continue
+            # 4. Full jobs run only with an approval bound to this exact prompt.
             if job["mode"] == "full" and not (
                 job["decision"] == "full"
                 and job["approved_prompt_sha256"]
@@ -263,7 +304,7 @@ def poll(body: PollRequest, gen: int = Depends(connector_auth)):
             ):
                 _cancel_at_claim(job, "full access was not approved")
                 continue
-            # 4. One job at a time per chain (same session + working directory).
+            # 5. One job at a time per chain (same session + working directory).
             if conn.execute(
                 "SELECT 1 FROM jobs WHERE root_job_id = ? AND status = 'running'", (job["root_job_id"],)
             ).fetchone():

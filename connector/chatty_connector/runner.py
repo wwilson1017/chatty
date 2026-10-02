@@ -23,6 +23,7 @@ from . import __version__
 log = logging.getLogger("chatty_connector")
 
 RUNNERS = ("claude", "codex")
+LEVELS = ("look", "sandbox", "full")  # lowest to highest
 RESULT_CAP = 100_000
 LINE_LIMIT = 4 * 1024 * 1024
 STDERR_TAIL = 2000
@@ -63,13 +64,17 @@ class Paths:
 def load_profile(paths: Paths) -> dict:
     with open(paths.config_dir / "profiles.toml", "rb") as f:
         profile = tomllib.load(f)
+    if "ceiling" not in profile or any("safe" in profile.get(r, {}) for r in RUNNERS):
+        raise ValueError("profiles.toml is from connector 0.1.0. Run `chatty-connector setup` to update it.")
+    if profile["ceiling"] not in LEVELS:
+        raise ValueError(f"ceiling must be one of {', '.join(LEVELS)}")
     if "claude" not in profile and "codex" not in profile:
         raise ValueError("profiles.toml has neither a [claude] nor a [codex] section")
     for runner in RUNNERS:
         p = profile.get(runner)
         if p is None:
             continue
-        for mode in ("safe", "full"):
+        for mode in LEVELS:
             if not isinstance(p.get(mode), list) or not all(isinstance(a, str) for a in p[mode]):
                 raise ValueError(f"[{runner}] {mode} must be a list of strings")
             if not isinstance(p.get("timeout", {}).get(mode), int):
@@ -391,7 +396,7 @@ class Connector:
                 "codex": min(total, codex) if "codex" in runners else 0}
 
     def poll(self) -> None:
-        body = {"version": __version__, "runners": available_runners(self.profile),
+        body = {"version": __version__, "ceiling": self.profile["ceiling"], "runners": available_runners(self.profile),
                 "free": self.free(), "running": self.owned_ids()}
         r = self.client.post("/api/connector/poll", json=body)
         if r.status_code in (401, 403):
@@ -406,7 +411,7 @@ class Connector:
     def accept(self, spec: dict) -> None:
         job_id, key = str(spec.get("id")), str(spec.get("workdir_key"))
         if not (ID_RE.fullmatch(job_id) and ID_RE.fullmatch(key) and spec.get("runner") in RUNNERS
-                and spec.get("mode") in ("safe", "full") and isinstance(spec.get("prompt"), str)):
+                and spec.get("mode") in LEVELS and isinstance(spec.get("prompt"), str)):
             log.error("ignoring malformed job from Chatty: %r", {k: spec.get(k) for k in ("id", "runner", "mode")})
             return
         if job_id in self.jobs:
@@ -415,6 +420,12 @@ class Connector:
                    "resume_session_id": spec.get("resume_session_id") or None, "workdir_key": key,
                    "state": "waiting"})
         self.jobs[job_id] = job
+        if LEVELS.index(spec["mode"]) > LEVELS.index(self.profile["ceiling"]):
+            # Chatty should never send this; the machine's ceiling is enforced here regardless
+            self._save(job, state="result", result=_failed("above this machine's ceiling"))
+            log.warning("refused job %s: %s is above this machine's ceiling (%s)", job_id, spec["mode"],
+                        self.profile["ceiling"])
+            return
         self._save(job)
         log.info("claimed job %s (%s, %s)", job_id, job.data["runner"], job.data["mode"])
 

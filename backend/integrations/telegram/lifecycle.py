@@ -150,13 +150,16 @@ def start_polling(agent_id: str, slug: str, bot_token: str) -> None:
     _polling_threads[agent_id] = stop_event
 
     def _poll_loop():
-        from .router import _safe_process_telegram
+        from .router import _safe_process_callback, _safe_process_telegram
         offset = None
         while not stop_event.is_set():
             try:
                 updates = get_updates(bot_token, offset=offset, timeout=30)
                 for update in updates:
                     offset = update["update_id"] + 1
+                    if update.get("callback_query"):
+                        _safe_process_callback(slug, update["callback_query"], bot_token)
+                        continue
                     message = update.get("message")
                     if not message or not message.get("text"):
                         continue

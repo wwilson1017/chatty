@@ -21,24 +21,25 @@ from chatty_connector.runner import (
 from conftest import FIXTURES
 
 PROFILE = {
-    "claude": {"safe": ["--settings", "{config_dir}/safe-settings.json"], "full": ["--dangerously-skip-permissions"],
-               "timeout": {"safe": 1, "full": 2}},
-    "codex": {"command": "codex-isolated", "safe": ["--sandbox", "workspace-write"],
-              "full": ["--dangerously-bypass-approvals-and-sandbox"], "timeout": {"safe": 1, "full": 2}},
+    "ceiling": "full",
+    "claude": {"sandbox": ["--settings", "{config_dir}/sandbox-settings.json"],
+               "full": ["--dangerously-skip-permissions"]},
+    "codex": {"command": "codex-isolated", "sandbox": ["--sandbox", "workspace-write"],
+              "full": ["--dangerously-bypass-approvals-and-sandbox"]},
 }
 CFG = Path("/cfg")
 
 
 def test_claude_argv():
-    assert build_claude_argv(PROFILE, "safe", None, CFG) == [
-        "claude", "-p", "--output-format", "stream-json", "--verbose", "--settings", "/cfg/safe-settings.json"]
+    assert build_claude_argv(PROFILE, "sandbox", None, CFG) == [
+        "claude", "-p", "--output-format", "stream-json", "--verbose", "--settings", "/cfg/sandbox-settings.json"]
     assert build_claude_argv(PROFILE, "full", "sid-1", CFG) == [
         "claude", "-p", "--output-format", "stream-json", "--verbose", "--dangerously-skip-permissions",
         "--resume", "sid-1"]
 
 
 def test_codex_argv():
-    assert build_codex_argv(PROFILE, "safe", None, CFG) == [
+    assert build_codex_argv(PROFILE, "sandbox", None, CFG) == [
         "codex-isolated", "exec", "--json", "--skip-git-repo-check", "--sandbox", "workspace-write", "-"]
     assert build_codex_argv(PROFILE, "full", "t-1", CFG) == [
         "codex-isolated", "exec", "resume", "t-1", "--json", "--skip-git-repo-check",
@@ -99,9 +100,9 @@ def test_second_instance_refused(tmp_path):
 
 
 def test_sandbox_status_checks_settings(tmp_path):
-    s = tmp_path / "safe-settings.json"
+    s = tmp_path / "sandbox-settings.json"
     s.write_text(json.dumps({"sandbox": {"enabled": True}}))
-    assert sandbox_status(s) == (False, "sandbox.allowUnsandboxedCommands is not false in safe-settings.json")
+    assert sandbox_status(s) == (False, "sandbox.allowUnsandboxedCommands is not false in sandbox-settings.json")
     s.write_text(json.dumps({"sandbox": {"enabled": True, "allowUnsandboxedCommands": False}}))
     good, reason = sandbox_status(s)
     assert good or reason  # either works here, or names why (bwrap/socat/AppArmor)
@@ -149,6 +150,6 @@ def test_wheel_contains_package_data(tmp_path):
     subprocess.run(cmd, check=True)
     (wheel,) = tmp_path.glob("chatty_connector-*.whl")
     names = zipfile.ZipFile(wheel).namelist()
-    assert "chatty_connector/profiles.toml" in names
-    assert "chatty_connector/safe-settings.json" in names
+    assert "chatty_connector/sandbox-settings.json" in names
+    assert "chatty_connector/look-settings.json" in names
     assert "chatty_connector/runner.py" in names

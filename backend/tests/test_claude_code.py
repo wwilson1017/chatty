@@ -1,5 +1,6 @@
-"""Claude Code connector (PR 1, safe mode): pairing, the connector API, claim logic,
-delegate gating, and the completion turn. run_background_turn / delivery are mocked."""
+"""Claude Code connector: pairing, the connector API, claim logic, delegate gating
+(levels), and the completion turn. run_background_turn / delivery are mocked.
+Approvals for full jobs: test_claude_code_approvals.py."""
 
 import asyncio
 import hashlib
@@ -39,9 +40,10 @@ def _pair(client, host="skydiver") -> str:
     return r.json()["token"]
 
 
-def _poll(cc, free=None, running=(), runners=None):
+def _poll(cc, free=None, running=(), runners=None, ceiling="full"):
     r = cc.client.post("/api/connector/poll", headers=cc.h, json={
-        "version": "0.1.0",
+        "version": "0.2.0",
+        "ceiling": ceiling,
         "runners": runners or {"claude": {"resume": True}, "codex": {"resume": True}},
         "free": free if free is not None else {"claude": 0, "codex": 0},
         "running": list(running),
@@ -201,7 +203,7 @@ class TestClaiming:
         ids = [_delegate(task=f"t{i}")["job_id"] for i in range(3)]
         out = _poll(cc, free={"claude": 2, "codex": 5})
         assert [j["id"] for j in out["jobs"]] == ids[:2]
-        assert out["jobs"][0]["prompt"].startswith(tools.PREAMBLE["safe"])
+        assert out["jobs"][0]["prompt"].startswith(tools.PREAMBLE["sandbox"])
         assert out["jobs"][0]["workdir_key"] == ids[0] and out["jobs"][0]["resume_session_id"] is None
         assert db.get_job(ids[2])["status"] == "queued"
 
@@ -274,7 +276,7 @@ class TestClaiming:
         assert db.get_job(jid)["status"] == "failed"
 
     def test_lost_system_job_is_never_notified(self, cc):
-        jid = db.insert_job(agent_slug="", origin="system", runner="claude", mode="safe",
+        jid = db.insert_job(agent_slug="", origin="system", runner="claude", mode="look",
                             task="caps", prompt="caps")
         _poll(cc, free={"claude": 1})
         _set(jid, claimed_at="2000-01-01 00:00:00")
@@ -355,9 +357,9 @@ class TestResults:
 # ── delegate gating ──────────────────────────────────────────────────────────
 
 class TestDelegate:
-    def test_full_refused_in_pr1(self, cc):
-        for origin in ("background", "user"):
-            assert "not available" in _delegate(origin=origin, mode="full")["error"]
+    def test_full_refused_from_background(self, cc):
+        cc.client.put("/api/integrations/claude_code/access", json={"level": "full"})
+        assert "background" in _delegate(origin="background", level="full")["error"]
 
     def test_not_paired_refused(self, client):
         assert "not connected" in _delegate()["error"]
@@ -437,6 +439,108 @@ class TestDelegate:
         r = cc.client.post(f"/api/agents/{agent['id']}/tool/execute",
                            json={"tool": "delegate", "args": {"task": "x"}})
         assert r.status_code == 400  # not a write tool → never runs on the confirmation path
+
+
+# ── levels: access level × ceiling × origin ─────────────────────────────────
+
+def _access(cc, level):
+    r = cc.client.put("/api/integrations/claude_code/access", json={"level": level})
+    assert r.status_code == 200, r.text
+
+
+class TestLevels:
+    @pytest.mark.parametrize("access", db.LEVELS)
+    @pytest.mark.parametrize("ceiling", db.LEVELS)
+    def test_level_matrix(self, cc, access, ceiling):
+        _access(cc, access)
+        _poll(cc, ceiling=ceiling)
+        for origin in ("user", "background"):
+            for level in db.LEVELS:
+                allowed = (db.level_rank(level) <= min(db.level_rank(access), db.level_rank(ceiling))
+                           and not (level == "full" and origin != "user"))
+                out = _delegate(origin=origin, level=level)
+                assert ("error" not in out) == allowed, (access, ceiling, origin, level, out)
+                if allowed:
+                    assert out["status"] == ("pending_approval" if level == "full" else "queued")
+                    assert db.get_job(out["job_id"])["mode"] == level
+
+    @pytest.mark.parametrize("access,ceiling,expected", [
+        ("sandbox", "full", "sandbox"), ("full", "full", "sandbox"), ("look", "full", "look"),
+        ("full", "look", "look"), ("full", None, "sandbox"),
+    ])
+    def test_default_level(self, cc, access, ceiling, expected):
+        _access(cc, access)
+        db.set_state("ceiling", ceiling)
+        jid = _delegate()["job_id"]
+        job = db.get_job(jid)
+        assert job["mode"] == expected and job["prompt"].startswith(tools.PREAMBLE[expected])
+
+    def test_unreported_ceiling_allows_up_to_sandbox_only(self, cc):
+        _access(cc, "full")
+        db.set_state("ceiling", None)
+        assert "job_id" in _delegate(level="sandbox")
+        assert "chatty-connector setup" in _delegate(level="full")["error"]
+
+    def test_unknown_level_and_full_task_cap(self, cc):
+        _access(cc, "full")
+        assert "level must be" in _delegate(level="safe")["error"]
+        assert "too long" in _delegate(level="full", task="x" * (tools.FULL_TASK_MAX_CHARS + 1))["error"]
+        assert "job_id" in _delegate(level="sandbox", task="x" * (tools.FULL_TASK_MAX_CHARS + 1))
+
+    def test_poll_without_ceiling_claims_nothing(self, cc):
+        jid = _delegate()["job_id"]
+        assert _poll(cc, free={"claude": 5}, ceiling=None)["jobs"] == []
+        assert db.get_job(jid)["status"] == "queued"
+        assert cc.client.get("/api/integrations/claude_code/status").json()["ceiling"] is None
+        assert [j["id"] for j in _poll(cc, free={"claude": 5})["jobs"]] == [jid]
+
+    def test_claim_cancels_above_ceiling_and_lowered_access(self, cc):
+        look = _delegate(level="look")["job_id"]
+        above = _delegate(level="sandbox")["job_id"]
+        out = _poll(cc, free={"claude": 5}, ceiling="look")
+        assert [j["id"] for j in out["jobs"]] == [look] and out["jobs"][0]["mode"] == "look"
+        assert db.get_job(above)["finish_reason"] == "above this machine's ceiling"
+
+        _poll(cc)  # ceiling back to full
+        lowered = _delegate(level="sandbox")["job_id"]
+        _access(cc, "look")
+        _poll(cc, free={"claude": 5})
+        job = db.get_job(lowered)
+        assert job["status"] == "cancelled" and job["finish_reason"] == "access level lowered"
+        assert job["completion_status"] == "pending"  # the agent hears about it
+
+    def test_capabilities_job_is_look(self, cc):
+        assert db.get_job(connector_api.refresh_capabilities()["job_id"])["mode"] == "look"
+
+    def test_access_level_card_api(self, cc):
+        st = cc.client.get("/api/integrations/claude_code/status").json()
+        assert (st["access_level"], st["ceiling"], st["approvals"]) == ("sandbox", "full", [])
+        assert cc.client.put("/api/integrations/claude_code/access", json={"level": "safe"}).status_code == 422
+        _access(cc, "full")
+        cc.client.post("/api/integrations/claude_code/disconnect")
+        st = cc.client.get("/api/integrations/claude_code/status").json()
+        assert st["access_level"] == "full" and st["ceiling"] is None and not st["paired"]
+
+    def test_migration_from_pr1_db(self, cc):
+        db.close_db()
+        import sqlite3
+        conn = sqlite3.connect(db.DB_PATH)
+        conn.executescript(f"""
+            DROP TABLE jobs;
+            CREATE TABLE jobs {db._JOBS_COLUMNS.replace("('look','sandbox','full')", "('safe','full')")};
+            INSERT INTO jobs (id, origin, runner, mode, task, prompt, root_job_id, status, decision)
+                VALUES ('old1', 'user', 'claude', 'safe', 't', 'p', 'old1', 'done', NULL),
+                       ('old2', 'user', 'claude', 'full', 't', 'p', 'old2', 'cancelled', 'x');
+        """)
+        conn.close()
+        db._setup_connection()
+        assert {r["id"]: r["mode"] for r in db.query("SELECT id, mode FROM jobs")} == {"old1": "sandbox", "old2": "full"}
+        assert db.get_job("old2")["decision"] == "x"
+        with pytest.raises(sqlite3.IntegrityError):
+            db.get_db().execute("UPDATE jobs SET mode = 'safe' WHERE id = 'old1'")
+        assert db.query("SELECT name FROM sqlite_master WHERE name = 'idx_cc_jobs_root'")
+        db._setup_connection()  # idempotent
+        assert db.get_job("old1")["mode"] == "sandbox"
 
 
 # ── completion ───────────────────────────────────────────────────────────────
