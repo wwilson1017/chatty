@@ -381,6 +381,16 @@ class TestFailures:
         assert seen["/review/r-1/decide"] == CURATOR_WRITE_TIMEOUT_SECONDS
         assert seen["/memory"] == 10.0
 
+    def test_already_applied_proposal_is_reported_as_safe_retry(self):
+        def handler(request):
+            return httpx.Response(200, json={"id": "p-1", "kind": "merge-people", "outcome": "already_applied",
+                                             "status": "accepted", "applied": True, "already": True})
+
+        b = BrainBackend("http://brain.test", "k", agent_slug="tom", transport=httpx.MockTransport(handler))
+        out = b.execute("propose_change", {"kind": "merge-people", "payload": {"keep": "a", "drop": ["b"]},
+                                           "reason": "same person"})
+        assert out["note"].startswith("already applied earlier")
+
     def test_server_error_and_not_configured(self, fake):
         b = BrainBackend("http://brain.test", "k", transport=httpx.MockTransport(fake.handler))
         assert b._get("/boom") == {"error": "brain error (500): RuntimeError: x"}

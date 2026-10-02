@@ -315,7 +315,9 @@ def _describe_proposal(data: dict, kind: str) -> dict:
     """Tell the model whether its proposal landed now or waits for the owner."""
     if "error" in data:
         return data
-    if data.get("applied"):
+    if data.get("outcome") == "already_applied":
+        data["note"] = "already applied earlier — nothing new was filed (a retry is safe)"
+    elif data.get("applied"):
         data["note"] = f"applied immediately (you are a curator) — decided by {data.get('decided_by')}"
     elif data.get("apply_error"):
         data["note"] = f"queued, but applying it failed: {data['apply_error']} — left pending for the owner"
