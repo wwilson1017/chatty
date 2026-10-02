@@ -69,6 +69,15 @@ NOT_A_CURATOR = (
 SOURCE_TYPE_TO_KIND = {"topic": "note"}
 NOT_CONFIGURED = "brain integration is not configured (Settings → Integrations → Second Brain)"
 UNREACHABLE = "brain unreachable"
+# A write that timed out after it was sent may still have been applied: the brain finishes it after we give up.
+WRITE_TIMED_OUT = (
+    "brain timed out — the change may still have been applied. Check list_proposals / query_facts "
+    "before retrying."
+)
+# Curator writes (an applied merge, an accepted review item) reindex the brain; give them longer than reads.
+CURATOR_WRITE_TIMEOUT_SECONDS = 45.0
+# Below uvicorn's 5 s keep-alive, so a pooled connection is never reused just as the server closes it.
+KEEPALIVE_EXPIRY_SECONDS = 4.0
 
 
 class BrainBackend:
@@ -83,7 +92,12 @@ class BrainBackend:
         self.base_url = (base_url or "").rstrip("/")
         self.agent_slug = agent_slug
         headers = {"X-Api-Key": api_key} if api_key else {}
-        # transport lets tests plug in httpx.MockTransport — no sockets
+        # transport lets tests plug in httpx.MockTransport — no sockets.  retries=1 re-tries connection
+        # failures only (the request never reached the brain), never a request the server received.
+        if transport is None:
+            transport = httpx.HTTPTransport(
+                retries=1, limits=httpx.Limits(keepalive_expiry=KEEPALIVE_EXPIRY_SECONDS),
+            )
         self._client = httpx.Client(base_url=self.base_url or "http://unconfigured", timeout=timeout,
                                     headers=headers, transport=transport)
         self._context_cache: tuple[float, str] | None = None  # (expires_at, text)
@@ -117,6 +131,9 @@ class BrainBackend:
             return {"error": NOT_CONFIGURED}
         try:
             resp = self._client.request(method, path, **kw)
+        except (httpx.ReadTimeout, httpx.WriteTimeout) as e:
+            logger.warning("brain %s %s timed out: %s", method, path, e)
+            return {"error": UNREACHABLE if method == "GET" else WRITE_TIMED_OUT}
         except httpx.HTTPError as e:
             logger.warning("brain %s %s failed: %s", method, path, e)
             return {"error": UNREACHABLE}
@@ -132,8 +149,9 @@ class BrainBackend:
     def _get(self, path: str, **params) -> dict:
         return self._request("GET", path, params={k: v for k, v in params.items() if v is not None})
 
-    def _post(self, path: str, **body) -> dict:
-        return self._request("POST", path, json={k: v for k, v in body.items() if v is not None})
+    def _post(self, path: str, _timeout: float | None = None, **body) -> dict:
+        kw = {"timeout": _timeout} if _timeout is not None else {}
+        return self._request("POST", path, json={k: v for k, v in body.items() if v is not None}, **kw)
 
     # ── dispatch ─────────────────────────────────────────────────────────
 
@@ -244,7 +262,7 @@ class BrainBackend:
         if not reason:
             return {"error": "reason is required"}
         data = self._post(
-            "/propose", kind=kind, payload=payload, reason=reason, evidence=(args.get("evidence") or None),
+            "/propose", _timeout=CURATOR_WRITE_TIMEOUT_SECONDS, kind=kind, payload=payload, reason=reason, evidence=(args.get("evidence") or None),
             origin_class="agent", harness="chatty", agent=self.agent_slug or None,
         )
         return _describe_proposal(data, kind)
@@ -277,7 +295,7 @@ class BrainBackend:
         if decision == "reject" and not reason:
             return {"error": "a rejection needs a reason — the proposer reads it before re-proposing"}
         data = self._post(  # pid is model-supplied: quote it so it stays one path segment
-            f"/review/{quote(pid, safe='')}/decide", decision=decision, reason=reason, domain=(args.get("domain") or None),
+            f"/review/{quote(pid, safe='')}/decide", _timeout=CURATOR_WRITE_TIMEOUT_SECONDS, decision=decision, reason=reason, domain=(args.get("domain") or None),
             harness="chatty", agent=self.agent_slug or None,
         )
         if "error" in data:
