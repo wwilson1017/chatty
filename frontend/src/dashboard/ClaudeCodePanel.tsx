@@ -150,12 +150,13 @@ export function ClaudeCodePanel({ onChanged }: { onChanged: () => void }) {
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
           <p style={{ margin: 0 }}>
             Pair code <strong style={{ color: INK, fontFamily: FONT_MONO }}>{code.code}</strong> — expires {fmtTime(code.expires_at)}.
-            Run these on the computer with Claude Code:
+            Paste this into a terminal on the computer with Claude Code, then answer the prompts:
           </p>
-          <CopyLine text={'uv tool install "git+https://github.com/WWilson1017/chatty#subdirectory=connector"'} />
-          <CopyLine text={`chatty-connector pair ${origin} ${code.code}`} />
-          <CopyLine text="chatty-connector doctor" />
-          <CopyLine text="chatty-connector install-service" />
+          <CopyLine text={`uv tool install --reinstall "git+https://github.com/WWilson1017/chatty#subdirectory=connector" && chatty-connector pair ${origin} ${code.code}`} />
+          <p style={{ margin: 0, color: INK_DIM }}>
+            Needs <a href="https://docs.astral.sh/uv/getting-started/installation/" target="_blank" rel="noreferrer">uv</a>.
+            It pairs, runs a health check, and starts the background service.
+          </p>
           <p style={{ margin: 0, color: INK_DIM }}>Waiting for the connector to pair…</p>
         </div>
       ) : (

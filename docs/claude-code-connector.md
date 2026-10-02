@@ -18,28 +18,16 @@ Let your Chatty agents hand work to **your own** Claude Code (or Codex): browse 
 
 ## Set it up
 
-1. **Install** on the machine that runs Claude Code:
+1. In Chatty open **Settings → Integrations → Claude Code → Connect**. The card shows a one-time code (valid 10 minutes) inside a single command.
+2. Paste that command into a terminal on the machine that runs Claude Code (it needs [uv](https://docs.astral.sh/uv/getting-started/installation/)):
    ```bash
-   uv tool install "git+https://github.com/WWilson1017/chatty#subdirectory=connector"
+   uv tool install --reinstall "git+https://github.com/WWilson1017/chatty#subdirectory=connector" && chatty-connector pair https://your-chatty.example.com 123456
    ```
-2. **Pair.** In Chatty open **Settings → Integrations → Claude Code → Connect**. The card shows a one-time code (valid 10 minutes) and the command to run:
-   ```bash
-   chatty-connector pair https://your-chatty.example.com 123456
-   ```
-   This writes `~/.config/chatty-connector/` (`config.toml` with the token, `profiles.toml`, `safe-settings.json`). Chatty stores only a hash of the token.
-3. **Check it:**
-   ```bash
-   chatty-connector doctor
-   ```
-   Fix anything marked `FAIL`. A `warn` on the sandbox line is explained below.
-4. **Run it as a service:**
-   ```bash
-   chatty-connector install-service
-   systemctl --user daemon-reload
-   systemctl --user enable --now chatty-connector
-   loginctl enable-linger $USER     # keep it running while you're logged out
-   ```
-   On macOS, `install-service` writes a launchd agent and prints the `launchctl bootstrap` command to start it. `chatty-connector run` runs it in the foreground instead.
+3. Answer the two prompts (press Enter for yes):
+   - **Run the health check now?** This runs `chatty-connector doctor`. Fix anything marked `FAIL`; a `warn` on the sandbox line is explained below.
+   - **Install and start the background service?** This installs a systemd user service (launchd on macOS), starts it, and turns on linger so it keeps running while you're logged out.
+
+`pair` writes `~/.config/chatty-connector/` (`config.toml` with the token, `profiles.toml`, `safe-settings.json`); Chatty stores only a hash of the token. `pair --yes` skips the prompts. You can run either step on its own later: `chatty-connector doctor`, `chatty-connector install-service`.
 
 The card now shows the connector as online, with its host, runners and version. Use the agent checklist on the card to keep particular agents from delegating.
 
@@ -107,7 +95,7 @@ chatty-connector clean --older-than 30d
 ## Troubleshooting
 
 - **Card says offline.** Jobs stay queued and start when the connector comes back. Check `systemctl --user status chatty-connector` and `journalctl --user -u chatty-connector -f`. If the connector stops reporting for 10 minutes, Chatty marks its running jobs failed ("connector stopped reporting").
-- **"Chatty rejected the token" in the logs.** You disconnected or re-paired in Chatty. The connector stopped every job it owned, cleared its token and exited (the service doesn't restart it). Get a new code from the card, run `pair` again, then `systemctl --user restart chatty-connector`.
+- **"Chatty rejected the token" in the logs.** You disconnected or re-paired in Chatty. The connector stopped every job it owned, cleared its token and exited (the service doesn't restart it). Get a new code from the card and paste the command again; answering yes to the service prompt restarts it.
 - **Job failed with "connector restarted".** The connector was restarted while the job ran. It stopped whatever was left and reported the job failed. Jobs are never re-run automatically, because they may already have acted.
 - **"The connector can't resume codex sessions."** Codex follow-ups need `codex exec resume <id>`, which doesn't work with wrappers that use a throwaway `CODEX_HOME` per run (for example `codex-isolated`). The starter profile sets `resume = false` for Codex, so agents start a new job instead. Set it to `true` only if resume works with your `command`.
 - **"That job's workspace is on a previous connector."** Follow-ups only work with jobs from the current pairing. Start a new job.

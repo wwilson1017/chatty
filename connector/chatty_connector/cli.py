@@ -81,9 +81,30 @@ def cmd_pair(args, paths: Paths) -> int:
         return 1
     write_config(paths, url, r.json()["token"])
     install_starter_files(paths)
-    print(f"Paired with {url}. Config: {paths.config_dir}")
-    print("Next: chatty-connector doctor, then chatty-connector install-service")
+    print(f"Paired with {url}. Config: {paths.config_dir}\n")
+    if _ask("Run the health check now?", args):
+        print()
+        cmd_doctor(args, paths)
+        print()
+    if _ask("Install and start the background service, so jobs run even when you're logged out?", args):
+        return cmd_install_service(args, paths)
+    print("Later: chatty-connector doctor, then chatty-connector install-service")
     return 0
+
+
+def _ask(question: str, args) -> bool:
+    if getattr(args, "yes", False):
+        return True
+    if not sys.stdin.isatty():
+        return False
+    return input(f"{question} [Y/n] ").strip().lower() in ("", "y", "yes")
+
+
+def _sh(*argv: str) -> bool:
+    r = subprocess.run(argv, capture_output=True, text=True)
+    if r.returncode:
+        print(f"  `{' '.join(argv)}` failed: {(r.stderr or r.stdout).strip()[:300]}", file=sys.stderr)
+    return r.returncode == 0
 
 
 def cmd_run(args, paths: Paths) -> int:
@@ -220,7 +241,11 @@ def cmd_install_service(args, paths: Paths) -> int:
             "KeepAlive": {"SuccessfulExit": False}, "EnvironmentVariables": {"PATH": path_env},
             "StandardOutPath": logfile, "StandardErrorPath": logfile,
         }))
-        print(f"Wrote {target}\nStart it: launchctl bootstrap gui/$(id -u) {target}")
+        domain = f"gui/{os.getuid()}"
+        subprocess.run(["launchctl", "bootout", f"{domain}/com.chatty.connector"], capture_output=True)  # if loaded
+        if not _sh("launchctl", "bootstrap", domain, str(target)):
+            return 1
+        print(f"Service installed and running. Logs: {logfile}")
         return 0
     target = Path(os.environ.get("XDG_CONFIG_HOME") or Path.home() / ".config") / "systemd/user/chatty-connector.service"
     target.parent.mkdir(parents=True, exist_ok=True)
@@ -231,10 +256,15 @@ def cmd_install_service(args, paths: Paths) -> int:
         f"Restart=always\nRestartSec=10\nRestartPreventExitStatus={EX_CONFIG}\n\n"
         "[Install]\nWantedBy=default.target\n"
     )
-    print(f"Wrote {target}\nStart it:\n  systemctl --user daemon-reload\n"
-          "  systemctl --user enable --now chatty-connector\n"
-          "  loginctl enable-linger $USER   # keep it running while you're logged out\n"
-          "Logs: journalctl --user -u chatty-connector -f")
+    # restart, not just enable --now: after a re-pair the old process has exited on the revoked token
+    if not (_sh("systemctl", "--user", "daemon-reload") and _sh("systemctl", "--user", "enable", "chatty-connector")
+            and _sh("systemctl", "--user", "restart", "chatty-connector")):
+        return 1
+    user = os.environ.get("USER", "")
+    linger = subprocess.run(["loginctl", "show-user", user, "-p", "Linger"], capture_output=True, text=True)
+    if "Linger=yes" not in linger.stdout and not _sh("loginctl", "enable-linger", user):
+        print(f"  Run `sudo loginctl enable-linger {user}` so it keeps running while you're logged out.")
+    print("Service installed and running. Logs: journalctl --user -u chatty-connector -f")
     return 0
 
 
@@ -298,16 +328,18 @@ def main(argv: list[str] | None = None) -> int:
     p = sub.add_parser("pair", help="pair with Chatty using the code from the Claude Code integration card")
     p.add_argument("url")
     p.add_argument("code")
+    p.add_argument("-y", "--yes", action="store_true", help="run the health check and install the service without asking")
     r = sub.add_parser("run", help="poll Chatty for jobs and run them")
     r.add_argument("--no-containment", action="store_true", help="Linux without user systemd (not recommended)")
     r.add_argument("--interval", type=float, default=5.0, help=argparse.SUPPRESS)
     sub.add_parser("doctor", help="check pairing, CLIs, profiles, sandbox and containment")
-    sub.add_parser("install-service", help="write a systemd user unit (Linux) or launchd agent (macOS)")
+    sub.add_parser("install-service", help="install and start the background service (systemd user unit / launchd)")
     c = sub.add_parser("clean", help="delete old job directories (never ones with unpushed work)")
     c.add_argument("--older-than", default="30d")
     c.add_argument("--dry-run", action="store_true")
     args = ap.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+    logging.getLogger("httpx").setLevel(logging.WARNING)  # one line per poll is noise
     commands = {"pair": cmd_pair, "run": cmd_run, "doctor": cmd_doctor,
                 "install-service": cmd_install_service, "clean": cmd_clean}
     return commands[args.cmd](args, Paths.default())
