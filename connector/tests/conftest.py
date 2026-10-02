@@ -120,7 +120,7 @@ class FakeChatty:
         cancel, self.cancel = self.cancel, []
         return 200, {"jobs": jobs, "cancel": cancel}
 
-    def add_job(self, job_id, spec: dict, runner="claude", mode="safe", workdir_key=None, resume=None):
+    def add_job(self, job_id, spec: dict, runner="claude", mode="sandbox", workdir_key=None, resume=None):
         with self.lock:
             self.queue.append({"id": job_id, "runner": runner, "mode": mode, "prompt": json.dumps(spec),
                                "resume_session_id": resume, "workdir_key": workdir_key or str(job_id)})
@@ -143,10 +143,11 @@ def fake_cli(tmp_path):
 
 def write_profile(paths: Paths, cli: Path, **top):
     paths.config_dir.mkdir(parents=True, exist_ok=True)
-    head = "".join(f"{k} = {v}\n" for k, v in {"max_concurrent": 1, "max_codex": 1, **top}.items())
+    head = "".join(f"{k} = {v}\n" for k, v in {"ceiling": '"full"', "max_concurrent": 1, "max_codex": 1,
+                                                 **top}.items())
     (paths.config_dir / "profiles.toml").write_text(
-        head + f'[claude]\ncommand = "{cli}"\nsafe = ["--safe-flag"]\nfull = ["--full-flag"]\n'
-        "timeout = { safe = 60, full = 60 }\n")
+        head + f'[claude]\ncommand = "{cli}"\nlook = ["--look-flag"]\nsandbox = ["--sandbox-flag"]\n'
+        'full = ["--full-flag"]\ntimeout = { look = 60, sandbox = 60, full = 60 }\n')
 
 
 @pytest.fixture

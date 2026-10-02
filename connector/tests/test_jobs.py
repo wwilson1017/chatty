@@ -22,7 +22,7 @@ def test_job_runs_in_its_workdir_and_posts_result(fake, paths, containment, tmp_
                                  "usage": fake.results["1"]["usage"], "error": None}
     info = json.loads(started.read_text())
     assert info["cwd"] == str(paths.workdirs / "1")
-    assert info["argv"][1:] == ["-p", "--output-format", "stream-json", "--verbose", "--safe-flag"]
+    assert info["argv"][1:] == ["-p", "--output-format", "stream-json", "--verbose", "--sandbox-flag"]
     pump(conn, lambda: not list(paths.job_states.glob("*.json")))
     assert fake.polls[-1]["running"] == []
 
@@ -60,7 +60,7 @@ def test_follow_up_resumes_in_same_dir_or_fails_if_missing(fake, paths, containm
 def test_timeout_posts_failed_with_session(fake, paths, containment):
     fake.add_job(1, {"sleep": 30, "sid": "s-t"})
     conn = make_connector(fake, paths, containment)
-    conn.profile["claude"]["timeout"]["safe"] = 1
+    conn.profile["claude"]["timeout"]["sandbox"] = 1
     pump(conn, lambda: "1" in fake.results)
     assert fake.results["1"]["status"] == "failed" and fake.results["1"]["error"] == "timeout"
     assert fake.results["1"]["session_id"] == "s-t"
@@ -124,7 +124,7 @@ def test_cancel_a_then_b_waits_for_a_to_exit(fake, paths, containment, fake_cli,
 
 def write_state(paths, job_id, state, **extra):
     paths.job_states.mkdir(parents=True, exist_ok=True)
-    data = {"id": job_id, "runner": "claude", "mode": "safe", "prompt": "{}", "resume_session_id": None,
+    data = {"id": job_id, "runner": "claude", "mode": "sandbox", "prompt": "{}", "resume_session_id": None,
             "workdir_key": str(job_id), "state": state, **extra}
     (paths.job_states / f"{job_id}.json").write_text(json.dumps(data))
 
@@ -189,9 +189,22 @@ def test_start_ready_enforces_max_concurrent_even_if_overclaimed(fake, paths, co
     # free() offers a slot per runner, so the server can hand over more jobs than max_concurrent allows.
     conn = make_connector(fake, paths, containment)
     for i in (1, 2):
-        conn.accept({"id": f"j{i}", "runner": "claude", "mode": "safe", "workdir_key": f"k{i}",
+        conn.accept({"id": f"j{i}", "runner": "claude", "mode": "sandbox", "workdir_key": f"k{i}",
                      "prompt": json.dumps({"sleep": 30})})
     conn.start_ready()
     assert sum(j.busy for j in conn.jobs.values()) == 1
     fake.cancel = ["j1", "j2"]
     pump(conn, lambda: {"j1", "j2"} <= set(fake.results))
+
+
+def test_poll_reports_ceiling_and_refuses_jobs_above_it(fake, paths, containment, fake_cli, tmp_path):
+    write_profile(paths, fake_cli, ceiling='"look"')
+    started = tmp_path / "started.json"
+    fake.add_job(1, {"started": str(started)}, mode="sandbox")
+    fake.add_job(2, {"started": str(started)}, mode="look")
+    conn = make_connector(fake, paths, containment)
+    pump(conn, lambda: {"1", "2"} <= set(fake.results))
+    assert fake.polls[0]["ceiling"] == "look"
+    assert fake.results["1"]["status"] == "failed" and fake.results["1"]["error"] == "above this machine's ceiling"
+    assert fake.results["2"]["status"] == "done"
+    assert json.loads(started.read_text())["argv"][-1] == "--look-flag"  # only the look job ran

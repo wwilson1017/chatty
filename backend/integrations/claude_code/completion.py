@@ -157,8 +157,10 @@ def finalize(job_id: str, *, tool_log: list | tuple = ()) -> None:
 
 
 def sweep() -> None:
-    """Scheduler job: stale running jobs, lost completions, abandoned completions."""
+    """Scheduler job: expired approvals, stale running jobs, lost completions, abandoned completions."""
     conn = db.get_db()
+    from .approvals import expire_stale
+    expire_stale()
     if not db.is_online():
         stale = db.query(
             "SELECT id FROM jobs WHERE status = 'running' AND "

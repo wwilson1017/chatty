@@ -1,0 +1,84 @@
+{
+  "sandbox": {
+    "enabled": true,
+    "autoAllowBashIfSandboxed": false,
+    "allowUnsandboxedCommands": false,
+    "filesystem": {
+      "denyRead": [
+        "/{home}/.ssh",
+        "/{home}/.aws",
+        "/{home}/.config/gh",
+        "/{config_dir}",
+        "/{home}/.codex",
+        "/{home}/.netrc",
+        "/{home}/.npmrc",
+        "/{home}/.config/gcloud",
+        "/{home}/.kube",
+        "/{home}/.docker",
+        "/{home}/.gnupg",
+        "/{home}/.claude/.credentials.json"
+      ],
+      "denyWrite": [
+        "/{config_dir}",
+        "/{home}/.claude"
+      ]
+    }
+  },
+  "permissions": {
+    "allow": [
+      "Bash(gh issue list:*)",
+      "Bash(gh issue view:*)",
+      "Bash(gh pr list:*)",
+      "Bash(gh pr view:*)",
+      "Bash(gh pr diff:*)",
+      "Bash(gh pr checks:*)",
+      "Bash(gh repo view:*)",
+      "Bash(gh run list:*)",
+      "Bash(gh run view:*)",
+      "Bash(gh search:*)",
+      "Bash(git status:*)",
+      "Bash(git clone:*)"
+    ],
+    "deny": [
+      "Edit",
+      "Write",
+      "NotebookEdit",
+      "Read(/{home}/.ssh/**)",
+      "Read(/{home}/.aws/**)",
+      "Read(/{home}/.config/gh/**)",
+      "Read(/{config_dir}/**)",
+      "Read(/{home}/.codex/**)",
+      "Read(/{home}/.netrc)",
+      "Read(/{home}/.npmrc)",
+      "Read(/{home}/.config/gcloud/**)",
+      "Read(/{home}/.kube/**)",
+      "Read(/{home}/.docker/**)",
+      "Read(/{home}/.gnupg/**)",
+      "Read(/{home}/.claude/.credentials.json)",
+      "Read(**/.env)",
+      "Read(**/.env.*)",
+      "Bash(git push:*)",
+      "Bash(gh pr create:*)",
+      "Bash(gh pr merge:*)",
+      "Bash(gh pr comment:*)",
+      "Bash(gh pr review:*)",
+      "Bash(gh pr edit:*)",
+      "Bash(gh pr close:*)",
+      "Bash(gh pr ready:*)",
+      "Bash(gh issue create:*)",
+      "Bash(gh issue comment:*)",
+      "Bash(gh issue edit:*)",
+      "Bash(gh issue close:*)",
+      "Bash(gh api:*)",
+      "Bash(gh release:*)",
+      "Bash(gh repo create:*)",
+      "Bash(gh repo delete:*)",
+      "Bash(gh repo edit:*)",
+      "Bash(gh repo fork:*)",
+      "Bash(npm publish:*)",
+      "Bash(uv publish:*)",
+      "Bash(twine upload:*)",
+      "Bash(cargo publish:*)"
+    ]
+  }
+}

@@ -29,6 +29,8 @@ DB_PATH = DATA_DIR / "jobs.db"
 GCS_KEY = "claude_code/jobs.db"
 
 TERMINAL_STATUSES = ("done", "failed", "cancelled", "expired")
+LEVELS = ("look", "sandbox", "full")  # job `mode` values, least to most power
+APPROVAL_TTL_HOURS = 24
 ONLINE_WINDOW_S = 90  # the connector polls every 5 s (with backoff)
 
 _connection: sqlite3.Connection | None = None
@@ -50,24 +52,14 @@ def get_db() -> sqlite3.Connection:
     return _connection
 
 
-def _setup_connection() -> None:
-    """Open connection, set PRAGMAs, create schema."""
-    global _connection
-    _connection = sqlite3.connect(str(DB_PATH), check_same_thread=False)
-    _connection.row_factory = sqlite3.Row
-    _connection.execute("PRAGMA journal_mode=WAL")
-    _connection.execute("PRAGMA busy_timeout=5000")
-    _connection.execute("PRAGMA synchronous=FULL")
-
-    _connection.executescript("""
-        CREATE TABLE IF NOT EXISTS jobs (
+_JOBS_COLUMNS = """(
             id                    TEXT PRIMARY KEY,
             agent_slug            TEXT NOT NULL DEFAULT '',
             conversation_id       TEXT,
             route                 TEXT,
             origin                TEXT NOT NULL CHECK(origin IN ('user','background','system')),
             runner                TEXT NOT NULL,
-            mode                  TEXT NOT NULL CHECK(mode IN ('safe','full')),
+            mode                  TEXT NOT NULL CHECK(mode IN ('look','sandbox','full')),
             task                  TEXT NOT NULL,
             prompt                TEXT NOT NULL,
             parent_job_id         TEXT,
@@ -97,7 +89,43 @@ def _setup_connection() -> None:
             decided_via           TEXT,
             decided_at            TEXT,
             approved_prompt_sha256 TEXT
-        );
+        )"""
+
+
+def _migrate_safe_mode(conn: sqlite3.Connection) -> None:
+    """PR 1 DBs: mode CHECK was ('safe','full'). SQLite can't ALTER a CHECK, so
+    rebuild the table, mapping safe → sandbox."""
+    row = conn.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name='jobs'").fetchone()
+    if not row or "'safe'" not in row[0]:
+        return
+    # simplification: one-shot rebuild migration
+    cols = [r[1] for r in conn.execute("PRAGMA table_info(jobs)")]
+    select = ", ".join("CASE mode WHEN 'safe' THEN 'sandbox' ELSE mode END" if c == "mode" else c for c in cols)
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        conn.execute(f"CREATE TABLE jobs_v2 {_JOBS_COLUMNS}")
+        conn.execute(f"INSERT INTO jobs_v2 ({', '.join(cols)}) SELECT {select} FROM jobs ORDER BY rowid")
+        conn.execute("DROP TABLE jobs")
+        conn.execute("ALTER TABLE jobs_v2 RENAME TO jobs")
+        conn.execute("COMMIT")
+    except Exception:
+        conn.execute("ROLLBACK")
+        raise
+    logger.info("Claude Code jobs: migrated mode 'safe' → 'sandbox'")
+
+
+def _setup_connection() -> None:
+    """Open connection, set PRAGMAs, create schema."""
+    global _connection
+    _connection = sqlite3.connect(str(DB_PATH), check_same_thread=False)
+    _connection.row_factory = sqlite3.Row
+    _connection.execute("PRAGMA journal_mode=WAL")
+    _connection.execute("PRAGMA busy_timeout=5000")
+    _connection.execute("PRAGMA synchronous=FULL")
+
+    _migrate_safe_mode(_connection)
+    _connection.executescript(f"""
+        CREATE TABLE IF NOT EXISTS jobs {_JOBS_COLUMNS};
         CREATE INDEX IF NOT EXISTS idx_cc_jobs_status ON jobs(status);
         CREATE INDEX IF NOT EXISTS idx_cc_jobs_agent ON jobs(agent_slug, created_at);
         CREATE INDEX IF NOT EXISTS idx_cc_jobs_root ON jobs(root_job_id);
@@ -177,6 +205,46 @@ def policy_error(agent_slug: str) -> str | None:
     return None
 
 
+def level_rank(level: str | None) -> int:
+    """Position in LEVELS; -1 for anything unknown (an unreported ceiling allows nothing)."""
+    return LEVELS.index(level) if level in LEVELS else -1
+
+
+def access_level() -> str:
+    """The owner's choice on the card (creds `access_level`, default sandbox)."""
+    return creds().get("access_level") or "sandbox"
+
+
+def ceiling() -> str | None:
+    """The highest level the connector's machine allows, from its last poll (None: not reported)."""
+    return get_state("ceiling")
+
+
+def default_level() -> str:
+    """sandbox, or lower if the access level or a reported ceiling is lower."""
+    ranks = [level_rank("sandbox"), level_rank(access_level())]
+    if ceiling():
+        ranks.append(level_rank(ceiling()))
+    return LEVELS[max(0, min(ranks))]
+
+
+def level_error(level: str, origin: str) -> str | None:
+    """Why a job at `level` from `origin` may not be queued right now, or None."""
+    if level not in LEVELS:
+        return f"level must be one of {', '.join(LEVELS)}"
+    if level_rank(level) > level_rank(access_level()):
+        return f"The owner has set Claude Code access to '{access_level()}'; '{level}' is above it."
+    top = ceiling()
+    # Unreported ceiling (fresh pair, or a 0.1.x connector): sandbox and below may queue; claim rechecks.
+    if level_rank(level) > level_rank(top or "sandbox"):
+        host = creds().get("host") or "the connector's machine"
+        return (f"{host} allows up to '{top or 'sandbox'}'. The owner can raise it by running "
+                f"`chatty-connector setup` there.")
+    if level == "full" and origin != "user":  # background, proactive and completion turns cap at sandbox
+        return "Full access is only for jobs the user asked for in chat — background work stays at sandbox."
+    return None
+
+
 # ── jobs ─────────────────────────────────────────────────────────────────────
 
 def get_job(job_id: str) -> dict | None:
@@ -192,12 +260,13 @@ def insert_job(*, agent_slug: str, origin: str, runner: str, mode: str, task: st
     with _write_lock:
         db.execute(
             """INSERT INTO jobs (id, agent_slug, conversation_id, route, origin, runner, mode,
-                                 task, prompt, parent_job_id, root_job_id, status)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                                 task, prompt, parent_job_id, root_job_id, status, approval_expires_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                       CASE WHEN ? = 'pending_approval' THEN datetime('now', ?) END)""",
             (job_id, agent_slug, conversation_id, json.dumps(route) if route else None,
              origin, runner, mode, task, prompt,
              parent["id"] if parent else None,
-             parent["root_job_id"] if parent else job_id, status),
+             parent["root_job_id"] if parent else job_id, status, status, f"+{APPROVAL_TTL_HOURS} hours"),
         )
         if commit:
             db.commit()

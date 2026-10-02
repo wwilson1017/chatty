@@ -19,6 +19,29 @@ interface Status {
   runners: Record<string, unknown>;
   capabilities: string | null;
   disabled_agents: string[];
+  ceiling: Level | null;
+  access_level: Level;
+  approvals: Approval[];
+}
+
+type Level = 'look' | 'sandbox' | 'full';
+const LEVELS: [Level, string][] = [['look', 'Look only'], ['sandbox', 'Sandbox'], ['full', 'Full — asks you first']];
+const rank = (l: Level) => LEVELS.findIndex(([v]) => v === l);
+
+interface Approval {
+  id: string;
+  agent_slug: string;
+  runner: string;
+  task: string;
+  parent_job_id: string | null;
+  parent_excerpt: string | null;
+  expires_at: string | null;
+}
+
+// Connectors before 0.2.0 report no ceiling and can't run the access levels.
+function outdated(version: string): boolean {
+  const [maj, min] = version.split('.').map(Number);
+  return maj === 0 && (min || 0) < 2;
 }
 
 interface Job {
@@ -139,6 +162,17 @@ export function ClaudeCodePanel({ onChanged }: { onChanged: () => void }) {
     setStatus(s => s && { ...s, disabled_agents: res.disabled_agents });
   });
 
+  const setAccess = (level: Level) => run(async () => {
+    const res = await api<{ access_level: Level }>('/api/integrations/claude_code/access', {
+      method: 'PUT', body: JSON.stringify({ level }),
+    });
+    setStatus(s => s && { ...s, access_level: res.access_level });
+  });
+
+  const decide = (id: string, decision: 'full' | 'sandbox' | 'cancel') =>
+    run(() => api(`/api/integrations/claude_code/jobs/${id}/decide`, { method: 'POST', body: JSON.stringify({ decision }) }));
+
+  const installCmd = 'uv tool install --reinstall "git+https://github.com/WWilson1017/chatty#subdirectory=connector"';
   const origin = window.location.origin;
   const agentName = (slug: string) => slug ? (agents.find(a => a.slug === slug)?.agent_name ?? slug) : 'system';
 
@@ -152,7 +186,7 @@ export function ClaudeCodePanel({ onChanged }: { onChanged: () => void }) {
             Pair code <strong style={{ color: INK, fontFamily: FONT_MONO }}>{code.code}</strong> — expires {fmtTime(code.expires_at)}.
             Paste this into a terminal on the computer with Claude Code, then answer the prompts:
           </p>
-          <CopyLine text={`uv tool install --reinstall "git+https://github.com/WWilson1017/chatty#subdirectory=connector" && chatty-connector pair ${origin} ${code.code}`} />
+          <CopyLine text={`${installCmd} && chatty-connector pair ${origin} ${code.code}`} />
           <p style={{ margin: 0, color: INK_DIM }}>
             Needs <a href="https://docs.astral.sh/uv/getting-started/installation/" target="_blank" rel="noreferrer">uv</a>.
             It pairs, runs a health check, and starts the background service.
@@ -188,6 +222,51 @@ export function ClaudeCodePanel({ onChanged }: { onChanged: () => void }) {
               </div>
             </div>
           </details>
+
+          {status.version && (status.ceiling == null || outdated(status.version)) && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              <p style={{ margin: 0, color: GOLD }}>Update your connector — paste this on {status.host || 'the connector computer'}:</p>
+              <CopyLine text={`${installCmd} && chatty-connector setup`} />
+            </div>
+          )}
+
+          <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+            <span style={mono(9)}>Claude Code access</span>
+            <select value={status.access_level} onChange={e => setAccess(e.target.value as Level)}
+              style={{ alignSelf: 'flex-start', fontSize: 12, padding: '4px 6px', borderRadius: 4, background: BG_RAISED, color: INK, border: `1px solid ${LINE_STRONG}` }}>
+              {LEVELS.map(([v, label]) => (
+                <option key={v} value={v} disabled={status.ceiling != null && rank(v) > rank(status.ceiling)}>{label}</option>
+              ))}
+            </select>
+          </label>
+          {status.ceiling && status.ceiling !== 'full' && (
+            <p style={{ margin: 0, color: INK_DIM }}>
+              {status.host || 'This computer'} allows up to {LEVELS[rank(status.ceiling)][1]}.
+              Run <code style={{ fontFamily: FONT_MONO }}>chatty-connector setup</code> there to change it.
+            </p>
+          )}
+
+          {status.approvals.length > 0 && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              <p style={{ ...mono(9, GOLD), margin: 0 }}>Waiting for your approval</p>
+              {status.approvals.map(a => (
+                <div key={a.id} style={{ display: 'flex', flexDirection: 'column', gap: 6, padding: 8, borderRadius: 4, border: `1px solid ${LINE_STRONG}` }}>
+                  <p style={{ margin: 0 }}>
+                    <span style={{ color: INK }}>{agentName(a.agent_slug)}</span> wants a full-access {a.runner} job · expires {fmtTime(a.expires_at)}
+                  </p>
+                  <pre style={pre}>{a.task}</pre>
+                  {a.parent_job_id && (
+                    <p style={{ margin: 0, color: INK_DIM }}>Follow-up to job {a.parent_job_id}{a.parent_excerpt ? `: ${a.parent_excerpt}` : ''}</p>
+                  )}
+                  <div style={{ display: 'flex', gap: 6 }}>
+                    <button onClick={() => decide(a.id, 'full')} aria-label={`Run job ${a.id} with full access`} style={{ ...smallBtn, color: INK }}>Run full</button>
+                    <button onClick={() => decide(a.id, 'sandbox')} aria-label={`Run job ${a.id} in the sandbox`} style={smallBtn}>Run sandbox</button>
+                    <button onClick={() => decide(a.id, 'cancel')} aria-label={`Cancel job ${a.id}`} style={{ ...smallBtn, color: CORAL }}>Cancel</button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
 
           {agents.length > 0 && <fieldset style={{ border: 'none', padding: 0, margin: 0, display: 'flex', flexWrap: 'wrap', gap: '4px 14px' }}>
             <legend style={{ ...mono(9), marginBottom: 4 }}>Agents that can delegate</legend>
