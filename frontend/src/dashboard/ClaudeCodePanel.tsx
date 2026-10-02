@@ -221,7 +221,7 @@ export function ClaudeCodePanel({ onChanged }: { onChanged: () => void }) {
                   <p style={{ margin: 0, color: j.error ? CORAL : INK_MUTE }}>{[j.finish_reason, j.error].filter(Boolean).join(' — ')}</p>
                 )}
                 {j.result_text && <pre style={pre}>{j.result_text}{j.result_truncated ? '\n…' : ''}</pre>}
-                {j.session_id && <CopyLine text={`claude --resume ${j.session_id}`} />}
+                {j.session_id && <CopyLine text={j.runner === 'codex' ? `codex resume ${j.session_id}` : `claude --resume ${j.session_id}`} />}
                 {(j.status === 'queued' || j.status === 'running') && (
                   <div>
                     <button onClick={() => run(() => api(`/api/integrations/claude_code/jobs/${j.id}/cancel`, { method: 'POST' }))}

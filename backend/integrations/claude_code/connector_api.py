@@ -143,11 +143,13 @@ def _client_ip(request: Request) -> str:
 
 def connector_auth(authorization: str = Header("")) -> int:
     """Bearer-token guard. Returns the current pair_generation."""
-    stored = db.creds().get("token_hash", "")
     token = authorization[7:].strip() if authorization[:7].lower() == "bearer " else ""
+    with db.write_lock():  # read hash + generation together so a concurrent /pair can't split them
+        stored = db.creds().get("token_hash", "")
+        gen = db.generation()
     if not stored or not token or not hmac.compare_digest(_sha256(token), stored):
         raise HTTPException(status_code=401, detail="Invalid connector token")
-    return db.generation()
+    return gen
 
 
 class PairRequest(BaseModel):
@@ -204,6 +206,8 @@ def poll(body: PollRequest, gen: int = Depends(connector_auth)):
     owned = set(body.running)
     claimed: list[dict] = []
     with db.write_lock():
+        if gen != db.generation():  # re-paired after this request authenticated
+            raise HTTPException(status_code=401, detail="Invalid connector token")
         db.set_state("last_seen", time.time(), commit=False)
         db.set_state("version", body.version, commit=False)
         db.set_state("runners", {k: {"resume": bool(v.get("resume"))} for k, v in list(body.runners.items())[:10]},

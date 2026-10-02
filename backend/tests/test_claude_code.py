@@ -185,6 +185,17 @@ class TestConnectorAuth:
         assert cc.client.get("/api/connector/health", headers=cc.h).status_code == 401
 
 
+    def test_poll_authenticated_before_repair_claims_nothing(self, cc):
+        # auth ran on the old pairing, then /pair bumped the generation before poll took the lock
+        from integrations.claude_code import connector_api
+        jid = _delegate()["job_id"]
+        stale = db.generation() - 1
+        with pytest.raises(connector_api.HTTPException) as e:
+            connector_api.poll(connector_api.PollRequest(free={"claude": 1}), gen=stale)
+        assert e.value.status_code == 401
+        assert db.get_job(jid)["status"] == "queued"
+
+
 class TestClaiming:
     def test_free_count_per_runner(self, cc):
         ids = [_delegate(task=f"t{i}")["job_id"] for i in range(3)]
