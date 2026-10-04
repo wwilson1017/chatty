@@ -230,8 +230,9 @@ class TestRouteMapping:
         assert out == {"error": SOURCE_REQUIRED} and fake.requests[-1][1] == "/brain/facts/1/supersede"
 
     def test_owner_chat_turn_fills_the_source(self, backend, fake):
-        from datetime import date
-        today = f"will:chat {date.today().isoformat()}"
+        from datetime import datetime
+        from core.agents.memory.brain_backend import CT_TZ
+        today = f"will:chat {datetime.now(CT_TZ).date().isoformat()}"  # the owner's calendar day, not UTC's
         args = {"subject": "people/x", "predicate": "role", "object": "ceo"}
         out = backend.execute("add_fact", args, owner_turn=True)
         assert out["ok"] and fake.requests[-1][3]["source"] == today

@@ -29,8 +29,9 @@ Every read passes ``agent=<slug>`` so the brain's confidential exclusion is per 
 import logging
 import re
 import time
-from datetime import date
+from datetime import datetime
 from urllib.parse import quote
+from zoneinfo import ZoneInfo
 
 import httpx
 
@@ -74,6 +75,7 @@ SOURCE_FORMATS = (
 )
 # The source filled in when the owner is the one talking (an interactive chat turn) and the model gave none.
 OWNER_CHAT_SOURCE = "will:chat"
+CT_TZ = ZoneInfo("America/Chicago")  # the app's timezone (datetime_tools, memory_tools): the owner's day, not UTC's
 CONFLICTS_UNRESOLVED = (
     "If the new value replaces one of these, call add_fact again with replaces=[ids], or invalidate_fact."
 )
@@ -177,7 +179,7 @@ class BrainBackend:
         if tool_name == "update_memory":
             return {"error": UPDATE_MEMORY_REFUSED}
         if owner_turn and tool_name in ("add_fact", "invalidate_fact") and not (args.get("source") or "").strip():
-            args = {**args, "source": f"{OWNER_CHAT_SOURCE} {date.today().isoformat()}"}
+            args = {**args, "source": f"{OWNER_CHAT_SOURCE} {datetime.now(CT_TZ).date().isoformat()}"}
         handler = getattr(self, f"_{tool_name}", None)
         if handler is None:
             return {"error": f"Unknown memory tool: {tool_name}"}
