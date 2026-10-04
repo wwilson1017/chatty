@@ -1,0 +1,5 @@
+{"type": "thread.started", "thread_id": "01a0faaa-58cc-7640-a729-431c57ce5bd1"}
+{"type": "item.completed", "item": {"id": "item_0", "type": "error", "message": "`[features].use_legacy_landlock` is deprecated and will be removed soon. (Remove this setting to stop opting into the legacy Linux sandbox behavior.)"}}
+{"type": "turn.started"}
+{"type": "item.completed", "item": {"id": "item_1", "type": "agent_message", "text": "ok"}}
+{"type": "turn.completed", "usage": {"input_tokens": 14591, "cached_input_tokens": 12160, "cache_write_input_tokens": 0, "output_tokens": 5, "reasoning_output_tokens": 0}}

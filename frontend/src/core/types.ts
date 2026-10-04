@@ -146,6 +146,7 @@ export interface Integration {
   scope_grants?: GoogleScopeGrants;
   google_accounts?: GoogleAccount[];
   has_app_credentials?: boolean;
+  base_url?: string;
 }
 
 // CRM types

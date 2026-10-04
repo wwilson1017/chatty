@@ -112,6 +112,10 @@ class ToolRegistry:
         self.agent_name = agent_name
         self._notify_user_called = False
         self._current_conversation_id: str | None = None
+        # Who started this turn. Only the web chat endpoint and the private
+        # Telegram/WhatsApp paths set "user"; everything else stays background.
+        self._turn_origin: str = "background"
+        self._turn_route: dict | None = None
 
         # Derived paths
         agent_data_dir = str(Path(context_dir).parent)
@@ -204,6 +208,21 @@ class ToolRegistry:
         return {"error": f"Unknown context tool: {tool_name}"}
 
     async def _execute_memory(self, tool_name: str, args: dict) -> dict:
+        from agents.engine import get_brain_backend
+        from core.agents.memory.brain_backend import BRAIN_TOOLS
+        brain = get_brain_backend(self.agent_slug)
+        if brain is not None and tool_name in BRAIN_TOOLS:
+            # memory_backend == 'brain': long-term tools go to the second brain;
+            # daily notes, meetings and commitments stay local (below).
+            result = brain.execute(tool_name, args)
+            if tool_name == "search_memory" and "error" not in result:
+                result["local_results"] = _local_memory_hits(self.context_dir, self.gcs_prefix, args.get("query", ""))
+                result["local_total"] = len(result["local_results"])
+            return result
+        if brain is not None and tool_name == "consolidate_memory":
+            return {"error": "consolidate_memory is not available on the brain backend: the nightly job "
+                             "promotes durable items from your daily notes to the brain"}
+
         from core.agents.tools.memory_tools import (
             append_daily_note, read_daily_note, list_daily_notes,
             list_meetings, read_meeting,
@@ -250,18 +269,43 @@ class ToolRegistry:
                 memory_type=args.get("memory_type"), confidence=args.get("confidence", 1.0),
             )
         elif tool_name == "query_facts":
-            return query_facts(
+            since, until = args.get("since"), args.get("until")
+            try:
+                limit = max(1, min(int(args.get("limit", 50)), 500))
+            except (TypeError, ValueError):
+                limit = 50
+            out = query_facts(
                 ctx_dir, prefix,
                 subject=args.get("subject"), predicate=args.get("predicate"),
                 as_of=args.get("as_of"), memory_type=args.get("memory_type"),
                 include_expired=args.get("include_expired", False),
-                limit=args.get("limit", 50),
+                # simplification: since/until post-filter on ISO valid_from over the full window
+                # (500 = query_facts' cap), then cut to limit; the brain does it server-side
+                limit=500 if (since or until) else limit,
             )
+            if "facts" in out and (since or until):
+                out["facts"] = [f for f in out["facts"]
+                                if (not since or (f.get("valid_from") or "") >= since)
+                                and (not until or (f.get("valid_from") or "") <= until)][:limit]
+                out["total"] = len(out["facts"])
+            return out
         elif tool_name == "invalidate_fact":
-            return invalidate_fact(
+            replacement = args.get("replacement")
+            if replacement is not None and not (isinstance(replacement, dict) and all(
+                    (replacement.get(k) or "").strip() for k in ("subject", "predicate", "object"))):
+                return {"error": "replacement must be an object with subject, predicate and object"}
+            out = invalidate_fact(
                 ctx_dir, prefix,
                 fact_id=args["fact_id"], valid_to=args.get("valid_to"),
             )
+            if out.get("ok") and replacement is not None:
+                # simplification: local facts have no supersede/correction link; invalidate + add
+                out["replacement"] = add_fact(
+                    ctx_dir, prefix,
+                    subject=replacement["subject"], predicate=replacement["predicate"],
+                    object=replacement["object"], memory_type=args.get("memory_type"),
+                )
+            return out
         elif tool_name == "consolidate_memory":
             from core.providers.credentials import CredentialStore
             store = CredentialStore()
@@ -798,15 +842,46 @@ class ToolRegistry:
         "download_odoo_pdf", "create_odoo_attachment",
     }
 
+    # Claude Code connector tools: get a server-built turn context, never the caller's.
+    _CONTEXT_AWARE_TOOLS = frozenset({
+        "delegate", "job_get", "job_list", "job_cancel", "connector_info",
+    })
+
     async def _execute_integration(self, tool_name: str, args: dict) -> dict:
         executor = self.integration_executors.get(tool_name)
         if not executor:
             return {"error": f"Integration tool not available: {tool_name}"}
         if callable(executor):
+            args = {k: v for k, v in args.items() if k != "_ctx"}
             if tool_name in self._CACHE_AWARE_TOOLS:
                 args = {**args, "cache_dir": self.file_cache_dir}
+            if tool_name in self._CONTEXT_AWARE_TOOLS:
+                args["_ctx"] = {
+                    "agent_slug": self.agent_slug,
+                    "agent_name": self.agent_name,
+                    "conversation_id": self._current_conversation_id,
+                    "origin": self._turn_origin,
+                    "route": self._turn_route,
+                }
             import asyncio
             if asyncio.iscoroutinefunction(executor):
                 return await executor(**args)
             return executor(**args)
         return {"error": f"Invalid executor for tool: {tool_name}"}
+
+
+
+def _local_memory_hits(context_dir: str, gcs_prefix: str, query: str, limit: int = 8) -> list[dict]:
+    """Daily-note / topic-file hits for a brain-backed agent's search_memory.
+
+    simplification: BM25-lite over context/ (ContextManager.relevance_prefetch),
+    since a brain-backed agent has no local memory.db; swap for search_memory_async
+    if local FTS is ever wanted here.
+    """
+    from pathlib import Path
+    from core.agents.context_manager import ContextManager
+    hits = ContextManager(Path(context_dir), gcs_prefix).relevance_prefetch(query)
+    return [
+        {"source_type": h["kind"], "title": h["name"], "snippet": h["content"][:400]}
+        for h in hits[:limit]
+    ]

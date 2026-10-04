@@ -95,10 +95,17 @@ def build_agent_config(agent_row: dict) -> AgentConfig:
 
 
 def get_context_manager(slug: str) -> ContextManager:
-    """Return a ContextManager for the given agent slug."""
+    """Return a ContextManager for the given agent slug.
+
+    Every prompt path (chat, WhatsApp, reminders, heartbeats, crons, coach)
+    builds its knowledge block through this, so the brain switch lives here:
+    a brain-backed agent's manager injects the brain's /context text in place
+    of local MEMORY.md / topic notes / daily/.
+    """
     return ContextManager(
         data_dir=_context_dir(slug),
         gcs_prefix=_gcs_prefix(slug) + "context/",
+        brain=get_brain_backend(slug),
     )
 
 
@@ -148,8 +155,46 @@ async def _backfill_vectors(db):
         logger.debug("Vector backfill error: %s", e)
 
 
+MEMORY_BACKENDS = ("builtin", "brain")
+
+
+def memory_backend_for(slug: str) -> str:
+    """``builtin`` (per-agent memory.db + context/) or ``brain`` (remote second brain)."""
+    if not slug:
+        return "builtin"
+    try:
+        from .db import get_agent_by_slug
+        row = get_agent_by_slug(slug)
+    except Exception:  # registry not initialised (CLI harness, unit tests) → builtin
+        return "builtin"
+    backend = (row or {}).get("memory_backend") or "builtin"
+    return backend if backend in MEMORY_BACKENDS else "builtin"
+
+
+@lru_cache(maxsize=32)
+def _brain_backend(slug: str, base_url: str, api_key: str):
+    """One ``BrainBackend`` (one httpx.Client) per agent + credentials; a re-setup gets a fresh one."""
+    from core.agents.memory.brain_backend import BrainBackend
+    return BrainBackend(base_url, api_key, agent_slug=slug)
+
+
+def get_brain_backend(slug: str):
+    """A ``BrainBackend`` for a brain-backed agent, else None (builtin memory)."""
+    if memory_backend_for(slug) != "brain":
+        return None
+    from integrations.registry import get_credentials
+    creds = get_credentials("brain")
+    return _brain_backend(slug, creds.get("base_url", ""), creds.get("api_key", ""))
+
+
 def ensure_memory_db(slug: str):
-    """Ensure the MemoryDB is initialized for this agent. Called lazily."""
+    """Ensure the MemoryDB is initialized for this agent. Called lazily.
+
+    None for a brain-backed agent: its memory lives in the second brain, so
+    nothing here should open (or reindex) a local memory.db for it.
+    """
+    if memory_backend_for(slug) == "brain":
+        return None
     return _get_initialized_memory_db(slug)
 
 

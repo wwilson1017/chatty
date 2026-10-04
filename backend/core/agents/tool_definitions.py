@@ -299,6 +299,10 @@ MEMORY_TOOLS = [
                 "object": {"type": "string", "description": "The value (e.g. 'Acme Corp')"},
                 "memory_type": {"type": "string", "description": "Optional type: person, decision, etc."},
                 "confidence": {"type": "number", "description": "Confidence 0.0-1.0 (default 1.0)"},
+                "correction": {
+                    "type": "boolean",
+                    "description": "When this replaces an earlier fact: correction=true when the old fact was never true (a mistake), false when it simply stopped being true (default false)",
+                },
             },
             "required": ["subject", "predicate", "object"],
         },
@@ -315,6 +319,8 @@ MEMORY_TOOLS = [
                 "subject": {"type": "string", "description": "Filter by subject (partial match)"},
                 "predicate": {"type": "string", "description": "Filter by predicate (partial match)"},
                 "as_of": {"type": "string", "description": "Point-in-time view (YYYY-MM-DD)"},
+                "since": {"type": "string", "description": "Only facts valid from this date or later (YYYY-MM-DD)"},
+                "until": {"type": "string", "description": "Only facts valid from this date or earlier (YYYY-MM-DD)"},
                 "memory_type": {"type": "string", "description": "Filter by memory type"},
                 "include_expired": {"type": "boolean", "description": "Include expired facts (default false)"},
                 "limit": {"type": "integer", "description": "Max results (default 50)"},
@@ -327,12 +333,26 @@ MEMORY_TOOLS = [
     },
     {
         "name": "invalidate_fact",
-        "description": "Mark a fact as no longer valid by setting its valid_to date.",
+        "description": "Mark a fact as no longer valid by setting its valid_to date, optionally recording the fact that replaces it.",
         "input_schema": {
             "type": "object",
             "properties": {
                 "fact_id": {"type": "integer", "description": "The fact ID to invalidate"},
                 "valid_to": {"type": "string", "description": "End date (default: today)"},
+                "replacement": {
+                    "type": "object",
+                    "description": "Optional new fact that supersedes this one: {subject, predicate, object}",
+                    "properties": {
+                        "subject": {"type": "string"},
+                        "predicate": {"type": "string"},
+                        "object": {"type": "string"},
+                    },
+                    "required": ["subject", "predicate", "object"],
+                },
+                "correction": {
+                    "type": "boolean",
+                    "description": "With a replacement: correction=true when the old fact was never true (a mistake), false when it simply stopped being true (default false)",
+                },
             },
             "required": ["fact_id"],
         },
@@ -1706,6 +1726,125 @@ NOTIFY_USER_TOOLS = [
 ]
 
 
+# Advertised only to brain-backed agents (memory_backend == "brain"). Executed by
+# BrainBackend via ToolRegistry._execute_memory (kind "memory"). propose_change and
+# review_proposal are proposals/decisions, not writes, so background turns keep them;
+# heartbeats drop both (scheduled_actions.processor._build_tools).
+BRAIN_ONLY_TOOLS = [
+    {
+        "name": "propose_change",
+        "description": (
+            "Propose a structural change to the second brain: merge duplicate people pages, move a note to "
+            "another domain, archive a note (never ask for a deletion — archive it), update a MEMORY.md "
+            "section, add a review rule, or change AGENTS.md. If you are one of the brain's curators, "
+            "merge-people / move-note / archive-note / memory-section changes apply at once (the result says "
+            "`applied: true`); rules, AGENTS.md and the locked MEMORY.md sections (Identity, Preferences & "
+            "Rules) always wait for the owner, as does everything from a non-curator. Check `list_proposals` "
+            "first — a rejected proposal carries the reviewer's reason; don't re-propose without new evidence."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "kind": {
+                    "type": "string",
+                    "enum": ["merge-people", "move-note", "archive-note", "memory-section", "rule", "agents-md"],
+                    "description": "What kind of change",
+                },
+                "payload": {
+                    "type": "object",
+                    "description": (
+                        "merge-people: {keep, drop: slug or [slugs]} · move-note: {path, to} · archive-note: {path} · "
+                        "memory-section: {section, text} · rule: {text, section?} · agents-md: {text, section?}"
+                    ),
+                },
+                "reason": {"type": "string", "description": "Why this change is right, in one or two sentences"},
+                "evidence": {"type": "string", "description": "Optional: the notes, facts or quotes that support it"},
+            },
+            "required": ["kind", "payload", "reason"],
+        },
+        "kind": "memory",
+        "writes": False,
+        "context_memory": True,
+    },
+    {
+        "name": "list_proposals",
+        "description": (
+            "List proposals in the second brain's review inbox. Default: your own pending structural proposals "
+            "(merge-people, move-note, archive-note, memory-section, rule, agents-md). kind=extraction lists the "
+            "fact/note/person/preference/decision/lesson rows extracted from transcripts (a curator decides "
+            "those with `review_proposal`); kind=all lists both. Rejected rows carry the reviewer's reason."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "kind": {
+                    "type": "string",
+                    "description": (
+                        "Optional: extraction, all, or one kind (merge-people, move-note, archive-note, "
+                        "memory-section, rule, agents-md, fact, note, person, preference, decision, lesson). "
+                        "Omit for structural proposals only."
+                    ),
+                },
+                "status": {
+                    "type": "string", "enum": ["pending", "rejected", "accepted", "all"],
+                    "description": "Default pending",
+                },
+                "mine": {
+                    "type": "boolean",
+                    "description": "Default true: only proposals you filed. false: every agent's (what a curator reviews)",
+                },
+            },
+            "required": [],
+        },
+        "kind": "memory",
+        "writes": False,
+        "context_memory": True,
+    },
+    {
+        "name": "review_proposal",
+        "description": (
+            "Accept or reject a proposal in the second brain's review inbox — curators only (anyone else gets "
+            "a refusal). Accept writes it exactly as the owner would (a fact, note or person page; a structural "
+            "change is applied); reject records your reason for the proposer. Rules, AGENTS.md and locked "
+            "MEMORY.md sections are owner-only and cannot be decided here. An accepted age fact is rejected by "
+            "the brain's gate instead (store the birth date). Read the row with `list_proposals` first."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "id": {"type": "string", "description": "The proposal id from list_proposals"},
+                "decision": {"type": "string", "enum": ["accept", "reject"]},
+                "reason": {"type": "string", "description": "Why (required for reject; the proposer reads it)"},
+                "domain": {"type": "string", "description": "Accept only: override the proposal's domain folder"},
+            },
+            "required": ["id", "decision"],
+        },
+        "kind": "memory",
+        "writes": False,
+        "context_memory": True,
+    },
+]
+
+
+def _memory_tools_for(memory_backend: str, background_mode: bool) -> list[dict]:
+    """MEMORY_TOOLS, adjusted for a brain-backed agent: the brain write tools
+    carry the SKIP guidance, and background turns (heartbeats, crons) drop them
+    entirely — a heartbeat's "X is WORKING" belongs in the local daily note, not
+    the second brain."""
+    if memory_backend != "brain":
+        return list(MEMORY_TOOLS)
+    from core.agents.memory.brain_backend import BRAIN_SKIP_TEXT, BRAIN_WRITE_TOOLS
+    out = []
+    for t in MEMORY_TOOLS:
+        if t["name"] in BRAIN_WRITE_TOOLS:
+            if background_mode:
+                continue
+            t = {**t, "description": t["description"] + BRAIN_SKIP_TEXT}
+        out.append(t)
+    out.extend(BRAIN_ONLY_TOOLS)
+    return out
+
+
 def get_tool_definitions(
     gmail_enabled: bool = False,
     calendar_enabled: bool = False,
@@ -1729,6 +1868,7 @@ def get_tool_definitions(
     multi_calendar: bool = False,
     multi_drive: bool = False,
     background_mode: bool = False,
+    memory_backend: str = "builtin",
 ) -> list[dict]:
     """Return the full list of tool definitions for the given feature flags.
 
@@ -1747,7 +1887,7 @@ def get_tool_definitions(
     tools.extend(DATETIME_TOOLS)
     tools.extend(CHAT_HISTORY_TOOLS)
     if memory_enabled:
-        tools.extend(MEMORY_TOOLS)
+        tools.extend(_memory_tools_for(memory_backend, background_mode))
         tools.extend(PLAYBOOK_TOOLS)
     if shared_context_enabled:
         tools.extend(SHARED_CONTEXT_TOOLS)

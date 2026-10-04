@@ -29,6 +29,7 @@ from agents.playbooks_router import router as playbooks_router
 from agents.import_router import router as import_router
 from branding.router import router as branding_router
 from integrations.router import router as integrations_router
+from integrations.claude_code.connector_api import router as connector_router
 from integrations.crm_lite.router import router as crm_router
 from integrations.qb_csv.router import router as qb_csv_router
 from integrations.whatsapp.router import router as whatsapp_router
@@ -139,6 +140,9 @@ async def lifespan(app: FastAPI):
     from core.todo.db import init_db as init_todo_db
     _safe_init("todo", init_todo_db)
 
+    from integrations.claude_code.db import init_db as init_claude_code_db
+    _safe_init("claude_code", init_claude_code_db)
+
     from core.agents.shared_context.db import init_db as init_shared_context_db
     _safe_init("shared_context", init_shared_context_db)
 
@@ -198,6 +202,12 @@ async def lifespan(app: FastAPI):
 
     from core.agents.scheduled_actions.sweeper import sweep as _scheduled_sweep
     _scheduler.add_job(_scheduled_sweep, "interval", seconds=300, id="scheduled_actions_sweeper")
+
+    # Claude Code connector: stale jobs + completion recovery. First run at startup
+    # re-submits completions a restart interrupted.
+    from integrations.claude_code.completion import sweep as _claude_code_sweep
+    _scheduler.add_job(_claude_code_sweep, "interval", seconds=120, id="claude_code_sweep",
+                       next_run_time=datetime.now(timezone.utc))
 
     _scheduler.start()
     logger.info("APScheduler started (reminder heartbeat + scheduled actions + sweeper + nightly jobs)")
@@ -307,6 +317,7 @@ app.include_router(playbooks_router, prefix="/api/agents", tags=["playbooks"])
 app.include_router(import_router, tags=["import"])
 app.include_router(branding_router, prefix="/api/branding", tags=["branding"])
 app.include_router(integrations_router, prefix="/api/integrations", tags=["integrations"])
+app.include_router(connector_router, prefix="/api/connector", tags=["connector"])
 app.include_router(whatsapp_router, prefix="/api/messaging", tags=["messaging"])
 app.include_router(crm_router, prefix="/api/crm", tags=["crm"])
 app.include_router(qb_csv_router, prefix="/api/qb-csv", tags=["qb-csv"])

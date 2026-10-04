@@ -10,6 +10,8 @@ Available integrations:
   bamboohr    — BambooHR HR system
   crm_lite    — Built-in lightweight CRM
   whatsapp    — WhatsApp (stub)
+  brain       — second-brain server (per-agent memory backend, no tools of its own)
+  claude_code — the user's own Claude Code / Codex via the chatty-connector (paired, polls outbound)
 """
 
 import json
@@ -84,6 +86,18 @@ AVAILABLE_INTEGRATIONS = {
         "name": "Todoist",
         "description": "Todoist — tasks, projects, labels, and productivity tracking",
         "icon": "✅",
+        "auth_type": "api_key",
+    },
+    "brain": {
+        "name": "Second Brain",
+        "description": "A personal `brain` server — agents with memory backend 'brain' read and write it instead of their own memory",
+        "icon": "🧠",
+        "auth_type": "api_key",
+    },
+    "claude_code": {
+        "name": "Claude Code",
+        "description": "Let agents hand tasks to your own Claude Code or Codex, via a small connector on your computer",
+        "icon": "🛠️",
         "auth_type": "api_key",
     },
 }
@@ -343,6 +357,9 @@ def list_integrations() -> list[dict]:
             # No-credential integrations (crm_lite, qb_csv) are always "configured" —
             # the enable endpoint requires configured, and they have nothing to set up.
             is_configured = True if meta.get("auth_type") == "none" else bool(creds)
+            if key == "claude_code":
+                # A pending pair code or a saved agent list isn't a connection.
+                is_configured = bool(creds.get("token_hash"))
             is_enabled_val = bool(creds.get("enabled", False))
 
         entry = {
@@ -371,6 +388,8 @@ def list_integrations() -> list[dict]:
                 entry["scope_grants"] = only.get("scope_grants", {})
             if any(a.get("connection_status") == "broken" for a in accounts.values()):
                 entry["connection_status"] = "broken"
+        if key == "brain" and creds:
+            entry["base_url"] = creds.get("base_url", "")  # never the api_key
         if meta.get("auth_type") in ("oauth2", "oauth2_scoped"):
             from .app_credentials import has_app_credentials
             entry["has_app_credentials"] = has_app_credentials(key)

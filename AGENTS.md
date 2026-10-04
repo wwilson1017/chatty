@@ -10,7 +10,7 @@
 - User creates agents from a dashboard; each has name/personality/knowledge via conversational onboarding (training mode)
 - Optional branding: logo, company name, accent color
 - Multi-provider AI: Anthropic, OpenAI, Google Gemini, Ollama (local), Together AI — all via API key paste (no OAuth for AI providers)
-- Integrations: QuickBooks Online (OAuth), QuickBooks CSV import, Gmail (multiple accounts), Google Calendar, Google Drive, WhatsApp (Baileys bridge), Telegram (multiple bots), CRM Lite (optional, default OFF), Odoo, BambooHR, Paperclip (agent orchestration), Todoist
+- Integrations: QuickBooks Online (OAuth), QuickBooks CSV import, Gmail (multiple accounts), Google Calendar, Google Drive, WhatsApp (Baileys bridge), Telegram (multiple bots), CRM Lite (optional, default OFF), Odoo, BambooHR, Paperclip (agent orchestration), Todoist, Claude Code (agents delegate tasks to the user's own Claude Code/Codex via `chatty-connector`)
 - **Todos (GTD)** — core always-on feature (NOT an integration): global store in `core/todo/`, 11 `todo_*` agent tools, multi-page UI at `/todos`, GTD coaching block injected into every agent's system prompt (admin setting `gtd_coaching_text`), public no-login `/capture` page (optional secret token), no-login `/todo[/{token}]` web app serving the whole todo UI outside the dashboard (`core/todo/web.py`, off by default), deterministic Telegram "capture" intercept
 - Agent features: memory system, dreaming/context archival, shared context across agents, scheduled actions (heartbeat), reminders (one-time and recurring), notifications (web push, Telegram, WhatsApp), knowledge import (OpenClaw, paste, folder, ZIP)
 - File uploads: PDF, DOCX, and text files via drag-and-drop in chat
@@ -111,9 +111,11 @@ backend/
 │   ├── providers/                   # AI provider abstraction (Anthropic, OpenAI, Gemini, Ollama, Together AI)
 │   ├── todo/                        # Todo (GTD) core feature: db, service, tools, REST router, /capture page, coaching
 │   └── agents/                      # Agent engine (ai_service, tool_registry, context_manager, chat_history, memory, dreaming, shared_context, reminders, scheduled_actions, alerts, notifications)
-├── integrations/                    # Google (Gmail/Calendar/Drive), QuickBooks, QB CSV, Telegram, WhatsApp, CRM (optional), Odoo, BambooHR, Paperclip
+├── integrations/                    # Google (Gmail/Calendar/Drive), QuickBooks, QB CSV, Telegram, WhatsApp, CRM (optional), Odoo, BambooHR, Paperclip, Claude Code
 ├── branding/                        # Logo/name/color
 └── whatsapp-bridge/                 # Node.js Baileys sidecar
+
+connector/                           # chatty-connector: separate pip package the user runs next to their Claude Code
 
 frontend/src/
 ├── agent/                           # Agent chat page + components (includes heartbeat panel, reminders panel)
@@ -165,6 +167,36 @@ Tools appear for agents automatically when their integration is enabled globally
 ### Write tools
 
 Tools that modify external data (send email, create event, upload file) must set `writes: True` in their tool definition. Chatty's `tool_mode` system will require user confirmation before executing write tools in "normal" mode. Write tools (excluding `context_memory` tools) are also subject to per-turn write budgets and optional hourly rate limits configured in admin settings.
+
+## Second brain backend
+
+Each agent has a `memory_backend` column (`agents` table, `builtin` | `brain`, editable in the agent's Knowledge tab). `builtin` is the per-agent `memory.db` + `context/` folder. `brain` moves **long-term memory only** to a personal [`brain`](https://github.com/wwilson1017/brain) server over HTTP — the brain is a resource, not a replacement for the agent's own context.
+
+**What moves to the brain (long-term):** the prompt's MEMORY section — `agents.engine.get_context_manager(slug)` hands the `ContextManager` the agent's `BrainBackend`, and `load_all_context()` (the one builder every prompt path uses: chat, WhatsApp, reminders, heartbeats, crons, the live coach) puts `## MEMORY (second brain)` = `GET /context` (≤8,000 chars, cached 60 s per agent, 5 s timeout, `[brain unavailable — tool reads still work]` on failure) where local `MEMORY.md` would go. The tools in `BRAIN_TOOLS` (`core/agents/memory/brain_backend.py`): `read_memory`, `search_memory` (brain `results` **plus** local daily/topic `local_results`, merged in `ToolRegistry._execute_memory`), `add_fact`, `query_facts`, `invalidate_fact`; `update_memory` is refused (the brain's `MEMORY.md` is owner-maintained). Every brain read carries `agent=<slug>` so the brain's confidential exclusion is per agent. `search_memory` forwards `date_from`/`date_to` → `since`/`until` and `source_type` → `kind` (`topic` → `note`; `daily`, `memory`, `fact`, `person` pass through) and surfaces the brain's fact hits (`kind == "fact"` rows of `results`) again as `facts`. `query_facts` reads the brain's `{facts, match, person}` object (a bare list still parses), forwards `since`/`until`, and adds a `note` when `match == "fuzzy"` (the subject resolved to nothing exact). `add_fact` passes `correction` through and turns the brain's `existing` / `superseded` into a `note` ("already recorded as fact #N", "replaced fact #N"); `invalidate_fact` with a `replacement` triple calls `POST /facts/{id}/supersede` (with `correction`) instead of `/invalidate`. On the builtin backend `since`/`until` post-filter on `valid_from` and a `replacement` is invalidate + add_fact (no supersede link). Three brain-only tools are added: `propose_change(kind, payload, reason, evidence?)` → `POST /propose` (structural changes — merge-people, move-note, archive-note, memory-section, rule, agents-md; the result's `applied` / `decided_by` / `apply_error` become a plain `note`: a curator's merge/move/archive/unlocked memory-section applies at once, rules / AGENTS.md / locked sections and every non-curator proposal wait for Will), `list_proposals(kind?, status?, mine?)` → `GET /review?harness=chatty&agent=<slug>` (no kind = structural only; `extraction` = the transcript rows, `all` = both; `mine` defaults true) and `review_proposal(id, decision, reason?, domain?)` → `POST /review/{id}/decide` (curators only — a 403 becomes a readable refusal, a 400 the brain's own message; an accepted age triple comes back `outcome: rejected` with the gate's reason). `add_fact` surfaces the brain's resolved `subject` (a `subject_note` when it differs from what was sent) and passes the age-gate 400 through verbatim. `propose_change` and `review_proposal` stay in background turns but are dropped from heartbeat runs (`processor.HEARTBEAT_EXCLUDED_BRAIN_TOOLS`). Otherwise tool names and schemas are untouched. The brain write tools carry the `BRAIN_SKIP_TEXT` guidance in chat and are **dropped from background turns** (`get_tool_definitions(memory_backend="brain", background_mode=True)` — heartbeat findings belong in the local daily note, never the brain).
+
+**What stays local (short-term and persona), unchanged from builtin:** every `context/` file (soul, identity, user, HEARTBEAT, topic notes), `daily/` and the daily-note tools (`append_daily_note`, `read_daily_note`, `list_daily_notes`), meetings, commitments, conversation history, today's-note injection, manifests and the relevance pre-fetch. Nothing is moved or archived on switch. `ensure_memory_db()` is `None` for a brain-backed agent (no local `memory.db`), so local search hits come from `ContextManager.relevance_prefetch`.
+
+**Nightly:** the daily-note summary, dreaming and archive steps run locally as for any agent; the consolidation step becomes `memory/processor.process_brain_promotion` — the same `consolidate_memory` synthesis over the local daily notes (starting from the brain's `MEMORY.md`), whose sink posts only the lines the brain does not already carry as one `POST /daily` entry (`type=consolidation`, `[chatty:<slug>] …`) instead of rewriting local `MEMORY.md`; the `memory.db` steps (fact decay, observations, commitments) are skipped. `consolidate_memory` as a chat tool is refused for brain agents.
+
+Setup (the template for any teammate wiring a harness to the brain):
+
+1. `uv tool install -e ~/ai/brain && BRAIN_HOME=~/brain brain init`
+2. Serve it: mount `brain.server.router` behind an `X-Api-Key` middleware (the CAKE IoT bridge does at `/brain`), or standalone `BRAIN_HOME=~/brain uvicorn brain.server:app --port 8799` (no auth of its own — LAN/Tailscale only).
+3. Settings → Integrations → **Second Brain**: base URL (the mount point, e.g. `https://host/brain`) + API key. Setup validates `GET /health`; credentials are stored encrypted like every other integration.
+4. Agent → Knowledge tab → Memory backend → **Second brain**.
+
+Tests: `backend/tests/test_brain_backend.py` (httpx `MockTransport`, no network) and `backend/tests/test_brain_prompt_context.py` (prompt block, tool policy, merged search, nightly promotion, and a source check that no prompt path builds its own `ContextManager`).
+
+## Claude Code connector
+
+`integrations/claude_code/` lets agents hand tasks to the user's own Claude Code or Codex. `connector/` is a separate package (`chatty-connector`, httpx only) that the user installs on their machine, pairs with a one-time code from the integration card, and runs as a service. It **polls outbound** (`/api/connector/*`, bearer token, only the sha256 is stored) and runs `claude -p` / `codex exec` per job. Agent tools: `delegate`, `job_get`, `job_list`, `job_cancel`, `connector_info` (`writes: False`; they gate themselves). User guide: `docs/claude-code-connector.md`; design record: `connector/SPIKE.md`.
+
+**Trust model.** Three levels (`db.LEVELS`: `look` < `sandbox` < `full`; the column is still `jobs.mode`). The machine sets the **ceiling** (`chatty-connector setup`, reported on every poll); the card's one dropdown sets `access_level` (creds, default `sandbox`) within it. `db.level_error()` checks both at queue time and the claim in `connector_api.poll` re-checks both, cancelling the job; the connector refuses anything above its ceiling itself, so a compromised Chatty can't exceed it. A poll without a ceiling (0.1.x) claims nothing.
+- `full` only from a user-originated turn, and only after the owner approves the verbatim task: `approvals.py` (Telegram `cc:<id>:full|sandbox|cancel` buttons or the card, 24 h expiry, single-use conditional UPDATE, prompt sha256 checked at claim).
+- Background, group, Paperclip and job-completion turns never go above `sandbox`, 10 per agent per rolling 24 h. Turn origin is server-injected via `_ctx`, never taken from the model.
+- What `look`/`sandbox` can actually do is the settings files `setup` writes (`look-settings.json`, `sandbox-settings.json`); their strength is the user's responsibility. Without a working OS sandbox it is "deny rules only".
+
+**Invariants.** `db.finish_job()` is the only code path that makes a job terminal (results, lost/stale jobs, cancels, disconnect, re-pair). Completion runs the agent's background turn **at most once**; everything after it goes through the idempotent `completion.finalize()`, which recovery paths re-run and which never invokes a turn. Tests: `backend/tests/test_claude_code.py`, `backend/tests/test_claude_code_approvals.py`, `connector/tests/`.
 
 ## Model Pricing
 

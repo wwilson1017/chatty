@@ -16,7 +16,7 @@ import threading
 import uuid
 
 from agents.db import get_agent_by_slug
-from agents.engine import build_agent_config, get_context_manager, get_chat_service
+from agents.engine import build_agent_config, get_context_manager, get_chat_service, memory_backend_for
 from core.agents.background_runner import run_background_turn
 from core.agents.tool_registry import ToolRegistry
 from core.agents.tool_definitions import get_tool_definitions
@@ -63,6 +63,7 @@ _INTEGRATION_MODULES = {
     "qb_csv": ("integrations.qb_csv.tools", "QB_CSV_TOOL_DEFS"),
     "paperclip": ("integrations.paperclip.tools", "PAPERCLIP_TOOL_DEFS"),
     "todoist": ("integrations.todoist.tools", "TODOIST_TOOL_DEFS"),
+    "claude_code": ("integrations.claude_code.tools", "CLAUDE_CODE_TOOL_DEFS"),
 }
 
 
@@ -225,6 +226,9 @@ def _process_message_locked(
         drive_account_ids=drive_ids,
         account_info_map=account_info_map,
     )
+    registry._current_conversation_id = chatty_conv_id
+    registry._turn_origin = "user"
+    registry._turn_route = {"channel": "whatsapp", "chat_id": phone}
 
     # 9. Build tool definitions
     dynamic_real_tools = load_all_real_tools(agent_slug)
@@ -244,6 +248,7 @@ def _process_message_locked(
         multi_gmail=len(gmail_ids) > 1,
         multi_calendar=len(calendar_ids) > 1,
         multi_drive=len(drive_ids) > 1,
+        memory_backend=memory_backend_for(agent_slug),
     )
 
     # Apply integration permission ceilings — messaging channels have no approval UI,

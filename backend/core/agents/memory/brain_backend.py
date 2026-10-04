@@ -1,0 +1,384 @@
+"""
+Chatty — Second-brain memory backend (LONG-TERM memory only).
+
+An agent whose ``memory_backend`` is ``brain`` keeps its memory tools (same
+names, same schemas as ``MEMORY_TOOLS``) but the long-term ones go to a
+``brain`` server (https://github.com/wwilson1017/brain, ``brain/server/router.py``)
+over HTTP.  Short-term memory — daily notes, meetings, topic files, persona —
+stays in the per-agent ``context/`` exactly as with the builtin backend.
+``ToolRegistry._execute_memory`` dispatches ``BRAIN_TOOLS`` here when
+``agents.engine.get_brain_backend`` returns an instance; everything else runs locally.
+
+Route map (brain → Chatty result shape):
+  read_memory   → GET /memory          search_memory   → GET /search (+ local daily/topic hits, merged by the registry)
+  add_fact      → POST /facts          query_facts     → GET /facts
+  invalidate_fact → POST /facts/{id}/invalidate, or POST /facts/{id}/supersede when a replacement is given
+Every read passes ``agent=<slug>`` so the brain's confidential exclusion is per agent.
+  update_memory → refused: the brain's MEMORY.md is owner-maintained (AGENTS.md)
+  propose_change → POST /propose     list_proposals → GET /review?harness=chatty&agent=<slug>
+  review_proposal → POST /review/{id}/decide
+    (structural changes are PROPOSED; a curator's merge/move/archive/unlocked memory-section applies
+    at once — the response says ``applied`` — and a curator may accept/reject other agents' proposals;
+    rules, AGENTS.md and locked MEMORY.md sections always wait for the owner)
+  GET /context  → the prompt's MEMORY section (context_text)
+"""
+
+import logging
+import re
+import time
+from urllib.parse import quote
+
+import httpx
+
+logger = logging.getLogger(__name__)
+
+# The long-term tools a brain-backed agent routes here. Daily notes, meetings,
+# commitments and consolidate_memory stay on the local builtin implementation.
+BRAIN_TOOLS = frozenset({
+    "read_memory", "update_memory", "search_memory", "add_fact", "query_facts", "invalidate_fact",
+    "propose_change", "list_proposals", "review_proposal",
+})
+PROPOSAL_KINDS = ("merge-people", "move-note", "archive-note", "memory-section", "rule", "agents-md")
+OWNER_ONLY_KINDS = ("rule", "agents-md")  # a memory-section on a locked section is owner-only too (brain decides)
+BRAIN_WRITE_TOOLS = frozenset({"add_fact", "update_memory", "invalidate_fact"})
+# Appended to the brain write tools' descriptions (from Hermes' memory tool).
+BRAIN_SKIP_TEXT = (
+    " Skip: task progress, completed-work logs, temporary status, assistant actions, in-progress state, "
+    "and negative claims about tools or access (they go stale and harden into refusals). When in doubt, store less."
+)
+# GET /context — the brain's session-start block, injected into the system
+# prompt in place of the local MEMORY.md + topic notes + daily manifest.
+CONTEXT_MAX_CHARS = 8_000
+CONTEXT_TTL_SECONDS = 60.0     # heartbeats fire every 60s; don't hammer the bridge
+CONTEXT_TIMEOUT_SECONDS = 5.0  # prompt assembly is on the request path
+CONTEXT_UNAVAILABLE = "[brain unavailable — tool reads still work]"
+UPDATE_MEMORY_REFUSED = (
+    "update_memory is not available on the brain backend: MEMORY.md there is maintained by its owner "
+    "and the nightly job. Record the durable fact with add_fact, or the event with append_daily_note."
+)
+FUZZY_SUBJECT_NOTE = (
+    "subject did not resolve to a known person or exact subject; these are substring matches — "
+    "check the subjects before relying on them"
+)
+NOT_A_CURATOR = (
+    "you are not a curator of this brain — only a curator may accept or reject proposals; "
+    "propose_change still files them for the owner"
+)
+# Chatty's search_memory source_type vocabulary → the brain's /search kind list
+# (note|fact|daily|person|memory). Unknown values pass through unchanged.
+SOURCE_TYPE_TO_KIND = {"topic": "note"}
+NOT_CONFIGURED = "brain integration is not configured (Settings → Integrations → Second Brain)"
+UNREACHABLE = "brain unreachable"
+# A write that timed out after it was sent may still have been applied: the brain finishes it after we give up.
+WRITE_TIMED_OUT = (
+    "brain timed out — the change may still have been applied. Check list_proposals / query_facts "
+    "before retrying."
+)
+# Curator writes (an applied merge, an accepted review item) reindex the brain; give them longer than reads.
+CURATOR_WRITE_TIMEOUT_SECONDS = 45.0
+# Below uvicorn's 5 s keep-alive, so a pooled connection is never reused just as the server closes it.
+KEEPALIVE_EXPIRY_SECONDS = 4.0
+
+
+class BrainBackend:
+    def __init__(
+        self,
+        base_url: str,
+        api_key: str = "",
+        agent_slug: str = "",
+        timeout: float = 10.0,
+        transport: httpx.BaseTransport | None = None,
+    ):
+        self.base_url = (base_url or "").rstrip("/")
+        self.agent_slug = agent_slug
+        headers = {"X-Api-Key": api_key} if api_key else {}
+        # transport lets tests plug in httpx.MockTransport — no sockets.  retries=1 re-tries connection
+        # failures only (the request never reached the brain), never a request the server received.
+        if transport is None:
+            transport = httpx.HTTPTransport(
+                retries=1, limits=httpx.Limits(keepalive_expiry=KEEPALIVE_EXPIRY_SECONDS),
+            )
+        self._client = httpx.Client(base_url=self.base_url or "http://unconfigured", timeout=timeout,
+                                    headers=headers, transport=transport)
+        self._context_cache: tuple[float, str] | None = None  # (expires_at, text)
+
+    def close(self) -> None:
+        self._client.close()
+
+    # ── system-prompt memory block ───────────────────────────────────────
+
+    def context_text(self, max_chars: int = CONTEXT_MAX_CHARS) -> str:
+        """The brain's ``GET /context`` text for the system prompt, cached per instance
+        for CONTEXT_TTL_SECONDS. Failures are cached too, as CONTEXT_UNAVAILABLE, so a
+        dead bridge costs one 5 s timeout per minute, not one per turn."""
+        now = time.monotonic()
+        if self._context_cache and self._context_cache[0] > now:
+            return self._context_cache[1]
+        params = {"max_chars": max_chars, **({"agent": self.agent_slug} if self.agent_slug else {})}
+        data = self._request("GET", "/context", params=params, timeout=CONTEXT_TIMEOUT_SECONDS)
+        if "error" in data:
+            logger.warning("brain /context unavailable: %s", data["error"])
+            text = CONTEXT_UNAVAILABLE
+        else:
+            text = (data.get("text") or "").strip() or "(the brain has no memory content yet)"
+        self._context_cache = (now + CONTEXT_TTL_SECONDS, text)
+        return text
+
+    # ── transport ────────────────────────────────────────────────────────
+
+    def _request(self, method: str, path: str, **kw) -> dict:
+        if not self.base_url:
+            return {"error": NOT_CONFIGURED}
+        try:
+            resp = self._client.request(method, path, **kw)
+        except (httpx.ReadTimeout, httpx.WriteTimeout) as e:
+            logger.warning("brain %s %s timed out: %s", method, path, e)
+            return {"error": UNREACHABLE if method == "GET" else WRITE_TIMED_OUT}
+        except httpx.HTTPError as e:
+            logger.warning("brain %s %s failed: %s", method, path, e)
+            return {"error": UNREACHABLE}
+        try:
+            data = resp.json()
+        except ValueError:
+            return {"error": f"brain returned non-JSON ({resp.status_code})"}
+        if resp.status_code >= 400:
+            detail = data.get("error") or data.get("detail") if isinstance(data, dict) else data
+            return {"error": f"brain error ({resp.status_code}): {detail}"}
+        return data
+
+    def _get(self, path: str, **params) -> dict:
+        return self._request("GET", path, params={k: v for k, v in params.items() if v is not None})
+
+    def _post(self, path: str, _timeout: float | None = None, **body) -> dict:
+        kw = {"timeout": _timeout} if _timeout is not None else {}
+        return self._request("POST", path, json={k: v for k, v in body.items() if v is not None}, **kw)
+
+    # ── dispatch ─────────────────────────────────────────────────────────
+
+    def execute(self, tool_name: str, args: dict) -> dict:
+        if tool_name not in BRAIN_TOOLS:
+            return {"error": f"{tool_name} is a local memory tool, not a brain tool"}
+        if tool_name == "update_memory":
+            return {"error": UPDATE_MEMORY_REFUSED}
+        handler = getattr(self, f"_{tool_name}", None)
+        if handler is None:
+            return {"error": f"Unknown memory tool: {tool_name}"}
+        return handler(args)
+
+    def _read_memory(self, args: dict) -> dict:
+        data = self._get("/memory")
+        return data if "error" in data else {"content": _sanitize(data.get("text", ""))}
+
+    def _search_memory(self, args: dict) -> dict:
+        query = (args.get("query") or "").strip()
+        if not query:
+            return {"error": "query is required"}
+        source_type = (args.get("source_type") or "").strip() or None
+        # memory_type is not forwarded: the brain's /search has no such filter.
+        data = self._get(
+            "/search", q=query, limit=_clamp(args.get("limit", 20), 20, 100),
+            since=args.get("date_from") or None, until=args.get("date_to") or None,
+            kind=SOURCE_TYPE_TO_KIND.get(source_type, source_type), agent=self.agent_slug or None,
+        )
+        if "error" in data:
+            return data
+        results = data.get("results", [])
+        for r in results:
+            for key in ("title", "snippet", "subject", "predicate", "object"):
+                if r.get(key):
+                    r[key] = _sanitize(r[key])
+        # fact hits ride inside results (kind == "fact"); the brain's top-level "facts" is their count
+        facts = data.get("facts")
+        if not isinstance(facts, list):
+            facts = [r for r in results if r.get("kind") == "fact"]
+        out = {"query": query, "results": results, "total": len(results), "facts": facts}
+        if data.get("index") == "incomplete":
+            out["warning"] = "brain index incomplete — some notes may be missing from these results"
+        return out
+
+    def _fact_body(self, args: dict) -> dict:
+        return dict(
+            subject=args["subject"].strip(), predicate=args["predicate"].strip(), object=args["object"].strip(),
+            memory_type=args.get("memory_type"), confidence=args.get("confidence", 1.0),
+            correction=True if args.get("correction") else None,
+            created_by="chatty", origin_class="agent", harness="chatty", agent=self.agent_slug or None,
+        )
+
+    def _add_fact(self, args: dict) -> dict:
+        for key in ("subject", "predicate", "object"):
+            if not (args.get(key) or "").strip():
+                return {"error": f"{key} is required"}
+        return _describe_write(self._post("/facts", **self._fact_body(args)), sent_subject=args["subject"].strip())
+
+    def _query_facts(self, args: dict) -> dict:
+        data = self._get(
+            "/facts", subject=args.get("subject"), predicate=args.get("predicate"), as_of=args.get("as_of") or None,
+            since=args.get("since") or None, until=args.get("until") or None,
+            include_expired=bool(args.get("include_expired", False)), limit=_clamp(args.get("limit", 50), 50, 500),
+            track_retrieval=True, agent=self.agent_slug or None,
+        )
+        if isinstance(data, dict) and "error" in data:
+            return data
+        # object shape {facts, match, person, ...}; a bare list is the pre-e73c5f5 brain
+        if isinstance(data, list):
+            data = {"facts": data}
+        facts = data.get("facts") or []
+        memory_type = args.get("memory_type")
+        if memory_type:  # /facts has no memory_type filter; apply it here
+            facts = [f for f in facts if f.get("memory_type") == memory_type]
+        for fact in facts:
+            for key in ("subject", "predicate", "object"):
+                if fact.get(key):
+                    fact[key] = _sanitize(fact[key])
+        out = {"facts": facts, "total": len(facts), "match": data.get("match"), "person": data.get("person")}
+        if out["match"] == "fuzzy":
+            out["note"] = FUZZY_SUBJECT_NOTE
+        return out
+
+    def _invalidate_fact(self, args: dict) -> dict:
+        try:
+            fact_id = int(args.get("fact_id"))
+        except (TypeError, ValueError):
+            return {"error": "fact_id must be an integer"}
+        replacement = args.get("replacement")
+        if replacement is None:
+            return self._post(f"/facts/{fact_id}/invalidate", valid_to=args.get("valid_to"))
+        if not isinstance(replacement, dict) or not all((replacement.get(k) or "").strip()
+                                                         for k in ("subject", "predicate", "object")):
+            return {"error": "replacement must be an object with subject, predicate and object"}
+        body = self._fact_body({**replacement, "correction": args.get("correction")})
+        return _describe_write(self._post(f"/facts/{fact_id}/supersede", **body), sent_subject=body["subject"])
+
+    # ── proposals (brain/review/propose.py) ──────────────────────────────
+
+    def _propose_change(self, args: dict) -> dict:
+        kind = (args.get("kind") or "").strip()
+        if kind not in PROPOSAL_KINDS:
+            return {"error": f"kind must be one of: {', '.join(PROPOSAL_KINDS)}"}
+        payload = args.get("payload")
+        if not isinstance(payload, dict) or not payload:
+            return {"error": "payload must be a non-empty object"}
+        reason = (args.get("reason") or "").strip()
+        if not reason:
+            return {"error": "reason is required"}
+        data = self._post(
+            "/propose", _timeout=CURATOR_WRITE_TIMEOUT_SECONDS, kind=kind, payload=payload, reason=reason, evidence=(args.get("evidence") or None),
+            origin_class="agent", harness="chatty", agent=self.agent_slug or None,
+        )
+        return _describe_proposal(data, kind)
+
+    def _list_proposals(self, args: dict) -> dict:
+        status = args.get("status") or "pending"
+        if status not in ("pending", "rejected", "accepted", "all"):
+            return {"error": "status must be pending, rejected, accepted or all"}
+        # no kind → the brain returns structural proposals only (it sees harness/agent); "extraction" and
+        # "all" are its group names; anything else is one kind or a comma list, passed through
+        kind = (args.get("kind") or "").strip() or None
+        mine = args.get("mine", True)
+        data = self._get("/review", kind=kind, status=status, harness="chatty", agent=self.agent_slug or None,
+                         mine="true" if mine else None)
+        if isinstance(data, dict) and "error" in data:
+            return data
+        rows = data if isinstance(data, list) else data.get("proposals", []) if isinstance(data, dict) else []
+        for row in rows:
+            _sanitize_proposal(row)
+        return {"proposals": rows, "total": len(rows)}
+
+    def _review_proposal(self, args: dict) -> dict:
+        pid = str(args.get("id") or "").strip()
+        if not pid:
+            return {"error": "id is required (from list_proposals)"}
+        decision = (args.get("decision") or "").strip()
+        if decision not in ("accept", "reject"):
+            return {"error": "decision must be accept or reject"}
+        reason = (args.get("reason") or "").strip() or None
+        if decision == "reject" and not reason:
+            return {"error": "a rejection needs a reason — the proposer reads it before re-proposing"}
+        data = self._post(  # pid is model-supplied: quote it so it stays one path segment
+            f"/review/{quote(pid, safe='')}/decide", _timeout=CURATOR_WRITE_TIMEOUT_SECONDS, decision=decision, reason=reason, domain=(args.get("domain") or None),
+            harness="chatty", agent=self.agent_slug or None,
+        )
+        if "error" in data:
+            if _brain_status(data) == 403:
+                return {"error": NOT_A_CURATOR}
+            if _brain_status(data) == 404:
+                return {"error": f"no proposal with id {pid} — check list_proposals"}
+            return {"error": _plain_error(data)}  # 400: owner-only kind, bad decision …
+        if decision == "accept" and data.get("outcome") == "rejected":
+            data["note"] = f"not written — the brain's gate rejected it instead: {data.get('reason')}"
+        elif data.get("outcome") == "accepted":
+            data["note"] = "accepted and written to the brain"
+        return data
+
+
+def _describe_proposal(data: dict, kind: str) -> dict:
+    """Tell the model whether its proposal landed now or waits for the owner."""
+    if "error" in data:
+        return data
+    if data.get("outcome") == "already_applied":
+        data["note"] = "already applied earlier — nothing new was filed (a retry is safe)"
+    elif data.get("applied"):
+        data["note"] = f"applied immediately (you are a curator) — decided by {data.get('decided_by')}"
+    elif data.get("apply_error"):
+        data["note"] = f"queued, but applying it failed: {data['apply_error']} — left pending for the owner"
+    elif kind in OWNER_ONLY_KINDS:
+        data["note"] = f"pending the owner's review: {kind} is owner-only"
+    elif data.get("outcome") == "duplicate":
+        data["note"] = "already pending — not queued twice"
+    else:
+        data["note"] = ("pending the owner's review (a locked MEMORY.md section is owner-only; "
+                        "other changes apply at once only for a curator)")
+    return data
+
+
+def _sanitize_proposal(row: dict) -> None:
+    for key in ("line", "reason", "decision", "subject", "predicate", "object", "title", "body"):
+        if isinstance(row.get(key), str):
+            row[key] = _sanitize(row[key])
+    decision = row.get("decision")  # the brain's decision is an object carrying the reviewer's reason
+    if isinstance(decision, dict) and isinstance(decision.get("reason"), str):
+        decision["reason"] = _sanitize(decision["reason"])
+
+
+def _brain_status(data: dict) -> int | None:
+    """The HTTP status behind a ``_request`` error, or None for a transport/config failure."""
+    m = re.match(r"brain error \((\d+)\): ", data.get("error") or "")
+    return int(m.group(1)) if m else None
+
+
+def _plain_error(data: dict) -> str:
+    """The brain's own message, without the ``brain error (NNN): `` prefix."""
+    return re.sub(r"^brain error \(\d+\): ", "", data.get("error") or "")
+
+
+def _describe_write(data: dict, sent_subject: str = "") -> dict:
+    """Tell the model what the brain did with the triple: reused an existing fact, replaced others, or
+    resolved the subject to a canonical people page. A 400 (the age gate: "store the birth date…")
+    comes back verbatim so the model learns the rule, not a status code."""
+    if "error" in data:
+        if _brain_status(data) == 400:
+            data["error"] = _plain_error(data)
+        return data
+    resolved = data.get("subject")
+    if resolved and sent_subject and resolved != sent_subject:
+        data["subject_note"] = f"subject {sent_subject!r} resolved to {resolved!r} — use that name from now on"
+    if data.get("existing"):
+        data["note"] = f"already recorded as fact #{data.get('id')} — no duplicate written"
+    elif data.get("superseded"):
+        ids = ", ".join(f"#{i}" for i in data["superseded"])
+        how = "marked never true (correction)" if data.get("correction_of") else "expired"
+        data["note"] = f"replaced fact {ids} ({how})"
+    return data
+
+
+def _clamp(value, on_error: int, maximum: int) -> int:
+    """``value`` as an int in 1..maximum; *on_error* when it is not a number."""
+    try:
+        return max(1, min(int(value), maximum))
+    except (TypeError, ValueError):
+        return on_error
+
+
+def _sanitize(text: str) -> str:
+    from core.agents.security.scanner import sanitize_memory_content
+    return sanitize_memory_content(text)

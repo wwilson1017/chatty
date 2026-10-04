@@ -46,6 +46,11 @@ class TodoistSetupRequest(BaseModel):
     api_token: str = Field(..., min_length=1, max_length=256)
 
 
+class BrainSetupRequest(BaseModel):
+    base_url: str = Field(..., min_length=1, max_length=2048)
+    api_key: str = Field("", max_length=512)
+
+
 class ToolModeRequest(BaseModel):
     tool_mode: str
 
@@ -143,6 +148,92 @@ async def disconnect_todoist(user=Depends(get_current_user)):
     from .registry import save_credentials
     save_credentials("todoist", {})
     return {"ok": True}
+
+
+@router.post("/brain/setup")
+async def setup_brain(body: BrainSetupRequest, user=Depends(get_current_user)):
+    """Configure and validate the second-brain server (GET /health)."""
+    from .brain.onboarding import setup
+    result = setup(base_url=body.base_url, api_key=body.api_key)
+    if not result["ok"]:
+        raise HTTPException(status_code=400, detail=result["error"])
+    return result
+
+
+@router.post("/brain/disconnect")
+async def disconnect_brain(user=Depends(get_current_user)):
+    """Disconnect the second brain: remove stored credentials (agents fall back to errors, not data loss)."""
+    from .registry import save_credentials
+    save_credentials("brain", {})
+    return {"ok": True}
+
+
+# ── Claude Code connector (pairing + jobs card; the connector's own API is /api/connector) ──
+
+class ClaudeCodeAgentsRequest(BaseModel):
+    disabled_agents: list[str] = Field(default_factory=list, max_length=200)
+
+
+class ClaudeCodeAccessRequest(BaseModel):
+    level: Literal["look", "sandbox", "full"]
+
+
+class ClaudeCodeDecideRequest(BaseModel):
+    decision: Literal["full", "sandbox", "cancel"]
+
+
+@router.post("/claude_code/pair-code")
+def claude_code_pair_code(user=Depends(get_current_user)):
+    from .claude_code.connector_api import create_pair_code
+    return create_pair_code()
+
+
+@router.get("/claude_code/status")
+def claude_code_status(user=Depends(get_current_user)):
+    from .claude_code.connector_api import status
+    return status()
+
+
+@router.post("/claude_code/disconnect")
+def claude_code_disconnect(user=Depends(get_current_user)):
+    from .claude_code.connector_api import disconnect
+    return disconnect()
+
+
+@router.get("/claude_code/jobs")
+def claude_code_jobs(limit: int = 20, user=Depends(get_current_user)):
+    from .claude_code.connector_api import list_jobs
+    return list_jobs(limit)
+
+
+@router.post("/claude_code/jobs/{job_id}/cancel")
+def claude_code_cancel_job(job_id: str, user=Depends(get_current_user)):
+    from .claude_code.connector_api import cancel_job
+    return cancel_job(job_id)
+
+
+@router.post("/claude_code/capabilities/refresh")
+def claude_code_refresh_capabilities(user=Depends(get_current_user)):
+    from .claude_code.connector_api import refresh_capabilities
+    return refresh_capabilities()
+
+
+@router.put("/claude_code/agents")
+def claude_code_set_agents(body: ClaudeCodeAgentsRequest, user=Depends(get_current_user)):
+    from .claude_code.connector_api import set_disabled_agents
+    return set_disabled_agents(body.disabled_agents)
+
+
+@router.put("/claude_code/access")
+def claude_code_set_access(body: ClaudeCodeAccessRequest, user=Depends(get_current_user)):
+    from .claude_code.connector_api import set_access_level
+    return set_access_level(body.level)
+
+
+@router.post("/claude_code/jobs/{job_id}/decide")
+def claude_code_decide(job_id: str, body: ClaudeCodeDecideRequest, user=Depends(get_current_user)):
+    from .claude_code.connector_api import decide_job
+    return decide_job(job_id, body.decision)
 
 
 @router.post("/quickbooks/setup")

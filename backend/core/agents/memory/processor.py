@@ -272,3 +272,50 @@ def process_memory_consolidation(
     result["agent"] = agent_name
     result["duration_ms"] = int((time.monotonic() - start) * 1000)
     return result
+
+
+def new_memory_lines(snapshot: str, known: str) -> str:
+    """The bullet lines of *snapshot* (a MEMORY.md-shaped text) that do not already
+    appear in *known*, kept under their H2 headers. Empty string when nothing is new."""
+    have = {line.strip() for line in known.splitlines()}
+    out: list[str] = []
+    header = ""
+    for line in snapshot.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("#"):
+            header = stripped
+        elif stripped.startswith(("-", "*")) and stripped not in have:
+            if header:
+                out.append(header)
+                header = ""
+            out.append(stripped)
+    return "\n".join(out)
+
+
+def process_brain_promotion(agent_name: str, ctx_manager: ContextManager, brain, api_key: str, days: int = 1) -> dict:
+    """Brain-backed agents: the nightly consolidation runs unchanged over the LOCAL
+    daily notes, but its sink is the second brain — only the lines the brain's
+    MEMORY.md does not already carry are posted, as one daily entry, so a night
+    with nothing durable posts nothing. Local MEMORY.md is never written."""
+    known = brain.execute("read_memory", {})
+    if "error" in known:
+        return {"ok": False, "error": known["error"], "agent": agent_name}
+
+    def sink(new_memory: str) -> dict:
+        promoted = new_memory_lines(new_memory, known["content"])
+        if not promoted:
+            return {"promoted": 0}
+        entry = f"[chatty:{ctx_manager.data_dir.parent.name}] durable items promoted from daily notes\n\n{promoted}"
+        posted = brain._post("/daily", content=entry, type="consolidation")
+        if "error" in posted:
+            return {"promoted": 0, "error": posted["error"]}
+        return {"promoted": sum(1 for line in promoted.splitlines() if line.startswith(("-", "*")))}
+
+    start = time.monotonic()
+    result = consolidate_memory(
+        data_dir=str(ctx_manager.data_dir), gcs_prefix=ctx_manager.gcs_prefix, api_key=api_key, days=days,
+        current_memory=known["content"], sink=sink,
+    )
+    result["agent"] = agent_name
+    result["duration_ms"] = int((time.monotonic() - start) * 1000)
+    return result

@@ -19,7 +19,7 @@ from core.auth import get_current_user
 from agents import db as agent_db
 
 from . import state, lifecycle, service
-from .client import send_message
+from .client import answer_callback_query, send_message
 from .models import SetBotTokenRequest, ResetRegistrationRequest
 
 logger = logging.getLogger(__name__)
@@ -107,6 +107,14 @@ async def telegram_webhook(agent_slug: str, request: Request):
         return {"status": "ok"}
 
     # Telegram sends an Update object
+    callback_query = raw.get("callback_query")
+    if callback_query:
+        if agent and agent.get("telegram_bot_token"):
+            _executor.submit(
+                _safe_process_callback, agent_slug, callback_query, agent["telegram_bot_token"],
+            )
+        return {"status": "ok"}
+
     message = raw.get("message")
     if not message:
         return {"status": "ok"}
@@ -147,6 +155,20 @@ async def telegram_webhook(agent_slug: str, request: Request):
         chat_type, is_bot, from_username, group_name, entities, reply_to_bot_username,
     )
     return {"status": "ok"}
+
+
+def _safe_process_callback(agent_slug: str, callback_query: dict, bot_token: str) -> None:
+    """Route an inline-button press. ``cc:`` buttons belong to Claude Code approvals;
+    anything else is acknowledged and ignored."""
+    cq_id = callback_query.get("id", "")
+    try:
+        if str(callback_query.get("data") or "").startswith("cc:"):
+            from integrations.claude_code.approvals import handle_telegram_callback
+            handle_telegram_callback(agent_slug, callback_query, bot_token)
+            return
+        answer_callback_query(cq_id, "", bot_token)
+    except Exception:
+        logger.exception("Telegram callback processing failed for %s", agent_slug)
 
 
 def _safe_process_telegram(

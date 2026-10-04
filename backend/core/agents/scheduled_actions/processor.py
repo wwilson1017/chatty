@@ -207,10 +207,18 @@ def _within_active_hours(action: dict) -> bool:
         return current_minutes >= start_minutes or current_minutes < end_minutes
 
 
-def _build_tools(agent_slug: str, agent: dict, *, background_mode: bool = False) -> tuple[list[dict], ToolRegistry, dict]:
+# Brain tools a heartbeat never gets: proposing structure and deciding proposals are judgement calls.
+HEARTBEAT_EXCLUDED_BRAIN_TOOLS = frozenset({"propose_change", "review_proposal"})
+
+
+def _build_tools(agent_slug: str, agent: dict, *, background_mode: bool = False,
+                 heartbeat: bool = False) -> tuple[list[dict], ToolRegistry, dict]:
     """Build full tool definitions and registry with integration parity.
 
-    Returns (tool_defs, registry, account_info_map).
+    Returns (tool_defs, registry, account_info_map). ``heartbeat`` drops
+    ``propose_change`` and ``review_proposal``: a checklist sweep every N minutes
+    is not the place to file structural proposals against the owner's second
+    brain, nor to decide what enters its long-term memory (chat, cron and coach only).
     """
     from agents.tool_loader import load_integration_tools, build_agent_handlers, INTEGRATION_MODULES
     from agents.engine import build_agent_config
@@ -240,6 +248,7 @@ def _build_tools(agent_slug: str, agent: dict, *, background_mode: bool = False)
     real_tools_dir = str(Path(config.context_dir).parent / "real_tools")
     dynamic_real_tools = load_all_real_tools(real_tools_dir)
 
+    from agents.engine import memory_backend_for
     tool_defs = get_tool_definitions(
         integration_tools=integration_tool_defs,
         dynamic_real_tools=dynamic_real_tools or None,
@@ -254,6 +263,7 @@ def _build_tools(agent_slug: str, agent: dict, *, background_mode: bool = False)
         multi_calendar=len(calendar_ids) > 1,
         multi_drive=len(drive_ids) > 1,
         background_mode=background_mode,
+        memory_backend=memory_backend_for(agent_slug),
     )
 
     integration_modes = {name: get_tool_mode(name) for name in INTEGRATION_MODULES}
@@ -261,6 +271,7 @@ def _build_tools(agent_slug: str, agent: dict, *, background_mode: bool = False)
         t for t in tool_defs
         if not (t.get("integration") and t.get("writes")
                 and integration_modes.get(t["integration"]) == "read-only")
+        and not (heartbeat and t["name"] in HEARTBEAT_EXCLUDED_BRAIN_TOOLS)
     ]
 
     registry = ToolRegistry(
@@ -448,7 +459,7 @@ def _process_heartbeat(action: dict) -> None:
     context = ctx_manager.load_all_context()
     context_snippet = context[:30000] if context else "(no context files)"
 
-    tool_defs, registry, account_info_map = _build_tools(agent_slug, agent, background_mode=True)
+    tool_defs, registry, account_info_map = _build_tools(agent_slug, agent, background_mode=True, heartbeat=True)
     on_iteration = _make_lease_renewer(action["id"], lease_id)
 
     from core.agents.ai_service import _google_accounts_context
@@ -721,6 +732,139 @@ def _process_heartbeat(action: dict) -> None:
             history.record_complete(execution_id, status="error", result_summary=str(e)[:500], result_full=str(e), duration_ms=duration_ms)
 
 
+def run_agent_background_turn(
+    agent: dict,
+    title: str,
+    instructions: str,
+    user_message: str,
+    *,
+    source: str | None = None,
+    max_iterations: int = 10,
+    model_override: str | None = None,
+    on_iteration=None,
+    tz_name: str = "America/Chicago",
+    conversation_id: str | None = None,
+    route: dict | None = None,
+):
+    """Run one background agent turn with the full tool set (cron, Claude Code completions).
+
+    Returns (BackgroundResult, registry). The origin stays "background";
+    conversation_id / route are stamped on the registry so any job the turn
+    delegates keeps the original conversation and destination.
+    """
+    agent_slug = agent["slug"]
+    from agents.engine import get_context_manager
+    ctx_manager = get_context_manager(agent_slug)
+    context = ctx_manager.load_all_context()
+    context_snippet = context[:30000] if context else "(no context files)"
+
+    from agents.tool_loader import format_current_time
+    date_str, time_str = format_current_time(tz_name)
+
+    tool_defs, registry, _aim = _build_tools(agent_slug, agent, background_mode=True)
+    registry._current_conversation_id = conversation_id
+    registry._turn_route = route
+
+    from core.agents.ai_service import _google_accounts_context
+    from agents.engine import build_agent_config as _bac2
+    _cfg2 = _bac2(agent)
+    ga_ctx2 = _google_accounts_context(_aim, _cfg2.google_accounts)
+    system_prompt = (
+        (
+            f"You are {agent['agent_name']}.\n\n"
+            + (f"{ga_ctx2}\n\n" if ga_ctx2 else "")
+            + f"# {title}\n\n"
+            f"{instructions}\n\n"
+            f"# Your Knowledge (abbreviated)\n\n{context_snippet}\n\n"
+            + DELIMITER_SYSTEM_INSTRUCTION + "\n\n"
+            + gtd_coaching_block(tool_defs)
+        ),
+        (
+            f"# Current Date & Time\n\n"
+            f"- Date: {date_str}\n"
+            f"- Time: {time_str}\n\n"
+            f"Take appropriate action using your tools. Be concise.\n"
+            f"Your final response will be delivered to the user automatically — just "
+            f"produce your report as your final response. You do not need to call "
+            f"`notify_user`. If there is genuinely nothing to report, respond with "
+            f"exactly [SILENT] and nothing else."
+        ),
+    )
+
+    result = run_background_turn(
+        system_prompt=system_prompt,
+        user_message=user_message,
+        tool_defs=tool_defs,
+        registry=registry,
+        max_iterations=max_iterations,
+        provider_override=agent.get("provider_override") or None,
+        model_override=model_override or agent.get("model_override") or None,
+        on_iteration=on_iteration,
+        source=source,
+        model_tier=_cfg2.model_tier,
+    )
+    return result, registry
+
+
+def deliver_background_result(agent_slug: str, title: str, text: str, *,
+                              tool_log: list | tuple = (), route: dict | None = None) -> dict | None:
+    """Fallback delivery of a background turn's final text.
+
+    Skipped when the text is empty or [SILENT], or the model already delivered
+    via notify_user/post_message. With a `route` ({channel: web|telegram|whatsapp,
+    chat_id?}) it goes back to that chat; otherwise to every enabled channel via
+    deliver_notification. Returns the auto_deliver marker, or None if nothing was sent.
+    """
+    text = (text or "").strip()
+    if not text:
+        return None
+    if text.upper() == SILENT_MARKER:
+        logger.info("Background %s: model returned [SILENT] — skipping delivery", agent_slug)
+        return None
+    if _delivered_via_tool(list(tool_log)):
+        return None
+    try:
+        if route:
+            channels = _deliver_to_route(agent_slug, title, text[:4000], route)
+            ok = True
+        else:
+            from core.agents.notifications.delivery import deliver_notification
+            report = deliver_notification(agent_slug, title, text[:4000])
+            ok = bool(report.get("ok"))
+            channels = report.get("channels_sent", [])
+        if ok:
+            # Empty channels just means "in-app log only" (no push sub /
+            # external channels off) — a valid state, not an error.
+            logger.info("Background %s: auto-delivered result (channels=%s)", agent_slug, channels or ["in-app log"])
+        else:
+            logger.warning("Background %s: auto-delivery returned not-ok", agent_slug)
+        return {"tool": "auto_deliver", "ok": ok, "channels": channels}
+    except Exception as e:
+        logger.warning("Background %s: auto-delivery failed: %s", agent_slug, e)
+        return {"tool": "auto_deliver", "ok": False, "error": str(e)[:200]}
+
+
+def _deliver_to_route(agent_slug: str, title: str, text: str, route: dict) -> list[str]:
+    """Send to the chat a request came from. Raises on failure."""
+    channel = route.get("channel")
+    if channel == "telegram":
+        from agents.db import get_agent_by_slug
+        from integrations.telegram.client import send_message
+        agent = get_agent_by_slug(agent_slug) or {}
+        if not agent.get("telegram_bot_token"):
+            raise RuntimeError("agent has no Telegram bot")
+        send_message(route["chat_id"], f"**{title}**\n\n{text}", agent["telegram_bot_token"])
+        return ["telegram"]
+    if channel == "whatsapp":
+        from integrations.whatsapp.client import send_message
+        send_message(route["chat_id"], f"*{title}*\n\n{text}")
+        return ["whatsapp"]
+    # web: the reply is already saved in the conversation; surface it in the in-app log.
+    from core.agents.notifications.service import create_notification
+    create_notification(agent=agent_slug, title=title, message=text, channels_sent=[])
+    return []
+
+
 def _process_cron(action: dict) -> None:
     """Process a cron scheduled action."""
     agent_slug = action["agent"]
@@ -741,59 +885,17 @@ def _process_cron(action: dict) -> None:
     except Exception as e:
         logger.error("Failed to record cron start for %s: %s", agent_slug, e)
 
-    from agents.engine import get_context_manager
-    ctx_manager = get_context_manager(agent["slug"])
-    context = ctx_manager.load_all_context()
-    context_snippet = context[:30000] if context else "(no context files)"
-
-    provider_override = agent.get("provider_override") or None
-    model_override = action.get("model_override") or agent.get("model_override") or None
-
-    tz_name = action.get("active_hours_tz") or "America/Chicago"
-    from agents.tool_loader import format_current_time
-    date_str, time_str = format_current_time(tz_name)
-
-    tool_defs, registry, _aim = _build_tools(agent_slug, agent, background_mode=True)
-    on_iteration = _make_lease_renewer(action["id"], lease_id)
-
-    from core.agents.ai_service import _google_accounts_context
-    from agents.engine import build_agent_config as _bac2
-    _cfg2 = _bac2(agent)
-    ga_ctx2 = _google_accounts_context(_aim, _cfg2.google_accounts)
-    system_prompt = (
-        (
-            f"You are {agent['agent_name']}.\n\n"
-            + (f"{ga_ctx2}\n\n" if ga_ctx2 else "")
-            + f"# Scheduled Action: {action.get('name', 'Unnamed')}\n\n"
-            f"{prompt}\n\n"
-            f"# Your Knowledge (abbreviated)\n\n{context_snippet}\n\n"
-            + DELIMITER_SYSTEM_INSTRUCTION + "\n\n"
-            + gtd_coaching_block(tool_defs)
-        ),
-        (
-            f"# Current Date & Time\n\n"
-            f"- Date: {date_str}\n"
-            f"- Time: {time_str}\n\n"
-            f"Take appropriate action using your tools. Be concise.\n"
-            f"Your final response will be delivered to the user automatically — just "
-            f"produce your report as your final response. You do not need to call "
-            f"`notify_user`. If there is genuinely nothing to report, respond with "
-            f"exactly [SILENT] and nothing else."
-        ),
-    )
-
     start_time = time.monotonic()
     try:
-        result = run_background_turn(
-            system_prompt=system_prompt,
-            user_message=f"Execute scheduled action: {action.get('name', prompt[:100])}",
-            tool_defs=tool_defs,
-            registry=registry,
+        result, _registry = run_agent_background_turn(
+            agent,
+            f"Scheduled Action: {action.get('name', 'Unnamed')}",
+            prompt,
+            f"Execute scheduled action: {action.get('name', prompt[:100])}",
             max_iterations=action.get("max_tool_iterations", 10),
-            provider_override=provider_override,
-            model_override=model_override,
-            on_iteration=on_iteration,
-            model_tier=_cfg2.model_tier,
+            model_override=action.get("model_override") or None,
+            on_iteration=_make_lease_renewer(action["id"], lease_id),
+            tz_name=action.get("active_hours_tz") or "America/Chicago",
         )
         duration_ms = int((time.monotonic() - start_time) * 1000)
 
@@ -826,29 +928,13 @@ def _process_cron(action: dict) -> None:
         # via the same path notify_user uses. Best-effort against MODEL behavior
         # (a model swap / a skipped tool call) — not crash-proof; see the
         # scheduled-action-guaranteed-delivery solution doc.
-        text = result.text.strip()
-        is_silent = text.upper() == SILENT_MARKER
-        auto_delivered = False
         delivery_marker = None
-        if status == "ok" and text and not is_silent and not model_notified:
-            try:
-                from core.agents.notifications.delivery import deliver_notification
-                title = action.get("name") or "Scheduled update"
-                report = deliver_notification(agent_slug, title, result.text[:4000])
-                auto_delivered = bool(report.get("ok"))
-                channels = report.get("channels_sent", [])
-                delivery_marker = {"tool": "auto_deliver", "ok": auto_delivered, "channels": channels}
-                if auto_delivered:
-                    # Empty channels just means "in-app log only" (no push sub /
-                    # external channels off) — a valid state, not an error.
-                    logger.info("Cron %s: auto-delivered result (channels=%s)", agent_slug, channels or ["in-app log"])
-                else:
-                    logger.warning("Cron %s: auto-delivery returned not-ok: %s", agent_slug, report)
-            except Exception as e:
-                delivery_marker = {"tool": "auto_deliver", "ok": False, "error": str(e)[:200]}
-                logger.warning("Cron %s: auto-delivery failed: %s", agent_slug, e)
-        elif is_silent:
-            logger.info("Cron %s: model returned [SILENT] — skipping delivery", agent_slug)
+        if status == "ok":
+            delivery_marker = deliver_background_result(
+                agent_slug, action.get("name") or "Scheduled update",
+                result.text, tool_log=result.tool_log,
+            )
+        auto_delivered = bool(delivery_marker and delivery_marker.get("ok"))
 
         notification_sent = model_notified or auto_delivered
         # Prepend the marker so it survives history.record_complete's 10 KB

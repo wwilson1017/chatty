@@ -232,8 +232,15 @@ def consolidate_memory(
     gcs_prefix: str,
     api_key: str,
     days: int = 7,
+    *,
+    current_memory: str | None = None,
+    sink=None,
 ) -> dict:
     """Regenerate MEMORY.md by synthesizing the last N days of daily notes.
+
+    ``current_memory`` overrides the local MEMORY.md as the starting snapshot and
+    ``sink(new_memory) -> dict`` replaces the local write (brain-backed agents:
+    memory/processor.promote_to_brain); the result dict is merged into the return.
 
     Calls Claude Sonnet with the current MEMORY.md + recent daily notes
     and asks for a tight, bulleted snapshot organized into Key People,
@@ -248,7 +255,8 @@ def consolidate_memory(
         return {"error": "no API key configured"}
 
     cm = _make_cm(data_dir, gcs_prefix)
-    current_memory = cm.read_memory()
+    if current_memory is None:
+        current_memory = cm.read_memory()
     notes = cm.list_daily_notes(limit=days)
     if not notes and not current_memory:
         return {"ok": False, "error": "nothing to consolidate — no MEMORY.md and no daily notes"}
@@ -316,6 +324,12 @@ def consolidate_memory(
     if not new_memory:
         return {"error": "Claude returned empty content"}
 
+    input_tokens = getattr(response.usage, "input_tokens", 0) if hasattr(response, "usage") else 0
+    output_tokens = getattr(response.usage, "output_tokens", 0) if hasattr(response, "usage") else 0
+    if sink is not None:
+        return {"ok": True, "days_synthesized": days, "input_tokens": input_tokens,
+                "output_tokens": output_tokens, **sink(new_memory)}
+
     # WAL: save previous content before overwriting
     _write_wal_entry(data_dir, "consolidation", current_memory, len(new_memory.encode("utf-8")))
 
@@ -324,8 +338,6 @@ def consolidate_memory(
     # Update FTS5 index
     _maybe_index_memory(data_dir, gcs_prefix, new_memory)
 
-    input_tokens = getattr(response.usage, "input_tokens", 0) if hasattr(response, "usage") else 0
-    output_tokens = getattr(response.usage, "output_tokens", 0) if hasattr(response, "usage") else 0
     logger.info(
         "consolidate_memory wrote MEMORY.md (%d chars, tokens: %d/%d, days=%d)",
         len(new_memory), input_tokens, output_tokens, days,

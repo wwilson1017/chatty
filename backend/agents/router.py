@@ -49,6 +49,7 @@ from .engine import (
     get_chat_service,
     ensure_memory_db,
     invalidate_cache,
+    memory_backend_for,
     DATA_DIR,
 )
 from .templates import seed_context_files
@@ -154,6 +155,7 @@ class UpdateAgentRequest(BaseModel):
     drive_write_enabled: bool | None = None
     google_accounts: dict | None = None
     model_tier: str | None = None
+    memory_backend: str | None = None
     telegram_enabled: bool | None = None
     telegram_group_enabled: bool | None = None
 
@@ -264,6 +266,11 @@ async def update_agent(agent_id: str, body: UpdateAgentRequest, user=Depends(get
 
     if "model_override" in updates and updates["model_override"]:
         updates["model_tier"] = "auto"
+
+    if "memory_backend" in updates:
+        from agents.engine import MEMORY_BACKENDS
+        if updates["memory_backend"] not in MEMORY_BACKENDS:
+            raise HTTPException(status_code=400, detail=f"memory_backend must be one of: {', '.join(MEMORY_BACKENDS)}")
 
     if "google_accounts" in updates:
         ga = updates["google_accounts"]
@@ -555,6 +562,10 @@ def _stream_chat(agent: dict, messages: list, training_mode: bool, conversation_
         reminder_handlers=reminder_handlers,
         scheduled_action_handlers=sa_handlers,
     )
+    # The owner typing in web chat. Set here, not inside ai_service.chat(),
+    # because the CLI also calls chat() and stays a background origin.
+    registry._turn_origin = "user"
+    registry._turn_route = {"channel": "web"}
 
     if import_mode and conversation_id:
         from agents.import_service.sessions import get_session_by_conversation
@@ -1364,6 +1375,7 @@ async def tool_execute(agent_id: str, req: ToolExecuteRequest, user=Depends(get_
         calendar_write_enabled=cal_caps["calendar_write_enabled"],
         drive_read_enabled=drive_caps["drive_read_enabled"],
         drive_write_enabled=drive_caps["drive_write_enabled"],
+        memory_backend=memory_backend_for(agent["slug"]),
     )
     writes_map = build_writes_map(tool_defs)
     if not writes_map.get(req.tool, False):

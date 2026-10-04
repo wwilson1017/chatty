@@ -174,6 +174,7 @@ def _do_restore(file: UploadFile, content: bytes) -> dict:
     from core.agents.shared_context.db import close_db as close_shared_context_db
     from core.agents.tool_config_db import close_db as close_tool_config_db
     from core.todo.db import close_db as close_todo_db
+    from integrations.claude_code.db import close_db as close_claude_code_db
     from integrations.crm_lite.db import close_db as close_crm_db
     from integrations.qb_csv.db import close_db as close_qb_csv_db
     from integrations.telegram.state import close_db as close_telegram_db
@@ -185,6 +186,7 @@ def _do_restore(file: UploadFile, content: bytes) -> dict:
     close_shared_context_db()
     close_tool_config_db()
     close_todo_db()
+    close_claude_code_db()
     close_crm_db()
     close_qb_csv_db()
     close_telegram_db()
@@ -247,6 +249,9 @@ def _do_restore(file: UploadFile, content: bytes) -> dict:
     # simply get a fresh empty db).
     from core.todo.db import init_db as init_todo_db
     _reinit("todo", init_todo_db)
+
+    from integrations.claude_code.db import init_db as init_claude_code_db
+    _reinit("claude_code", init_claude_code_db)
 
     from integrations.telegram.state import init_db as init_telegram_db
     _reinit("telegram", init_telegram_db)

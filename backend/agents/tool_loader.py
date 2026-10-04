@@ -42,6 +42,7 @@ INTEGRATION_MODULES = {
     "qb_csv": ("integrations.qb_csv.tools", "QB_CSV_TOOL_DEFS"),
     "paperclip": ("integrations.paperclip.tools", "PAPERCLIP_TOOL_DEFS"),
     "todoist": ("integrations.todoist.tools", "TODOIST_TOOL_DEFS"),
+    "claude_code": ("integrations.claude_code.tools", "CLAUDE_CODE_TOOL_DEFS"),
 }
 
 

@@ -174,6 +174,7 @@ def build_coach_context(agent: dict) -> dict:
     from core.agents.tool_definitions import get_tool_definitions
     from core.agents.tool_registry import ToolRegistry
     from core.agents.tools.real_tools import load_all_real_tools
+    from agents.engine import memory_backend_for
     from integrations.google.policy import google_capabilities_union
     from integrations.registry import get_tool_mode, list_google_accounts
 
@@ -217,6 +218,7 @@ def build_coach_context(agent: dict) -> dict:
         multi_calendar=len(calendar_ids) > 1,
         multi_drive=len(drive_ids) > 1,
         background_mode=True,
+        memory_backend=memory_backend_for(agent["slug"]),
     )
 
     integration_modes = {name: get_tool_mode(name) for name in INTEGRATION_MODULES}

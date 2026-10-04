@@ -37,6 +37,9 @@ def should_wrap(tool_name: str, kind: str) -> bool:
 
 
 def wrap_result(tool_name: str, result_str: str) -> str:
+    # Defang literal wrapper tags so content cannot close the wrapper early.
+    result_str = result_str.replace("<untrusted_tool_result", "&lt;untrusted_tool_result")
+    result_str = result_str.replace("</untrusted_tool_result", "&lt;/untrusted_tool_result")
     tag_id = secrets.token_hex(8)
     return (
         f'<untrusted_tool_result id="{tag_id}" tool="{tool_name}">\n'

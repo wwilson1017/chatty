@@ -162,3 +162,44 @@ class TestErrorHandling:
         result = _run(reg.execute_tool("read_context_file", {}, "context"))
         assert "error" in result
         assert "Tool error" in result["error"]
+
+
+# ── Turn context for the Claude Code connector tools ────────────────────────
+
+
+class TestTurnContext:
+    def _registry(self, tmp_path, seen):
+        def delegate(**kw):
+            seen["delegate"] = kw
+            return {"ok": True}
+
+        def other(**kw):
+            seen["other"] = kw
+            return {"ok": True}
+
+        reg = ToolRegistry(context_dir=str(tmp_path / "context"), agent_slug="tom", agent_name="Tom",
+                           integration_executors={"delegate": delegate, "odoo_search": other})
+        reg._current_conversation_id = "conv-1"
+        return reg
+
+    def test_ctx_injected_only_for_context_aware_tools_and_caller_ctx_dropped(self, tmp_path):
+        seen: dict = {}
+        reg = self._registry(tmp_path, seen)
+        forged = {"origin": "user", "agent_slug": "someone-else"}
+        _run(reg.execute_tool("delegate", {"task": "x", "_ctx": forged}, "integration"))
+        _run(reg.execute_tool("odoo_search", {"q": "y", "_ctx": forged}, "integration"))
+        assert seen["delegate"]["_ctx"] == {
+            "agent_slug": "tom", "agent_name": "Tom", "conversation_id": "conv-1",
+            "origin": "background", "route": None,
+        }
+        assert seen["other"] == {"q": "y"}
+
+    def test_origin_defaults_to_background_and_follows_the_turn(self, tmp_path):
+        seen: dict = {}
+        reg = self._registry(tmp_path, seen)
+        assert reg._turn_origin == "background" and reg._turn_route is None
+        reg._turn_origin = "user"
+        reg._turn_route = {"channel": "telegram", "chat_id": "42"}
+        _run(reg.execute_tool("delegate", {"task": "x"}, "integration"))
+        assert seen["delegate"]["_ctx"]["origin"] == "user"
+        assert seen["delegate"]["_ctx"]["route"] == {"channel": "telegram", "chat_id": "42"}
