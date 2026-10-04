@@ -7,9 +7,11 @@ import httpx
 import pytest
 
 from core.agents.memory.brain_backend import (
+    CURATOR_WRITE_TIMEOUT_SECONDS,
     NOT_CONFIGURED,
     UNREACHABLE,
     UPDATE_MEMORY_REFUSED,
+    WRITE_TIMED_OUT,
     BrainBackend,
 )
 
@@ -350,6 +352,44 @@ class TestFailures:
 
         b = BrainBackend("http://down.test", "k", transport=httpx.MockTransport(boom))
         assert b.execute("read_memory", {}) == {"error": UNREACHABLE}
+
+    def test_write_timeout_says_it_may_have_applied(self):
+        """A merge the brain finishes after we give up must not read as "the brain is down" — Tom retried
+        those and filed duplicate proposals."""
+        def slow(request):
+            raise httpx.ReadTimeout("timed out", request=request)
+
+        b = BrainBackend("http://slow.test", "k", agent_slug="tom", transport=httpx.MockTransport(slow))
+        out = b.execute("propose_change", {"kind": "merge-people", "payload": {"keep": "a", "drop": ["b"]},
+                                           "reason": "same person"})
+        assert out == {"error": WRITE_TIMED_OUT}
+        assert b.execute("add_fact", {"subject": "x", "predicate": "p", "object": "o"}) == {"error": WRITE_TIMED_OUT}
+        assert b.execute("read_memory", {}) == {"error": UNREACHABLE}  # a read has no outcome to doubt
+
+    def test_curator_writes_get_the_long_timeout(self, fake):
+        seen = {}
+
+        def handler(request):
+            seen[request.url.path] = request.extensions["timeout"]["read"]
+            return fake.handler(request)
+
+        b = BrainBackend("http://brain.test", "k", agent_slug="tom", transport=httpx.MockTransport(handler))
+        b.execute("propose_change", {"kind": "archive-note", "payload": {"path": "tnc/x.md"}, "reason": "old"})
+        b.execute("review_proposal", {"id": "r-1", "decision": "accept"})
+        b.execute("read_memory", {})
+        assert seen["/propose"] == CURATOR_WRITE_TIMEOUT_SECONDS
+        assert seen["/review/r-1/decide"] == CURATOR_WRITE_TIMEOUT_SECONDS
+        assert seen["/memory"] == 10.0
+
+    def test_already_applied_proposal_is_reported_as_safe_retry(self):
+        def handler(request):
+            return httpx.Response(200, json={"id": "p-1", "kind": "merge-people", "outcome": "already_applied",
+                                             "status": "accepted", "applied": True, "already": True})
+
+        b = BrainBackend("http://brain.test", "k", agent_slug="tom", transport=httpx.MockTransport(handler))
+        out = b.execute("propose_change", {"kind": "merge-people", "payload": {"keep": "a", "drop": ["b"]},
+                                           "reason": "same person"})
+        assert out["note"].startswith("already applied earlier")
 
     def test_server_error_and_not_configured(self, fake):
         b = BrainBackend("http://brain.test", "k", transport=httpx.MockTransport(fake.handler))
