@@ -13,6 +13,9 @@ Route map (brain → Chatty result shape):
   read_memory   → GET /memory          search_memory   → GET /search (+ local daily/topic hits, merged by the registry)
   add_fact      → POST /facts          query_facts     → GET /facts
   invalidate_fact → POST /facts/{id}/invalidate, or POST /facts/{id}/supersede when a replacement is given
+    (every fact write carries a ``source``; an owner chat turn fills ``will:chat <today>`` when the model
+    gave none, any other turn gets the brain's 400 verbatim.  The brain never retires a fact on its own:
+    a differing value comes back with ``conflicts`` and the model passes ``replaces=[ids]`` to retire)
 Every read passes ``agent=<slug>`` so the brain's confidential exclusion is per agent.
   update_memory → refused: the brain's MEMORY.md is owner-maintained (AGENTS.md)
   propose_change → POST /propose     list_proposals → GET /review?harness=chatty&agent=<slug>
@@ -26,6 +29,7 @@ Every read passes ``agent=<slug>`` so the brain's confidential exclusion is per 
 import logging
 import re
 import time
+from datetime import date
 from urllib.parse import quote
 
 import httpx
@@ -63,6 +67,15 @@ FUZZY_SUBJECT_NOTE = (
 NOT_A_CURATOR = (
     "you are not a curator of this brain — only a curator may accept or reject proposals; "
     "propose_change still files them for the owner"
+)
+# A fact's ``source`` (required by the brain: a blank one is a 400 naming these formats, passed through verbatim).
+SOURCE_FORMATS = (
+    "will:chat YYYY-MM-DD, email:<message-id>, calendar:<event-id or title+date>, doc:<path>, agent:<name>"
+)
+# The source filled in when the owner is the one talking (an interactive chat turn) and the model gave none.
+OWNER_CHAT_SOURCE = "will:chat"
+CONFLICTS_UNRESOLVED = (
+    "If the new value replaces one of these, call add_fact again with replaces=[ids], or invalidate_fact."
 )
 # Chatty's search_memory source_type vocabulary → the brain's /search kind list
 # (note|fact|daily|person|memory). Unknown values pass through unchanged.
@@ -155,11 +168,16 @@ class BrainBackend:
 
     # ── dispatch ─────────────────────────────────────────────────────────
 
-    def execute(self, tool_name: str, args: dict) -> dict:
+    def execute(self, tool_name: str, args: dict, owner_turn: bool = False) -> dict:
+        """*owner_turn*: the owner is the one talking (web chat / private Telegram / WhatsApp), so a fact
+        written without a ``source`` was learned from them: ``will:chat <today>`` fills in.  A background
+        turn gets the brain's 400 back verbatim and the model names where it learned the fact."""
         if tool_name not in BRAIN_TOOLS:
             return {"error": f"{tool_name} is a local memory tool, not a brain tool"}
         if tool_name == "update_memory":
             return {"error": UPDATE_MEMORY_REFUSED}
+        if owner_turn and tool_name in ("add_fact", "invalidate_fact") and not (args.get("source") or "").strip():
+            args = {**args, "source": f"{OWNER_CHAT_SOURCE} {date.today().isoformat()}"}
         handler = getattr(self, f"_{tool_name}", None)
         if handler is None:
             return {"error": f"Unknown memory tool: {tool_name}"}
@@ -197,8 +215,11 @@ class BrainBackend:
         return out
 
     def _fact_body(self, args: dict) -> dict:
+        # source is not checked here: the brain refuses a blank one with a message naming the formats,
+        # and _describe_write hands that 400 to the model verbatim
         return dict(
             subject=args["subject"].strip(), predicate=args["predicate"].strip(), object=args["object"].strip(),
+            source=(args.get("source") or "").strip() or None,
             memory_type=args.get("memory_type"), confidence=args.get("confidence", 1.0),
             correction=True if args.get("correction") else None,
             created_by="chatty", origin_class="agent", harness="chatty", agent=self.agent_slug or None,
@@ -208,7 +229,14 @@ class BrainBackend:
         for key in ("subject", "predicate", "object"):
             if not (args.get(key) or "").strip():
                 return {"error": f"{key} is required"}
-        return _describe_write(self._post("/facts", **self._fact_body(args)), sent_subject=args["subject"].strip())
+        replaces = args.get("replaces")
+        if replaces is not None:
+            try:
+                replaces = [int(i) for i in ([replaces] if isinstance(replaces, (int, str)) else replaces)] or None
+            except (TypeError, ValueError):
+                return {"error": "replaces must be a list of fact ids (integers)"}
+        return _describe_write(self._post("/facts", **self._fact_body(args), replaces=replaces),
+                               sent_subject=args["subject"].strip())
 
     def _query_facts(self, args: dict) -> dict:
         data = self._get(
@@ -246,7 +274,7 @@ class BrainBackend:
         if not isinstance(replacement, dict) or not all((replacement.get(k) or "").strip()
                                                          for k in ("subject", "predicate", "object")):
             return {"error": "replacement must be an object with subject, predicate and object"}
-        body = self._fact_body({**replacement, "correction": args.get("correction")})
+        body = self._fact_body({**replacement, "correction": args.get("correction"), "source": args.get("source")})
         return _describe_write(self._post(f"/facts/{fact_id}/supersede", **body), sent_subject=body["subject"])
 
     # ── proposals (brain/review/propose.py) ──────────────────────────────
@@ -352,9 +380,11 @@ def _plain_error(data: dict) -> str:
 
 
 def _describe_write(data: dict, sent_subject: str = "") -> dict:
-    """Tell the model what the brain did with the triple: reused an existing fact, replaced others, or
-    resolved the subject to a canonical people page. A 400 (the age gate: "store the birth date…")
-    comes back verbatim so the model learns the rule, not a status code."""
+    """Tell the model what the brain did with the triple: attached its source to a fact already known
+    (corroborated), reused an existing fact, retired what ``replaces`` named, listed the live facts that now
+    disagree (``conflicts`` — the brain retires nothing on its own), or resolved the subject to a canonical
+    people page. A 400 (the age gate: "store the birth date…", or a missing source naming the accepted
+    formats) comes back verbatim so the model learns the rule, not a status code."""
     if "error" in data:
         if _brain_status(data) == 400:
             data["error"] = _plain_error(data)
@@ -362,12 +392,27 @@ def _describe_write(data: dict, sent_subject: str = "") -> dict:
     resolved = data.get("subject")
     if resolved and sent_subject and resolved != sent_subject:
         data["subject_note"] = f"subject {sent_subject!r} resolved to {resolved!r} — use that name from now on"
-    if data.get("existing"):
-        data["note"] = f"already recorded as fact #{data.get('id')} — no duplicate written"
-    elif data.get("superseded"):
+    notes = []
+    if data.get("corroborated"):
+        others = max(int(data.get("source_count") or 1) - 1, 0)
+        notes.append(f"already known from {others} other source(s); your source was attached (fact #{data.get('id')})")
+    elif data.get("existing"):
+        notes.append(f"already recorded as fact #{data.get('id')} — no duplicate written")
+    if data.get("superseded"):
         ids = ", ".join(f"#{i}" for i in data["superseded"])
         how = "marked never true (correction)" if data.get("correction_of") else "expired"
-        data["note"] = f"replaced fact {ids} ({how})"
+        notes.append(f"replaced fact {ids} ({how})")
+    conflicts = data.get("conflicts") or []
+    if conflicts:
+        listed = "; ".join(
+            f"#{c.get('id')}: {_sanitize(str(c.get('object') or ''))} "
+            f"(source {', '.join(c.get('sources') or [c.get('source') or 'unknown'])})"
+            for c in conflicts
+        )
+        retired = "Nothing else was retired." if data.get("superseded") else "Nothing was retired."
+        notes.append(f"conflicts with {len(conflicts)} live fact(s) — {listed}. {retired} {CONFLICTS_UNRESOLVED}")
+    if notes:
+        data["note"] = " ".join(notes)
     return data
 
 

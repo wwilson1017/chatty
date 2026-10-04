@@ -297,6 +297,7 @@ MEMORY_TOOLS = [
                 "subject": {"type": "string", "description": "The entity (e.g. 'John Smith')"},
                 "predicate": {"type": "string", "description": "The relationship (e.g. 'works at')"},
                 "object": {"type": "string", "description": "The value (e.g. 'Acme Corp')"},
+                "source": {"type": "string", "description": "Optional: where you learned this"},
                 "memory_type": {"type": "string", "description": "Optional type: person, decision, etc."},
                 "confidence": {"type": "number", "description": "Confidence 0.0-1.0 (default 1.0)"},
                 "correction": {
@@ -1826,16 +1827,50 @@ BRAIN_ONLY_TOOLS = [
 ]
 
 
+BRAIN_FACTS_CARRY_SOURCES = (
+    " Facts show how many independent sources back them (`sources`, `source_count`)."
+)
+
+
+def _brain_variant(tool: dict) -> dict:
+    """A MEMORY_TOOLS entry as the brain-backed agent sees it: every fact write names its ``source``
+    (the brain refuses one without), ``add_fact`` can retire old values with ``replaces``, and the
+    readers say that facts carry their sources.  The builtin backend keeps the unchanged schema."""
+    from core.agents.memory.brain_backend import SOURCE_FORMATS
+    source = {"type": "string", "description": f"Where you learned this: {SOURCE_FORMATS}"}
+    schema = {**tool["input_schema"], "properties": dict(tool["input_schema"]["properties"])}
+    if tool["name"] == "add_fact":
+        schema["properties"]["source"] = source
+        schema["properties"]["replaces"] = {
+            "type": "array", "items": {"type": "integer"},
+            "description": (
+                "Fact ids this value retires (from query_facts or the conflicts of an earlier add_fact). Use it "
+                "when the new value replaces an old one; without it both stay live and the result lists conflicts"
+            ),
+        }
+        schema["required"] = [*schema["required"], "source"]
+    elif tool["name"] == "invalidate_fact":
+        schema["properties"]["source"] = {
+            **source, "description": f"Required with a replacement — where you learned the new value: {SOURCE_FORMATS}",
+        }
+    elif tool["name"] in ("query_facts", "search_memory"):
+        return {**tool, "description": tool["description"] + BRAIN_FACTS_CARRY_SOURCES}
+    else:
+        return tool
+    return {**tool, "input_schema": schema}
+
+
 def _memory_tools_for(memory_backend: str, background_mode: bool) -> list[dict]:
-    """MEMORY_TOOLS, adjusted for a brain-backed agent: the brain write tools
-    carry the SKIP guidance, and background turns (heartbeats, crons) drop them
-    entirely — a heartbeat's "X is WORKING" belongs in the local daily note, not
-    the second brain."""
+    """MEMORY_TOOLS, adjusted for a brain-backed agent: the fact tools take the brain's
+    shape (``_brain_variant``), the brain write tools carry the SKIP guidance, and
+    background turns (heartbeats, crons) drop them entirely — a heartbeat's "X is
+    WORKING" belongs in the local daily note, not the second brain."""
     if memory_backend != "brain":
         return list(MEMORY_TOOLS)
     from core.agents.memory.brain_backend import BRAIN_SKIP_TEXT, BRAIN_WRITE_TOOLS
     out = []
     for t in MEMORY_TOOLS:
+        t = _brain_variant(t)
         if t["name"] in BRAIN_WRITE_TOOLS:
             if background_mode:
                 continue

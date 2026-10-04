@@ -214,7 +214,7 @@ class ToolRegistry:
         if brain is not None and tool_name in BRAIN_TOOLS:
             # memory_backend == 'brain': long-term tools go to the second brain;
             # daily notes, meetings and commitments stay local (below).
-            result = brain.execute(tool_name, args)
+            result = brain.execute(tool_name, args, owner_turn=self._turn_origin == "user")
             if tool_name == "search_memory" and "error" not in result:
                 result["local_results"] = _local_memory_hits(self.context_dir, self.gcs_prefix, args.get("query", ""))
                 result["local_total"] = len(result["local_results"])
@@ -266,6 +266,7 @@ class ToolRegistry:
             return add_fact(
                 ctx_dir, prefix,
                 subject=args["subject"], predicate=args["predicate"], object=args["object"],
+                source=args.get("source") or "",
                 memory_type=args.get("memory_type"), confidence=args.get("confidence", 1.0),
             )
         elif tool_name == "query_facts":

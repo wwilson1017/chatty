@@ -82,6 +82,7 @@ class TestPromptBlock:
         from core.agents.ai_service import _memory_instructions
         brain = _memory_instructions(brain=True)
         assert "`update_memory` is not available" in brain and "Daily Notes (local)" in brain
+        assert "Every fact needs a `source`" in brain and "`replaces=[ids]`" in brain
         assert "update with `update_memory`" in _memory_instructions(brain=False)
 
 
@@ -153,6 +154,25 @@ class TestToolPolicy:
             assert by_name[name]["description"].endswith(BRAIN_SKIP_TEXT)
         assert not by_name["append_daily_note"]["description"].endswith(BRAIN_SKIP_TEXT)
         assert not any(BRAIN_SKIP_TEXT in t["description"] for t in MEMORY_TOOLS)  # originals untouched
+
+    def test_brain_fact_tools_take_the_brains_shape(self):
+        """brain#15: a source is required on every fact write, add_fact can retire with replaces, and the
+        readers say facts carry their sources.  The builtin schema is unchanged (source stays optional)."""
+        from core.agents.memory.brain_backend import SOURCE_FORMATS
+        from core.agents.tool_definitions import MEMORY_TOOLS, get_tool_definitions
+        brain = {t["name"]: t for t in get_tool_definitions(memory_backend="brain")}
+        builtin = {t["name"]: t for t in MEMORY_TOOLS}
+        add = brain["add_fact"]["input_schema"]
+        assert add["required"] == ["subject", "predicate", "object", "source"]
+        assert add["properties"]["source"]["description"] == f"Where you learned this: {SOURCE_FORMATS}"
+        assert add["properties"]["replaces"]["items"] == {"type": "integer"} and "correction" in add["properties"]
+        inv = brain["invalidate_fact"]["input_schema"]
+        assert inv["required"] == ["fact_id"] and inv["properties"]["source"]["description"].startswith("Required with a replacement")
+        for name in ("query_facts", "search_memory"):
+            assert "`source_count`" in brain[name]["description"] and "`source_count`" not in builtin[name]["description"]
+        assert builtin["add_fact"]["input_schema"]["required"] == ["subject", "predicate", "object"]
+        assert "replaces" not in builtin["add_fact"]["input_schema"]["properties"]
+        assert "source" not in builtin["invalidate_fact"]["input_schema"]["properties"]
 
     def test_search_merges_brain_and_local_hits(self, monkeypatch, tmp_path):
         import asyncio
