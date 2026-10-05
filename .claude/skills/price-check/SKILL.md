@@ -8,7 +8,7 @@ description: Verify and refresh AI model pricing in Chatty's pricing.py from off
 Keeps `backend/core/providers/pricing.py` (`MODEL_PRICING` + `PRICING_SOURCES`) current with published per-token rates and regenerates the reviewable report `backend/core/providers/PRICING.md`. No provider's models API exposes price, so this skill is the maintenance mechanism that keeps the usage/cost dashboard accurate as new models are added dynamically.
 
 ## When to run
-- During any PR that adds/changes models or touches `core/providers/` or `core/agents/usage/` (required by the project `AGENTS.md` → Model Pricing).
+- During any PR that adds/changes models or touches `core/providers/` or `core/agents/usage/` (required by the project `AGENTS.md` → Rules; detail in `docs/agents/model-pricing.md`).
 - On request: "check prices", "refresh model pricing", "is pricing current?".
 
 ## Guard 1 — ship only in the Chatty repo
