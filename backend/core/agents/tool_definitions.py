@@ -128,6 +128,12 @@ CONTEXT_TOOLS = [
 
 # ── Memory tools (daily notes, MEMORY.md, FTS5 search, facts) ────────────────
 
+# The brain rejects a fact without a source; these are its documented shapes (brain/store/db.py SOURCE_FORMATS).
+_FACT_SOURCE_DESCRIPTION = (
+    "Where this came from: 'will:chat 2026-10-04' (who said it + date), 'email:<message-id>', "
+    "'calendar:<event-id or title+date>', 'doc:<path or name>', a URL"
+)
+
 MEMORY_TOOLS = [
     {
         "name": "append_daily_note",
@@ -297,6 +303,7 @@ MEMORY_TOOLS = [
                 "subject": {"type": "string", "description": "The entity (e.g. 'John Smith')"},
                 "predicate": {"type": "string", "description": "The relationship (e.g. 'works at')"},
                 "object": {"type": "string", "description": "The value (e.g. 'Acme Corp')"},
+                "source": {"type": "string", "description": _FACT_SOURCE_DESCRIPTION},
                 "memory_type": {"type": "string", "description": "Optional type: person, decision, etc."},
                 "confidence": {"type": "number", "description": "Confidence 0.0-1.0 (default 1.0)"},
                 "correction": {
@@ -304,7 +311,7 @@ MEMORY_TOOLS = [
                     "description": "When this replaces an earlier fact: correction=true when the old fact was never true (a mistake), false when it simply stopped being true (default false)",
                 },
             },
-            "required": ["subject", "predicate", "object"],
+            "required": ["subject", "predicate", "object", "source"],
         },
         "kind": "memory",
         "writes": True,
@@ -341,13 +348,14 @@ MEMORY_TOOLS = [
                 "valid_to": {"type": "string", "description": "End date (default: today)"},
                 "replacement": {
                     "type": "object",
-                    "description": "Optional new fact that supersedes this one: {subject, predicate, object}",
+                    "description": "Optional new fact that supersedes this one: {subject, predicate, object, source}",
                     "properties": {
                         "subject": {"type": "string"},
                         "predicate": {"type": "string"},
                         "object": {"type": "string"},
+                        "source": {"type": "string", "description": _FACT_SOURCE_DESCRIPTION},
                     },
-                    "required": ["subject", "predicate", "object"],
+                    "required": ["subject", "predicate", "object", "source"],
                 },
                 "correction": {
                     "type": "boolean",
