@@ -266,6 +266,7 @@ class ToolRegistry:
             return add_fact(
                 ctx_dir, prefix,
                 subject=args["subject"], predicate=args["predicate"], object=args["object"],
+                source=args.get("source") or "",
                 memory_type=args.get("memory_type"), confidence=args.get("confidence", 1.0),
             )
         elif tool_name == "query_facts":
@@ -303,7 +304,8 @@ class ToolRegistry:
                 out["replacement"] = add_fact(
                     ctx_dir, prefix,
                     subject=replacement["subject"], predicate=replacement["predicate"],
-                    object=replacement["object"], memory_type=args.get("memory_type"),
+                    object=replacement["object"], source=replacement.get("source") or "",
+                    memory_type=args.get("memory_type"),
                 )
             return out
         elif tool_name == "consolidate_memory":

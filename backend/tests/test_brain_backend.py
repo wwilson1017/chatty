@@ -15,6 +15,7 @@ from core.agents.memory.brain_backend import (
     BrainBackend,
 )
 
+SRC = "will:chat 2026-10-04"
 
 class FakeBrain:
     """Records every request; answers with the brain router's shapes."""
@@ -30,6 +31,7 @@ class FakeBrain:
         self.legacy_facts = False     # pre-e73c5f5 brain: GET /facts answers a bare list
         self.existing = False         # POST /facts: same triple already recorded
         self.superseded: list[int] = []
+        self.conflicts: list[dict] = []  # POST /facts: other live facts on the same subject + predicate
         self.curator = False          # the brain's config.curators names chatty/tom
 
     def handler(self, request: httpx.Request) -> httpx.Response:
@@ -56,6 +58,9 @@ class FakeBrain:
                 "index": "incomplete", "engine": "sqlite", "facts": 1, "params": dict(request.url.params),
             })
         if path in ("/facts", "/facts/1/supersede") and method == "POST":
+            if not (body.get("source") or "").strip():
+                return httpx.Response(400, json={"error": "a fact needs a source (where it was learned); use one of: "
+                                                          "will:chat YYYY-MM-DD, email:<message-id>"})
             if body["predicate"] == "age" or body["object"].endswith("years old"):
                 return httpx.Response(400, json={"error": "store the birth date (predicate birth_date), ages go stale"})
             # the people layer resolves a name to its page: "Becca" → people/becca-wilson
@@ -66,7 +71,8 @@ class FakeBrain:
                 "valid_from": "2026-09-20", "memory_type": body.get("memory_type"), "origin_class": "agent",
                 "importance": 3, "supersedes_id": self.superseded[0] if self.superseded else None,
                 "observed_at": None, "harness": "chatty", "agent": body.get("agent"), "ok": True,
-                "existing": self.existing, "superseded": self.superseded,
+                "source": body["source"], "existing": self.existing, "superseded": self.superseded,
+                "conflicts": self.conflicts,
                 "correction_of": self.superseded[0] if self.superseded and body.get("correction") else None,
             })
         if path == "/facts" and method == "GET":
@@ -171,31 +177,55 @@ class TestRouteMapping:
 
     def test_add_fact_carries_provenance(self, backend, fake):
         out = backend.execute("add_fact", {"subject": " people/x ", "predicate": "role", "object": "ceo",
-                                           "confidence": 0.8})
+                                           "confidence": 0.8, "source": " will:chat 2026-10-04 "})
         assert out["ok"] and out["id"] == 9 and out["harness"] == "chatty"
         assert out["existing"] is False and out["superseded"] == [] and "note" not in out
+        assert out["conflicts"] == [] and "conflicts_note" not in out
         assert fake.requests[-1][3] == {
-            "subject": "people/x", "predicate": "role", "object": "ceo", "confidence": 0.8, "created_by": "chatty",
-            "origin_class": "agent", "harness": "chatty", "agent": "tom",
+            "subject": "people/x", "predicate": "role", "object": "ceo", "source": "will:chat 2026-10-04",
+            "confidence": 0.8, "created_by": "chatty", "origin_class": "agent", "harness": "chatty", "agent": "tom",
         }
-        assert backend.execute("add_fact", {"subject": "a", "predicate": "", "object": "c"}) == {
+        assert backend.execute("add_fact", {"subject": "a", "predicate": "", "object": "c", "source": SRC}) == {
             "error": "predicate is required",
         }
 
+    def test_fact_schemas_require_a_source(self):
+        from core.agents.tool_definitions import MEMORY_TOOLS
+        tools = {t["name"]: t["input_schema"] for t in MEMORY_TOOLS}
+        assert "source" in tools["add_fact"]["required"]
+        assert "source" in tools["invalidate_fact"]["properties"]["replacement"]["required"]
+
+    def test_add_fact_without_source_returns_the_brains_message(self, backend, fake):
+        for args in ({}, {"source": "  "}):
+            out = backend.execute("add_fact", {"subject": "people/x", "predicate": "role", "object": "ceo", **args})
+            assert out["error"].startswith("a fact needs a source")  # verbatim, so the model can retry with one
+            assert "source" not in fake.requests[-1][3]
+        out = backend.execute("invalidate_fact", {"fact_id": 1, "replacement": {
+            "subject": "people/x", "predicate": "role", "object": "coo"}})
+        assert out["error"].startswith("a fact needs a source")
+
+    def test_add_fact_surfaces_conflicts(self, backend, fake):
+        fake.conflicts = [{"id": 4, "object": "cfo\u200b", "source": "email:abc", "sources": ["email:abc"],
+                           "source_count": 1, "valid_from": "2026-01-01", "confidence": 1.0}]
+        out = backend.execute("add_fact", {"subject": "people/x", "predicate": "role", "object": "coo", "source": SRC})
+        assert out["conflicts"][0]["id"] == 4 and out["conflicts"][0]["object"] == "cfo"  # kept, sanitized
+        assert out["conflicts_note"].startswith("other live facts disagree: #4 'cfo'")
+
     def test_add_fact_age_gate_and_resolved_subject(self, backend, fake):
-        out = backend.execute("add_fact", {"subject": "Becca", "predicate": "age", "object": "40"})
+        out = backend.execute("add_fact", {"subject": "Becca", "predicate": "age", "object": "40", "source": SRC})
         assert out == {"error": "store the birth date (predicate birth_date), ages go stale"}  # verbatim, no status prefix
-        out = backend.execute("add_fact", {"subject": "Becca", "predicate": "birth_date", "object": "1986-05-01"})
+        out = backend.execute("add_fact", {"subject": "Becca", "predicate": "birth_date", "object": "1986-05-01",
+                                           "source": SRC})
         assert out["subject"] == "people/becca-wilson" and out["subject_text"] == "Becca"
         assert out["subject_note"] == "subject 'Becca' resolved to 'people/becca-wilson' — use that name from now on"
-        out = backend.execute("add_fact", {"subject": "people/x", "predicate": "role", "object": "ceo"})
+        out = backend.execute("add_fact", {"subject": "people/x", "predicate": "role", "object": "ceo", "source": SRC})
         assert out["subject"] == "people/x" and "subject_note" not in out
         # the supersede path is the same write
-        out = backend.execute("invalidate_fact", {"fact_id": 1, "replacement": {"subject": "Becca", "predicate": "role", "object": "12 years old"}})
+        out = backend.execute("invalidate_fact", {"fact_id": 1, "replacement": {"subject": "Becca", "predicate": "role", "object": "12 years old", "source": SRC}})
         assert out == {"error": "store the birth date (predicate birth_date), ages go stale"}
 
     def test_add_fact_surfaces_existing_and_superseded(self, backend, fake):
-        args = {"subject": "people/x", "predicate": "role", "object": "coo"}
+        args = {"subject": "people/x", "predicate": "role", "object": "coo", "source": SRC}
         fake.existing = True
         assert backend.execute("add_fact", args)["note"] == "already recorded as fact #9 — no duplicate written"
 
@@ -242,7 +272,7 @@ class TestRouteMapping:
 
     def test_invalidate_with_replacement_supersedes(self, backend, fake):
         fake.superseded = [1]
-        repl = {"subject": "people/x", "predicate": "role", "object": "coo"}
+        repl = {"subject": "people/x", "predicate": "role", "object": "coo", "source": SRC}
         out = backend.execute("invalidate_fact", {"fact_id": 1, "replacement": repl, "correction": True})
         assert fake.requests[-1][1] == "/brain/facts/1/supersede"
         assert fake.requests[-1][3] == {**repl, "confidence": 1.0, "correction": True, "created_by": "chatty",
@@ -363,7 +393,8 @@ class TestFailures:
         out = b.execute("propose_change", {"kind": "merge-people", "payload": {"keep": "a", "drop": ["b"]},
                                            "reason": "same person"})
         assert out == {"error": WRITE_TIMED_OUT}
-        assert b.execute("add_fact", {"subject": "x", "predicate": "p", "object": "o"}) == {"error": WRITE_TIMED_OUT}
+        assert b.execute("add_fact", {"subject": "x", "predicate": "p", "object": "o", "source": SRC}) == {
+            "error": WRITE_TIMED_OUT}
         assert b.execute("read_memory", {}) == {"error": UNREACHABLE}  # a read has no outcome to doubt
 
     def test_curator_writes_get_the_long_timeout(self, fake):
@@ -439,7 +470,7 @@ class TestRoutingSwitch:
         def run(name, args):
             return asyncio.run(reg.execute_tool(name, args, "memory"))
 
-        first = run("add_fact", {"subject": "people/x", "predicate": "role", "object": "ceo"})
+        first = run("add_fact", {"subject": "people/x", "predicate": "role", "object": "ceo", "source": SRC})
         valid_from = run("query_facts", {"subject": "people/x"})["facts"][0]["valid_from"]
         assert run("query_facts", {"subject": "people/x", "since": valid_from, "until": valid_from})["total"] == 1
         assert run("query_facts", {"subject": "people/x", "until": "2000-01-01"}) == {"facts": [], "total": 0}
@@ -455,9 +486,13 @@ class TestRoutingSwitch:
         assert run("query_facts", {"subject": "people/x"})["total"] == 1
 
         out = run("invalidate_fact", {"fact_id": first["id"], "correction": True,
-                                      "replacement": {"subject": "people/x", "predicate": "role", "object": "coo"}})
+                                      "replacement": {"subject": "people/x", "predicate": "role", "object": "coo",
+                                                      "source": "email:abc"}})
         assert out["ok"] and out["replacement"]["ok"]
-        assert [f["object"] for f in run("query_facts", {"subject": "people/x"})["facts"]] == ["coo"]
+        facts = run("query_facts", {"subject": "people/x"})["facts"]
+        assert [(f["object"], f["source"]) for f in facts] == [("coo", "email:abc")]
+        history = run("query_facts", {"subject": "people/x", "include_expired": True})["facts"]
+        assert {(f["object"], f["source"]) for f in history} == {("ceo", SRC), ("coo", "email:abc")}
 
     def test_ensure_memory_db_is_none_for_brain_agents(self, monkeypatch):
         import agents.engine as engine_mod
@@ -504,7 +539,7 @@ class TestShapeParity:
         }
         args = {
             "read_memory": {}, "search_memory": {"query": "ceo"},
-            "add_fact": {"subject": "people/x", "predicate": "role", "object": "ceo"},
+            "add_fact": {"subject": "people/x", "predicate": "role", "object": "ceo", "source": SRC},
             "query_facts": {"subject": "people/x"}, "invalidate_fact": {"fact_id": 1},
         }
         for tool, expected in builtin.items():
