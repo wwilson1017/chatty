@@ -48,7 +48,7 @@ BRAIN_SKIP_TEXT = (
 )
 # GET /context — the brain's session-start block, injected into the system
 # prompt in place of the local MEMORY.md + topic notes + daily manifest.
-CONTEXT_MAX_CHARS = 8_000
+CONTEXT_MAX_CHARS = 12_000  # the brain server default (brain/context.py); at 8k the headlines got cut once MEMORY.md grew
 CONTEXT_TTL_SECONDS = 60.0     # heartbeats fire every 60s; don't hammer the bridge
 CONTEXT_TIMEOUT_SECONDS = 5.0  # prompt assembly is on the request path
 CONTEXT_UNAVAILABLE = "[brain unavailable — tool reads still work]"
