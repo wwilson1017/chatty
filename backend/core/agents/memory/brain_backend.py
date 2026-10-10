@@ -199,6 +199,7 @@ class BrainBackend:
     def _fact_body(self, args: dict) -> dict:
         return dict(
             subject=args["subject"].strip(), predicate=args["predicate"].strip(), object=args["object"].strip(),
+            source=(args.get("source") or "").strip() or None,  # the brain 400s a missing one, naming its formats
             memory_type=args.get("memory_type"), confidence=args.get("confidence", 1.0),
             correction=True if args.get("correction") else None,
             created_by="chatty", origin_class="agent", harness="chatty", agent=self.agent_slug or None,
@@ -368,6 +369,14 @@ def _describe_write(data: dict, sent_subject: str = "") -> dict:
         ids = ", ".join(f"#{i}" for i in data["superseded"])
         how = "marked never true (correction)" if data.get("correction_of") else "expired"
         data["note"] = f"replaced fact {ids} ({how})"
+    conflicts = data.get("conflicts") or []
+    for c in conflicts:
+        if isinstance(c.get("object"), str):
+            c["object"] = _sanitize(c["object"])
+    if conflicts:
+        others = "; ".join(f"#{c.get('id')} {c.get('object')!r}" for c in conflicts)
+        data["conflicts_note"] = (f"other live facts disagree: {others} — both are recorded now; "
+                                  "retire the wrong one with invalidate_fact")
     return data
 
 
