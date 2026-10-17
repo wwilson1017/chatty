@@ -78,6 +78,14 @@ def port_open_in_container(port: int) -> bool:
     return docker("exec", CONTAINER, "bash", "-c", f"exec 3<>/dev/tcp/127.0.0.1/{port}").returncode == 0
 
 
+def reachable(port: int) -> bool:
+    """Can another container on the same network open this port on the computer?"""
+    ip = docker("inspect", "-f", "{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}", CONTAINER, check_rc=True).stdout.strip()
+    net = docker("inspect", "-f", "{{range $k, $v := .NetworkSettings.Networks}}{{$k}}{{end}}", CONTAINER, check_rc=True).stdout.strip()
+    return docker("run", "--rm", "--network", net, "--entrypoint", "bash", IMAGE, "-c",
+                  f"timeout 3 bash -c 'exec 3<>/dev/tcp/{ip}/{port}'").returncode == 0
+
+
 def wait_health(changed_from=None, timeout=90):
     deadline = time.time() + timeout
     while time.time() < deadline:
@@ -115,29 +123,53 @@ def ws_connect(path, headers=None):
     return sock, 101
 
 
-def ws_recv(sock, timeout=10) -> bytes:
-    sock.settimeout(timeout)
-    head = sock.recv(2)
-    if len(head) < 2:
-        return b""
-    length = head[1] & 0x7F
-    if length == 126:
-        length = struct.unpack(">H", sock.recv(2))[0]
-    elif length == 127:
-        length = struct.unpack(">Q", sock.recv(8))[0]
-    data = b""
-    while len(data) < length:
-        more = sock.recv(length - len(data))
-        if not more:
-            break
-        data += more
-    return data
+def ws_frame(sock, opcode: int, data: bytes):
+    mask = os.urandom(4)
+    header = bytes([0x80 | opcode]) + (bytes([0x80 | len(data)]) if len(data) < 126 else bytes([0x80 | 126]) + struct.pack(">H", len(data)))
+    sock.sendall(header + mask + bytes(b ^ mask[i % 4] for i, b in enumerate(data)))
 
 
 def ws_send(sock, data: bytes):
-    mask = os.urandom(4)
-    header = bytes([0x82]) + (bytes([0x80 | len(data)]) if len(data) < 126 else bytes([0x80 | 126]) + struct.pack(">H", len(data)))
-    sock.sendall(header + mask + bytes(b ^ mask[i % 4] for i, b in enumerate(data)))
+    ws_frame(sock, 0x2, data)
+
+
+def ws_recv(sock, timeout=10) -> bytes:
+    """One data frame's payload, or b"" on close/EOF. Answers pings on the way: uvicorn pings every
+    20 s and drops a client that doesn't pong (real viewers do this for free)."""
+    sock.settimeout(timeout)
+    while True:
+        head = sock.recv(2)
+        if len(head) < 2:
+            return b""
+        opcode, length = head[0] & 0x0F, head[1] & 0x7F
+        if length == 126:
+            length = struct.unpack(">H", sock.recv(2))[0]
+        elif length == 127:
+            length = struct.unpack(">Q", sock.recv(8))[0]
+        data = b""
+        while len(data) < length:
+            more = sock.recv(length - len(data))
+            if not more:
+                return b""
+            data += more
+        if opcode == 0x9:
+            ws_frame(sock, 0xA, data)
+            continue
+        if opcode == 0x8:
+            return b""
+        return data
+
+
+def ws_keepalive(sock, stop: threading.Event):
+    """Keep reading (and ponging) while a control socket is held open."""
+    while not stop.is_set():
+        try:
+            if ws_recv(sock, timeout=5) == b"":
+                return
+        except TimeoutError:
+            continue
+        except OSError:
+            return
 
 
 def rfb_handshake(sock):
@@ -200,8 +232,8 @@ def keep_renewing(lease, stop: threading.Event, seen: list):
             return
 
 
-def main():
-    t_start = time.time()
+def part1():
+    """About 3.5 minutes: auth, lease, fixture page, journal, shell/files, probes, restart, expiry."""
     h = wait_health()
     check(h["api_version"] == "1.0", "health reports api_version 1.0")
 
@@ -296,13 +328,6 @@ def main():
     check(st == 404, "missing file is 404, not an escape")
 
     # --- no other container can reach VNC or CDP ---
-    ip = docker("inspect", "-f", "{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}", CONTAINER, check_rc=True).stdout.strip()
-    net = docker("inspect", "-f", "{{range $k, $v := .NetworkSettings.Networks}}{{$k}}{{end}}", CONTAINER, check_rc=True).stdout.strip()
-
-    def reachable(port):
-        return docker("run", "--rm", "--network", net, "--entrypoint", "bash", IMAGE, "-c",
-                      f"timeout 3 bash -c 'exec 3<>/dev/tcp/{ip}/{port}'").returncode == 0
-
     check(reachable(8080) and not reachable(5900) and not reachable(9222), "VNC and CDP aren't reachable from another container")
 
     # --- restart: in-flight action becomes unknown, files survive ---
@@ -349,6 +374,13 @@ def main():
     check(bool(shell_result) and shell_result[0][1].get("killed") is True, "the old lease's shell was killed")
     lease, epoch = activate("ann", "t2")
     check(True, "a new lease is granted once the old operation finished")
+    api("POST", "/desktop/lease/release", {"lease": lease})
+
+
+def part2():
+    """About 8 minutes: keepalive, takeover, reconnect grace, fencing."""
+    wait_health()
+    lease, epoch = activate("ann", "t2")
 
     # --- keepalive: a lease renewed every 30 s survives 200 s of silence ---
     stop, seen = threading.Event(), []
@@ -374,6 +406,8 @@ def main():
     banner, size = rfb_handshake(sock) if sock else (b"", None)
     check(sock is not None and banner.startswith(b"RFB ") and size == (1280, 800),
           f"the control stream completes an RFB handshake for a 1280x800 screen ({banner[:12]!r}, {size})")
+    ka_stop = threading.Event()
+    threading.Thread(target=ws_keepalive, args=(sock, ka_stop), daemon=True).start()
     st, r = api("POST", "/browser/snapshot", {"lease": lease, "epoch": epoch})
     check(st == 409 and r["error"] == "human_in_control", "agent desktop calls get 409 human_in_control during takeover")
     st, r = api("POST", "/desktop/lease/renew", {"lease": lease})
@@ -393,6 +427,7 @@ def main():
     st, r = api("POST", "/browser/snapshot", {"lease": lease, "epoch": epoch})
     check(st == 200, "the lease holder continues with the new epoch")
     check(not port_open_in_container(5901), ":5901 stops when control ends")
+    ka_stop.set()
     try:
         sock.close()
     except OSError:
@@ -420,6 +455,15 @@ def main():
     st, r = api("POST", "/desktop/lease/renew", {"lease": lease})
     check(st == 409 and r["error"] == "lease_lost", "a lease that expired during control fences its owner")
 
+
+def main():
+    """SMOKE_PART=1 or 2 runs one half (each fits a 10-minute foreground run); unset runs both."""
+    t_start = time.time()
+    part = os.environ.get("SMOKE_PART", "")
+    if part in ("", "1"):
+        part1()
+    if part in ("", "2"):
+        part2()
     print(f"\n{len(failures)} failure(s) in {time.time() - t_start:.0f} s")
     for f in failures:
         print("  -", f)
