@@ -62,10 +62,13 @@ def redact(text: str, values) -> str:
     return text[:MAX_ERROR]
 
 
-def validate_env(env: dict) -> dict[str, str]:
+def validate_env(env) -> dict[str, str]:
     """Checked here, not by the request model: a pydantic 422 echoes the input, values included."""
     out = {}
-    if not isinstance(env, dict) or len(env) > MAX_ENV:
+    env = env or {}
+    if not isinstance(env, dict):
+        raise ValueError("env must be an object of NAME: value")
+    if len(env) > MAX_ENV:
         raise ValueError(f"At most {MAX_ENV} environment variables")
     for k, v in env.items():
         if not isinstance(k, str) or not ENV_NAME_RE.fullmatch(k):

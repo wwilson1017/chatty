@@ -329,6 +329,9 @@ class TestRoutes:
         assert r.status_code == 400 and "At most" in r.json()["detail"] and TOKEN not in r.text
         r = client.post("/api/integrations/mcp/servers/command", json={"name": "X", "command": "npx nope", "env": {"A": 7}})
         assert r.status_code == 400 and "control characters" in r.json()["detail"] and "7" not in r.json()["detail"]
+        for bad in (f"TOKEN={TOKEN}", [TOKEN], 5):  # not an object at all
+            r = client.post("/api/integrations/mcp/servers/command", json={"name": "X", "command": "npx nope", "env": bad})
+            assert r.status_code == 400 and "must be an object" in r.json()["detail"] and TOKEN not in r.text
         assert len(env.calls) == n
 
     def test_remote_servers_never_touch_the_computer(self, client, env, monkeypatch):

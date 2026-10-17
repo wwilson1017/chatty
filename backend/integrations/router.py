@@ -11,7 +11,7 @@ GET  /api/integrations/{name}/tool-defs         — get tool definitions for an 
 import logging
 import re
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -201,7 +201,7 @@ class McpServerRequest(BaseModel):
 class McpCommandServerRequest(BaseModel):
     name: str = Field(..., min_length=1, max_length=60)
     command: str = Field(..., min_length=1, max_length=1000)
-    env: dict = Field(default_factory=dict)  # names, types and count checked in command.validate_env (a 422 would echo values)
+    env: Any = None  # shape, names, types and count checked in command.validate_env: a 422 would echo the values
 
 
 class McpServerUpdateRequest(BaseModel):
