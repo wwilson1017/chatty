@@ -436,6 +436,14 @@ class TestBudgetAndCaps:
         assert t["status"] == "failed" and t["finish_reason"].startswith("step cap") and prov.calls == 1
         assert t["steps"] == db.MAX_STEPS  # the second tool call of the batch never ran
 
+    def test_final_segment_of_time_is_persisted_at_finish(self, fake, monkeypatch):
+        """A task shorter than one renewal interval never heartbeats; its time must still count."""
+        tid = _queue()
+        prov = FakeProvider([FINAL], delay=0.05)
+        _, t = _run(fake, prov, monkeypatch)
+        assert t["status"] == "done" and t["running_seconds"] >= 0.05
+        assert db.chain_totals(tid)["seconds"] >= 0.05
+
     def test_time_cap_is_hard(self, fake, monkeypatch):
         tid = _queue()
         db.execute("UPDATE tasks SET running_seconds = ? WHERE id = ?", (db.MAX_SECONDS, tid))

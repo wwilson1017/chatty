@@ -335,7 +335,7 @@ def list_steps(task_id: str) -> list[dict]:
     return [dict(r) for r in query("SELECT * FROM steps WHERE task_id = ? ORDER BY n", (task_id,))]
 
 
-_RESULT_FIELDS = ("result_text", "error", "cancel_requested", "gate_id", "takeover_state")
+_RESULT_FIELDS = ("result_text", "error", "cancel_requested", "gate_id", "takeover_state", "running_seconds")
 
 
 def finish_task(task_id: str, status: str, reason: str, *, notify: bool, commit: bool = True, **fields) -> bool:
@@ -343,7 +343,8 @@ def finish_task(task_id: str, status: str, reason: str, *, notify: bool, commit:
 
     notify=True queues the completion turn (completion_status='pending') in the same UPDATE,
     except for system-origin tasks. accounting_pending=1 asks the sweep for the usage row
-    (finish_task writes it too; the flag makes a crash in between harmless).
+    (finish_task writes it too; the flag makes a crash in between harmless). The worker passes
+    running_seconds so the time since its last heartbeat counts toward the chain's cap.
     """
     assert status in TERMINAL_STATUSES, status
     bad = set(fields) - set(_RESULT_FIELDS)

@@ -323,7 +323,7 @@ class _Run:
         if not self.finished:
             self.finished = True
             fields.setdefault("result_text", self.last_text or None)
-            db.finish_task(self.id, status, reason, notify=True, **fields)
+            db.finish_task(self.id, status, reason, notify=True, running_seconds=self.seconds(), **fields)
 
     def cap_report(self, reason: str) -> str:
         """No extra model call at a cap: the helper's last message plus a step-log summary."""
