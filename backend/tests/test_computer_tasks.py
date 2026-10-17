@@ -19,6 +19,7 @@ from integrations.registry import save_credentials
 
 SECRET = "s3cret-s3cret-s3cret-s3cret-s3cret"
 MODEL = "claude-sonnet-4-6"  # exactly priced ($3 / $15)
+_real_is_active = runner.is_active  # the `fake` fixture patches it True; one test wants the real one
 
 
 # ── fakes ────────────────────────────────────────────────────────────────────
@@ -182,6 +183,8 @@ def fake(client, monkeypatch):
     monkeypatch.setattr(runner, "get_client", make)
     monkeypatch.setattr(runner, "CONTROL_POLL_S", 0.01)
     monkeypatch.setattr(runner, "BUSY_RETRY_S", 0.01)
+    monkeypatch.setattr(runner, "is_active", lambda: True)  # as if the web app's runner held the lock
+    monkeypatch.setattr(runner, "_stopping", False)
     submitted: list[str] = []
     monkeypatch.setattr(completion, "submit", submitted.append)
     fc.submitted = submitted
@@ -593,6 +596,47 @@ class TestOneScreen:
     def test_kick_is_a_no_op_outside_the_web_app(self, monkeypatch):
         monkeypatch.setattr(runner, "_started", False)
         assert runner.kick() is False
+
+    def test_no_runner_means_tasks_are_refused_not_stranded(self, fake, monkeypatch, tmp_path):
+        """The CLI harness initializes the store but never runs tasks; a queued task would never
+        report back, so computer_task refuses unless some process holds the runner lock."""
+        monkeypatch.setattr(db, "DATA_DIR", tmp_path)
+        monkeypatch.setattr(runner, "_started", False)
+        monkeypatch.setattr(runner, "is_active", _real_is_active)
+        assert runner.is_active() is False
+        assert "isn't running" in asyncio.run(tools.computer_task("x", _ctx=_ctx()))["error"]
+        assert tools.computer_info(_ctx=_ctx())["runner_active"] is False
+        holder = open(tmp_path / "runner.lock", "a+")
+        fcntl.flock(holder, fcntl.LOCK_EX | fcntl.LOCK_NB)  # another process (the web app) holds it
+        assert runner.is_active() is True
+        assert "task_id" in asyncio.run(tools.computer_task("x", _ctx=_ctx()))
+        holder.close()
+
+    def test_stop_interrupts_a_running_task(self, fake, monkeypatch):
+        tid = _queue()
+
+        def on_call(n):
+            if n == 1:
+                monkeypatch.setattr(runner, "_stopping", True)  # stop(): shutdown or backup restore
+        prov = FakeProvider([{"tool_calls": [SNAP]}, FINAL], on_call=on_call)
+        _, t = _run(fake, prov, monkeypatch)
+        assert t["status"] == "failed" and t["finish_reason"] == "interrupted" and "restore" in t["error"]
+        assert prov.calls == 1 and not any(p == "/browser/snapshot" for _, p, _ in fake.calls)
+        assert fake.lease is None and tid in fake.submitted
+
+    def test_stop_waits_for_idle_and_releases_the_lock(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(db, "DATA_DIR", tmp_path)
+        monkeypatch.setattr(runner, "_started", False)
+        monkeypatch.setattr(runner, "_lock_file", None)
+        monkeypatch.setattr(runner, "kick", lambda: True)
+        assert runner.start() and not runner._stopping
+        runner._idle.clear()  # a drain in progress
+        assert runner.stop(wait_s=0.05) is False and runner._stopping and not runner._started
+        runner._idle.set()
+        assert runner.stop(wait_s=0.05) is True
+        other = open(tmp_path / "runner.lock", "a+")
+        fcntl.flock(other, fcntl.LOCK_EX | fcntl.LOCK_NB)  # released
+        other.close()
 
 
 class TestSweepAndAccounting:

@@ -54,6 +54,9 @@ async def computer_task(task: str, follow_up_of: str | None = None, file_refs: l
     err = card.helper_model_error(model)
     if err:
         return {"error": err}
+    if not runner.is_active():
+        return {"error": "The computer helper isn't running: tasks run inside Chatty's web server, not the CLI "
+                         "harness. Start the server (python run.py) and try again."}
     parent = None
     if follow_up_of:
         parent = _own_task(follow_up_of, slug)
@@ -160,6 +163,7 @@ def computer_info(*, _ctx: dict) -> dict:
     return {
         "configured": bool(c) and card.policy_error(_ctx["agent_slug"]) != "The computer is not set up or is turned off.",
         "enabled_for_this_agent": card.policy_error(_ctx["agent_slug"]) is None,
+        "runner_active": runner.is_active(),
         "helper_model": card.helper_model(),
         "queued": counts.get("queued", 0),
         "running": counts.get("running", 0),

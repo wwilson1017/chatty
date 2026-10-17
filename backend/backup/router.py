@@ -167,6 +167,13 @@ def _do_restore(file: UploadFile, content: bytes) -> dict:
         if not resolved.is_relative_to(data_dir_resolved):
             raise HTTPException(status_code=400, detail=f"Invalid path in ZIP: {name}")
 
+    # The computer runner writes tasks.db from its own thread: stop it (a running task ends
+    # "interrupted" at its next step) before the connection closes; restarted after reinit.
+    from integrations.computer import runner as computer_runner
+    runner_was_started = computer_runner._started
+    if not computer_runner.stop(wait_s=30):
+        logger.warning("Computer runner still busy after 30 s; restoring anyway (its worker is fenced)")
+
     # Close all database connections before overwriting files
     from agents.engine import close_all_agent_dbs
     from agents.db import close_db as close_agents_db
@@ -257,6 +264,8 @@ def _do_restore(file: UploadFile, content: bytes) -> dict:
 
     from integrations.computer.db import init_db as init_computer_db
     _reinit("computer", init_computer_db)
+    if runner_was_started:
+        _reinit("computer_runner", computer_runner.start)
 
     from integrations.telegram.state import init_db as init_telegram_db
     _reinit("telegram", init_telegram_db)

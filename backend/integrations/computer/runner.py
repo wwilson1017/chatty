@@ -49,6 +49,9 @@ CACHE_WRITE_MARGIN = 1.25  # a cache write bills 1.25× the input rate; the rese
 _pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="computer-runner")
 _lock_file = None
 _started = False
+_stopping = False  # stop() asked the worker to end its task at the next step
+_idle = threading.Event()  # clear while the worker thread is draining
+_idle.set()
 _drain_lock = threading.Lock()
 _draining = False
 
@@ -58,7 +61,7 @@ _draining = False
 def start() -> bool:
     """Web-app lifespan only (never the CLI). Takes the exclusive runner lock and runs the queue;
     False when another process already holds it."""
-    global _lock_file, _started
+    global _lock_file, _started, _stopping
     db.DATA_DIR.mkdir(parents=True, exist_ok=True)
     f = open(db.DATA_DIR / "runner.lock", "a+")
     try:
@@ -69,17 +72,41 @@ def start() -> bool:
         return False
     _lock_file = f
     _started = True
+    _stopping = False
     kick()
     return True
 
 
-def stop() -> None:
-    global _lock_file, _started
+def stop(wait_s: float = 0) -> bool:
+    """Stop claiming, ask a running task to end at its next step ("interrupted"), wait up to
+    `wait_s` for the worker to go idle, then release the lock. Returns whether it went idle —
+    a restore that proceeds anyway has a fenced worker that writes nothing more."""
+    global _lock_file, _started, _stopping
     _started = False
+    _stopping = True
+    idle = _idle.wait(wait_s) if wait_s else _idle.is_set()
     if _lock_file:
         fcntl.flock(_lock_file, fcntl.LOCK_UN)
         _lock_file.close()
         _lock_file = None
+    return idle
+
+
+def is_active() -> bool:
+    """Whether a runner holds the lock — this process or another (the web app, while the CLI
+    harness only initializes the store). A queued task runs only if this is True."""
+    if _started:
+        return True
+    path = db.DATA_DIR / "runner.lock"
+    if not path.exists():
+        return False
+    with open(path, "a+") as f:
+        try:
+            fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError:
+            return True
+        fcntl.flock(f, fcntl.LOCK_UN)
+    return False
 
 
 def kick() -> bool:
@@ -97,6 +124,7 @@ def kick() -> bool:
 
 def _drain_safe() -> None:
     global _draining
+    _idle.clear()
     try:
         _drain()
     except Exception:
@@ -104,6 +132,7 @@ def _drain_safe() -> None:
     finally:
         with _drain_lock:
             _draining = False
+        _idle.set()
     # simplification: a task queued between the last empty claim and the flag reset waits for
     # the 60 s sweep's kick; upgrade: loop until a claim under _drain_lock finds nothing
 
@@ -305,12 +334,15 @@ class _Run:
     # ── liveness ─────────────────────────────────────────────────────────────
 
     def heartbeat(self) -> None:
+        if _stopping:  # stop(): the process is restoring a backup or shutting down
+            self.finish("failed", "interrupted", error="Chatty stopped the helper (shutdown or backup restore)")
+            raise _Stop()
         if not db.heartbeat(self.id, self.worker_id, self.seconds(), self.phase, self.pending_action_id):
             self.finished = True  # cancelled or finished elsewhere; whoever did it queued the report
             raise _Stop()
 
     def check_alive(self) -> None:
-        """Before every step and model call: still ours, not fenced, still allowed."""
+        """Before every step and model call: still ours, not fenced, still allowed, not stopping."""
         if self.fenced:
             raise _Fenced()
         self.heartbeat()
