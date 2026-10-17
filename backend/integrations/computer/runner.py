@@ -436,10 +436,11 @@ class _Run:
                 logger.warning("count_tokens failed (%s); estimating", e.__class__.__name__)
         return (len(json.dumps(messages)) + len(system) + len(json.dumps(tools))) // 2
 
-    async def reserve(self, provider, system: str, messages: list, tools: list) -> tuple[float, int] | None:
+    async def reserve(self, provider, system: str, messages: list, tools: list) -> tuple[float, int, int] | None:
         """Reserve the most this call could cost, in one transaction with the budget check:
         input at the model's highest rate × the cache-write margin, plus max_tokens of output.
-        max_tokens is cut to fit; None when even a minimal answer doesn't fit."""
+        max_tokens is cut to fit; None when even a minimal answer doesn't fit.
+        Returns (reserved_usd, max_tokens, counted_input_tokens)."""
         rates = get_max_rates(provider.model)
         if not rates:
             return None
@@ -453,7 +454,14 @@ class _Run:
         usd = in_cost + max_tokens * out_rate
         if not db.reserve(self.id, self.task["root_task_id"], usd):
             return None
-        return usd, max_tokens
+        return usd, max_tokens, in_tok
+
+    @staticmethod
+    def estimated_usage(in_tok: int, turn: dict) -> dict:
+        """For providers whose stream carries no usage (only Anthropic's does today): the counted
+        input plus the streamed output at chars ÷ 2 — high, but far below the max_tokens reservation."""
+        out_chars = len(turn["text"]) + sum(len(json.dumps(tc.get("args") or {})) for tc in turn["tool_calls"])
+        return {"input_tokens": in_tok, "output_tokens": max(1, out_chars // 2), "estimated": True}
 
     @staticmethod
     def actual_cost(model: str, usage: dict) -> float:
@@ -654,7 +662,7 @@ class _Run:
                 reason = f"budget reached (${db.BUDGET_USD:.2f} over the task chain)"
                 self.finish("failed", reason, result_text=self.cap_report(reason))
                 return
-            reserved, max_tokens = reservation
+            reserved, max_tokens, in_tok = reservation
             provider.max_tokens = max_tokens
             self.phase = "model"
             self.heartbeat()
@@ -665,7 +673,9 @@ class _Run:
                 return
             finally:
                 self.phase = ""
-            usage = turn["usage"]
+            # A completed turn replaces its reservation with what it cost; a provider that reports
+            # no usage is estimated. An errored turn's usage is unknown, so its reservation stands.
+            usage = turn["usage"] or (self.estimated_usage(in_tok, turn) if turn["stop"] != "error" and not turn["error"] else None)
             if usage:
                 db.settle(self.id, reserved, self.actual_cost(provider.model, usage),
                           int(usage.get("input_tokens") or 0), int(usage.get("output_tokens") or 0))

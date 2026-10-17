@@ -373,6 +373,16 @@ class TestHelperLoop:
         assert t["status"] == "failed" and t["finish_reason"] == "lost the screen"
         assert not any(p == "/browser/snapshot" for _, p, _ in fake.calls)  # fenced: nothing sent after the lost renewal
 
+    def test_provider_without_usage_is_settled_from_an_estimate(self, fake, monkeypatch):
+        """Only Anthropic's stream carries usage; an OpenAI/Gemini/Together helper must not keep the
+        worst-case reservation charged after every call (27 calls would exhaust $10)."""
+        _queue()
+        prov = FakeProvider([{"text": "x" * 400, "tool_calls": [("files", {"action": "list", "path": "."})]}, FINAL], usage=lambda p: {})
+        _, t = _run(fake, prov, monkeypatch)
+        assert t["status"] == "done" and t["cost_reserved_usd"] == 0
+        # two calls: well under the two reservations (each ≥ 8192 output tokens × $15/M ≈ $0.12 + input)
+        assert 0 < t["cost_actual_usd"] < 0.1 and t["output_tokens"] >= 200 and t["input_tokens"] > 0
+
     def test_model_error_fails_the_task(self, fake, monkeypatch):
         _queue()
 

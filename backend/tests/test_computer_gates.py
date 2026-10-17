@@ -55,7 +55,24 @@ class TestWhatIsChecked:
 
     def test_type_only_with_newline(self):
         assert needs_check("type", "hello\n") and needs_check("act:type", "a\nb")
+        assert needs_check("act:type", "a\rb") and needs_check("type", "a b")  # every newline Playwright types as Enter
         assert not needs_check("type", "hello") and not needs_check("act:type", "")
+
+    @pytest.mark.parametrize("label", ["act:press:NumpadEnter", "key:KP_Enter", "act:press:ControlOrMeta+Enter",
+                                       "act:press:Shift+Enter", "act:press:Space", "act:press: ", "act:press:",
+                                       "act:press:SomethingNew", "act:press:ContextMenu"])
+    def test_enter_aliases_and_unknown_keys_are_checked(self, label):
+        assert needs_check(label)
+
+    def test_unknown_keys_fail_closed_as_enter_and_free_keys_stay_free(self):
+        target = el("Email", tag="input", role="textbox", type="email", form=form())
+        assert classify("act:press:NumpadEnter", target).gated
+        assert classify("act:press:SomethingNew", target).rule == "6.form"
+        assert classify("act:press:ControlOrMeta+Enter", None).kind == "send"
+        assert classify("act:press:ControlOrMeta+s", target).rule == "5.confirm"
+        for label in ("act:press:ArrowDown", "act:press:Shift+Tab", "act:press:KeyA", "act:press:a", "act:press:Alt+ArrowLeft",
+                      "act:press:Control+a", "act:press:F5", "act:press:Digit1", "key:ctrl+c", "act:press:Escape"):
+            assert not needs_check(label) or not classify(label, el("Place order")).gated, label
 
 
 class TestAdversarialFixtures:

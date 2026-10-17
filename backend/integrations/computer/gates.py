@@ -38,29 +38,46 @@ _CLICKS = frozenset({"left_click", "right_click", "middle_click", "double_click"
 _ACTIVATABLE_ROLES = frozenset({"button", "link", "checkbox", "radio", "switch", "menuitem", "menuitemcheckbox",
                                 "menuitemradio", "tab", "option", "treeitem"})
 _TEXT_INPUT_TYPES = frozenset({"", "text", "search", "email", "url", "tel", "number", "password"})
-_MODS = {"ctrl", "control", "cmd", "meta", "super", "command"}
+# Both xdotool (ctrl, super) and Playwright (Control, Meta, ControlOrMeta) spellings.
+_MODS = {"ctrl", "control", "cmd", "meta", "super", "command", "controlormeta", "controlorcommand"}
+_IGNORED_MODS = {"shift", "alt", "option"}
+_ENTER = {"return", "enter", "kp_enter", "numpadenter", "\r", "\n"}
+_SPACE = {"space", " "}
+# Keys known not to activate anything: navigation and editing keys, function keys, and
+# Playwright's code names for printable characters. Anything else is treated as Enter —
+# an alias we didn't anticipate must fail closed, not slip through unclassified.
+_FREE_KEY = re.compile(r"^(?:arrow(?:up|down|left|right)|up|down|left|right|tab|escape|esc|backspace|delete|del"
+                       r"|home|end|pageup|pagedown|page_up|page_down|prior|next|insert|capslock"
+                       r"|f(?:[1-9]|1[0-9]|2[0-4])|key[a-z]|digit[0-9]|numpad[0-9]"
+                       r"|numpad(?:add|subtract|multiply|divide|decimal))$")
+_NEWLINES = "\r\n\x0b\x0c  "
 
 
 @dataclass(frozen=True)
 class _Key:
-    key: str   # "enter" | "space" | "s" | anything else lowercased
+    key: str   # "enter" | "space" | a free key | a single printable character
     mod: bool  # Ctrl/Cmd held
 
 
 def _key_of(label: str) -> _Key | None:
-    """The key a label presses, or None for clicks and acts. `type` labels count as Enter."""
+    """The key a label presses, or None for clicks and acts. `type` labels count as Enter.
+    Unknown key names are read as Enter (fail closed)."""
     if label in ("type", "act:type"):
         return _Key("enter", False)
     for prefix in ("key:", "hold_key:", "act:press:"):
         if label.startswith(prefix):
-            parts = [p.strip().lower() for p in label[len(prefix):].split("+")]
-            mod = any(p in _MODS for p in parts)
-            key = next((p for p in parts if p not in _MODS and p not in ("shift", "alt")), "")
-            if key in ("return", "enter", "kp_enter"):
-                key = "enter"
-            elif key in ("space", " "):
-                key = "space"
-            return _Key(key, mod)
+            parts = [p.lower() for p in label[len(prefix):].split("+")]
+            names = [p.strip() for p in parts]
+            mod = any(n in _MODS for n in names)
+            rest = [(n, p) for n, p in zip(names, parts) if n not in _MODS and n not in _IGNORED_MODS]
+            name, raw = rest[-1] if rest else ("", "")
+            if name in _ENTER or raw in _ENTER:
+                return _Key("enter", mod)
+            if name in _SPACE or raw in _SPACE:
+                return _Key("space", mod)
+            if (len(name) == 1 and name.isprintable()) or _FREE_KEY.match(name):
+                return _Key(name, mod)
+            return _Key("enter", mod)
     return None
 
 
@@ -70,7 +87,7 @@ def needs_check(label: str, text: str | None = None) -> bool:
     if label in _CLICKS or label == "act:select":
         return True
     if label in ("type", "act:type"):
-        return "\n" in (text or "")
+        return any(c in (text or "") for c in _NEWLINES)
     key = _key_of(label)
     if key is None:
         return False
