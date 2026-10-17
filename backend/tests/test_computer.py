@@ -129,6 +129,13 @@ class TestSettings:
         monkeypatch.setenv("COMPUTER_URL", "http://env:8080/")
         monkeypatch.setenv("COMPUTER_SECRET", "e" * 40)
         assert (settings.computer.url, settings.computer.secret) == ("http://env:8080", "e" * 40)
+        # Half an env pair is a misconfiguration, never a mix with the saved pair (the saved secret
+        # must not travel to the env-named host, nor an env secret to the saved host).
+        monkeypatch.delenv("COMPUTER_SECRET")
+        assert not settings.computer.is_configured and (settings.computer.url, settings.computer.secret) == ("", "")
+        monkeypatch.delenv("COMPUTER_URL")
+        monkeypatch.setenv("COMPUTER_SECRET", "e" * 40)
+        assert not settings.computer.is_configured and settings.computer.url == ""
 
     def test_listed_and_configured_follows_settings(self, client, monkeypatch):
         monkeypatch.delenv("COMPUTER_URL", raising=False)

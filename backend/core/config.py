@@ -134,21 +134,27 @@ class ComputerSettings:
     credentials while the server runs."""
 
     @staticmethod
-    def _creds() -> dict:
+    def _source() -> dict:
+        """The one pair in use: both env vars, else the saved pair. One env var alone counts as
+        nothing (not a mix), so a saved secret is never sent to an env-named host or the reverse."""
+        url, secret = os.getenv("COMPUTER_URL", ""), os.getenv("COMPUTER_SECRET", "")
+        if url or secret:
+            return {"url": url, "api_key": secret} if url and secret else {}
         from integrations.registry import get_credentials
         return get_credentials("computer")
 
     @property
     def url(self) -> str:
-        return (os.getenv("COMPUTER_URL") or self._creds().get("url", "")).rstrip("/")
+        return self._source().get("url", "").rstrip("/")
 
     @property
     def secret(self) -> str:
-        return os.getenv("COMPUTER_SECRET") or self._creds().get("api_key", "")
+        return self._source().get("api_key", "")
 
     @property
     def is_configured(self) -> bool:
-        return bool(self.url and self.secret)
+        src = self._source()
+        return bool(src.get("url") and src.get("api_key"))
 
 
 class Settings:

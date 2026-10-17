@@ -4,7 +4,7 @@
  * Rendered inside the computer integration card in IntegrationsTab.
  */
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../core/api/client';
 import { confirmDialog } from '../shared/confirm';
@@ -49,7 +49,14 @@ export function ComputerPanel() {
   const [agents, setAgents] = useState<Agent[]>([]);
   const [error, setError] = useState('');
   const [sitesFor, setSitesFor] = useState<string | null>(null);
+  const sitesForRef = useRef<string | null>(null); // same value, readable after an await
   const [sites, setSites] = useState<Site[] | null>(null);
+  // Exclude-list writes run one at a time, each from the list the previous write returned, so two
+  // quick checkbox changes can't both derive from the same stale status and silently drop one.
+  const disabledRef = useRef<string[]>([]);
+  const agentWrites = useRef(0);
+  const agentChain = useRef<Promise<void>>(Promise.resolve());
+  useEffect(() => { if (status && agentWrites.current === 0) disabledRef.current = status.disabled_agents; }, [status]);
 
   const load = useCallback(() => {
     // best-effort polling: a missed tick just shows the previous state
@@ -75,19 +82,24 @@ export function ComputerPanel() {
   const setKeepRunning = (always_on: boolean) => run(() =>
     api('/api/integrations/computer/settings', { method: 'PUT', body: JSON.stringify({ always_on }) }));
 
-  const toggleAgent = (slug: string, allowed: boolean) => run(async () => {
-    const current = status?.disabled_agents ?? [];
-    const next = allowed ? current.filter(s => s !== slug) : [...current, slug];
-    const res = await api<{ disabled_agents: string[] }>('/api/integrations/computer/agents', {
-      method: 'PUT', body: JSON.stringify({ disabled_agents: next }),
-    });
-    setStatus(s => s && { ...s, disabled_agents: res.disabled_agents });
-  });
+  const toggleAgent = (slug: string, allowed: boolean) => {
+    agentWrites.current += 1;
+    agentChain.current = agentChain.current.then(() => run(async () => {
+      const current = disabledRef.current;
+      const next = allowed ? current.filter(s => s !== slug) : [...current, slug];
+      const res = await api<{ disabled_agents: string[] }>('/api/integrations/computer/agents', {
+        method: 'PUT', body: JSON.stringify({ disabled_agents: next }),
+      });
+      disabledRef.current = res.disabled_agents;
+      setStatus(s => s && { ...s, disabled_agents: res.disabled_agents });
+    })).finally(() => { agentWrites.current -= 1; });
+  };
 
   const showSites = (slug: string) => run(async () => {
-    if (sitesFor === slug) { setSitesFor(null); setSites(null); return; }
-    setSitesFor(slug); setSites(null);
-    setSites((await api<{ sites: Site[] }>(`/api/integrations/computer/profiles/${slug}/sites`)).sites);
+    if (sitesForRef.current === slug) { sitesForRef.current = null; setSitesFor(null); setSites(null); return; }
+    sitesForRef.current = slug; setSitesFor(slug); setSites(null);
+    const { sites } = await api<{ sites: Site[] }>(`/api/integrations/computer/profiles/${slug}/sites`);
+    if (sitesForRef.current === slug) setSites(sites); // a slow reply for an agent no longer open is dropped
   });
 
   const signOut = (slug: string, domain: string) => run(async () => {
