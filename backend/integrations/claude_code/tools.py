@@ -6,7 +6,8 @@ for full) — with writes: True they would vanish from Telegram and route every
 job through the browser-held web confirmation.
 
 Every executor takes a server-built `_ctx` that ToolRegistry injects (and
-strips from caller args): {agent_slug, agent_name, conversation_id, origin, route}.
+strips from caller args): {agent_slug, agent_name, conversation_id, origin, route,
+action_id, cache_dir}.
 """
 
 import logging

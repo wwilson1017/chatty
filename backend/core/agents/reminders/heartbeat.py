@@ -75,7 +75,7 @@ def _process_self_reminder(reminder: dict) -> None:
 
     user_message = f"Your reminder just fired: {reminder['message']}"
 
-    from agents.tool_loader import load_integration_tools, build_agent_handlers, INTEGRATION_MODULES
+    from agents.tool_loader import load_integration_tools, build_agent_handlers, INTEGRATION_MODULES, tool_flags
     from agents.engine import build_agent_config
     from integrations.registry import get_tool_mode, list_google_accounts as _list_ga
     from integrations.google.policy import google_capabilities_union
@@ -136,6 +136,7 @@ def _process_self_reminder(reminder: dict) -> None:
         gcs_prefix=config.gcs_prefix,
         google_connected=google_connected,
         integration_executors=integration_executors,
+        integration_tool_flags=tool_flags(integration_tool_defs),
         agent_slug=agent["slug"],
         agent_name=config.agent_name,
         reminder_handlers=reminder_handlers,

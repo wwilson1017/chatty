@@ -220,7 +220,7 @@ def _build_tools(agent_slug: str, agent: dict, *, background_mode: bool = False,
     is not the place to file structural proposals against the owner's second
     brain, nor to decide what enters its long-term memory (chat, cron and coach only).
     """
-    from agents.tool_loader import load_integration_tools, build_agent_handlers, INTEGRATION_MODULES
+    from agents.tool_loader import load_integration_tools, build_agent_handlers, INTEGRATION_MODULES, tool_flags
     from agents.engine import build_agent_config
     from integrations.registry import get_tool_mode, list_google_accounts as _list_ga
     from integrations.google.policy import google_capabilities_union
@@ -279,6 +279,7 @@ def _build_tools(agent_slug: str, agent: dict, *, background_mode: bool = False,
         gcs_prefix=config.gcs_prefix,
         google_connected=google_connected,
         integration_executors=integration_executors,
+        integration_tool_flags=tool_flags(integration_tool_defs),
         agent_slug=agent_slug,
         agent_name=config.agent_name,
         reminder_handlers=reminder_handlers,

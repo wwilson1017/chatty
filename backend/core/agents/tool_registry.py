@@ -99,6 +99,7 @@ class ToolRegistry:
         agent_name: str = "",
         reminder_handlers: dict | None = None,
         scheduled_action_handlers: dict | None = None,
+        integration_tool_flags: dict[str, dict] | None = None,
     ):
         self.context_dir = context_dir
         self.gcs_prefix = gcs_prefix
@@ -108,6 +109,10 @@ class ToolRegistry:
         self.drive_account_ids = drive_account_ids or []
         self.account_info_map: dict[str, dict] = account_info_map or {}
         self.integration_executors: dict = integration_executors or {}
+        # {tool_name: flags} built by agents.tool_loader.tool_flags() from the
+        # definitions the server loaded (deferred tools included) — the only
+        # source _execute_integration trusts for "context_aware".
+        self.integration_tool_flags: dict[str, dict] = integration_tool_flags or {}
         self.agent_slug = agent_slug
         self.agent_name = agent_name
         self._notify_user_called = False
@@ -116,6 +121,8 @@ class ToolRegistry:
         # Telegram/WhatsApp paths set "user"; everything else stays background.
         self._turn_origin: str = "background"
         self._turn_route: dict | None = None
+        # The scheduled action driving this turn, when there is one.
+        self._turn_action_id: str | None = None
 
         # Derived paths
         agent_data_dir = str(Path(context_dir).parent)
@@ -845,6 +852,7 @@ class ToolRegistry:
     }
 
     # Claude Code connector tools: get a server-built turn context, never the caller's.
+    # Any other integration tool opts in with "context_aware": True on its definition.
     _CONTEXT_AWARE_TOOLS = frozenset({
         "delegate", "job_get", "job_list", "job_cancel", "connector_info",
     })
@@ -857,13 +865,16 @@ class ToolRegistry:
             args = {k: v for k, v in args.items() if k != "_ctx"}
             if tool_name in self._CACHE_AWARE_TOOLS:
                 args = {**args, "cache_dir": self.file_cache_dir}
-            if tool_name in self._CONTEXT_AWARE_TOOLS:
+            flags = self.integration_tool_flags.get(tool_name, {})
+            if tool_name in self._CONTEXT_AWARE_TOOLS or flags.get("context_aware"):
                 args["_ctx"] = {
                     "agent_slug": self.agent_slug,
                     "agent_name": self.agent_name,
                     "conversation_id": self._current_conversation_id,
                     "origin": self._turn_origin,
                     "route": self._turn_route,
+                    "action_id": self._turn_action_id,
+                    "cache_dir": self.file_cache_dir,
                 }
             import asyncio
             if asyncio.iscoroutinefunction(executor):

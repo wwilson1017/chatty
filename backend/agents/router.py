@@ -41,7 +41,7 @@ from core.providers import get_ai_provider
 from core.providers.base import _sse
 from core.providers.credentials import CredentialStore
 from core.agents.tool_registry import ToolRegistry
-from .tool_loader import INTEGRATION_MODULES, load_integration_tools, build_agent_handlers
+from .tool_loader import INTEGRATION_MODULES, load_integration_tools, build_agent_handlers, tool_flags
 from . import db as agent_db
 from .engine import (
     build_agent_config,
@@ -557,6 +557,7 @@ def _stream_chat(agent: dict, messages: list, training_mode: bool, conversation_
         drive_account_ids=drive_ids,
         account_info_map=account_info_map,
         integration_executors=integration_executors,
+        integration_tool_flags=tool_flags(integration_tool_defs),
         agent_slug=agent["slug"],
         agent_name=config.agent_name,
         reminder_handlers=reminder_handlers,
@@ -1357,6 +1358,7 @@ async def tool_execute(agent_id: str, req: ToolExecuteRequest, user=Depends(get_
         drive_account_ids=drive_ids,
         account_info_map=account_info_map,
         integration_executors=integration_executors,
+        integration_tool_flags=tool_flags(integration_tool_defs),
         agent_slug=agent["slug"],
         reminder_handlers=reminder_handlers,
         scheduled_action_handlers=sa_handlers,
