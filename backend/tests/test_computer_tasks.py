@@ -269,10 +269,17 @@ class TestTools:
         cache = str(tmp_path / "cache")
         ref = cache_file(cache, b"PDF-bytes", "Q3 report.pdf", "application/pdf")
         out = asyncio.run(tools.computer_task("read it", file_refs=[ref], _ctx=_ctx(cache_dir=cache)))
-        assert out["inbox_files"] == ["/workspace/tom/inbox/Q3_report.pdf"]
-        assert fake.files["tom/inbox/Q3_report.pdf"] == b"PDF-bytes"
-        assert "inbox/Q3_report.pdf" in db.get_task(out["task_id"])["task"]
+        assert out["inbox_files"] == [f"/workspace/tom/inbox/{ref}-Q3_report.pdf"]
+        assert fake.files[f"tom/inbox/{ref}-Q3_report.pdf"] == b"PDF-bytes"
+        assert f"inbox/{ref}-Q3_report.pdf" in db.get_task(out["task_id"])["task"]
         assert "unknown or expired" in asyncio.run(tools.computer_task("x", file_refs=["000000000000"], _ctx=_ctx(cache_dir=cache)))["error"]
+        # names that sanitise to the same thing, in one batch or across tasks, never overwrite each other
+        r1 = cache_file(cache, b"one", "a b.pdf", "application/pdf")
+        r2 = cache_file(cache, b"two", "a+b.pdf", "application/pdf")
+        out2 = asyncio.run(tools.computer_task("both", file_refs=[r1, r2], _ctx=_ctx(cache_dir=cache)))
+        assert out2["inbox_files"] == [f"/workspace/tom/inbox/{r1}-a_b.pdf", f"/workspace/tom/inbox/{r2}-a_b.pdf"]
+        assert fake.files[f"tom/inbox/{r1}-a_b.pdf"] == b"one" and fake.files[f"tom/inbox/{r2}-a_b.pdf"] == b"two"
+        assert fake.files[f"tom/inbox/{ref}-Q3_report.pdf"] == b"PDF-bytes"  # the earlier task's file is untouched
 
         fake.files["tom/downloads/out.csv"] = b"a,b\n1,2\n"
         got = asyncio.run(tools.computer_file_get("downloads/out.csv", _ctx=_ctx(cache_dir=cache)))
