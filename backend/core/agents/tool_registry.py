@@ -121,8 +121,8 @@ class ToolRegistry:
         # Telegram/WhatsApp paths set "user"; everything else stays background.
         self._turn_origin: str = "background"
         self._turn_route: dict | None = None
-        # The scheduled action driving this turn. Nothing sets it yet; the cron
-        # processor will, so context_aware tools can read it from _ctx.
+        # The scheduled action driving this turn (set by the heartbeat and cron
+        # processors); context_aware tools read it from _ctx.
         self._turn_action_id: str | None = None
 
         # Derived paths
