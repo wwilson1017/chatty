@@ -235,8 +235,9 @@ export function ComputerPanel({ onChanged }: { onChanged?: () => void }) {
                         <input type="checkbox" checked={allowed} onChange={e => toggleAgent(a.slug, e.target.checked)} />
                         {a.agent_name}
                       </label>
+                      {/* Same tab on purpose: the JWT lives in sessionStorage, so a new tab would land on /login. */}
                       {allowed && status.enabled && (
-                        <Link to={`/computer?agent=${a.slug}`} target="_blank" style={{ ...smallBtn, textDecoration: 'none' }}>Open the screen</Link>
+                        <Link to={`/computer?agent=${a.slug}`} style={{ ...smallBtn, textDecoration: 'none' }}>Open the screen</Link>
                       )}
                       <button onClick={() => showSites(a.slug)} style={smallBtn}>{sitesFor === a.slug ? 'Hide sites' : 'Signed-in sites'}</button>
                     </div>
