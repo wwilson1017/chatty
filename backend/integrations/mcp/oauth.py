@@ -153,6 +153,9 @@ async def start(server_id: str) -> dict:
     o = dict(s.get("oauth") or {})
     async with _http() as http:
         info = await discover(http, s)
+        if o.get("issuer") and o["issuer"] != info["issuer"]:  # a client belongs to one authorization server
+            o = {"resource_metadata": o.get("resource_metadata")}
+        o["issuer"] = info["issuer"]
         if not o.get("client_id"):
             o.update(await _register(http, info))
         elif not o.get("registered"):  # pasted on the card; RFC 8414's default method is Basic
@@ -166,10 +169,11 @@ async def start(server_id: str) -> dict:
         server_id=server_id, generation=generation, pinned=True,
     )
 
-    def apply(c):  # the registered client survives an abandoned flow
+    def apply(c):  # the registered client survives an abandoned flow; a new issuer starts from scratch
         cur = (c.get("servers") or {}).get(server_id)
         if cur is not None and (cur.get("generation") or 0) == generation:
-            cur["oauth"] = {**(cur.get("oauth") or {}), **o}
+            old = cur.get("oauth") or {}
+            cur["oauth"] = {**old, **o} if old.get("issuer") in (None, o["issuer"]) else o
     store.update(apply)
     return start_flow(cfg)
 

@@ -33,8 +33,10 @@ REG = {"client_id": "cid", "client_secret": "csec", "token_endpoint_auth_method"
 class AuthServer:
     """Protected-resource + authorization-server metadata, registration and token endpoints as one transport."""
 
-    def __init__(self, prm=PRM, md=MD, reg=REG, md_path="/.well-known/oauth-authorization-server", token_delay=0.0):
+    def __init__(self, prm=PRM, md=MD, reg=REG, md_path="/.well-known/oauth-authorization-server", token_delay=0.0,
+                 issuer=ISSUER):
         self.prm, self.md, self.reg, self.md_path, self.token_delay = prm, md, reg, md_path, token_delay
+        self.issuer = issuer
         self.requests: list[httpx.Request] = []
         self.tokens = 0
 
@@ -46,11 +48,11 @@ class AuthServer:
         url = f"{request.url.scheme}://{request.url.host}{request.url.path}"
         if url == "https://mcp.cal.test/.well-known/oauth-protected-resource/mcp" and self.prm is not None:
             return httpx.Response(200, json=self.prm)
-        if url == ISSUER + self.md_path:
+        if url == self.issuer + self.md_path:
             return httpx.Response(200, json=self.md)
-        if url == f"{ISSUER}/register" and request.method == "POST":
+        if url == f"{self.issuer}/register" and request.method == "POST":
             return httpx.Response(201, json=self.reg)
-        if url == f"{ISSUER}/token" and request.method == "POST":
+        if url == f"{self.issuer}/token" and request.method == "POST":
             await asyncio.sleep(self.token_delay)
             self.tokens += 1
             grant = parse_qs(request.content.decode())["grant_type"][0]
@@ -142,6 +144,20 @@ class TestDiscoveryAndRegistration:
         await oauth.start("cal")
         assert srv.requests[0].url.path == "/.well-known/oauth-protected-resource/mcp"
         assert _server()["oauth"]["client_id"] == "cid" and _server()["oauth"]["resource_metadata"]
+
+    async def test_a_client_is_dropped_when_the_server_names_another_authorization_server(self, env, auth_server):
+        srv = auth_server(AuthServer())
+        await _sign_in(srv)
+        as2 = "https://auth2.cal.test"
+        srv2 = auth_server(AuthServer(issuer=as2, prm={**PRM, "authorization_servers": [as2]},
+                                      md={**MD, "issuer": as2, "authorization_endpoint": f"{as2}/authorize",
+                                          "token_endpoint": f"{as2}/token", "registration_endpoint": f"{as2}/register"},
+                                      reg={"client_id": "cid2"}))
+        out = await oauth.start("cal")
+        assert [r.url.path for r in srv2.requests if r.method == "POST"] == ["/register"]
+        assert _params(out["auth_url"])["client_id"] == "cid2"
+        o = _server()["oauth"]
+        assert o["issuer"] == as2 and o["client_id"] == "cid2" and not o.get("client_secret") and not o.get("access_token")
 
     async def test_no_metadata_falls_back_to_the_server_origin(self, env, auth_server):
         class Own(AuthServer):
