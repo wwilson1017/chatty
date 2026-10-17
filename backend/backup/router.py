@@ -171,8 +171,11 @@ def _do_restore(file: UploadFile, content: bytes) -> dict:
     # "interrupted" at its next step) before the connection closes; restarted after reinit.
     from integrations.computer import runner as computer_runner
     runner_was_started = computer_runner._started
-    if not computer_runner.stop(wait_s=30):
-        logger.warning("Computer runner still busy after 30 s; restoring anyway (its worker is fenced)")
+    if not computer_runner.stop(wait_s=30):  # waits, then cancels the in-flight call; False only if that failed too
+        if runner_was_started:
+            computer_runner.start()
+        raise HTTPException(status_code=409, detail="A computer task is still running and could not be stopped. "
+                                                    "Cancel it on the Computer card, then restore again.")
 
     # Close all database connections before overwriting files
     from agents.engine import close_all_agent_dbs
