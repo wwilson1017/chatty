@@ -231,6 +231,10 @@ def main():
     # --- element by ref / pixel ---
     st, el = api("POST", "/browser/element", {"lease": lease, "epoch": epoch, "ref": ref})
     check(st == 200 and el["found"] and el["name"] == "Place order" and el["is_submit"], "element by ref describes the button")
+    field_types = sorted(f["type"] for f in el["form"]["fields"])
+    # (the data: URL in frame_url/page carries the fixture source itself, so the leak check is scoped to form)
+    check(field_types == ["password", "text"] and "s3cret-value-xyz" not in json.dumps(el["form"]),
+          f"form.fields lists the password field by type only ({field_types})")
     cx = el["screen_box"]["x"] + el["screen_box"]["w"] // 2
     cy = el["screen_box"]["y"] + el["screen_box"]["h"] // 2
     st, at = api("POST", "/browser/element", {"lease": lease, "epoch": epoch, "x": cx, "y": cy})
