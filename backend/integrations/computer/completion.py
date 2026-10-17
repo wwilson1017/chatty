@@ -142,6 +142,7 @@ def complete_task(task_id: str) -> None:
             user_message, source="computer",
             conversation_id=task["conversation_id"],
             route=json.loads(task["route"]) if task["route"] else None,
+            action_id=task["action_id"],  # a follow-up queued from the report keeps the scheduled action
         )
         tool_log = result.tool_log
         text = (result.text or "").strip()
