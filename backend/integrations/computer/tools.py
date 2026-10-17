@@ -78,7 +78,9 @@ async def computer_task(task: str, follow_up_of: str | None = None, file_refs: l
                 f = load_cached_file(_ctx.get("cache_dir") or "", str(ref))
                 if not f:
                     return {"error": f"file_ref {ref!r} is unknown or expired"}
-                path = f"inbox/{runner.safe_filename(f['filename'])}"
+                # The ref keeps names unique: sanitising collapses "a b.pdf" and "a+b.pdf" into one
+                # name, and an earlier task's file of the same name must not be overwritten either.
+                path = f"inbox/{ref}-{runner.safe_filename(f['filename'])}"
                 await client.put_file(slug, path, f["raw"])
                 inbox.append(f"/workspace/{slug}/{path}")
         except ComputerError as e:
