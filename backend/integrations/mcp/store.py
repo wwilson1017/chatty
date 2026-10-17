@@ -6,6 +6,8 @@ encrypted by field name, so `api_key` is; lists are left alone, so the tool cach
     {"enabled": bool, "tool_mode": "normal",
      "servers": {"<id>": {
          "name", "url", "api_key", "header", "enabled", "allow_in_background",
+         "generation": int,            # changes with the auth config; an OAuth flow is bound to it
+         "oauth": dict | None,         # see oauth.py; None for a server with an API key
          "tools": [{"name", "description", "input_schema", "read_only_hint"}],  # cached
          "tools_refreshed_at": epoch, "last_error": str | None,
          "overrides": {"<tool>": {"enabled": bool, "read_only": bool}}}}}
@@ -70,7 +72,7 @@ def call_error(server_id: str, tool: str, loaded_writes: bool, origin: str) -> s
     loaded in a conversation. `loaded_writes` is the writes flag of the definition the
     model was given: a tool that has since become a write (or whose integration mode now
     forbids writes) is refused so the next turn reloads it and goes through confirmation.
-    PR 10 (OAuth) and PR 11 (command servers) add their checks here.
+    PR 11 (command servers) adds its checks here.
     """
     if not is_enabled(NAME):
         return "MCP servers are turned off."

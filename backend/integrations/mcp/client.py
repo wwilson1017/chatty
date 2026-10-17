@@ -24,6 +24,16 @@ class McpError(Exception):
     """A transport or protocol failure, worded for the card and the agent."""
 
 
+class McpAuthError(McpError):
+    """HTTP 401 from the server. `challenge` is its WWW-Authenticate header; `retry_safe` says the
+    refused request was not the tool call itself, so a refreshed token may retry it."""
+
+    def __init__(self, message: str, challenge: str = "", retry_safe: bool = True):
+        super().__init__(message)
+        self.challenge = challenge
+        self.retry_safe = retry_safe
+
+
 class McpClient:
     def __init__(self, url: str, api_key: str = "", header: str = "Authorization", *,
                  allow_origins=(), transport: httpx.AsyncBaseTransport | None = None):
@@ -98,7 +108,10 @@ class McpClient:
             async with http.stream("POST", self.url, json=message, headers=headers) as resp:
                 if resp.status_code >= 400:
                     detail = (await resp.aread())[:300].decode(errors="replace").strip()
-                    raise McpError(f"HTTP {resp.status_code}" + (f": {detail}" if detail else ""))
+                    text = f"HTTP {resp.status_code}" + (f": {detail}" if detail else "")
+                    if resp.status_code == 401:
+                        raise McpAuthError(text, resp.headers.get("www-authenticate", ""), method != "tools/call")
+                    raise McpError(text)
                 if want_id is None:
                     return resp, {}
                 if resp.headers.get("content-type", "").startswith("text/event-stream"):

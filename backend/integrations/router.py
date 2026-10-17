@@ -199,6 +199,15 @@ class McpToolUpdateRequest(BaseModel):
     read_only: bool | None = None
 
 
+class McpOAuthCompleteRequest(BaseModel):
+    flow_id: str = Field(..., min_length=1, max_length=128)
+
+
+class McpOAuthClientRequest(BaseModel):
+    client_id: str = Field(..., min_length=1, max_length=512)
+    client_secret: str = Field("", max_length=4096)
+
+
 @router.post("/claude_code/pair-code")
 def claude_code_pair_code(user=Depends(get_current_user)):
     from .claude_code.connector_api import create_pair_code
@@ -294,6 +303,45 @@ async def mcp_refresh_server(server_id: str, user=Depends(get_current_user)):
         return await refresh_server(server_id)
     except KeyError:
         raise HTTPException(status_code=404, detail="Unknown MCP server")
+
+
+@router.post("/mcp/servers/{server_id}/oauth/start")
+async def mcp_oauth_start(server_id: str, user=Depends(get_current_user)):
+    """Discover the server's authorization server and start a sign-in. Returns {flow_id, auth_url}
+    for the same popup-and-poll flow the Google card uses; finish with /oauth/complete."""
+    from .mcp.client import McpError
+    from .mcp.oauth import start
+    try:
+        return await start(server_id)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="Unknown MCP server")
+    except (ValueError, McpError) as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.post("/mcp/servers/{server_id}/oauth/complete")
+async def mcp_oauth_complete(server_id: str, body: McpOAuthCompleteRequest, user=Depends(get_current_user)):
+    from .mcp.oauth import complete
+    from .mcp.service import refresh_server
+    try:
+        complete(server_id, body.flow_id)
+        return await refresh_server(server_id)
+    except KeyError as e:
+        raise HTTPException(status_code=404, detail="OAuth flow not found or expired" if e.args == ("flow",) else "Unknown MCP server")
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.put("/mcp/servers/{server_id}/oauth/client")
+def mcp_oauth_client(server_id: str, body: McpOAuthClientRequest, user=Depends(get_current_user)):
+    """A pasted OAuth client id/secret for a server without dynamic client registration."""
+    from .mcp.oauth import set_client
+    from .mcp.service import status
+    try:
+        set_client(server_id, body.client_id, body.client_secret)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="Unknown MCP server")
+    return status()
 
 
 @router.put("/mcp/servers/{server_id}/tools/{tool}")
