@@ -144,6 +144,9 @@ async def lifespan(app: FastAPI):
     from integrations.claude_code.db import init_db as init_claude_code_db
     _safe_init("claude_code", init_claude_code_db)
 
+    from integrations.computer.db import init_db as init_computer_db
+    _safe_init("computer", init_computer_db)
+
     from core.agents.shared_context.db import init_db as init_shared_context_db
     _safe_init("shared_context", init_shared_context_db)
 
@@ -210,6 +213,14 @@ async def lifespan(app: FastAPI):
     _scheduler.add_job(_claude_code_sweep, "interval", seconds=120, id="claude_code_sweep",
                        next_run_time=datetime.now(timezone.utc))
 
+    # Computer helper: orphaned tasks, usage rows, completion recovery, and the queue kick. The
+    # runner itself starts only here (never in the CLI), behind an exclusive lock on data/computer.
+    from integrations.computer import runner as _computer_runner
+    from integrations.computer.completion import sweep as _computer_sweep
+    _computer_runner.start()
+    _scheduler.add_job(_computer_sweep, "interval", seconds=60, id="computer_sweep",
+                       next_run_time=datetime.now(timezone.utc))
+
     _scheduler.start()
     logger.info("APScheduler started (reminder heartbeat + scheduled actions + sweeper + nightly jobs)")
 
@@ -265,6 +276,8 @@ async def lifespan(app: FastAPI):
     # Shutdown scheduler + executor
     if _scheduler:
         _scheduler.shutdown(wait=False)
+    from integrations.computer import runner as _computer_runner_stop
+    _computer_runner_stop.stop()
     try:
         from core.agents.scheduled_actions.processor import shutdown_executor
         shutdown_executor()

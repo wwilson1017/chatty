@@ -198,6 +198,48 @@ async def vnc(ws: WebSocket, ticket: str = ""):
         await client.aclose()
 
 
+# ── tasks (dashboard) ────────────────────────────────────────────────────────
+
+@router.get("/api/computer/tasks")
+def list_tasks(limit: int = 20, agent: str | None = None, user=Depends(get_current_user)):
+    from . import db
+    limit = max(1, min(limit, 100))
+    sql, params = "SELECT * FROM tasks", []
+    if agent:
+        sql, params = sql + " WHERE agent_slug = ?", [agent]
+    rows = db.query(sql + " ORDER BY created_at DESC, rowid DESC LIMIT ?", (*params, limit))
+    return {"tasks": [db.task_view(dict(r), result_chars=300) for r in rows]}
+
+
+@router.get("/api/computer/tasks/{task_id}")
+def get_task(task_id: str, user=Depends(get_current_user)):
+    from . import db
+    task = db.get_task(task_id)
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+    out = db.task_view(task, result_chars=20000)
+    gate = db.get_gate(task["gate_id"]) if task["gate_id"] else None
+    out["gate"] = db.gate_view(gate) if gate else None
+    return out
+
+
+@router.get("/api/computer/tasks/{task_id}/steps")
+def get_task_steps(task_id: str, user=Depends(get_current_user)):
+    from . import db
+    if not db.get_task(task_id):
+        raise HTTPException(status_code=404, detail="Task not found")
+    return {"steps": db.list_steps(task_id)}
+
+
+@router.post("/api/computer/tasks/{task_id}/cancel")
+def cancel_task(task_id: str, user=Depends(get_current_user)):
+    from . import db
+    if not db.get_task(task_id):
+        raise HTTPException(status_code=404, detail="Task not found")
+    cancelled = db.finish_task(task_id, "cancelled", "cancelled by owner", notify=False, cancel_requested=1)
+    return {"ok": True, "cancelled": cancelled}
+
+
 _UNBUILT_HTML = ("<!doctype html><meta charset='utf-8'><title>Computer</title>"
                  "<p style='font-family:system-ui;padding:32px'>Frontend build not found. Run "
                  "<code>python run.py</code> (or <code>npm run build</code> in <code>frontend/</code>) and reload.</p>")

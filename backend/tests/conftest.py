@@ -149,6 +149,13 @@ def http_env(agent_db, encryption_env, monkeypatch, tmp_path):
     (tmp_path / "claude_code").mkdir(exist_ok=True)
     cc_db_mod.close_db()
     cc_db_mod._setup_connection()
+    # Computer tasks DB (the tools, dashboard routes and runner). The runner never starts here.
+    import integrations.computer.db as vc_db_mod
+    monkeypatch.setattr(vc_db_mod, "DATA_DIR", tmp_path / "computer")
+    monkeypatch.setattr(vc_db_mod, "DB_PATH", tmp_path / "computer" / "tasks.db")
+    (tmp_path / "computer").mkdir(exist_ok=True)
+    vc_db_mod.close_db()
+    vc_db_mod._setup_connection()
     # Per-slug caches would hand a previous test's DB to a same-named agent.
     engine_mod._get_initialized_db.cache_clear()
     engine_mod._get_initialized_memory_db.cache_clear()
@@ -172,6 +179,7 @@ def http_env(agent_db, encryption_env, monkeypatch, tmp_path):
         import core.todo.db as todo_db_mod
         todo_db_mod.close_db()
         cc_db_mod.close_db()
+        vc_db_mod.close_db()
 
 
 @pytest.fixture
