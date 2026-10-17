@@ -229,6 +229,9 @@ class TestDecide:
         assert _approve(ap, gate["id"]) == [] and "not set up" in ap.answers[0]
         g = db.get_gate(gate["id"])
         assert g["status"] == "pending" and g["decision"] is None and ap.edits == []
+        # ... but the owner can still dismiss it: a deny is safe whatever the policy says
+        assert approvals.decide(gate["id"], "deny", "card", "owner")["ok"]
+        assert db.get_gate(gate["id"])["status"] == "denied" and len(ap.edits) == 1
 
     def test_follow_up_cancelled_before_dispatch_spends_the_approval(self, ap, monkeypatch):
         monkeypatch.setattr(runner, "kick", lambda: False)

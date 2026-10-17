@@ -188,8 +188,8 @@ def decide(gate_id: str, decision: str, via: str, decided_by: str, *,
             return {"error": "This approval message doesn't match the gate"}
     if gate["status"] != "pending":
         return {"error": f"Gate {gate_id} is no longer waiting for a decision ({gate['status']})"}
-    err = card.policy_error(gate["agent_slug"])  # disabled or excluded since the request
-    if err:
+    err = card.policy_error(gate["agent_slug"]) if decision == "approve" else None  # a deny is always safe
+    if err:  # disabled or excluded since the request
         return {"error": err}
     parent = db.get_task(gate["task_id"])
     if not parent:
