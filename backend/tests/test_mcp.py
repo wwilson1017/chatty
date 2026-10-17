@@ -10,7 +10,7 @@ import pytest
 from integrations.mcp import service, store
 from integrations.mcp import tools as mcp_tools
 from integrations.mcp.client import McpClient, McpError
-from integrations.registry import save_credentials
+from integrations.registry import get_credentials, save_credentials
 
 PUBLIC = "93.184.216.34"
 SERVER = {
@@ -210,9 +210,10 @@ class TestSchema:
         assert store.clean_schema(cyclic)["properties"]["root"]["type"] == "object"
 
 
-def _fake_server(records: list, *, call_result=None, call_error=None, status=200):
+def _fake_server(records: list, *, call_result=None, call_error=None, status=200, first_page=None):
     """A streamable-HTTP MCP server as an httpx MockTransport: JSON initialize, SSE tools/list in two pages."""
     sse = {"content-type": "text/event-stream"}
+    first_page = first_page or {"tools": [{"name": "search", "inputSchema": {"type": "object"}}], "nextCursor": "p2"}
 
     def handler(request: httpx.Request) -> httpx.Response:
         body = json.loads(request.content) if request.content else None
@@ -228,8 +229,7 @@ def _fake_server(records: list, *, call_result=None, call_error=None, status=200
         if method == "notifications/initialized":
             return httpx.Response(202)
         if method == "tools/list":
-            page = {"tools": [{"name": "search", "inputSchema": {"type": "object"}}], "nextCursor": "p2"} \
-                if not body["params"].get("cursor") else {"tools": [{"name": "fetch"}]}
+            page = first_page if not body["params"].get("cursor") else {"tools": [{"name": "fetch"}]}
             # An unrelated notification first, then the response as two data: lines (joined with \n per the SSE spec).
             head, tail = json.dumps({"jsonrpc": "2.0", "id": body["id"], "result": page}).split(",", 1)
             return httpx.Response(200, headers=sse, text=(
@@ -270,6 +270,18 @@ class TestClientProtocol:
             await McpClient("https://s.test/mcp", transport=_fake_server([], call_error={"code": -32602, "message": "bad args"})).call_tool("search", {})
         with pytest.raises(McpError, match="HTTP 401"):
             await McpClient("https://s.test/mcp", transport=_fake_server([], status=401)).list_tools()
+
+    async def test_session_is_closed_even_when_the_call_fails(self):
+        records = []
+        with pytest.raises(McpError):
+            await McpClient("https://s.test/mcp", transport=_fake_server(records, call_error={"code": -1, "message": "x"})).call_tool("search", {})
+        assert records[-1][0] == "DELETE" and records[-1][1]["mcp-session-id"] == "sess-1"
+
+    async def test_tool_cap_applies_within_one_page(self):
+        from integrations.mcp.client import MAX_TOOLS
+        big = {"tools": [{"name": f"t{i}"} for i in range(MAX_TOOLS + 7)]}
+        tools = await McpClient("https://s.test/mcp", transport=_fake_server([], first_page=big)).list_tools()
+        assert len(tools) == MAX_TOOLS
 
 
 class TestService:
@@ -315,9 +327,12 @@ class TestService:
         save_credentials("mcp", {})
         _run(service.add_server("A", "https://a.test/", "", "Authorization"))
         assert is_enabled("mcp")
-        save_credentials("mcp", {"enabled": False})
+        # Telegram/WhatsApp cap only integrations whose file names a tool_mode (they strip
+        # write tools below "power"); the first server must leave one behind.
+        assert get_credentials("mcp")["tool_mode"] == "normal"
+        save_credentials("mcp", {"enabled": False, "tool_mode": "power"})
         _run(service.add_server("B", "https://b.test/", "", "Authorization"))
-        assert not is_enabled("mcp")
+        assert not is_enabled("mcp") and get_credentials("mcp")["tool_mode"] == "power"
 
     def test_refresh_keeps_the_old_list_and_records_the_error(self, mcp_env, monkeypatch):
         from core.security import ssrf
@@ -347,6 +362,18 @@ class TestService:
         with pytest.raises(KeyError):
             service.set_tool("github", "nope", read_only=True)
         assert service.remove_server("github")["servers"] == []
+
+
+class TestApprovePath:
+    def test_the_approve_click_runs_a_write_as_a_user_turn(self, client, mcp_env, fake_call):
+        """/tool/execute builds its own registry; a write the model asked for in chat and the owner
+        approved must not be refused as a background turn."""
+        from tests.test_http_agents import make_agent
+        agent = make_agent(client)
+        r = client.post(f"/api/agents/{agent['id']}/tool/execute",
+                        json={"tool": "mcp_github__create_issue", "args": {"title": "x"}})
+        assert r.status_code == 200 and r.json() == {"content": "did create_issue"}
+        assert fake_call[-1][2:] == ("create_issue", {"title": "x"})
 
 
 class TestRoutes:

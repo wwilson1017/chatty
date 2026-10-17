@@ -46,22 +46,24 @@ class McpClient:
     async def list_tools(self) -> list[dict]:
         async with self._http() as http:
             headers = await self._initialize(http)
-            tools, cursor = [], None
-            while True:
-                result = await self._request(http, headers, "tools/list", {"cursor": cursor} if cursor else {})
-                tools.extend(t for t in result.get("tools") or [] if isinstance(t, dict) and t.get("name"))
-                cursor = result.get("nextCursor")
-                if not cursor or len(tools) >= MAX_TOOLS:
-                    break
-            await self._close(http, headers)
-            return tools
+            try:
+                tools, cursor = [], None
+                while True:
+                    result = await self._request(http, headers, "tools/list", {"cursor": cursor} if cursor else {})
+                    tools.extend(t for t in result.get("tools") or [] if isinstance(t, dict) and t.get("name"))
+                    cursor = result.get("nextCursor")
+                    if not cursor or len(tools) >= MAX_TOOLS:
+                        return tools[:MAX_TOOLS]
+            finally:
+                await self._close(http, headers)
 
     async def call_tool(self, name: str, arguments: dict) -> dict:
         async with self._http() as http:
             headers = await self._initialize(http)
-            result = await self._request(http, headers, "tools/call", {"name": name, "arguments": arguments or {}})
-            await self._close(http, headers)
-            return result
+            try:
+                return await self._request(http, headers, "tools/call", {"name": name, "arguments": arguments or {}})
+            finally:
+                await self._close(http, headers)
 
     async def _initialize(self, http) -> dict:
         headers = dict(self._headers)

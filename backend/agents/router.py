@@ -1363,6 +1363,7 @@ async def tool_execute(agent_id: str, req: ToolExecuteRequest, user=Depends(get_
         reminder_handlers=reminder_handlers,
         scheduled_action_handlers=sa_handlers,
     )
+    registry._turn_origin = "user"  # the owner's approval click, same origin as the chat turn that asked
 
     from core.agents.tool_definitions import get_tool_definitions, build_writes_map
     from integrations.google.policy import google_capabilities_union

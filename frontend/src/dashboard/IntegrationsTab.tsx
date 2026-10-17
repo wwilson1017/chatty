@@ -540,8 +540,8 @@ export function IntegrationsTab() {
               </div>
             </div>
 
-            {/* Permission level selector for Odoo and QuickBooks */}
-            {(integration.id === 'odoo' || integration.id === 'quickbooks' || integration.id === 'paperclip') && integration.enabled && integration.configured && integration.connection_status !== 'broken' && (
+            {/* Permission level selector for Odoo, QuickBooks, Paperclip and MCP */}
+            {(integration.id === 'odoo' || integration.id === 'quickbooks' || integration.id === 'paperclip' || integration.id === 'mcp') && integration.enabled && integration.configured && integration.connection_status !== 'broken' && (
               <div style={{ marginTop: 10, display: 'flex', alignItems: 'center', gap: 10 }}>
                 <span style={{ ...mono(9), whiteSpace: 'nowrap' }}>Permissions</span>
                 <div style={{

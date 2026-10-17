@@ -88,8 +88,8 @@ async def disable_integration(name: str, user=Depends(get_current_user)):
 @router.post("/{name}/tool-mode")
 async def set_integration_tool_mode(name: str, body: ToolModeRequest, user=Depends(get_current_user)):
     """Set the tool_mode permission ceiling for an integration."""
-    if name not in ("odoo", "quickbooks", "paperclip"):
-        raise HTTPException(status_code=400, detail="Tool mode is only supported for Odoo, QuickBooks, and Paperclip")
+    if name not in ("odoo", "quickbooks", "paperclip", "mcp"):
+        raise HTTPException(status_code=400, detail="Tool mode is only supported for Odoo, QuickBooks, Paperclip, and MCP servers")
     if body.tool_mode not in ("read-only", "normal", "power"):
         raise HTTPException(status_code=400, detail=f"Invalid tool_mode: {body.tool_mode}")
     integrations = {i["id"]: i for i in list_integrations()}

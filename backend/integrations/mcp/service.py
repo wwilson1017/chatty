@@ -66,6 +66,9 @@ async def add_server(name: str, url: str, api_key: str, header: str) -> dict:
                         "enabled": True, "allow_in_background": False, "tools": tools,
                         "tools_refreshed_at": time.time(), "last_error": None, "overrides": {}}
         c.setdefault("enabled", True)  # the first server switches the integration on
+        # Telegram/WhatsApp only cap integrations whose file names a tool_mode; without this
+        # line write tools would run there with nobody to confirm them.
+        c.setdefault("tool_mode", "normal")
     store.update(apply)
     return status()
 
