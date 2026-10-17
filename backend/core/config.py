@@ -127,6 +127,30 @@ class WhatsAppSettings:
         return bool(self.bridge_url)
 
 
+class ComputerSettings:
+    """The virtual computer (integrations/computer). COMPUTER_URL/COMPUTER_SECRET
+    from env win (the Railway template sets them); otherwise the card's saved
+    credentials (`url`, `api_key`). Read on every access: the card can save
+    credentials while the server runs."""
+
+    @staticmethod
+    def _creds() -> dict:
+        from integrations.registry import get_credentials
+        return get_credentials("computer")
+
+    @property
+    def url(self) -> str:
+        return (os.getenv("COMPUTER_URL") or self._creds().get("url", "")).rstrip("/")
+
+    @property
+    def secret(self) -> str:
+        return os.getenv("COMPUTER_SECRET") or self._creds().get("api_key", "")
+
+    @property
+    def is_configured(self) -> bool:
+        return bool(self.url and self.secret)
+
+
 class Settings:
     auth = AuthSettings()
     jwt = JWTSettings()
@@ -135,6 +159,7 @@ class Settings:
     quickbooks_oauth = QuickBooksOAuthSettings()
     webby = WebbySettings()
     whatsapp = WhatsAppSettings()
+    computer = ComputerSettings()
 
     # GCS bucket for Phase 2 cloud deployment (no-ops if empty)
     gcs_bucket: str = os.getenv("CONFIG_BUCKET", "")
