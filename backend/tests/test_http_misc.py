@@ -120,6 +120,7 @@ SWEEP_ALLOWLIST = {
     ("POST", "/api/capture"),
     ("POST", "/api/capture/{token}"),
     ("GET", "/todo"),                           # no-login todo web app root (subpaths ride the prefixes below)
+    ("GET", "/computer"),                       # the SPA shell for the screen viewer; the SPA's ProtectedRoute gates it
 }
 
 # The no-login todo web app (page + its own copy of the todo API). Same trust
