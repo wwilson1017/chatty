@@ -32,7 +32,7 @@ def ap(fake, monkeypatch, tmp_path):  # noqa: F811 (fake is the imported fixture
     (tmp_path / "telegram").mkdir()
     tg_state._setup_connection()
 
-    ns = types.SimpleNamespace(fake=fake, client=fake.client, sent=[], photos=[], answers=[], edits=[], delivered=[])
+    ns = types.SimpleNamespace(fake=fake, client=fake.client, sent=[], photos=[], answers=[], edits=[], delivered=[], notices=[])
     agent = create_agent("Tom")
     assert agent["slug"] == "tom"
     update_agent(agent["id"], telegram_enabled=1, telegram_bot_token="bot-tok")
@@ -49,6 +49,9 @@ def ap(fake, monkeypatch, tmp_path):  # noqa: F811 (fake is the imported fixture
     monkeypatch.setattr(tg_client, "answer_callback_query", lambda cid, text, bot_token: ns.answers.append(text) or {})
     monkeypatch.setattr(tg_client, "edit_message_text", lambda chat_id, mid, text, bot_token: ns.edits.append((chat_id, mid, text)) or {})
     monkeypatch.setattr(processor, "_deliver_to_route", lambda slug, title, text, route: ns.delivered.append((route, text)) or [])
+    from core.agents.notifications import delivery
+    monkeypatch.setattr(delivery, "deliver_notification",  # notify_takeover's web/no-route path
+                        lambda slug, title, text: ns.notices.append((slug, title, text)) or {"ok": True})
     monkeypatch.setattr(runner, "RECONCILE_WAIT_S", 0.01)
     yield ns
     tg_state.close_db()
@@ -573,14 +576,14 @@ class TestTakeover:
         prov = FakeProvider([FINAL])
         done = _follow_up(ap, monkeypatch, [FINAL])
         assert prov.calls == 0  # no helper model call in a takeover task
-        assert done["status"] == "done" and done["finish_reason"] == "handed back after takeover" and done["takeover_state"] == "done"
-        assert "performed nothing itself" in done["result_text"]
+        assert done["status"] == "done" and done["finish_reason"] == "handed back after takeover" and done["takeover_state"] == ""
+        assert done["takeover_reason"].startswith("you approved doing the buy") and "performed nothing itself" in done["result_text"]
         assert [a for a in activations() if a["task_id"] == f["id"]] == [{"agent": "tom", "task_id": f["id"]}]
         acts = [b for m, p, b in ap.fake.calls if p == "/browser/act"]
         assert [a["kind"] for a in acts] == ["navigate"] and acts[0]["url"] == "https://shop.example/checkout"
         assert not [a for a in ap.fake.performed if a["kind"] != "navigate"]  # no click, no key press
-        [(route, text)] = ap.delivered
-        assert route == {"channel": "web"} and f"/computer?task={f['id']}&agent=tom" in text and "Your turn" not in text
+        [(slug, title, text)] = ap.notices  # a web route: notify_takeover goes through deliver_notification
+        assert slug == "tom" and "needs you on the computer" in title and f"/computer?task={f['id']}&agent=tom" in text
         # the lease is released and the approval is spent: it can never be dispatched by Chatty later
         assert ap.fake.lease is None and db.get_gate(gate["id"])["status"] == "cancelled"
 

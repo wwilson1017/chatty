@@ -11,7 +11,9 @@ ends the task as `needs_approval` and asks the owner (approvals.py); approving
 queues a follow-up whose first step is _Run.consume(): one activation bound to
 the stored gate, re-checked by the computer, never re-sent. A gate that can't be
 bound becomes a takeover task (_Run.takeover) that opens the page for the owner
-and performs nothing itself.
+and performs nothing itself. Logins never go through the helper either:
+`request_takeover` hands the screen to the owner and waits
+(tool_request_takeover), the computer refusing every agent call meanwhile.
 
 Caps cover the whole follow-up chain (root_task_id): steps and time are hard;
 money is a budget enforced on conservative reservations saved before each
@@ -43,8 +45,8 @@ logger = logging.getLogger(__name__)
 
 RENEW_EVERY_S = 30
 CONTROL_POLL_S = 2
+TAKEOVER_WAIT_S = 15 * 60  # how long the screen is held for the owner to take it (request_takeover and takeover tasks)
 BUSY_RETRY_S = 5
-TAKEOVER_WAIT_S = 15 * 60  # how long a takeover task holds the screen for the owner to take control
 RECONCILE_WAIT_S = 5       # between the two journal reads after a lost response
 MODEL_TIMEOUT_S = 300
 SHELL_DEFAULT_S = 120
@@ -61,8 +63,10 @@ _started = False
 _stopping = False  # stop() asked the worker to end its task at the next step
 _idle = threading.Event()  # clear while the worker thread is draining
 _idle.set()
+_inflight: tuple[asyncio.AbstractEventLoop, asyncio.Task] | None = None  # the running task's loop + task, for stop()
 _drain_lock = threading.Lock()
 _draining = False
+CANCEL_WAIT_S = 10
 
 
 # ── process lifecycle ────────────────────────────────────────────────────────
@@ -87,13 +91,20 @@ def start() -> bool:
 
 
 def stop(wait_s: float = 0) -> bool:
-    """Stop claiming, ask a running task to end at its next step ("interrupted"), wait up to
-    `wait_s` for the worker to go idle, then release the lock. Returns whether it went idle —
-    a restore that proceeds anyway has a fenced worker that writes nothing more."""
+    """Stop claiming and ask a running task to end at its next step ("interrupted"). If it is
+    still inside a model or shell call after `wait_s`, cancel its coroutine: the task writes
+    nothing more (its lease is still released; the sweep marks it interrupted later) and the
+    worker thread is joined. Then release the lock. Returns whether the worker is idle."""
     global _lock_file, _started, _stopping
     _started = False
     _stopping = True
     idle = _idle.wait(wait_s) if wait_s else _idle.is_set()
+    if not idle and wait_s:
+        inflight = _inflight
+        if inflight:
+            loop, task = inflight
+            loop.call_soon_threadsafe(task.cancel)
+        idle = _idle.wait(CANCEL_WAIT_S)
     if _lock_file:
         fcntl.flock(_lock_file, fcntl.LOCK_UN)
         _lock_file.close()
@@ -146,13 +157,31 @@ def _drain_safe() -> None:
     # the 60 s sweep's kick; upgrade: loop until a claim under _drain_lock finds nothing
 
 
+def _run_cancellable(coro):
+    """asyncio.run() with the task recorded so stop() can cancel it from another thread."""
+    global _inflight
+    loop = asyncio.new_event_loop()
+    try:
+        task = loop.create_task(coro)
+        _inflight = (loop, task)
+        return loop.run_until_complete(task)
+    finally:
+        _inflight = None
+        loop.close()
+
+
 def _drain() -> None:
     wid = db.worker_id()
     while _started:
         task = db.claim_next(wid)
         if not task:
             return
-        if asyncio.run(run_task(task, wid)) == "busy":
+        try:
+            outcome = _run_cancellable(run_task(task, wid))
+        except asyncio.CancelledError:
+            logger.info("Computer task %s cancelled by stop(); the sweep marks it interrupted", task["id"])
+            return
+        if outcome == "busy":
             time.sleep(BUSY_RETRY_S)  # the task is queued again; another agent holds the screen
 
 
@@ -235,7 +264,25 @@ TOOL_DEFS = [
             "required": ["kind", "reason"],
         },
     },
+    {
+        "name": "request_takeover",
+        "description": (
+            "Call this when the page needs the owner in person: a sign-in, a 2FA code, a CAPTCHA. The owner is "
+            "told why and gets a link to the screen; the task waits (up to 15 min) while they do it, and you "
+            "continue from a fresh snapshot once they press I'm done. Never ask for or type passwords yourself."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "reason": {"type": "string", "description": "what the owner needs to do, e.g. 'sign in to shop.example'"},
+            },
+            "required": ["reason"],
+        },
+    },
 ]
+
+HANDBACK_NOTE = ("The person is done and handed the screen back. The screen may have changed: work from this fresh "
+                 "snapshot. Never ask for or type the password yourself.")
 
 _RULES = (
     "# Rules\n"
@@ -246,8 +293,9 @@ _RULES = (
     "task performs it once approved. Chatty also checks every click itself; a stop at an approval point is expected, "
     "not an error. Do everything up to that point (fill the cart, write the message) and let the task stop there.\n"
     "- Drafts: when asked to write an email, post or message, write it and leave it unsent.\n"
-    "- Passwords and keys: never type them, never look for saved ones. If a site needs a sign-in, stop and report "
-    "\"sign-in needed on <site>\"; the owner signs in by taking over the screen.\n"
+    "- Passwords and keys: never type them, never look for saved ones, never ask the owner for them. If a site "
+    "needs a sign-in, a 2FA code or a CAPTCHA, call request_takeover(reason): the owner does it on the screen "
+    "and you continue afterwards.\n"
     "- Never drive Chrome from the shell (no xdotool, CDP, 127.0.0.1:9222, playwright). The shell is for files and "
     "command-line work.\n"
     "- Be economical: one snapshot per page state, no busy-waiting loops. The task chain is capped at "
@@ -273,6 +321,38 @@ def build_user_message(task: dict, parent: dict | None) -> str:
         f"## What the previous run reported ({parent['status']}{': ' + parent['finish_reason'] if parent['finish_reason'] else ''})\n"
         f"{(parent['result_text'] or '(no report)')[:6000]}\n\n## Now\n{task['task']}"
     )
+
+
+def takeover_url(task_id: str, slug: str) -> str:
+    return f"{settings.frontend_url.rstrip('/')}/computer?task={task_id}&agent={slug}"
+
+
+def notify_takeover(task: dict, reason: str) -> None:
+    """Tell the owner the helper needs them: the reason, the agent and the viewer link — to the chat the
+    task came from (Telegram gets a URL button only when the link is https; Telegram refuses the rest),
+    otherwise every notification channel. A failed send is logged, not fatal: the card and the viewer
+    are always there. The reason is the helper's words about an untrusted page, so it never renders."""
+    from agents.db import get_agent_by_slug
+    slug = task["agent_slug"]
+    agent = get_agent_by_slug(slug) or {}
+    url = takeover_url(task["id"], slug)
+    title = f"{agent.get('agent_name') or slug} needs you on the computer"
+    text = (f"{reason}\n\nOpen the screen, press Take control, do it there, then press I'm done. "
+            f"The helper sees nothing you type.\n{url}")
+    route = json.loads(task["route"]) if task["route"] else {}
+    try:
+        if route.get("channel") == "telegram" and agent.get("telegram_bot_token"):
+            from integrations.telegram.client import send_message
+            markup = {"inline_keyboard": [[{"text": "Open the screen", "url": url}]]} if url.startswith("https://") else None
+            send_message(route["chat_id"], f"{title}\n\n{text}", agent["telegram_bot_token"], reply_markup=markup, plain=True)
+        elif route.get("channel") == "whatsapp":
+            from integrations.whatsapp.client import send_message
+            send_message(route["chat_id"], f"*{title}*\n\n{text}")
+        else:
+            from core.agents.notifications.delivery import deliver_notification
+            deliver_notification(slug, title, text)
+    except Exception:
+        logger.warning("Computer task %s: takeover notice failed", task["id"], exc_info=True)
 
 
 class _Stop(Exception):
@@ -403,7 +483,7 @@ class _Run:
                 await self.wait_for_control_end()
                 raise _Paused() from e
             if e.code == "stale_epoch" and retry_epoch:
-                self.epoch = e.body.get("epoch") or (await self.client.request("GET", "/control/status")).get("epoch") or self.epoch
+                self.epoch = e.body.get("epoch") or (await self.client.control_status()).get("epoch") or self.epoch
                 if body and "action_id" in body:
                     body = {**body, "action_id": db.ulid()}  # refused before journaling: a fresh id, nothing ran
                 return await self.computer(method, path, body=body, retry_epoch=False, **kw)
@@ -448,23 +528,36 @@ class _Run:
             except _Stop:
                 return
 
-    async def wait_for_control_end(self) -> None:
-        """A person has the screen: poll /control/status every 2 s (the clock stops) until it ends,
-        then adopt the new epoch. Cancels and policy changes still end the task."""
+    async def wait_control(self, *, human: bool, timeout: float | None = None) -> dict | None:
+        """Poll /control/status every 2 s (the clock stops) until human_in_control == `human`; that
+        status, or None once `timeout` passes. Cancels, policy changes and a lost lease still end
+        the task (check_alive). The lease keeps renewing meanwhile: renew is exempt from control."""
         self._pause_clock()
         prev, self.phase = self.phase, "wait"
+        deadline = time.monotonic() + timeout if timeout is not None else None
         try:
-            while True:
+            while deadline is None or time.monotonic() < deadline:
                 await asyncio.sleep(CONTROL_POLL_S)
                 self.check_alive()
-                st = await self.client.request("GET", "/control/status")
-                if not st.get("human_in_control"):
-                    if st.get("epoch"):
-                        self.epoch = st["epoch"]
-                    return
+                st = await self.client.control_status()
+                if bool(st.get("human_in_control")) == human:
+                    return st
+            return None
         finally:
             self.phase = prev
             self._resume_clock()
+
+    async def wait_for_control_end(self) -> None:
+        """A person has the screen (takeover_state 'active'): wait until the computer reports control
+        ended — "I'm done", the 60 s disconnect grace, or the 15 min limit, all on the computer's side —
+        then adopt the new epoch. The only "I'm done" path is /api/computer/control/end → /control/end."""
+        db.set_takeover(self.id, "active")
+        try:
+            st = await self.wait_control(human=False)
+            if st.get("epoch"):
+                self.epoch = st["epoch"]
+        finally:
+            db.set_takeover(self.id, "")
 
     # ── model calls and money ────────────────────────────────────────────────
 
@@ -865,36 +958,18 @@ class _Run:
                 await self.act("navigate", {"url": gate["url"]}, label="act:navigate", verdict_out=[])
         except (_Paused, ComputerError):  # best effort: the owner can navigate themselves
             pass
-        db.execute("UPDATE tasks SET takeover_state = 'waiting' WHERE id = ?", (self.id,))
-        link = f"{settings.frontend_url.rstrip('/')}/computer?task={self.id}&agent={self.slug}"
-        from agents.db import get_agent_by_slug
-        from core.agents.scheduled_actions.processor import deliver_background_result
-        who = (get_agent_by_slug(self.slug) or {}).get("agent_name") or self.slug
-        await asyncio.to_thread(
-            deliver_background_result, self.slug, "Your turn on the computer",
-            f"The page for the {what} is open on {who}'s screen. Take control, do it yourself, then press \"I'm done\": "
-            f"{link}\nThe screen is held for you for {TAKEOVER_WAIT_S // 60:.0f} minutes.",
-            route=json.loads(self.task["route"]) if self.task.get("route") else None,
-        )
-        self._pause_clock()
-        prev, self.phase = self.phase, "wait"
-        deadline = time.monotonic() + TAKEOVER_WAIT_S
+        reason = f"you approved doing the {what} yourself; the page is open and held for {TAKEOVER_WAIT_S // 60:.0f} minutes"
+        db.set_takeover(self.id, "waiting", reason)
         try:
-            while True:
-                await asyncio.sleep(CONTROL_POLL_S)
-                self.check_alive()
-                if (await self.client.request("GET", "/control/status")).get("human_in_control"):
-                    break
-                if time.monotonic() > deadline:
-                    self.finish("failed", f"nobody took over within {TAKEOVER_WAIT_S // 60:.0f} min",
-                                result_text=f"The page for the {what} was opened and the owner was sent the screen link, "
-                                            "but nobody took control. Nothing was done.")
-                    return
+            await asyncio.to_thread(notify_takeover, self.task, reason)
+            if await self.wait_control(human=True, timeout=TAKEOVER_WAIT_S) is None:
+                self.finish("failed", f"nobody took over within {TAKEOVER_WAIT_S // 60:.0f} min",
+                            result_text=f"The page for the {what} was opened and the owner was sent the screen link, "
+                                        "but nobody took control. Nothing was done.")
+                return
+            await self.wait_for_control_end()
         finally:
-            self.phase = prev
-            self._resume_clock()
-        await self.wait_for_control_end()
-        db.execute("UPDATE tasks SET takeover_state = 'done' WHERE id = ?", (self.id,))
+            db.set_takeover(self.id, "")
         try:
             page = await self.snapshot()
         except (_Paused, ComputerError):
@@ -903,6 +978,24 @@ class _Run:
                     result_text=f"The owner took over the screen for the {what}; Chatty performed nothing itself. "
                                 f"The screen now shows {page.get('title') or ''} ({page.get('url') or self.url}).\n\n"
                                 + (page.get("snapshot") or "")[:3000])
+
+    async def tool_request_takeover(self, a: dict) -> dict:
+        """Ask the owner to take the screen, hold it until they do (≤ 15 min, the clock stopped), wait
+        for the handback, then continue from a fresh snapshot. Nobody coming ends the task "sign-in
+        needed" with a plain result; a cancel or lost lease during either wait ends it as usual."""
+        reason = (a.get("reason") or "").strip()[:300] or "the page needs you in person"
+        db.set_takeover(self.id, "waiting", reason)
+        db.add_step(self.id, "request_takeover", a, f"waiting for the owner: {reason}", url=self.url)
+        try:
+            await asyncio.to_thread(notify_takeover, self.task, reason)
+            if await self.wait_control(human=True, timeout=TAKEOVER_WAIT_S) is None:
+                self.finish("failed", "sign-in needed", result_text=self.cap_report(
+                    f"sign-in needed — {reason}; nobody took the screen within {TAKEOVER_WAIT_S // 60} min"))
+                return {"stopped": f"nobody took over within {TAKEOVER_WAIT_S // 60} minutes; the task ends as 'sign-in needed'"}
+            await self.wait_for_control_end()
+        finally:
+            db.set_takeover(self.id, "")
+        return {"handback": HANDBACK_NOTE, **await self.snapshot()}
 
     async def execute(self, tc: dict) -> str:
         """One tool call → its result string (wrapped as untrusted where it carries page/command output)."""
@@ -917,6 +1010,8 @@ class _Run:
                 result = await self.tool_files(args)
             elif name == "request_approval":
                 result = self.tool_request_approval(args)
+            elif name == "request_takeover":
+                result = await self.tool_request_takeover(args)
             else:
                 result = {"error": f"unknown tool {name!r}"}
         except _Stop:
@@ -938,9 +1033,11 @@ class _Run:
         s = json.dumps(result)
         db.add_step(self.id, name, args, s, url=self.url,
                     verdict=(f"gated:{verdict.kind}" if verdict.gated else f"free:{verdict.rule}") if verdict else None)
-        if "stopped" in result:
+        if "stopped" in result or name == "request_approval":
             return s
-        return wrap_result(name, s) if name != "request_approval" else s
+        if name == "request_takeover" and "handback" in result:  # our own words stay outside the untrusted wrapper
+            return result.pop("handback") + "\n" + wrap_result("browser", json.dumps(result))
+        return wrap_result(name, s)
 
     # ── the loop ─────────────────────────────────────────────────────────────
 

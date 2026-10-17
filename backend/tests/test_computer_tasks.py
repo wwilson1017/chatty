@@ -704,6 +704,35 @@ class TestOneScreen:
         assert prov.calls == 1 and not any(p == "/browser/snapshot" for _, p, _ in fake.calls)
         assert fake.lease is None and tid in fake.submitted
 
+    def test_stop_cancels_a_call_in_flight_and_the_worker_writes_nothing_more(self, fake, monkeypatch, tmp_path):
+        """A model call longer than the wait: stop() cancels the coroutine; the lease is released,
+        the task row is left for the sweep (no write after the cancel), and the thread is joined."""
+        monkeypatch.setattr(db, "DATA_DIR", tmp_path)
+        monkeypatch.setattr(runner, "CANCEL_WAIT_S", 5)
+        tid = _queue()
+        prov = FakeProvider([{"tool_calls": [SNAP]}, FINAL], delay=30)
+        monkeypatch.setattr(runner, "get_ai_provider", lambda **kw: prov)
+        monkeypatch.setattr(runner, "_lock_file", None)
+        monkeypatch.setattr(runner, "kick", lambda: True)
+        assert runner.start()
+        th = threading.Thread(target=runner._drain_safe)
+        th.start()
+        for _ in range(200):  # until the worker is inside the model call
+            if prov.calls:
+                break
+            time.sleep(0.01)
+        assert prov.calls == 1 and fake.lease is not None
+        t0 = time.monotonic()
+        assert runner.stop(wait_s=0.1) is True
+        th.join(5)
+        assert not th.is_alive() and time.monotonic() - t0 < 5
+        assert fake.lease is None  # released on the way out
+        t = db.get_task(tid)
+        assert t["status"] == "running" and t["finish_reason"] is None  # no write after the cancel; the sweep's job
+        db.execute("UPDATE tasks SET heartbeat_at = datetime('now', '-10 minutes') WHERE id = ?", (tid,))
+        completion.sweep()
+        assert db.get_task(tid)["finish_reason"] == "interrupted"
+
     def test_stop_waits_for_idle_and_releases_the_lock(self, tmp_path, monkeypatch):
         monkeypatch.setattr(db, "DATA_DIR", tmp_path)
         monkeypatch.setattr(runner, "_started", False)

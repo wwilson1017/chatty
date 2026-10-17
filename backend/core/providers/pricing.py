@@ -208,8 +208,9 @@ def rates_for_prompt(model: str, prompt_tokens: int) -> tuple[float, float] | No
 
 
 def estimate_cost(model: str, input_tokens: int, output_tokens: int) -> float:
-    """Estimated USD cost for a single call. 0.0 when pricing is unknown."""
-    pricing = get_model_pricing(model)
+    """Estimated USD cost for a single call at the tier its prompt size bills at. 0.0 when
+    pricing is unknown."""
+    pricing = rates_for_prompt(model, input_tokens)
     if pricing is None:
         return 0.0
     in_price, out_price = pricing
