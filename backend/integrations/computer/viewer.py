@@ -103,7 +103,7 @@ async def control_status(user=Depends(get_current_user)):
 
 @router.post("/api/computer/control/end")
 async def control_end(body: ControlEndRequest, user=Depends(get_current_user)):
-    client = get_client()
+    client = card._client()
     try:
         await card._call(client.control_end(body.control_session_id))
     finally:

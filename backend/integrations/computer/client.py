@@ -5,6 +5,8 @@ the repo root for the server). Every call carries `Authorization: Bearer
 when the computer can't be reached at all.
 """
 
+from urllib.parse import quote
+
 import httpx
 
 from core.config import settings
@@ -71,9 +73,6 @@ class ComputerClient:
     async def control_end(self, control_session_id: str) -> dict:
         return await self.request("POST", "/control/end", json={"control_session_id": control_session_id})
 
-    async def control_status(self) -> dict:
-        return await self.request("GET", "/control/status")
-
     async def list_sites(self, agent: str) -> list[dict]:
         data = await self.request("GET", f"/profiles/{agent}/sites")
         return data.get("sites", []) if isinstance(data, dict) else data
@@ -89,7 +88,7 @@ class ComputerClient:
         url = "ws" + self.base_url[4:] if self.base_url.startswith("http") else self.base_url
         url += f"/vnc?mode={mode}"
         if control_session_id:
-            url += f"&control_session_id={control_session_id}"
+            url += f"&control_session_id={quote(control_session_id, safe='')}"
         return url
 
 

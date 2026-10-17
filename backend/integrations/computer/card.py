@@ -17,7 +17,7 @@ from .client import ComputerError, api_version_error, get_client
 
 IDLE_MINUTES_DEFAULT = 30  # "Close when idle"; 0 is "Always on"
 SLUG_RE = re.compile(r"^[a-z0-9-]{1,64}$")  # the computer's own rule for agent slugs
-DOMAIN_RE = re.compile(r"^[A-Za-z0-9.-]{1,253}$")
+DOMAIN_RE = re.compile(r"^[A-Za-z0-9-]{1,63}(\.[A-Za-z0-9-]{1,63})*$")  # hostname labels: no bare/leading/double dots, so "." or ".." can never walk the computer's path
 
 
 def creds() -> dict:
@@ -42,7 +42,7 @@ def set_disabled_agents(slugs: list[str]) -> dict:
 
 
 def _check(pattern: re.Pattern, value: str, what: str) -> str:
-    if not pattern.match(value):
+    if not pattern.fullmatch(value):
         raise HTTPException(status_code=400, detail=f"Invalid {what}")
     return value
 
@@ -55,6 +55,14 @@ def _http_error(e: ComputerError) -> HTTPException:
 async def _call(coro):
     try:
         return await coro
+    except ComputerError as e:
+        raise _http_error(e) from e
+
+
+def _client():
+    """get_client() for a card action: "not configured" becomes a readable 502, not a 500."""
+    try:
+        return get_client()
     except ComputerError as e:
         raise _http_error(e) from e
 
@@ -106,7 +114,7 @@ async def check_enable() -> None:
 
 async def set_keep_running(always_on: bool) -> dict:
     idle = 0 if always_on else IDLE_MINUTES_DEFAULT
-    client = get_client()
+    client = _client()
     try:
         await _call(client.set_settings(idle))
     finally:
@@ -119,7 +127,7 @@ async def set_keep_running(always_on: bool) -> dict:
 
 async def list_sites(agent: str) -> dict:
     _check(SLUG_RE, agent, "agent slug")
-    client = get_client()
+    client = _client()
     try:
         return {"sites": await _call(client.list_sites(agent))}
     finally:
@@ -129,7 +137,7 @@ async def list_sites(agent: str) -> dict:
 async def clear_site(agent: str, domain: str) -> dict:
     _check(SLUG_RE, agent, "agent slug")
     _check(DOMAIN_RE, domain, "domain")
-    client = get_client()
+    client = _client()
     try:
         await _call(client.clear_site(agent, domain))
     finally:
@@ -139,7 +147,7 @@ async def clear_site(agent: str, domain: str) -> dict:
 
 async def reset_browser(agent: str) -> dict:
     _check(SLUG_RE, agent, "agent slug")
-    client = get_client()
+    client = _client()
     try:
         await _call(client.reset_profile(agent))
     finally:

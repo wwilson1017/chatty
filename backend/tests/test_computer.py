@@ -179,8 +179,19 @@ class TestCard:
         assert fake.client.delete("/api/integrations/computer/profiles/tom").status_code == 200
         assert ("DELETE", "/profiles/tom", None) in fake.calls
         assert fake.client.get("/api/integrations/computer/profiles/Bad_Slug/sites").status_code == 400
-        with pytest.raises(HTTPException):  # a path-escaping "domain" never reaches the computer
-            card._check(card.DOMAIN_RE, "a/../b", "domain")
+        for bad in ("a/../b", "..", ".", ".github.com", "a..b", "github.com."):  # httpx would fold ".." into DELETE /profiles/tom
+            with pytest.raises(HTTPException):
+                card._check(card.DOMAIN_RE, bad, "domain")
+        assert card._check(card.DOMAIN_RE, "accounts.google.com", "domain")
+
+    def test_unconfigured_is_a_readable_502_not_a_500(self, client, monkeypatch):
+        monkeypatch.delenv("COMPUTER_URL", raising=False)
+        monkeypatch.delenv("COMPUTER_SECRET", raising=False)
+        for r in (client.put("/api/integrations/computer/settings", json={"always_on": True}),
+                  client.get("/api/integrations/computer/profiles/tom/sites"),
+                  client.delete("/api/integrations/computer/profiles/tom"),
+                  client.post("/api/computer/control/end", json={"control_session_id": "cs-1"})):
+            assert r.status_code == 502 and "No computer is configured" in r.json()["detail"], r.text
 
     def test_agent_exclude_list(self, fake):
         _enable()
