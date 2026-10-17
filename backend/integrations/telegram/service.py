@@ -5,7 +5,6 @@ runs the agent (non-streaming), and returns the response text.
 The router handles sending the response back via the Telegram client.
 """
 
-import importlib
 import logging
 import uuid
 
@@ -15,19 +14,9 @@ from agents.engine import (
     get_context_manager,
     get_chat_service,
 )
+from agents.tool_loader import INTEGRATION_MODULES, load_integration_tools, build_agent_handlers, tool_flags
 from core.providers import get_ai_provider
 from core.agents.tool_registry import ToolRegistry
-from core.agents.reminders.tools import (
-    create_reminder_handler,
-    list_reminders_handler,
-    cancel_reminder_handler,
-)
-from core.agents.scheduled_actions.tools import (
-    create_scheduled_action_handler,
-    list_scheduled_actions_handler,
-    update_scheduled_action_handler,
-    delete_scheduled_action_handler,
-)
 from core.agents import ai_service
 
 from . import state
@@ -71,61 +60,6 @@ async def save_message_only(
         logger.info("save_message_only: saved busy-skipped message for %s", agent_slug)
     except Exception:
         logger.warning("save_message_only: failed for agent=%s sender=%s", agent_slug, sender_id, exc_info=True)
-
-# Integration module registry (same as agents/router.py)
-_INTEGRATION_MODULES = {
-    "crm_lite": ("integrations.crm_lite.tools", "CRM_LITE_TOOL_DEFS"),
-    "odoo": ("integrations.odoo.tools", "ODOO_TOOL_DEFS"),
-    "bamboohr": ("integrations.bamboohr.tools", "BAMBOOHR_TOOL_DEFS"),
-    "quickbooks": ("integrations.quickbooks.tools", "QB_TOOL_DEFS"),
-    "qb_csv": ("integrations.qb_csv.tools", "QB_CSV_TOOL_DEFS"),
-    "paperclip": ("integrations.paperclip.tools", "PAPERCLIP_TOOL_DEFS"),
-    "todoist": ("integrations.todoist.tools", "TODOIST_TOOL_DEFS"),
-    "claude_code": ("integrations.claude_code.tools", "CLAUDE_CODE_TOOL_DEFS"),
-}
-
-
-def _load_integration_tools() -> tuple[list[dict], dict]:
-    """Load tool definitions and executors from all enabled integrations."""
-    from integrations.registry import is_enabled
-
-    tool_defs: list[dict] = []
-    executors: dict = {}
-
-    for name, (module_path, defs_attr) in _INTEGRATION_MODULES.items():
-        if not is_enabled(name):
-            continue
-        try:
-            if name == "crm_lite":
-                from integrations.crm_lite.db import init_db, _connection
-                if _connection is None:
-                    init_db()
-
-            mod = importlib.import_module(module_path)
-            defs = getattr(mod, defs_attr, [])
-            execs = getattr(mod, "TOOL_EXECUTORS", {})
-            tool_defs.extend({**d, "integration": name} for d in defs)
-            executors.update(execs)
-        except Exception as e:
-            logger.warning("Failed to load integration %s: %s", name, e)
-
-    return tool_defs, executors
-
-
-def _build_agent_handlers(agent_slug: str) -> tuple[dict, dict]:
-    """Build reminder and scheduled action handler dicts for an agent."""
-    reminder_handlers = {
-        "create_reminder": lambda **kw: create_reminder_handler(agent_slug, **kw),
-        "list_reminders": lambda **kw: list_reminders_handler(agent_slug, **kw),
-        "cancel_reminder": lambda **kw: cancel_reminder_handler(agent_slug, **kw),
-    }
-    sa_handlers = {
-        "create_scheduled_action": lambda **kw: create_scheduled_action_handler(agent_slug, **kw),
-        "list_scheduled_actions": lambda **kw: list_scheduled_actions_handler(agent_slug, **kw),
-        "update_scheduled_action": lambda **kw: update_scheduled_action_handler(agent_slug, **kw),
-        "delete_scheduled_action": lambda **kw: delete_scheduled_action_handler(agent_slug, **kw),
-    }
-    return reminder_handlers, sa_handlers
 
 
 async def process_message(
@@ -184,20 +118,21 @@ async def process_message(
         for aid, a in all_ga.items()
     }
 
-    integration_tool_defs, integration_executors = _load_integration_tools()
+    integration_tool_defs, integration_executors = load_integration_tools()
 
     from integrations.registry import get_tool_mode, get_credentials
     integration_tool_modes = {
         name: get_tool_mode(name)
-        for name in _INTEGRATION_MODULES
+        for name in INTEGRATION_MODULES
         if "tool_mode" in get_credentials(name)
     }
 
-    reminder_handlers, sa_handlers = _build_agent_handlers(slug)
+    reminder_handlers, sa_handlers = build_agent_handlers(slug)
     registry = ToolRegistry(
         context_dir=config.context_dir,
         google_connected=google_connected,
         integration_executors=integration_executors,
+        integration_tool_flags=tool_flags(integration_tool_defs),
         agent_slug=slug,
         reminder_handlers=reminder_handlers,
         scheduled_action_handlers=sa_handlers,
@@ -290,20 +225,21 @@ async def process_group_message(
         for aid, a in all_ga.items()
     }
 
-    integration_tool_defs, integration_executors = _load_integration_tools()
+    integration_tool_defs, integration_executors = load_integration_tools()
 
     from integrations.registry import get_tool_mode, get_credentials
     integration_tool_modes = {
         name: get_tool_mode(name)
-        for name in _INTEGRATION_MODULES
+        for name in INTEGRATION_MODULES
         if "tool_mode" in get_credentials(name)
     }
 
-    reminder_handlers, sa_handlers = _build_agent_handlers(slug)
+    reminder_handlers, sa_handlers = build_agent_handlers(slug)
     registry = ToolRegistry(
         context_dir=config.context_dir,
         google_connected=google_connected,
         integration_executors=integration_executors,
+        integration_tool_flags=tool_flags(integration_tool_defs),
         agent_slug=slug,
         reminder_handlers=reminder_handlers,
         scheduled_action_handlers=sa_handlers,
