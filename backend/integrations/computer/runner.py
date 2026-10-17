@@ -57,8 +57,10 @@ _started = False
 _stopping = False  # stop() asked the worker to end its task at the next step
 _idle = threading.Event()  # clear while the worker thread is draining
 _idle.set()
+_inflight: tuple[asyncio.AbstractEventLoop, asyncio.Task] | None = None  # the running task's loop + task, for stop()
 _drain_lock = threading.Lock()
 _draining = False
+CANCEL_WAIT_S = 10
 
 
 # ── process lifecycle ────────────────────────────────────────────────────────
@@ -83,13 +85,20 @@ def start() -> bool:
 
 
 def stop(wait_s: float = 0) -> bool:
-    """Stop claiming, ask a running task to end at its next step ("interrupted"), wait up to
-    `wait_s` for the worker to go idle, then release the lock. Returns whether it went idle —
-    a restore that proceeds anyway has a fenced worker that writes nothing more."""
+    """Stop claiming and ask a running task to end at its next step ("interrupted"). If it is
+    still inside a model or shell call after `wait_s`, cancel its coroutine: the task writes
+    nothing more (its lease is still released; the sweep marks it interrupted later) and the
+    worker thread is joined. Then release the lock. Returns whether the worker is idle."""
     global _lock_file, _started, _stopping
     _started = False
     _stopping = True
     idle = _idle.wait(wait_s) if wait_s else _idle.is_set()
+    if not idle and wait_s:
+        inflight = _inflight
+        if inflight:
+            loop, task = inflight
+            loop.call_soon_threadsafe(task.cancel)
+        idle = _idle.wait(CANCEL_WAIT_S)
     if _lock_file:
         fcntl.flock(_lock_file, fcntl.LOCK_UN)
         _lock_file.close()
@@ -142,13 +151,31 @@ def _drain_safe() -> None:
     # the 60 s sweep's kick; upgrade: loop until a claim under _drain_lock finds nothing
 
 
+def _run_cancellable(coro):
+    """asyncio.run() with the task recorded so stop() can cancel it from another thread."""
+    global _inflight
+    loop = asyncio.new_event_loop()
+    try:
+        task = loop.create_task(coro)
+        _inflight = (loop, task)
+        return loop.run_until_complete(task)
+    finally:
+        _inflight = None
+        loop.close()
+
+
 def _drain() -> None:
     wid = db.worker_id()
     while _started:
         task = db.claim_next(wid)
         if not task:
             return
-        if asyncio.run(run_task(task, wid)) == "busy":
+        try:
+            outcome = _run_cancellable(run_task(task, wid))
+        except asyncio.CancelledError:
+            logger.info("Computer task %s cancelled by stop(); the sweep marks it interrupted", task["id"])
+            return
+        if outcome == "busy":
             time.sleep(BUSY_RETRY_S)  # the task is queued again; another agent holds the screen
 
 

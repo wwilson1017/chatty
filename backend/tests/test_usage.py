@@ -94,6 +94,9 @@ class TestPricing:
         assert pricing.rates_for_prompt("claude-haiku-5-5", 100_001) == (0.50, 2.50)
         assert pricing.get_max_rates("claude-haiku-5-5-20261001") == (0.50, 2.50)  # snapshots inherit the tier
         assert pricing.rates_for_prompt("gpt-5.5", 300_000) == (10.00, 45.00)
+        # the usage dashboard's estimate follows the tier too
+        assert pricing.estimate_cost("gpt-5.4", 300_000, 1_000) == pytest.approx(300_000 * 5.00 / 1e6 + 1_000 * 22.50 / 1e6)
+        assert pricing.estimate_cost("gpt-5.4", 100_000, 1_000) == pytest.approx(100_000 * 2.50 / 1e6 + 1_000 * 15.00 / 1e6)
         assert pricing.get_max_rates("nope") is None and pricing.rates_for_prompt("nope", 1) is None
         for model, (lin, lout, _) in pricing.MODEL_PRICING_LONG.items():
             assert model in pricing.MODEL_PRICING and (lin, lout) >= pricing.MODEL_PRICING[model]
