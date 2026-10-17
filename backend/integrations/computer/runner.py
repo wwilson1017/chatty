@@ -663,11 +663,17 @@ class _Run:
                 self.finish("failed", reason, result_text=self.cap_report(reason))
                 return
             reserved, max_tokens, in_tok = reservation
+            remaining = self.remaining_seconds()  # counting tokens took time too
+            if remaining < 1:
+                db.settle(self.id, reserved, 0, 0, 0)  # nothing was called; give the reservation back
+                reason = f"time cap reached ({db.MAX_SECONDS // 3600} h over the task chain)"
+                self.finish("failed", reason, result_text=self.cap_report(reason))
+                return
             provider.max_tokens = max_tokens
             self.phase = "model"
             self.heartbeat()
             try:
-                turn = await self.model_call(provider, messages, tools, system, min(MODEL_TIMEOUT_S, max(5.0, self.remaining_seconds())))
+                turn = await self.model_call(provider, messages, tools, system, min(MODEL_TIMEOUT_S, remaining))
             except asyncio.TimeoutError:
                 self.finish("failed", "model call timed out")  # usage unknown: the reservation stays charged
                 return

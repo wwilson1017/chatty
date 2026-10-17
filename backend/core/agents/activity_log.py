@@ -49,8 +49,8 @@ def log_chat_event(
     """Record a completed chat turn in the unified activity log.
 
     `event_type` labels the row in the usage dashboard ("chat", or "computer" for the
-    helper loop's spend). A caller-supplied `event_id` makes the insert idempotent
-    (insert-if-absent), so a row keyed by a task id is never written twice.
+    helper loop's spend). A caller-supplied `event_id` makes the write an upsert keyed by
+    that id: one row per task, refreshed (never duplicated) when recorded again.
     """
     event_id = event_id or str(uuid.uuid4())
     now = _now_utc()
@@ -62,7 +62,7 @@ def log_chat_event(
     conn = db.get_db()
     with db.write_lock():
         conn.execute(
-            """INSERT OR IGNORE INTO execution_history
+            """INSERT OR REPLACE INTO execution_history
                (id, action_id, agent, action_type, event_type, source,
                 conversation_id, started_at, completed_at, status,
                 result_summary, tool_calls, model_used, provider,

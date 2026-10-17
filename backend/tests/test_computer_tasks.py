@@ -451,6 +451,26 @@ class TestBudgetAndCaps:
         _, t = _run(fake, prov, monkeypatch)
         assert t["status"] == "failed" and t["finish_reason"].startswith("time cap") and prov.calls == 0
 
+    def test_time_cap_bounds_the_model_call_and_no_call_with_under_a_second_left(self, fake, monkeypatch):
+        tid = _queue()
+        db.execute("UPDATE tasks SET running_seconds = ? WHERE id = ?", (db.MAX_SECONDS - 0.5, tid))
+        prov = FakeProvider([FINAL])
+        _, t = _run(fake, prov, monkeypatch)
+        assert t["status"] == "failed" and t["finish_reason"].startswith("time cap") and prov.calls == 0
+        assert t["cost_reserved_usd"] == 0  # the reservation made before the clock check was given back
+        # with a few seconds left the call's timeout is the remaining time, not a floor
+        tid2 = _queue()
+        db.execute("UPDATE tasks SET running_seconds = ? WHERE id = ?", (db.MAX_SECONDS - 3, tid2))
+        timeouts: list[float] = []
+        orig = runner._Run.model_call
+
+        async def spy(self, provider, messages, tools, system, timeout):
+            timeouts.append(timeout)
+            return await orig(self, provider, messages, tools, system, timeout)
+        monkeypatch.setattr(runner._Run, "model_call", spy)
+        _, t2 = _run(fake, FakeProvider([FINAL]), monkeypatch)
+        assert t2["status"] == "done" and len(timeouts) == 1 and 0 < timeouts[0] <= 3
+
     def test_unpriced_helper_model_is_refused_at_claim(self, fake, monkeypatch):
         tid = _queue()
         db.execute("UPDATE tasks SET helper_model = 'claude-sonnet-5-5-turbo' WHERE id = ?", (tid,))
@@ -509,6 +529,15 @@ class TestPolicyAtEveryBoundary:
         outcome, t = _run(fake, prov, monkeypatch)
         assert outcome == "done" and t["status"] == "cancelled" and prov.calls == 1
         assert not any(p == "/browser/snapshot" for _, p, _ in fake.calls)
+        # the call that was in flight when the owner cancelled still gets accounted: the usage row
+        # written at cancel time (0 tokens) is refreshed by the sweep
+        from core.agents.reminders import db as reminders_mod
+        row = reminders_mod.get_db().execute("SELECT input_tokens FROM execution_history WHERE id = ?", (f"vc-{tid}",)).fetchone()
+        assert row["input_tokens"] == 0 and t["accounting_pending"] == 1 and t["input_tokens"] == 1000
+        monkeypatch.setattr(runner, "kick", lambda: False)
+        completion.sweep()
+        rows = reminders_mod.get_db().execute("SELECT input_tokens FROM execution_history WHERE id = ?", (f"vc-{tid}",)).fetchall()
+        assert len(rows) == 1 and rows[0]["input_tokens"] == 1000 and db.get_task(tid)["accounting_pending"] == 0
 
 
 class TestOneScreen:

@@ -304,11 +304,14 @@ def reserve(task_id: str, root_task_id: str, usd: float) -> bool:
 
 def settle(task_id: str, reserved: float, actual: float, input_tokens: int, output_tokens: int) -> None:
     """Replace a call's reservation with what it actually cost. Never called when usage is unknown
-    (crash, lost response): then the reservation stays charged."""
+    (crash, lost response): then the reservation stays charged. A task cancelled while the call
+    was in flight is already terminal and has its usage row; re-flag it so the sweep refreshes."""
     execute(
         "UPDATE tasks SET cost_reserved_usd = MAX(0, cost_reserved_usd - ?), cost_actual_usd = cost_actual_usd + ?, "
-        "input_tokens = input_tokens + ?, output_tokens = output_tokens + ? WHERE id = ?",
-        (reserved, actual, input_tokens, output_tokens, task_id),
+        "input_tokens = input_tokens + ?, output_tokens = output_tokens + ?, "
+        f"accounting_pending = CASE WHEN status IN ({','.join('?' * len(TERMINAL_STATUSES))}) THEN 1 ELSE accounting_pending END "
+        "WHERE id = ?",
+        (reserved, actual, input_tokens, output_tokens, *TERMINAL_STATUSES, task_id),
     )
 
 
