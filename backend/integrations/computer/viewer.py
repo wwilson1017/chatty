@@ -121,8 +121,12 @@ async def _safe_close(ws: WebSocket, code: int, reason: str = "") -> None:
         pass
 
 
-async def _relay(ws: WebSocket, up, stop: asyncio.Event) -> None:
-    """Pump frames both ways until either side ends or `stop` is set."""
+async def _relay(ws: WebSocket, up, stop: asyncio.Event) -> str | None:
+    """Pump frames both ways until either side ends or `stop` is set.
+
+    Returns the computer's close reason ("" if it sent none) when the computer hung
+    up, None when the browser or `stop` ended it — so the page can say why.
+    """
     async def to_computer():
         while True:
             msg = await ws.receive()
@@ -131,19 +135,24 @@ async def _relay(ws: WebSocket, up, stop: asyncio.Event) -> None:
             await up.send(msg["bytes"] if msg.get("bytes") is not None else msg.get("text", ""))
 
     async def to_browser():
-        async for data in up:
+        while True:
+            try:
+                data = await up.recv()
+            except websockets.exceptions.ConnectionClosed as e:
+                return e.rcvd.reason if e.rcvd else ""  # control ended, desktop stopped, or the container restarted
             if isinstance(data, bytes):
                 await ws.send_bytes(data)
             else:
                 await ws.send_text(data)
 
-    tasks = [asyncio.create_task(to_computer()), asyncio.create_task(to_browser()),
-             asyncio.create_task(stop.wait())]
+    to_up, to_down, stopped = (asyncio.create_task(c) for c in (to_computer(), to_browser(), stop.wait()))
+    tasks = [to_up, to_down, stopped]
     try:
         done, _ = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
         for t in done:  # a pump that died (peer closed mid-frame) ends the relay; it isn't an error worth raising
             if t.exception():
                 logger.debug("computer viewer pump ended: %r", t.exception())
+        return to_down.result() if to_down in done and not to_down.exception() else None
     finally:
         for t in tasks:
             t.cancel()
@@ -180,9 +189,12 @@ async def vnc(ws: WebSocket, ticket: str = ""):
                     return
                 _open[ws] = state
                 try:
-                    await _relay(ws, up, state["stop"])
+                    hung_up = await _relay(ws, up, state["stop"])
                 finally:
                     _open.pop(ws, None)
+                if hung_up is not None and not state["reason"]:
+                    state["reason"] = "The computer ended the stream" + (
+                        f": {hung_up}" if hung_up else " (control ended, or the desktop stopped).")
         except websockets.exceptions.InvalidStatus as e:
             # The computer refuses before the upgrade (HTTP 403): the desktop is asleep (idle), or the
             # control session already ended. A readable reason beats "InvalidStatus" on a phone.
