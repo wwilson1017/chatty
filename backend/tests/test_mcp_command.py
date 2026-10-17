@@ -220,6 +220,24 @@ class TestRestart:
         assert _run(ex(_ctx=USER)) == {"error": "MCP server 'Everything': HTTP 500: broken"}
         assert calls == ["echo"] and len(_puts(env)) == 1
 
+    def test_errors_echoing_the_env_are_redacted_everywhere(self, env, monkeypatch, tmp_path):
+        """A server that prints its environment into an error must not put the value in a tool result,
+        in last_error (plaintext in mcp.json) or in the add route's 400."""
+        _add()
+
+        async def echo_env(self, *a):
+            raise McpError(f"HTTP 500: invalid token {TOKEN} for TOKEN", status=500)
+        monkeypatch.setattr(McpClient, "call_tool", echo_env)
+        r = _run(mcp_tools.TOOL_EXECUTORS()["mcp_everything__echo"](_ctx=USER))
+        assert TOKEN not in r["error"] and "[redacted]" in r["error"]
+        monkeypatch.setattr(McpClient, "list_tools", echo_env)
+        st = _run(service.refresh_server("everything"))
+        assert TOKEN not in st["servers"][0]["last_error"] and "[redacted]" in st["servers"][0]["last_error"]
+        assert TOKEN not in (tmp_path / "integrations" / "mcp.json").read_text()  # last_error is stored in the clear
+        with pytest.raises(McpError, match=r"\[redacted\]") as ei:
+            _add("Second")
+        assert TOKEN not in str(ei.value)
+
     def test_unreachable_computer_is_a_clear_message(self, env):
         _add()
         env.unreachable = True
@@ -304,6 +322,14 @@ class TestRoutes:
         r = client.post("/api/integrations/mcp/servers/command", json={"name": "X", "command": "npx nope", "env": {"1BAD": "v"}})
         assert r.status_code == 400 and "variable name" in r.json()["detail"]
         assert client.post("/api/integrations/mcp/servers/command", json={"name": "X", "command": ""}).status_code == 422
+        # Too many or non-string values are refused by our own check, never by a 422 that echoes the input.
+        n = len(env.calls)
+        r = client.post("/api/integrations/mcp/servers/command",
+                        json={"name": "X", "command": "npx nope", "env": {f"V{i}": TOKEN for i in range(21)}})
+        assert r.status_code == 400 and "At most" in r.json()["detail"] and TOKEN not in r.text
+        r = client.post("/api/integrations/mcp/servers/command", json={"name": "X", "command": "npx nope", "env": {"A": 7}})
+        assert r.status_code == 400 and "control characters" in r.json()["detail"] and "7" not in r.json()["detail"]
+        assert len(env.calls) == n
 
     def test_remote_servers_never_touch_the_computer(self, client, env, monkeypatch):
         monkeypatch.setattr(ssrf, "resolve", lambda h: ["93.184.216.34"])

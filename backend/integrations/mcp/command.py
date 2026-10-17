@@ -26,6 +26,7 @@ from .client import McpClient, McpError
 logger = logging.getLogger(__name__)
 NAME_RE = re.compile(r"^[a-z0-9_-]{1,64}$")  # the computer's rule; store.slug() always satisfies it
 ENV_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,63}$")
+MAX_ENV = 20
 START_TIMEOUT = 45.0  # the computer waits up to 20 s for mcp-proxy, after npx/uvx may fetch the package
 MAX_ERROR = 600
 _transport: httpx.AsyncBaseTransport | None = None  # tests only: the fake computer
@@ -62,8 +63,11 @@ def redact(text: str, values) -> str:
 
 
 def validate_env(env: dict) -> dict[str, str]:
+    """Checked here, not by the request model: a pydantic 422 echoes the input, values included."""
     out = {}
-    for k, v in (env or {}).items():
+    if not isinstance(env, dict) or len(env) > MAX_ENV:
+        raise ValueError(f"At most {MAX_ENV} environment variables")
+    for k, v in env.items():
         if not isinstance(k, str) or not ENV_NAME_RE.fullmatch(k):
             raise ValueError(f"Invalid environment variable name {k!r}")
         if not isinstance(v, str) or not v.isprintable():
@@ -125,9 +129,18 @@ async def stop_all() -> None:
 async def run(server_id: str, op):
     """await op(client) through the computer's bridge. A 404 from the proxy means the process is gone
     (the computer restarted): start it again, then retry only a request that was not the tool call —
-    a tool call's outcome is reported as unknown, never replayed."""
+    a tool call's outcome is reported as unknown, never replayed. Every error is redacted: a server
+    that echoes its environment must not put a value in last_error, on the card or in a tool result."""
     if err := store.computer_error():
         raise McpError(err)
+    values = store.env_values(store.servers()[server_id]).values()
+    try:
+        return await _run(server_id, op)
+    except McpError as e:
+        raise McpError(redact(str(e), values), status=e.status, retry_safe=e.retry_safe) from e
+
+
+async def _run(server_id: str, op):
     try:
         return await op(client(server_id))
     except McpError as e:

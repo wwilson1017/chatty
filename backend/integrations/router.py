@@ -201,7 +201,7 @@ class McpServerRequest(BaseModel):
 class McpCommandServerRequest(BaseModel):
     name: str = Field(..., min_length=1, max_length=60)
     command: str = Field(..., min_length=1, max_length=1000)
-    env: dict[str, str] = Field(default_factory=dict, max_length=20)
+    env: dict = Field(default_factory=dict)  # names, types and count checked in command.validate_env (a 422 would echo values)
 
 
 class McpServerUpdateRequest(BaseModel):

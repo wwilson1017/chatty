@@ -123,9 +123,9 @@ async def add_command_server(name: str, cmd: str, env: dict) -> dict:
     await command.put(sid, cmd, env)
     try:
         tools = [_cache_entry(t) for t in await command.client(sid).list_tools()]
-    except McpError:
-        await command.delete(sid)  # not saved yet, so stop() would not know it
-        raise
+    except McpError as e:
+        await command.delete(sid)  # not saved yet, so stop() and run() would not know it
+        raise McpError(command.redact(str(e), env.values()), status=e.status) from e
     _save_new(sid, _new_entry(name, tools, None, kind="command", command=cmd,
                               env={k: {"api_key": v} for k, v in env.items()}))
     return status()
