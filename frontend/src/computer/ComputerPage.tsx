@@ -15,11 +15,10 @@ import type RFB from '@novnc/novnc';
 import { api } from '../core/api/client';
 import { INK, INK_MUTE, INK_DIM, LINE, LINE_STRONG, BG_ELEV, BG_RAISED, CORAL, SAGE, GOLD, FONT_MONO, mono } from '../shared/styles';
 import { useIsMobile } from '../shared/useIsMobile';
+import { SESSION_KEY, initialMode, parseStoredControl, type Mode } from './session';
 
-type Mode = 'view' | 'control';
 type Conn = 'connecting' | 'connected' | 'disconnected';
 
-const SESSION_KEY = 'chatty_control_session'; // {agent, id}
 const KEYS: Record<string, number> = { Enter: 0xff0d, Backspace: 0xff08, Tab: 0xff09, Escape: 0xff1b };
 
 // X11 keysyms: Latin-1 maps 1:1, anything else is the Unicode keysym range.
@@ -28,12 +27,7 @@ function keysym(ch: string): number {
   return cp === 10 ? KEYS.Enter : cp < 0x100 ? cp : 0x01000000 | cp;
 }
 
-function storedControl(agent: string): string | null {
-  try {
-    const v = JSON.parse(sessionStorage.getItem(SESSION_KEY) || 'null') as { agent: string; id: string } | null;
-    return v && v.agent === agent ? v.id : null;
-  } catch { return null; }
-}
+const storedControl = (agent: string) => parseStoredControl(sessionStorage.getItem(SESSION_KEY), agent);
 
 const btn: React.CSSProperties = {
   fontSize: 12, padding: '6px 12px', borderRadius: 4, cursor: 'pointer',
@@ -44,7 +38,7 @@ export function ComputerPage() {
   const [params] = useSearchParams();
   const agent = params.get('agent') || '';
   const taskId = params.get('task') || undefined;
-  const [mode, setMode] = useState<Mode>(params.get('mode') === 'control' ? 'control' : 'view');
+  const [mode, setMode] = useState<Mode>(() => initialMode(params.get('mode'), storedControl(agent)));
   const [conn, setConn] = useState<Conn>('connecting');
   const [error, setError] = useState('');
   const [controlId, setControlId] = useState<string | null>(() => storedControl(agent));
@@ -60,6 +54,7 @@ export function ComputerPage() {
     if (!agent) return;
     let cancelled = false;
     let rfb: RFB | null = null;
+    let live = false; // RFB built and not yet disconnected: only then may cleanup call disconnect() (noVNC logs an error otherwise)
     let connected = false;
     let closeReason = '';
     setConn('connecting');
@@ -79,6 +74,7 @@ export function ComputerPage() {
         const sock = new WebSocket(`${proto}://${location.host}/api/computer/vnc?ticket=${encodeURIComponent(ticket)}`);
         sock.addEventListener('close', ev => { closeReason = ev.reason; });
         rfb = new Rfb(screenRef.current, sock);
+        live = true;
         rfb.background = '#0A0C0F';
         rfb.scaleViewport = true;
         rfb.resizeSession = false;
@@ -97,6 +93,7 @@ export function ComputerPage() {
           }
         });
         rfb.addEventListener('disconnect', e => {
+          live = false;
           if (cancelled) return;
           const { clean } = (e as CustomEvent<{ clean: boolean }>).detail;
           setConn('disconnected');
@@ -108,7 +105,7 @@ export function ComputerPage() {
         if (!cancelled) { setConn('disconnected'); setError(err instanceof Error ? err.message : 'Could not connect'); }
       }
     })();
-    return () => { cancelled = true; rfbRef.current = null; rfb?.disconnect(); };
+    return () => { cancelled = true; rfbRef.current = null; if (live) rfb?.disconnect(); };
   }, [agent, taskId, mode, attempt]);
 
   const reconnect = () => setAttempt(a => a + 1);
