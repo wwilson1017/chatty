@@ -297,9 +297,16 @@ class TestResume:
         _, gate = _stop_at_gate(ap, monkeypatch)
         _approve(ap, gate["id"])
         ap.fake.element_changed = True  # the fake's /browser/act refuses with 409 element_changed
+
+        def page_changes_under_the_click(path, body):
+            if path == "/browser/act":  # locate saw $45.00; by the click the page shows $50.00
+                ap.fake.elements["e10"] = element("Place order", total="50.00")
+        ap.fake.before_call = page_changes_under_the_click
         f = _follow_up(ap, monkeypatch)
         assert ap.fake.performed == [] and f["status"] == "needs_approval"
-        assert db.get_gate(gate["id"])["status"] == "cancelled" and db.get_gate(f["gate_id"])["note"].startswith("changed under the click: name")
+        new = db.get_gate(f["gate_id"])
+        assert db.get_gate(gate["id"])["status"] == "cancelled" and new["note"].startswith("changed under the click: name")
+        assert json.loads(new["total_json"])["amount"] == "50.00"  # the replacement gate carries the re-read facts, not the rejected ones
 
     def test_an_old_total_still_visible_as_a_subtotal_does_not_satisfy_the_check(self, ap, monkeypatch):
         _, gate = _stop_at_gate(ap, monkeypatch)

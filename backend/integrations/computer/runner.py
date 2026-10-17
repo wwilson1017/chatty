@@ -796,7 +796,14 @@ class _Run:
                                    (self.pending_action_id, gate["id"]))
                         continue
                     if e.code == "element_changed":  # journaled as failed; nothing was clicked
-                        await self.regate(gate, "changed under the click: " + ", ".join(e.body.get("mismatches") or ["page"]), element)
+                        # The facts we located are the ones the computer just rejected: describe the control
+                        # again for the replacement gate (unreadable → a takeover card, never stale facts).
+                        try:
+                            fresh = await self.computer("POST", "/browser/element", body=params)
+                        except (_Paused, ComputerError):
+                            fresh = None
+                        await self.regate(gate, "changed under the click: " + ", ".join(e.body.get("mismatches") or ["page"]),
+                                          fresh if fresh and fresh.get("found") else None)
                         return False
                     return await self.reconcile(gate, element) == "done"
                 except _Paused:  # refused before journaling, but a person had the screen: the page may differ now
