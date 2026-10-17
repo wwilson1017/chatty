@@ -28,11 +28,11 @@ def docker_log(tmp_path, monkeypatch):
     log, started = tmp_path / "docker.log", tmp_path / "started"
     script = bin_dir / "docker"
     script.write_text(f'#!/bin/sh\necho "$@" >> "{log}"\ncase "$1" in\n  info) exit 0;;\n  start) [ -e "{started}" ];;\n'
-                      f'  run) touch "{started}"; exit 0;;\nesac\n', encoding="utf-8")
+                      f'  run) touch "{started}"; exit 0;;\n  rm) rm -f "{started}"; exit 0;;\nesac\n', encoding="utf-8")
     script.chmod(0o755)
     monkeypatch.setenv("PATH", f"{bin_dir}{os.pathsep}{os.environ['PATH']}")
     log.write_text("", encoding="utf-8")
-    return log
+    return log  # its sibling `started` file is the container; touch it to simulate a leftover one
 
 
 def _answers(monkeypatch, *answers):
@@ -56,8 +56,8 @@ def test_yes_writes_env_runs_the_container_then_only_starts_it(run_mod, docker_l
     assert env["AUTH_PASSWORD"] == "pw"  # quotes stripped, earlier lines kept
     assert env["COMPUTER_URL"] == "http://127.0.0.1:8765" and len(env["COMPUTER_SECRET"]) >= 32
     calls = docker_log.read_text(encoding="utf-8").splitlines()
-    assert calls[0] == "info" and calls[1] == "start chatty-computer"
-    run_cmd = calls[2]
+    assert calls[:3] == ["info", "rm -f chatty-computer", "start chatty-computer"]
+    run_cmd = calls[3]
     assert run_cmd.startswith("run -d --name chatty-computer --restart unless-stopped -p 127.0.0.1:8765:8080 -v chatty-computer:/data")
     assert f"-e COMPUTER_SECRET={env['COMPUTER_SECRET']}" in run_cmd  # the very secret .env holds
     assert "-e HOST=0.0.0.0 --shm-size=1g ghcr.io/wwilson1017/chatty-computer:latest" in run_cmd
@@ -69,6 +69,15 @@ def test_yes_writes_env_runs_the_container_then_only_starts_it(run_mod, docker_l
     run_mod.setup_computer()
     assert docker_log.read_text(encoding="utf-8").splitlines() == ["info", "start chatty-computer"]
     assert run_mod._read_env()["COMPUTER_SECRET"] == env["COMPUTER_SECRET"]
+
+
+def test_yes_recreates_a_leftover_container_so_it_gets_the_new_secret(run_mod, docker_log, monkeypatch):
+    (docker_log.parent / "started").touch()  # a chatty-computer container exists, but .env has no COMPUTER_* lines
+    _answers(monkeypatch, "y")
+    run_mod.setup_computer()
+    calls = docker_log.read_text(encoding="utf-8").splitlines()
+    assert calls[:3] == ["info", "rm -f chatty-computer", "start chatty-computer"]
+    assert calls[3].startswith("run -d") and f"COMPUTER_SECRET={run_mod._read_env()['COMPUTER_SECRET']}" in calls[3]
 
 
 def test_no_is_remembered(run_mod, docker_log, monkeypatch, capsys):

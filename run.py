@@ -203,6 +203,8 @@ def setup_computer():
                 return
             secret = secrets.token_urlsafe(36)
             f.write(f"\n# Virtual computer (see docs/computer.md)\nCOMPUTER_URL={COMPUTER_URL}\nCOMPUTER_SECRET={secret}\n")
+        # A container left from an earlier setup still carries its old secret: recreate it below (the volume stays).
+        subprocess.run([docker, "rm", "-f", COMPUTER_CONTAINER], capture_output=True)
     if subprocess.run([docker, "start", COMPUTER_CONTAINER], capture_output=True).returncode != 0:
         print("  Starting the virtual computer (the first run downloads the image)...")
         created = subprocess.run([
