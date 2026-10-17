@@ -544,14 +544,15 @@ async def browser_act(body: ActBody):
 
 # ----- shell -------------------------------------------------------------------------------------
 
-async def read_capped(stream, cap: int) -> tuple[bytes, bool]:
-    buf, truncated = bytearray(), False
+async def read_capped(stream, buf: bytearray, cap: int) -> bool:
+    """Drain `stream` into `buf` (so partial output survives a cancel); True if output was cut."""
+    truncated = False
     while chunk := await stream.read(65536):
         if len(buf) < cap:
             buf += chunk[: cap - len(buf)]
         else:
             truncated = True
-    return bytes(buf), truncated
+    return truncated
 
 
 @router.post("/shell")
@@ -567,25 +568,29 @@ async def shell(body: ShellBody):
             env={**os.environ, "DISPLAY": ":1", "CHATTY_AGENT": agent},
         )
         info = state.shells[proc.pid] = {"killed": False}
+        out, err = bytearray(), bytearray()
+        readers = [asyncio.ensure_future(read_capped(proc.stdout, out, SHELL_OUTPUT_CAP)),
+                   asyncio.ensure_future(read_capped(proc.stderr, err, SHELL_OUTPUT_CAP))]
         timed_out = False
         try:
-            # the timeout covers exit too: a command that closes its pipes and lingers must not escape it
-            (out, out_trunc), (err, err_trunc), _ = await asyncio.wait_for(
-                asyncio.gather(read_capped(proc.stdout, SHELL_OUTPUT_CAP), read_capped(proc.stderr, SHELL_OUTPUT_CAP),
-                               proc.wait()),
-                timeout=body.timeout)
+            await asyncio.wait_for(proc.wait(), timeout=body.timeout)
         except asyncio.TimeoutError:
             timed_out = True
             try:
                 os.killpg(proc.pid, signal.SIGKILL)
             except ProcessLookupError:
                 pass
-            out, err, out_trunc, err_trunc = b"", b"", False, False
             await proc.wait()
         finally:
             state.shells.pop(proc.pid, None)
+        # a server the command left running in the background may still hold the pipes: give the
+        # readers a moment to reach EOF, then let go with what they have
+        done, pending = await asyncio.wait(readers, timeout=1.0)
+        for t in pending:
+            t.cancel()
+        truncated = any(t.result() for t in done if t.exception() is None)
     return {"exit_code": proc.returncode, "stdout": out.decode(errors="replace"), "stderr": err.decode(errors="replace"),
-            "truncated": out_trunc or err_trunc, "timed_out": timed_out, "killed": info["killed"]}
+            "truncated": truncated, "timed_out": timed_out, "killed": info["killed"]}
 
 
 # ----- files -------------------------------------------------------------------------------------
@@ -669,11 +674,14 @@ async def clear_site(agent: str, domain: str):
     check_agent(agent)
     if not re.match(r"^\.?[a-z0-9.-]{1,253}$", domain, re.I):
         raise ApiError(400, "bad_domain", "not a domain")
-    if state.desktop.active_agent == agent and state.browser.connected:
-        async with operation():
+    async with operation():  # under the desktop lock so an activation can't open the same profile meanwhile
+        if state.desktop.active_agent == agent and state.browser.connected:
             await state.browser.clear_site_live(domain)
-        return {"cleared": True, "live": True}
-    await asyncio.to_thread(BrowserSession.clear_site_offline, agent, domain)
+            return {"cleared": True, "live": True}
+        try:
+            await BrowserSession.clear_site_offline(agent, domain)
+        except BrowserError as e:
+            raise ApiError(500, "browser_failed", str(e)) from e
     return {"cleared": True, "live": False}
 
 
@@ -930,5 +938,7 @@ if __name__ == "__main__":
     if len(SECRET) < 32:
         print("COMPUTER_SECRET must be at least 32 characters; refusing to start", file=sys.stderr)
         sys.exit(1)
+    # plain asyncio, not uvloop: uvloop leaks the subprocess pipe fds into grandchildren, so a server
+    # a shell command left running in the background would keep /shell waiting until its timeout
     uvicorn.run(app, host=os.environ.get("HOST", "::"), port=int(os.environ.get("PORT", "8080")),
-                log_level="info", ws_max_size=16 * 1024 * 1024)
+                log_level="info", loop="asyncio", ws_max_size=16 * 1024 * 1024)

@@ -5,20 +5,26 @@ Snapshots are `aria_snapshot(mode="ai")` with `[ref=eN]` markers; acting uses `a
 re-reads that description right before an action. Password-field values are never read, and the
 snapshot drops them before it leaves this module.
 """
+import asyncio
 import hashlib
 import json
 import os
 import re
 import shutil
+import signal
 import sqlite3
+import subprocess
+import time
 from decimal import Decimal, InvalidOperation
 
+import httpx
 from playwright.async_api import Error as PlaywrightError
 from playwright.async_api import async_playwright
 
 from .desktop import CDP_URL, PROFILES_DIR
 
 ACT_TIMEOUT_MS = 5000
+OFFLINE_CDP_PORT = 9223
 SNAPSHOT_MAX_CHARS = 40000
 
 METRICS_JS = ("() => ({sx: window.screenX, sy: window.screenY, ow: window.outerWidth, oh: window.outerHeight,"
@@ -493,30 +499,71 @@ class BrowserSession:
             db.close()
         return [{"domain": host, "cookies": n} for host, n in rows]
 
-    async def clear_site_live(self, domain: str):
+    @staticmethod
+    async def _clear_site(browser, domain: str):
+        """Cookies for the host and its subdomains, plus all storage for the host's default-port
+        origins. Storage.clearDataForOrigin needs a page-level CDP session (it has the storage
+        partition); the browser-level one answers "Internal error"."""
         bare = domain.lstrip(".")
-        await self.context.clear_cookies(domain=re.compile(rf"(^|\.){re.escape(bare)}$"))
-        cdp = await self.browser.new_browser_cdp_session()
+        context = browser.contexts[0]
+        await context.clear_cookies(domain=re.compile(rf"(^|\.){re.escape(bare)}$"))
+        pages = [p for p in context.pages if not p.is_closed()]
+        page = pages[0] if pages else await context.new_page()
+        cdp = await context.new_cdp_session(page)
         try:
             for origin in (f"https://{bare}", f"http://{bare}"):
                 await cdp.send("Storage.clearDataForOrigin", {"origin": origin, "storageTypes": "all"})
         finally:
             await cdp.detach()
+            if not pages:
+                await page.close()
 
-    @classmethod
-    def clear_site_offline(cls, agent: str, domain: str):
-        """Cookies only; a stopped profile's local storage stays (the card says so)."""
-        path = cls.cookie_db_path(agent)
-        if not os.path.exists(path):
-            return
-        bare = domain.lstrip(".")
-        db = sqlite3.connect(path)
+    async def clear_site_live(self, domain: str):
         try:
-            db.execute("DELETE FROM cookies WHERE host_key = ? OR host_key = ? OR host_key LIKE ?",
-                       (bare, "." + bare, "%." + bare))
-            db.commit()
+            await self._clear_site(self.browser, domain)
+        except PlaywrightError as e:
+            raise BrowserError(str(e).splitlines()[0][:300]) from e
+
+    @staticmethod
+    async def clear_site_offline(agent: str, domain: str):
+        """The agent's Chromium isn't on the screen: open its profile headless on a side port, clear
+        cookies and storage over CDP the same way, and close it so the change is on disk."""
+        profile = os.path.join(PROFILES_DIR, agent)
+        if not os.path.isdir(profile):
+            return
+        proc = subprocess.Popen(
+            ["chromium", "--headless=new", f"--user-data-dir={profile}", f"--remote-debugging-port={OFFLINE_CDP_PORT}",
+             "--remote-debugging-address=127.0.0.1", "--no-sandbox", "--disable-dev-shm-usage", "--no-first-run",
+             "--password-store=basic", "--disk-cache-dir=/tmp/chromium-cache-offline", "about:blank"],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True,
+        )
+        try:
+            async with httpx.AsyncClient(timeout=1.0) as client:
+                deadline = time.monotonic() + 30
+                while True:
+                    try:
+                        await client.get(f"http://127.0.0.1:{OFFLINE_CDP_PORT}/json/version")
+                        break
+                    except httpx.HTTPError:
+                        if proc.poll() is not None or time.monotonic() > deadline:
+                            raise BrowserError("could not open the stored profile to clear it") from None
+                        await asyncio.sleep(0.2)
+            pw = await async_playwright().start()
+            try:
+                browser = await pw.chromium.connect_over_cdp(f"http://127.0.0.1:{OFFLINE_CDP_PORT}")
+                await BrowserSession._clear_site(browser, domain)
+                await browser.close()
+            finally:
+                await pw.stop()
         finally:
-            db.close()
+            try:
+                os.killpg(proc.pid, signal.SIGTERM)  # a clean exit flushes the profile to disk
+                proc.wait(timeout=10)
+            except (ProcessLookupError, subprocess.TimeoutExpired):
+                try:
+                    os.killpg(proc.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
 
     @staticmethod
     def delete_profile(agent: str):
