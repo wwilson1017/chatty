@@ -228,8 +228,9 @@ def set_client(server_id: str, client_id: str, client_secret: str) -> None:
 # ── Tokens ─────────────────────────────────────────────────────────────────────
 
 def view(s: dict) -> dict | None:
-    """Card status for a server that needs a sign-in; None for a key server or a public one that loaded tools."""
-    if s.get("api_key") or (s.get("oauth") is None and s.get("tools")):
+    """Card status for a server that needs a sign-in; None for a key server, a command server or a public one
+    that loaded tools."""
+    if s.get("api_key") or store.is_command(s) or (s.get("oauth") is None and s.get("tools")):
         return None
     o = s.get("oauth") or {}
     if not o.get("token_endpoint"):

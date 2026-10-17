@@ -84,6 +84,9 @@ async def disable_integration(name: str, user=Depends(get_current_user)):
     integrations = {i["id"]: i for i in list_integrations()}
     if name not in integrations:
         raise HTTPException(status_code=404, detail=f"Unknown integration: {name}")
+    if name in ("mcp", "computer"):
+        from .mcp.command import stop_all
+        await stop_all()  # command MCP servers run on the computer; stop them while it is still reachable
     disable(name)
     if name == "computer":
         from .computer.viewer import close_all
@@ -195,6 +198,12 @@ class McpServerRequest(BaseModel):
     header: str = Field("Authorization", min_length=1, max_length=64, pattern=r"^[A-Za-z0-9-]+$")
 
 
+class McpCommandServerRequest(BaseModel):
+    name: str = Field(..., min_length=1, max_length=60)
+    command: str = Field(..., min_length=1, max_length=1000)
+    env: dict[str, str] = Field(default_factory=dict, max_length=20)
+
+
 class McpServerUpdateRequest(BaseModel):
     enabled: bool | None = None
     allow_in_background: bool | None = None
@@ -287,19 +296,58 @@ async def mcp_add_server(body: McpServerRequest, user=Depends(get_current_user))
         raise HTTPException(status_code=400, detail=str(e))
 
 
+@router.post("/mcp/servers/command")
+async def mcp_add_command_server(body: McpCommandServerRequest, user=Depends(get_current_user)):
+    """Start the command on the computer (env values go only there), fetch the tool list, save."""
+    from .mcp.client import McpError
+    from .mcp.service import add_command_server
+    try:
+        return await add_command_server(body.name, body.command, body.env)
+    except (ValueError, McpError) as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.get("/mcp/computer")
+async def mcp_computer(user=Depends(get_current_user)):
+    """Which command servers are running on the computer, or why none can."""
+    from .mcp.command import overview
+    return await overview()
+
+
 @router.delete("/mcp/servers/{server_id}")
-def mcp_remove_server(server_id: str, user=Depends(get_current_user)):
+async def mcp_remove_server(server_id: str, user=Depends(get_current_user)):
+    from .mcp.command import stop
     from .mcp.service import remove_server
+    await stop(server_id)  # a no-op for a remote server
     return remove_server(server_id)
 
 
 @router.put("/mcp/servers/{server_id}")
-def mcp_update_server(server_id: str, body: McpServerUpdateRequest, user=Depends(get_current_user)):
+async def mcp_update_server(server_id: str, body: McpServerUpdateRequest, user=Depends(get_current_user)):
+    from .mcp.command import stop
     from .mcp.service import update_server
     try:
-        return update_server(server_id, body.enabled, body.allow_in_background)
+        out = update_server(server_id, body.enabled, body.allow_in_background)
     except KeyError:
         raise HTTPException(status_code=404, detail="Unknown MCP server")
+    if body.enabled is False:
+        await stop(server_id)
+    return out
+
+
+@router.post("/mcp/servers/{server_id}/restart")
+async def mcp_restart_server(server_id: str, user=Depends(get_current_user)):
+    """Command servers: start the process again on the computer, then refresh its tool list."""
+    from .mcp.client import McpError
+    from .mcp.command import start
+    from .mcp.service import refresh_server
+    try:
+        await start(server_id)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="Unknown command MCP server")
+    except McpError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return await refresh_server(server_id)
 
 
 @router.post("/mcp/servers/{server_id}/refresh")

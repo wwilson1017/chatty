@@ -9,11 +9,18 @@ import time
 
 from core.security.ssrf import validate_url
 
-from . import oauth, store
+from . import command, oauth, store
 from .client import McpAuthError, McpClient, McpError
 
 logger = logging.getLogger(__name__)
 NOT_SIGNED_IN = "Not signed in. Use Sign in with OAuth."
+
+
+async def run(server_id: str, op):
+    """await op(client) over the transport for the server's kind: the computer's MCP bridge for a
+    command server, the server's own URL (with its key or OAuth token) otherwise."""
+    s = store.servers()[server_id]
+    return await (command.run if store.is_command(s) else oauth.run)(server_id, op)
 
 
 def status() -> dict:
@@ -23,8 +30,9 @@ def status() -> dict:
 
 
 def _view(sid: str, s: dict) -> dict:
-    return {
-        "id": sid, "name": s["name"], "url": s["url"], "header": s.get("header") or "Authorization",
+    v = {
+        "id": sid, "name": s["name"], "kind": "command" if store.is_command(s) else "remote",
+        "url": s["url"], "header": s.get("header") or "Authorization",
         "has_key": bool(s.get("api_key")), "enabled": s.get("enabled", True),
         "allow_in_background": bool(s.get("allow_in_background")),
         "tools_refreshed_at": s.get("tools_refreshed_at"), "last_error": s.get("last_error"),
@@ -33,6 +41,9 @@ def _view(sid: str, s: dict) -> dict:
                    "read_only_hint": t.get("read_only_hint"), **store.tool_policy(s, t["name"])}
                   for t in s.get("tools") or []],
     }
+    if store.is_command(s):  # names only; the values never leave the file except to start the process
+        v["command"], v["env_names"] = s["command"], sorted(s.get("env") or {})
+    return v
 
 
 def _cache_entry(t: dict) -> dict:
@@ -46,7 +57,35 @@ def _cache_entry(t: dict) -> dict:
 
 
 async def _fetch_tools(server_id: str) -> list[dict]:
-    return [_cache_entry(t) for t in await oauth.run(server_id, lambda c: c.list_tools())]
+    return [_cache_entry(t) for t in await run(server_id, lambda c: c.list_tools())]
+
+
+def _new_entry(name: str, tools: list[dict], error: str | None, **fields) -> dict:
+    return {"name": name, "url": "", "api_key": "", "header": "Authorization", "enabled": True,
+            "allow_in_background": False, "tools": tools, "tools_refreshed_at": time.time(), "last_error": error,
+            "overrides": {}, "generation": time.time_ns(), "oauth": None, **fields}
+
+
+def _save_new(sid: str, entry: dict) -> None:
+    def apply(c):
+        servers = c.setdefault("servers", {})
+        if sid in servers:
+            raise ValueError("A server with that name was just added. Try again.")
+        servers[sid] = entry
+        c.setdefault("enabled", True)  # the first server switches the integration on
+        # Telegram/WhatsApp only cap integrations whose file names a tool_mode; without this
+        # line write tools would run there with nobody to confirm them.
+        c.setdefault("tool_mode", "normal")
+    store.update(apply)
+
+
+def _new_id(name: str) -> str:
+    servers = store.servers()
+    sid = base = store.slug(name)
+    n = 2
+    while sid in servers:
+        sid, n = f"{base}_{n}", n + 1
+    return sid
 
 
 async def add_server(name: str, url: str, api_key: str, header: str) -> dict:
@@ -65,21 +104,30 @@ async def add_server(name: str, url: str, api_key: str, header: str) -> dict:
             raise
         error, auth = NOT_SIGNED_IN, {"resource_metadata": oauth.challenge_metadata_url(e.challenge)}
 
-    def apply(c):
-        servers = c.setdefault("servers", {})
-        sid = base = store.slug(name)
-        n = 2
-        while sid in servers:
-            sid, n = f"{base}_{n}", n + 1
-        servers[sid] = {"name": name, "url": url, "api_key": api_key, "header": header or "Authorization",
-                        "enabled": True, "allow_in_background": False, "tools": tools,
-                        "tools_refreshed_at": time.time(), "last_error": error, "overrides": {},
-                        "generation": time.time_ns(), "oauth": auth}
-        c.setdefault("enabled", True)  # the first server switches the integration on
-        # Telegram/WhatsApp only cap integrations whose file names a tool_mode; without this
-        # line write tools would run there with nobody to confirm them.
-        c.setdefault("tool_mode", "normal")
-    store.update(apply)
+    _save_new(_new_id(name), _new_entry(name, tools, error, url=url, api_key=api_key,
+                                        header=header or "Authorization", oauth=auth))
+    return status()
+
+
+async def add_command_server(name: str, cmd: str, env: dict) -> dict:
+    """Start `cmd` on the computer under the new server's id, fetch its tool list, save. Raises
+    ValueError / McpError; a server that fails to start or answer is stopped and not saved."""
+    name, cmd, env = name.strip(), cmd.strip(), command.validate_env(env)
+    if not cmd or not cmd.isprintable():
+        raise ValueError("Command is empty or contains control characters")
+    if err := store.computer_error():
+        raise ValueError(err)
+    # simplification: the id is allocated before the start call, so two simultaneous adds of the same
+    # name could collide (single-user app); _save_new refuses the second. upgrade: reserve under the lock.
+    sid = _new_id(name)
+    await command.put(sid, cmd, env)
+    try:
+        tools = [_cache_entry(t) for t in await command.client(sid).list_tools()]
+    except McpError:
+        await command.delete(sid)  # not saved yet, so stop() would not know it
+        raise
+    _save_new(sid, _new_entry(name, tools, None, kind="command", command=cmd,
+                              env={k: {"api_key": v} for k, v in env.items()}))
     return status()
 
 
@@ -88,7 +136,7 @@ async def refresh_server(server_id: str) -> dict:
     s = store.servers().get(server_id)
     if not s:
         raise KeyError(server_id)
-    tools, error = None, validate_url(s["url"])
+    tools, error = None, None if store.is_command(s) else validate_url(s["url"])
     if not error:
         try:
             tools = await _fetch_tools(server_id)
@@ -112,6 +160,8 @@ def refresh_stale() -> None:
         return
     now = time.time()
     for sid, s in store.servers().items():
+        if store.is_command(s) and store.computer_error():
+            continue  # nothing to refresh against; the computer being off is not a server error
         if s.get("enabled", True) and now - (s.get("tools_refreshed_at") or 0) > store.REFRESH_SECONDS:
             try:
                 asyncio.run(refresh_server(sid))
