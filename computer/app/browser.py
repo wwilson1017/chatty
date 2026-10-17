@@ -93,15 +93,26 @@ DESCRIBE_JS = """(el) => {
     return lower(f.value);
   };
   let context = null;
+  let formInfo = null;
   if (form) {
     const fields = [];
+    const formFields = [];  // shape only (name/type/autocomplete/visible), never a value
     for (const f of Array.from(form.elements)) {
       const ft = (f.type || '').toLowerCase();
-      if (SKIP.includes(ft) || f.tagName === 'FIELDSET' || f.tagName === 'BUTTON' || f.tagName === 'OUTPUT') continue;
-      fields.push([lower(f.name || f.id || f.getAttribute('aria-label') || ''), fieldValue(f)]);
+      if (['submit', 'button', 'reset', 'image'].includes(ft) || f.tagName === 'FIELDSET' || f.tagName === 'BUTTON' || f.tagName === 'OUTPUT') continue;
+      const fr = f.getBoundingClientRect();
+      const fname = lower(f.name || f.id || f.getAttribute('aria-label') || '');
+      formFields.push({name: fname, type: f.tagName === 'SELECT' ? 'select' : f.tagName === 'TEXTAREA' ? 'textarea' : (ft || 'text'),
+                       autocomplete: (f.getAttribute('autocomplete') || '').toLowerCase() || null,
+                       visible: fr.width > 0 && fr.height > 0});
+      if (SKIP.includes(ft)) continue;
+      fields.push([fname, fieldValue(f)]);
     }
     for (const ce of form.querySelectorAll(EDITOR)) fields.push(['editor', lower(text(ce))]);
     context = {kind: 'form', fields};
+    formInfo = {action: form.action || null, method: lower(form.method || 'get'),
+                role: (form.getAttribute('role') || '').toLowerCase() || null,
+                text: lower(text(form)).slice(0, 1000), fields: formFields};
   } else {
     let c = el;
     while (c && c !== el.ownerDocument.body && !c.querySelector(EDITOR + ',textarea')) c = c.parentElement;
@@ -119,8 +130,7 @@ DESCRIBE_JS = """(el) => {
     }
   }
   return {tag, role: roleOf(), name: norm(nameOf()).slice(0, 300), type: type || null,
-          href: anchor ? anchor.href : null, is_submit: isSubmit,
-          form: form ? {action: form.action || null, method: lower(form.method || 'get')} : null,
+          href: anchor ? anchor.href : null, is_submit: isSubmit, form: formInfo,
           box: {x: r.x, y: r.y, w: r.width, h: r.height}, context};
 }"""
 

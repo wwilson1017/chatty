@@ -143,14 +143,23 @@ iframes) | `{focused: true}` →
 
 ```json
 {"found": true, "ref": "e10", "tag": "button", "role": "button", "name": "Place order", "type": "submit",
- "href": null, "is_submit": true, "form": {"action": "https://shop.example/order", "method": "post"},
+ "href": null, "is_submit": true,
+ "form": {"action": "https://shop.example/order", "method": "post", "role": null,
+          "text": "qty password subtotal $40.00 total $45.00 place order",
+          "fields": [{"name": "qty", "type": "text", "autocomplete": null, "visible": true},
+                     {"name": "pw", "type": "password", "autocomplete": "current-password", "visible": true}]},
  "frame_url": "https://shop.example/checkout", "page": {"host": "shop.example", "path": "/checkout", "title": "Checkout"},
  "context_kind": "form", "context_fp": "<sha256>", "total": {"amount": "45.00", "currency": "USD", "text": "Total $45.00"},
  "box": {"x": 300, "y": 200, "w": 200, "h": 60}, "screen_box": {"x": 300, "y": 287, "w": 200, "h": 60}}
 ```
 
 `{"found": false, "page": {…}}` when nothing is there. `box` is in the element's frame viewport;
-`screen_box` is in screen pixels (what `/actions` coordinates use).
+`screen_box` is in screen pixels (what `/actions` coordinates use). `form` is `null` outside a form;
+inside one it also carries the form's `role` attribute, its own visible `text` (innerText, normalised,
+lowercased, ≤ 1000 chars: headings, legends and button labels, never input values) and `fields`, the
+shape of every non-button control (`name`, `type` — `password`, `hidden`, `select`, `textarea`, … —
+`autocomplete`, `visible`), which is what Chatty's login/search exemptions count. No field value appears
+in any of these.
 
 - **Context fingerprint**: for an element inside a form, sha256 of the sorted `[name, normalised value]`
   pairs of the form's visible fields (hidden, password, file and button inputs excluded; checkbox/radio
