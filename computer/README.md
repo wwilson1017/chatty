@@ -195,7 +195,7 @@ Files need no lease (the agent fetches results after a task). `path` is relative
 
 | Route | Result |
 |---|---|
-| `GET /profiles/{agent}/sites` | `{agent, sites: [{domain, cookies}]}` from the profile's Cookies database |
+| `GET /profiles/{agent}/sites` | `{agent, sites: [{domain, cookies}], live}` — from the running browser over CDP when that agent is on screen (`live: true`, immediate), otherwise from the profile's Cookies database (which Chromium flushes lazily, so a just-stopped browser's list can lag by ~30 s) |
 | `DELETE /profiles/{agent}/sites/{domain}` | `{cleared: true, live: bool}` — cookies for the domain and its subdomains plus `Storage.clearDataForOrigin` (all storage) over CDP; `live` says whether that agent's Chromium was on the screen, otherwise the stored profile is opened headless on a side port for the clear (a few seconds) |
 | `DELETE /profiles/{agent}` | `{reset: true}` — removes the whole profile; `409 busy` / `409 human_in_control` while that agent is on the screen |
 
