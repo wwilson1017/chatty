@@ -50,6 +50,7 @@ log = logging.getLogger("computer")
 
 class ApiError(Exception):
     def __init__(self, status: int, code: str, detail: str, **extra):
+        super().__init__(detail)
         self.status, self.code, self.detail, self.extra = status, code, detail, extra
 
 
@@ -523,9 +524,9 @@ async def browser_act(body: ActBody):
               if v is not None}
     payload = {"kind": body.kind, **params, "expect": body.expect}
     label = f"act:{body.kind}:{body.key}" if body.kind == "press" else f"act:{body.kind}"
+    need_browser()  # before the journal: a missing browser is a 409, not a failed action
 
     async def execute():
-        need_browser()
         if body.expect is not None and body.kind in ("click", "fill", "type", "press", "select", "hover"):
             target = {"ref": body.ref} if body.ref else {"focused": True}
             if (bad := await precheck(label, body.expect, **target)) is not None:

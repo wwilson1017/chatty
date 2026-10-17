@@ -467,7 +467,9 @@ class BrowserSession:
 
     @staticmethod
     def cookie_db_path(agent: str) -> str:
-        return os.path.join(PROFILES_DIR, agent, "Default", "Cookies")
+        # Debian's Chromium 155 writes Default/Cookies; newer builds move it under Default/Network/
+        newer = os.path.join(PROFILES_DIR, agent, "Default", "Network", "Cookies")
+        return newer if os.path.exists(newer) else os.path.join(PROFILES_DIR, agent, "Default", "Cookies")
 
     @classmethod
     def list_sites(cls, agent: str) -> list[dict]:

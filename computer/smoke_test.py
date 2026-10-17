@@ -290,7 +290,10 @@ def main():
     st, r = api("GET", f"/actions/{cid}")
     check(st == 200 and r["status"] == "unknown", "after a restart, an executing id reads unknown")
     st, r = api("GET", "/files/content?agent=tom&path=notes/hello.txt", raw=True)
-    check(st == 200 and r == b"hello from the smoke test", "files under /workspace survive a container restart")
+    mounts = docker("inspect", "-f", "{{range .Mounts}}{{.Destination}} {{end}}", CONTAINER, check_rc=True).stdout.split()
+    on_volume = docker("exec", CONTAINER, "test", "-f", "/data/workspace/tom/notes/hello.txt").returncode == 0
+    check(st == 200 and r == b"hello from the smoke test" and "/data" in mounts and on_volume,
+          "files under /workspace survive a container restart and live on the /data volume")
     st, r = api("POST", "/browser/snapshot", {"lease": lease, "epoch": epoch})
     check(st == 409 and r["error"] == "lease_lost", "the old lease is gone after a restart")
 
@@ -331,6 +334,7 @@ def main():
     check(st == 200 and "control_session_id" in c, "control start for the lease holder's agent")
     csid = c["control_session_id"]
     check(port_open_in_container(5901), ":5901 answers while a control session exists")
+    check(not reachable(5901), ":5901 isn't reachable from another container either")
     sock, status = ws_connect("/vnc?mode=control&control_session_id=wrong", {"Authorization": f"Bearer {SECRET}"})
     check(sock is None and status != 101, f"a control connection with a wrong control_session_id is refused ({status})")
     sock, status = ws_connect("/vnc?mode=control&control_session_id=" + csid, {"Authorization": f"Bearer {SECRET}"})
