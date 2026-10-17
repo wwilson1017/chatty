@@ -13,6 +13,7 @@ import time
 
 ULID_ALPHABET = "0123456789ABCDEFGHJKMNPQRSTVWXYZ"
 MAX_ID_AGE_S = 24 * 3600
+MAX_ID_FUTURE_S = 300  # clock skew allowance; a far-future id could outlive the prune and be reserved twice
 PRUNE_AFTER_S = 7 * 24 * 3600
 
 
@@ -60,7 +61,7 @@ class Journal:
     def validate_id(self, action_id) -> str | None:
         """Error code for an unusable id, or None."""
         t = ulid_time_ms(action_id)
-        if t is None:
+        if t is None or t > (time.time() + MAX_ID_FUTURE_S) * 1000:
             return "action_id_invalid"
         if t < (time.time() - MAX_ID_AGE_S) * 1000:
             return "action_id_expired"
