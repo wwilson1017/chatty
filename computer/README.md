@@ -96,8 +96,8 @@ Responses:
   replayed `screenshot`/`zoom` returns `result.image: null, image_omitted: true`.
 - The same id with a **different payload** → `409 action_conflict`. Use a fresh ULID for a changed action.
 - Rows still `reserved` or `executing` when the process died become `unknown` at the next start and are
-  never re-run. Rows are pruned after 7 days; ids older than 24 h are rejected, so a pruned id can't
-  come back as a new action.
+  never re-run. Rows are pruned after 7 days; ids older than 24 h (or more than 5 minutes in the future)
+  are rejected, so a pruned id can't come back as a new action.
 - `GET /actions/{id}` → `{action_id, status, http_status, response}` (`404 unknown_action` if never seen).
 
 ### `expect` — binding an action to what was approved
@@ -217,6 +217,10 @@ Clearing removes what the browser stores; it does not sign the account out on th
   `control_ended` (`reason`: `done`, `disconnected`, `timeout`, `shutdown`), visible in `/health`,
   `/control/status` and renew responses.
 - `GET /health`.`human_in_control` is true for the whole session, including the reconnect grace.
+- What a takeover does not do: stop processes already running on the computer. Command MCP servers
+  and background shell jobs keep running as the same `computer` user and could, in principle, read
+  the screen or the DOM while a person types. That is the one-user, no-wall trust model the design
+  accepts; the API blocks the helper's own calls, not a determined process on the box.
 
 **`WS /vnc?mode=view|control[&control_session_id=…]`** relays raw RFB bytes to `127.0.0.1:5900`
 (view-only, exists while the desktop runs) or `:5901` (control). Offer the `binary` subprotocol (noVNC
