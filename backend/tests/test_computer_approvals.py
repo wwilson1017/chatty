@@ -471,7 +471,8 @@ class TestTakeover:
         assert not [a for a in ap.fake.performed if a["kind"] != "navigate"]  # no click, no key press
         [(route, text)] = ap.delivered
         assert route == {"channel": "web"} and f"/computer?task={f['id']}&agent=tom" in text and "Your turn" not in text
-        assert ap.fake.lease is None and db.get_gate(gate["id"])["status"] == "approved"
+        # the lease is released and the approval is spent: it can never be dispatched by Chatty later
+        assert ap.fake.lease is None and db.get_gate(gate["id"])["status"] == "cancelled"
 
     def test_takeover_nobody_comes(self, ap, monkeypatch):
         monkeypatch.setattr(runner, "TAKEOVER_WAIT_S", 0.05)
