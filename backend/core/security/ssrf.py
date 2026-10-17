@@ -33,9 +33,16 @@ def resolve(host: str) -> list[str]:
     return list(dict.fromkeys(info[4][0] for info in socket.getaddrinfo(host, None)))
 
 
+# IPv6 forms that carry an IPv4 address in their low 32 bits: mapped (::ffff:a.b.c.d),
+# NAT64 (64:ff9b::/96) and IPv4-compatible (::a.b.c.d). Judge the embedded address.
+_V4_IN_V6 = (ipaddress.ip_network("::ffff:0:0/96"), ipaddress.ip_network("64:ff9b::/96"),
+             ipaddress.ip_network("::/96"))
+
+
 def _public(ip_str: str) -> bool:
     ip = ipaddress.ip_address(ip_str)
-    ip = getattr(ip, "ipv4_mapped", None) or ip
+    if ip.version == 6 and any(ip in n for n in _V4_IN_V6):
+        ip = ipaddress.IPv4Address(int(ip) & 0xFFFFFFFF)
     return ip.is_global and not ip.is_multicast
 
 

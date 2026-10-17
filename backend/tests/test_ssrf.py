@@ -30,10 +30,16 @@ class TestValidateUrl:
     @pytest.mark.parametrize("ip", [
         "127.0.0.1", "10.1.2.3", "172.16.0.9", "192.168.1.1", "169.254.169.254", "100.64.0.1",
         "0.0.0.0", "240.0.0.1", "224.0.0.1", "::1", "fe80::1", "fc00::1", "::ffff:127.0.0.1", "::ffff:10.0.0.1",
+        "64:ff9b::7f00:1", "64:ff9b::a00:1", "::127.0.0.1", "2002:7f00:1::1",
     ])
     def test_internal_addresses_refused(self, monkeypatch, ip):
         _stub_resolver(monkeypatch, {"h.test": [ip]})
         assert ssrf.validate_url("https://h.test/mcp") == ssrf.INTERNAL_ADDRESS
+
+    @pytest.mark.parametrize("ip", [PUBLIC, "2606:2800:220:1:248:1893:25c8:1946", "::ffff:8.8.8.8", "64:ff9b::808:808"])
+    def test_public_forms_pass(self, monkeypatch, ip):
+        _stub_resolver(monkeypatch, {"h.test": [ip]})
+        assert ssrf.validate_url("https://h.test/mcp") is None
 
     def test_one_private_answer_among_public_refused(self, monkeypatch):
         _stub_resolver(monkeypatch, {"h.test": [PUBLIC, "10.0.0.1"]})

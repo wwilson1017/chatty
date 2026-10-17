@@ -281,6 +281,9 @@ class TestService:
             _run(service.add_server("Local", "https://local.test/mcp", "k", "Authorization"))
         with pytest.raises(ValueError, match="https"):
             _run(service.add_server("Local", "http://example.test/mcp", "k", "Authorization"))
+        monkeypatch.setattr(ssrf, "resolve", lambda h: [PUBLIC])
+        with pytest.raises(ValueError, match="control characters"):
+            _run(service.add_server("X", "https://example.test/mcp", "sek\nret", "Authorization"))
 
     def test_add_server_fetches_saves_encrypted_and_suffixes_collisions(self, mcp_env, monkeypatch):
         from core.security import ssrf

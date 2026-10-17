@@ -52,6 +52,8 @@ async def add_server(name: str, url: str, api_key: str, header: str) -> dict:
     name, url, api_key = name.strip(), url.strip(), api_key.strip()
     if err := validate_url(url):
         raise ValueError(err)
+    if not api_key.isprintable():  # httpx would echo an illegal header value, key included, in its error
+        raise ValueError("API key contains control characters")
     tools = await _fetch_tools(url, api_key, header)
 
     def apply(c):
