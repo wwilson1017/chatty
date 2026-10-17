@@ -254,6 +254,8 @@ def main():
     check(st == 200 and r == b"hello from the smoke test", "GET the file back")
     st, r = api("GET", "/files?agent=tom&path=notes")
     check(st == 200 and [e["name"] for e in r["entries"]] == ["hello.txt"], "list the directory")
+    st, r = api("PUT", "/files/content?agent=tom&path=/workspace/shared/handoff.txt", data=b"shared")
+    check(st == 200, f"the shared workspace is writable on a fresh volume ({st})")
     st, _ = api("GET", "/files/content?agent=tom&path=../../etc/passwd")
     st_abs, _ = api("GET", "/files/content?agent=tom&path=/etc/passwd")
     api("POST", "/shell", {"lease": lease, "epoch": epoch, "command": "ln -sfn /etc /workspace/tom/escape"})

@@ -213,7 +213,8 @@ async def lifespan(app: FastAPI):
         await state.desktop.stop_all()
 
 
-app = FastAPI(title="chatty-computer", version=API_VERSION, lifespan=lifespan, docs_url=None, redoc_url=None)
+app = FastAPI(title="chatty-computer", version=API_VERSION, lifespan=lifespan, docs_url=None, redoc_url=None,
+              openapi_url=None)
 
 
 @app.exception_handler(ApiError)
