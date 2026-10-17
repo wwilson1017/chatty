@@ -2,8 +2,10 @@
 tickets and the VNC relay — against a fake computer (httpx MockTransport for the
 control API, a real `websockets` echo server for the screen stream)."""
 
+import asyncio
 import json
 import threading
+from http import HTTPStatus
 from urllib.parse import urlparse
 
 import httpx
@@ -35,7 +37,11 @@ class FakeComputer:
         self.api_version = "1.0"
         self.busy = False
         self.unreachable = False
-        self.ws_requests: list[tuple[str, str]] = []  # (path, authorization header)
+        self.idle_minutes = 30
+        self.refuse_ws = False  # the computer refuses /vnc before the upgrade (asleep, dead control session)
+        self.on_ws_request = None  # hook run while the relay's upstream handshake is in flight
+        self.ended_sessions: set[str] = set()
+        self.ws_requests: list[tuple[str, str, str]] = []  # (path, authorization, offered subprotocols)
 
     def handle(self, request: httpx.Request) -> httpx.Response:
         if self.unreachable:
@@ -45,18 +51,35 @@ class FakeComputer:
         assert request.headers["Authorization"] == "Bearer s3cret-s3cret-s3cret-s3cret-s3cret"
         path = request.url.path
         if path == "/health":
-            return httpx.Response(200, json={"api_version": self.api_version, "chromium": "131.0",
-                                             "active_agent": None, "human_in_control": False})
+            return httpx.Response(200, json={"api_version": self.api_version, "chromium_version": "131.0",
+                                             "active_agent": None, "human_in_control": False,
+                                             "idle_minutes": self.idle_minutes})
+        if path == "/settings":
+            self.idle_minutes = body["idle_minutes"]
+            return httpx.Response(200, json={"idle_minutes": self.idle_minutes})
         if path == "/control/start":
             if self.busy:
-                return httpx.Response(409, json={"detail": "busy"})
-            return httpx.Response(200, json={"control_session_id": "cs-1"})
+                return httpx.Response(409, json={"error": "busy", "detail": "Someone else has the screen."})
+            return httpx.Response(200, json={"control_session_id": "cs-1", "expires_in": 900})
+        if path == "/control/end":
+            if body["control_session_id"] in self.ended_sessions:
+                return httpx.Response(404, json={"error": "no_such_session", "detail": "That control session already ended."})
+            self.ended_sessions.add(body["control_session_id"])
+            return httpx.Response(200, json={"ended": True})
         if path == "/profiles/tom/sites" and request.method == "GET":
             return httpx.Response(200, json={"sites": [{"domain": "github.com", "cookies": 4}]})
         return httpx.Response(200, json={"ok": True})
 
+    def ws_process_request(self, conn, request):
+        if self.on_ws_request:
+            self.on_ws_request()
+        if self.refuse_ws:
+            return conn.respond(HTTPStatus.FORBIDDEN, '{"error": "desktop_stopped"}')
+        return None
+
     def ws_handler(self, conn):
-        self.ws_requests.append((conn.request.path, conn.request.headers.get("Authorization", "")))
+        self.ws_requests.append((conn.request.path, conn.request.headers.get("Authorization", ""),
+                                 conn.request.headers.get("Sec-WebSocket-Protocol", "")))
         conn.send(b"RFB 003.008\n")  # a VNC server speaks first
         for msg in conn:
             if msg == b"bye":
@@ -67,7 +90,7 @@ class FakeComputer:
 @pytest.fixture
 def fake(client, monkeypatch):
     fc = FakeComputer()
-    server = serve(fc.ws_handler, "127.0.0.1", 0)
+    server = serve(fc.ws_handler, "127.0.0.1", 0, process_request=fc.ws_process_request)
     threading.Thread(target=server.serve_forever, daemon=True).start()
     port = server.socket.getsockname()[1]
     monkeypatch.setenv("COMPUTER_URL", f"http://127.0.0.1:{port}")
@@ -136,7 +159,7 @@ class TestCard:
     def test_status_and_enable(self, fake):
         s = fake.client.get("/api/integrations/computer/status").json()
         assert s["configured"] and not s["enabled"] and s["online"] and s["error"] is None
-        assert s["health"]["chromium"] == "131.0" and s["idle_minutes"] == 30
+        assert s["health"]["chromium_version"] == "131.0" and s["idle_minutes"] == 30
         assert fake.client.post("/api/integrations/computer/enable").status_code == 200
         assert card.policy_error("tom") is None
 
@@ -159,9 +182,19 @@ class TestCard:
 
     def test_computer_401_is_never_forwarded(self, fake):
         # A wrong secret must not log the owner out of Chatty (the frontend treats any 401 as its own).
-        fake.handle = lambda req: httpx.Response(401, json={"detail": "bad bearer"})
+        fake.handle = lambda req: httpx.Response(401, json={"error": "unauthorized", "detail": "Bad bearer token."})
         r = fake.client.get("/api/integrations/computer/profiles/tom/sites")
-        assert r.status_code == 502 and r.json()["detail"] == "bad bearer"
+        assert r.status_code == 502 and r.json()["detail"] == "Bad bearer token."
+
+    def test_error_code_and_detail_are_both_kept(self, fake):
+        fake.handle = lambda req: httpx.Response(409, json={"error": "human_in_control", "detail": "Someone has the screen."})
+        with pytest.raises(client_mod.ComputerError) as ei:
+            asyncio.run(client_mod.get_client().health())
+        assert (ei.value.status, ei.value.code, ei.value.detail) == (409, "human_in_control", "Someone has the screen.")
+        fake.handle = lambda req: httpx.Response(422, json={"detail": [{"loc": ["body"], "msg": "bad"}]})
+        with pytest.raises(client_mod.ComputerError) as ei:
+            asyncio.run(client_mod.get_client().health())
+        assert ei.value.code == "" and "bad" in ei.value.detail
 
     def test_keep_running_passes_through(self, fake):
         r = fake.client.put("/api/integrations/computer/settings", json={"always_on": True})
@@ -170,6 +203,8 @@ class TestCard:
         assert fake.client.get("/api/integrations/computer/status").json()["idle_minutes"] == 0
         fake.client.put("/api/integrations/computer/settings", json={"always_on": False})
         assert ("PUT", "/settings", {"idle_minutes": 30}) in fake.calls
+        fake.idle_minutes = 0  # the computer's persisted value (e.g. set before a Chatty redeploy) wins over the card's copy
+        assert fake.client.get("/api/integrations/computer/status").json()["idle_minutes"] == 0
 
     def test_sites_sign_out_and_reset(self, fake):
         r = fake.client.get("/api/integrations/computer/profiles/tom/sites")
@@ -256,8 +291,9 @@ class TestRelay:
             with pytest.raises(WebSocketDisconnect) as ei:
                 ws.receive_bytes()
             assert ei.value.code == 1000
-        path, auth = fake.ws_requests[0]
+        path, auth, protocols = fake.ws_requests[0]
         assert urlparse(path).query == "mode=view" and auth == "Bearer s3cret-s3cret-s3cret-s3cret-s3cret"
+        assert "binary" in protocols  # noVNC's subprotocol, offered upstream like the browser would
         assert not [c for c in fake.calls if c[1] == "/control/start"]
         assert viewer.open_count() == 0
 
@@ -289,8 +325,32 @@ class TestRelay:
         with fake.client.websocket_connect(f"/api/computer/vnc?ticket={tok}") as ws:
             with pytest.raises(WebSocketDisconnect) as ei:
                 ws.receive_bytes()
-        assert (ei.value.code, ei.value.reason) == (4409, "busy")
+        assert (ei.value.code, ei.value.reason) == (4409, "Someone else has the screen.")
         assert fake.ws_requests == []
+
+    def test_control_end_after_the_session_already_ended_is_ok(self, fake):
+        _enable()
+        assert fake.client.post("/api/computer/control/end", json={"control_session_id": "cs-1"}).status_code == 200
+        assert fake.client.post("/api/computer/control/end", json={"control_session_id": "cs-1"}).status_code == 200
+
+    def test_computer_refusing_the_handshake_closes_with_4403(self, fake):
+        _enable()
+        fake.refuse_ws = True
+        tok = _ticket(fake, mode="view", agent="tom")
+        with fake.client.websocket_connect(f"/api/computer/vnc?ticket={tok}") as ws:
+            with pytest.raises(WebSocketDisconnect) as ei:
+                ws.receive_bytes()
+        assert ei.value.code == 4403 and "HTTP 403" in ei.value.reason and "asleep" in ei.value.reason
+
+    def test_disable_during_the_upstream_handshake_still_closes(self, fake):
+        _enable()
+        fake.on_ws_request = lambda: save_credentials("computer", {"enabled": False})
+        tok = _ticket(fake, mode="view", agent="tom")
+        with fake.client.websocket_connect(f"/api/computer/vnc?ticket={tok}") as ws:
+            with pytest.raises(WebSocketDisconnect) as ei:
+                ws.receive_bytes()
+        assert (ei.value.code, ei.value.reason) == (4000, "The computer was turned off.")
+        assert viewer.open_count() == 0
 
     def test_ticket_is_burned_even_if_policy_now_forbids(self, fake):
         _enable()

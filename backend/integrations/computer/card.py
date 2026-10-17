@@ -87,6 +87,7 @@ async def status() -> dict:
         try:
             out["health"] = await client.health()
             out["online"] = True
+            out["idle_minutes"] = out["health"].get("idle_minutes", out["idle_minutes"])  # the computer persists it
             out["error"] = api_version_error(out["health"])
         except ComputerError as e:
             out["error"] = e.detail

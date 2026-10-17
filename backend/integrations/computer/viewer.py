@@ -105,7 +105,10 @@ async def control_status(user=Depends(get_current_user)):
 async def control_end(body: ControlEndRequest, user=Depends(get_current_user)):
     client = card._client()
     try:
-        await card._call(client.control_end(body.control_session_id))
+        await client.control_end(body.control_session_id)
+    except ComputerError as e:
+        if e.status != 404:  # 404 no_such_session: it already ended (grace or timeout) — nothing left to do
+            raise card._http_error(e) from e
     finally:
         await client.aclose()
     return {"ok": True}
@@ -169,12 +172,23 @@ async def vnc(ws: WebSocket, ticket: str = ""):
         url = client.vnc_url(t["mode"], state["control_session_id"] if t["mode"] == "control" else None)
         try:
             async with websockets.connect(url, additional_headers={"Authorization": f"Bearer {client.secret}"},
-                                          max_size=None, open_timeout=10) as up:
+                                          subprotocols=["binary"], max_size=None, open_timeout=10) as up:
+                # Re-checked here, with no await before the registration below: a disable that landed
+                # during the handshake above would otherwise miss this relay in close_all().
+                if card.policy_error(t["agent"]):
+                    await _safe_close(ws, 4000, "The computer was turned off.")
+                    return
                 _open[ws] = state
                 try:
                     await _relay(ws, up, state["stop"])
                 finally:
                     _open.pop(ws, None)
+        except websockets.exceptions.InvalidStatus as e:
+            # The computer refuses before the upgrade (HTTP 403): the desktop is asleep (idle), or the
+            # control session already ended. A readable reason beats "InvalidStatus" on a phone.
+            await _safe_close(ws, 4403, f"The computer refused the stream (HTTP {e.response.status_code}): "
+                                        "it may be asleep, or the control session ended.")
+            return
         except (OSError, asyncio.TimeoutError, websockets.exceptions.WebSocketException) as e:
             logger.warning("computer viewer stream failed: %s", e)
             await _safe_close(ws, 4502, f"The computer's screen stream failed: {e.__class__.__name__}")

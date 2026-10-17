@@ -16,10 +16,14 @@ DEFAULT_TIMEOUT = 10.0
 
 
 class ComputerError(Exception):
-    def __init__(self, status: int, detail: str):
+    """A control-API call failed. `status` is the HTTP status (0: unreachable), `detail` the
+    computer's sentence, `code` its machine-readable error (`busy`, `human_in_control`, …) if any."""
+
+    def __init__(self, status: int, detail: str, code: str = ""):
         super().__init__(detail)
         self.status = status
         self.detail = detail
+        self.code = code
 
 
 def api_version_error(health: dict) -> str | None:
@@ -53,8 +57,10 @@ class ComputerClient:
                 body = r.json()
             except ValueError:
                 body = None
-            detail = (body.get("detail") if isinstance(body, dict) else None) or r.text or f"HTTP {r.status_code}"
-            raise ComputerError(r.status_code, str(detail)[:500])
+            # The computer answers {"error": "<code>", "detail": "<sentence>"}; FastAPI's own 422 has only `detail`.
+            code = str(body.get("error") or "") if isinstance(body, dict) else ""
+            detail = (body.get("detail") if isinstance(body, dict) else None) or code or r.text or f"HTTP {r.status_code}"
+            raise ComputerError(r.status_code, str(detail)[:500], code)
         if not r.content:
             return {}
         return r.json()

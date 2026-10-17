@@ -36,6 +36,13 @@ const selectStyle: React.CSSProperties = {
 };
 
 const str = (v: unknown) => (v == null || v === '' ? '' : typeof v === 'object' ? JSON.stringify(v) : String(v));
+// /health reports disk as {total, used, free} in bytes.
+function fmtDisk(d: unknown): string {
+  const o = d as { used?: number; total?: number } | null;
+  if (!o || typeof o.used !== 'number' || typeof o.total !== 'number') return str(d);
+  const gb = (n: number) => (n / 1e9).toFixed(1);
+  return `${gb(o.used)} / ${gb(o.total)} GB`;
+}
 
 export function ComputerPanel() {
   const [status, setStatus] = useState<Status | null>(null);
@@ -120,8 +127,9 @@ export function ComputerPanel() {
             <span aria-hidden style={{ width: 6, height: 6, borderRadius: '50%', background: status.online ? SAGE : INK_DIM }} />
             <span style={{ color: INK }}>{status.online ? 'Online' : 'Offline'}</span>
             <span style={{ fontFamily: FONT_MONO }}>{status.url}</span>
-            {str(h.chromium) && <span>· Chromium {str(h.chromium)}</span>}
-            {str(h.disk) && <span>· disk {str(h.disk)}</span>}
+            {str(h.chromium_version) && <span>· Chromium {str(h.chromium_version)}</span>}
+            {str(h.disk) && <span>· disk {fmtDisk(h.disk)}</span>}
+            {h.desktop_running === false && <span>· asleep (wakes for the next task or viewer)</span>}
             {str(h.active_agent) && <span>· screen: {agentName(str(h.active_agent))}</span>}
             {h.human_in_control === true && <span style={{ color: GOLD }}>· someone has control</span>}
             {status.viewers > 0 && <span>· {status.viewers} watching</span>}
