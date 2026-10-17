@@ -87,7 +87,9 @@ async def put(server_id: str, cmd: str, env: dict[str, str]) -> None:
     try:
         await c.request("PUT", f"/mcp/servers/{server_id}", json={"command": cmd, "env": env})
     except ComputerError as e:
-        detail = f"Start failed on the computer: {e.detail}"
+        # The untruncated body: ComputerError.detail is cut at 500 chars, which could split a value so
+        # that redact() no longer matches it. redact() truncates after replacing.
+        detail = f"Start failed on the computer: {e.body.get('detail') or e.detail}"
         if log := e.body.get("log"):
             detail += f"\n{str(log).strip()}"
         raise McpError(redact(detail, env.values())) from e

@@ -112,9 +112,11 @@ async def add_server(name: str, url: str, api_key: str, header: str) -> dict:
 async def add_command_server(name: str, cmd: str, env: dict) -> dict:
     """Start `cmd` on the computer under the new server's id, fetch its tool list, save. Raises
     ValueError / McpError; a server that fails to start or answer is stopped and not saved."""
+    if not isinstance(name, str) or not 1 <= len(name.strip()) <= 60:
+        raise ValueError("Name must be 1 to 60 characters")
+    if not isinstance(cmd, str) or not 1 <= len(cmd.strip()) <= 1000 or not cmd.isprintable():
+        raise ValueError("Command must be 1 to 1000 printable characters")
     name, cmd, env = name.strip(), cmd.strip(), command.validate_env(env)
-    if not cmd or not cmd.isprintable():
-        raise ValueError("Command is empty or contains control characters")
     if err := store.computer_error():
         raise ValueError(err)
     # simplification: the id is allocated before the start call, so two simultaneous adds of the same

@@ -199,9 +199,11 @@ class McpServerRequest(BaseModel):
 
 
 class McpCommandServerRequest(BaseModel):
-    name: str = Field(..., min_length=1, max_length=60)
-    command: str = Field(..., min_length=1, max_length=1000)
-    env: Any = None  # shape, names, types and count checked in command.validate_env: a 422 would echo the values
+    """Every field is checked in service.add_command_server, not here: a pydantic 422 echoes the request
+    body, env values included, so no field may fail validation at this layer."""
+    name: Any = None
+    command: Any = None
+    env: Any = None
 
 
 class McpServerUpdateRequest(BaseModel):

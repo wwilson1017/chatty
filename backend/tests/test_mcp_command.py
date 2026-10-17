@@ -32,6 +32,7 @@ class FakeComputer:
         self.running: set[str] = set()
         self.envs: dict[str, dict] = {}
         self.start_fail = False
+        self.long_detail = False  # the start failure's detail echoes the value past the client's 500-char cut
         self.die_before_call = False  # the process vanishes right before tools/call arrives
         self.unreachable = False
         self.tools = [{"name": "echo", "description": "Echo", "inputSchema": {"type": "object", "properties": {}},
@@ -48,7 +49,8 @@ class FakeComputer:
             name = path.rsplit("/", 1)[-1]
             if request.method == "PUT":
                 if self.start_fail:
-                    return httpx.Response(502, json={"error": "mcp_start_failed", "detail": "mcp-proxy did not come up",
+                    detail = ("x" * 495 + body["env"].get("TOKEN", "")) if self.long_detail else "mcp-proxy did not come up"
+                    return httpx.Response(502, json={"error": "mcp_start_failed", "detail": detail,
                                                      "log": f"npm ERR! 404 not found; env TOKEN={body['env'].get('TOKEN', '')}"})
                 self.running.add(name)
                 self.envs[name] = body["env"]
@@ -151,6 +153,10 @@ class TestAdd:
             _add()
         assert "npm ERR! 404" in str(ei.value) and "[redacted]" in str(ei.value) and TOKEN not in str(ei.value)
         assert TOKEN not in caplog.text and store.servers() == {}
+        env.long_detail = True  # the value straddles ComputerError's 500-char cut; the untruncated body is redacted
+        with pytest.raises(McpError) as ei:
+            _add()
+        assert TOKEN not in str(ei.value) and TOKEN[:8] not in str(ei.value) and "[redacted]" in str(ei.value)
 
     def test_a_server_that_starts_but_does_not_answer_is_stopped_and_not_saved(self, env, monkeypatch):
         async def boom(self):
@@ -177,8 +183,10 @@ class TestAdd:
             _add(env={"bad name": "x"})
         with pytest.raises(ValueError, match="control characters"):
             _add(env={"A": "x\ny"})
-        with pytest.raises(ValueError, match="Command is empty"):
+        with pytest.raises(ValueError, match="Command must be"):
             _add(cmd="   ")
+        with pytest.raises(ValueError, match="Name must be"):
+            _add(name="x" * 61)
         assert env.calls == []
 
     def test_ids_suffix_collisions_like_remote_servers(self, env):
@@ -321,9 +329,12 @@ class TestRoutes:
         assert r.status_code == 400 and "Start failed on the computer" in r.json()["detail"] and TOKEN not in r.text
         r = client.post("/api/integrations/mcp/servers/command", json={"name": "X", "command": "npx nope", "env": {"1BAD": "v"}})
         assert r.status_code == 400 and "variable name" in r.json()["detail"]
-        assert client.post("/api/integrations/mcp/servers/command", json={"name": "X", "command": ""}).status_code == 422
-        # Too many or non-string values are refused by our own check, never by a 422 that echoes the input.
+        # Every field is checked by our own code, never by a 422 that echoes the body (env values included).
         n = len(env.calls)
+        for body in ({"name": "X", "command": "", "env": {"TOKEN": TOKEN}}, {"env": {"TOKEN": TOKEN}},
+                     {"name": ["X"], "command": "npx nope", "env": {"TOKEN": TOKEN}}, {"name": "X", "env": {"TOKEN": TOKEN}}):
+            r = client.post("/api/integrations/mcp/servers/command", json=body)
+            assert r.status_code == 400 and TOKEN not in r.text, r.text
         r = client.post("/api/integrations/mcp/servers/command",
                         json={"name": "X", "command": "npx nope", "env": {f"V{i}": TOKEN for i in range(21)}})
         assert r.status_code == 400 and "At most" in r.json()["detail"] and TOKEN not in r.text

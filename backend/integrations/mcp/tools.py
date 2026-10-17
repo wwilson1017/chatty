@@ -7,6 +7,8 @@ policy against the turn's origin on every call. `_ctx` never reaches the server.
 Loading reads the file only, never the network.
 """
 
+import json
+
 from . import service, store
 from .client import McpError
 
@@ -62,8 +64,11 @@ def _shape(result: dict) -> dict:
         out["truncated"] = True
     if omitted := sorted({str(c.get("type")) for c in content if c.get("type") != "text"}):
         out["omitted_content_types"] = omitted
-    if result.get("structuredContent") is not None:
-        out["structured"] = result["structuredContent"]
+    if (structured := result.get("structuredContent")) is not None:
+        if len(json.dumps(structured, default=str)) > MAX_RESULT_CHARS:  # the same bound as the text, or it floods the model
+            out["structured_omitted"] = f"structuredContent over {MAX_RESULT_CHARS} characters"
+        else:
+            out["structured"] = structured
     if result.get("isError"):
         out["is_error"] = True
     return out
