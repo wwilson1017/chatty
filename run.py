@@ -161,6 +161,61 @@ def start_whatsapp_bridge() -> subprocess.Popen | None:
     )
 
 
+COMPUTER_IMAGE = "ghcr.io/wwilson1017/chatty-computer:latest"
+COMPUTER_PORT = 8765
+COMPUTER_URL = f"http://127.0.0.1:{COMPUTER_PORT}"
+COMPUTER_CONTAINER = "chatty-computer"
+
+
+def _read_env() -> dict:
+    """KEY=VALUE lines of .env with surrounding quotes stripped — enough for the keys run.py writes."""
+    values = {}
+    if not ENV_FILE.exists():
+        return values
+    for line in ENV_FILE.read_text(encoding="utf-8").splitlines():
+        key, sep, value = line.strip().partition("=")
+        if not sep or key.startswith("#"):
+            continue
+        value = value.strip()
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in "'\"":
+            value = value[1:-1]
+        values[key.strip()] = value
+    return values
+
+
+def setup_computer():
+    """Start the virtual computer (docs/computer.md) in Docker. Asks once: a COMPUTER_URL line in
+    .env, even an empty one, means the question was answered."""
+    env = _read_env()
+    url, secret = env.get("COMPUTER_URL", ""), env.get("COMPUTER_SECRET", "")
+    if "COMPUTER_URL" in env and url != COMPUTER_URL:
+        return  # declined earlier (empty), or a computer run.py doesn't manage
+    docker = shutil.which("docker")
+    if not docker or subprocess.run([docker, "info"], capture_output=True).returncode != 0:
+        print("  Docker isn't available, so no virtual computer. See docs/computer.md to add one later.")
+        return
+    if not (url and secret):
+        answer = input("  Give your agents a virtual computer (a Docker container, ~1.4 GB download)? [y/N] ").strip().lower()
+        with ENV_FILE.open("a", encoding="utf-8") as f:
+            if answer not in ("y", "yes"):
+                f.write("\n# Virtual computer: declined. Delete these lines to be asked again (see docs/computer.md).\nCOMPUTER_URL=\n")
+                print("  Skipped.")
+                return
+            secret = secrets.token_urlsafe(36)
+            f.write(f"\n# Virtual computer (see docs/computer.md)\nCOMPUTER_URL={COMPUTER_URL}\nCOMPUTER_SECRET={secret}\n")
+    if subprocess.run([docker, "start", COMPUTER_CONTAINER], capture_output=True).returncode != 0:
+        print("  Starting the virtual computer (the first run downloads the image)...")
+        created = subprocess.run([
+            docker, "run", "-d", "--name", COMPUTER_CONTAINER, "--restart", "unless-stopped",
+            "-p", f"127.0.0.1:{COMPUTER_PORT}:8080", "-v", f"{COMPUTER_CONTAINER}:/data",
+            "-e", f"COMPUTER_SECRET={secret}", "-e", "HOST=0.0.0.0", "--shm-size=1g", COMPUTER_IMAGE,
+        ])
+        if created.returncode != 0:
+            print("  Couldn't start the virtual computer; Chatty runs without it. See docs/computer.md.")
+            return
+    print(f"  Virtual computer running at {COMPUTER_URL} (container {COMPUTER_CONTAINER}).")
+
+
 def start_server():
     wa_proc = start_whatsapp_bridge()
     print()
@@ -208,6 +263,9 @@ def main():
 
     print("\nSetting up WhatsApp bridge...")
     setup_whatsapp_bridge()
+
+    print("\nSetting up the virtual computer...")
+    setup_computer()
 
     start_server()
 

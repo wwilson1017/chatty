@@ -10,6 +10,7 @@ from dotenv import load_dotenv
 
 _backend_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 load_dotenv(os.path.join(_backend_dir, ".env"))
+load_dotenv(os.path.join(os.path.dirname(_backend_dir), ".env"))  # the repo-root .env that run.py writes
 
 # Railway injects RAILWAY_PUBLIC_DOMAIN (e.g. "chatty-production.up.railway.app")
 RAILWAY_PUBLIC_DOMAIN = os.getenv("RAILWAY_PUBLIC_DOMAIN", "")

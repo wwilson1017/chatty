@@ -59,6 +59,8 @@ These auto-generate if not set. You can override them for extra control:
 | `WHATSAPP_BRIDGE_API_KEY` | WhatsApp bridge API key (deprecated — see above) |
 | `WEBBY_GITHUB_TOKEN` | GitHub token for Webby website builder |
 | `WEBBY_GITHUB_REPO` | GitHub repo for Webby (e.g. `user/repo`) |
+| `COMPUTER_URL` | Address of the [virtual computer](docs/computer.md) service, e.g. `http://${{computer.RAILWAY_PRIVATE_DOMAIN}}:8080`. The template sets it; the card's "Add computer" saves it instead, so you only set it by hand |
+| `COMPUTER_SECRET` | The computer's bearer secret, `${{computer.COMPUTER_SECRET}}` (32+ characters). Env values win over anything the card saved |
 
 ## Google integration (Gmail + Calendar + Drive)
 
@@ -189,13 +191,28 @@ To completely reset your Chatty instance to a fresh state (as if you just deploy
 
 This deletes all agents, chat history, and saved credentials. Your `AUTH_PASSWORD` is preserved since it's an environment variable.
 
+## Virtual computer (optional second service)
+
+Agents can get a [virtual computer](docs/computer.md): a Linux desktop container (Chromium, terminal, files) that a helper drives on their behalf, with approvals before anything is bought, sent, posted or deleted. It runs as a second service, `computer`, in the same Railway project, reachable only on the private network.
+
+- **Template deployments** include the `computer` service: image `ghcr.io/wwilson1017/chatty-computer:latest`, no public domain, a volume at `/data`, variables `COMPUTER_SECRET` (generated) and `PORT=8080`, healthcheck `/health`. The `chatty` service points at it through two variables:
+
+  | Variable | Value |
+  |----------|-------|
+  | `COMPUTER_URL` | `http://${{computer.RAILWAY_PRIVATE_DOMAIN}}:8080` |
+  | `COMPUTER_SECRET` | `${{computer.COMPUTER_SECRET}}` |
+
+- **Existing deployments** add it from **Settings → Integrations → Computer**: paste a Railway account or workspace token and press **Add computer to this Railway project**. Chatty creates the service, volume and deployment through Railway's API and saves the address and secret itself, so no redeploy and no variables to set. The token is used for that one setup and not stored.
+- **Cost:** about a dollar a month while idle, more while it works, plus volume storage. Turn it off (or delete the service) any time; Chatty keeps working without it.
+
 ## Cost Breakdown
 
 | Item | Cost |
 |------|------|
 | Railway Hobby plan | $5/month (includes $5 usage credit) |
 | Volume storage (1 GB) | ~$0.15/month |
-| **Total** | **~$5.15/month** |
+| Virtual computer (optional) | ~$1/month idle, more while in use |
+| **Total** | **~$5.15/month** (without the computer) |
 
 A single-user Chatty instance with light usage typically stays well within the included $5 credit, so your effective cost is just the subscription + volume storage.
 
@@ -228,12 +245,12 @@ The first build takes 3-4 minutes (downloading dependencies). Subsequent builds 
 
 ## Architecture
 
-Chatty runs as a single service on Railway:
+Chatty itself is one service on Railway:
 - **Backend**: Python FastAPI (Gunicorn + Uvicorn)
 - **Frontend**: React SPA, pre-built and served by FastAPI as static files
 - **Database**: SQLite with WAL mode on persistent volume
 - **Scheduler**: APScheduler for reminders and scheduled actions (runs in-process)
 
-No external database, Redis, or additional services are required.
+No external database or Redis is required. The one optional second service is the [virtual computer](#virtual-computer-optional-second-service) below.
 
 **Note for self-hosters (non-Railway):** the container starts gunicorn with `--forwarded-allow-ips '*'`, i.e. it trusts `X-Forwarded-For` from its direct peer. Railway's edge proxy strips client-supplied forwarding headers, so this is safe there. If you expose the container directly to the internet elsewhere, run it behind a reverse proxy that sanitizes `X-Forwarded-For` — otherwise per-IP protections (login, 2FA, and rate limiting on capture and the no-login todo link) can be bypassed with spoofed headers.

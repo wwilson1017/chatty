@@ -252,10 +252,21 @@ class ComputerSettingsRequest(BaseModel):
     always_on: bool
 
 
+class ComputerRailwaySetupRequest(BaseModel):
+    token: str  # no length rule: a pydantic 422 would echo the value back
+
+
 @router.get("/computer/status")
 async def computer_status(user=Depends(get_current_user)):
     from .computer.card import status
     return await status()
+
+
+@router.post("/computer/railway-setup")
+async def computer_railway_setup(body: ComputerRailwaySetupRequest, user=Depends(get_current_user)):
+    """Create the computer service in this Railway project with a token used for this call only."""
+    from .computer.railway import add_to_railway
+    return await add_to_railway(body.token)
 
 
 @router.put("/computer/settings")
