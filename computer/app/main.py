@@ -147,22 +147,25 @@ async def bring_up(agent: str):
 
 
 async def end_control(reason: str):
-    c = state.control
-    if c is None:
-        return
-    state.control = None
-    for t in (c["grace_task"], c["timeout_task"]):
-        if t is not None and t is not asyncio.current_task():
-            t.cancel()
-    if c["ws"] is not None:
-        try:
-            await c["ws"].close(code=1000)
-        except Exception:  # noqa: BLE001 - the socket may already be gone
-            pass
-    await state.desktop.stop_control_vnc()
-    state.epoch_n += 1
-    state.control_ended = {"at": time.time(), "reason": reason, "agent": c["agent"], "task_id": c["task_id"],
-                           "epoch": state.epoch}
+    """Under the desktop lock (any running action finishes first), flip the state in one step — no
+    agent call can pass the human_in_control check with the old epoch — then tear the stream down."""
+    async with state.op_lock:
+        c = state.control
+        if c is None:
+            return
+        state.control = None
+        state.epoch_n += 1
+        state.control_ended = {"at": time.time(), "reason": reason, "agent": c["agent"], "task_id": c["task_id"],
+                               "epoch": state.epoch}
+        for t in (c["grace_task"], c["timeout_task"]):
+            if t is not None and t is not asyncio.current_task():
+                t.cancel()
+        if c["ws"] is not None:
+            try:
+                await c["ws"].close(code=1000)
+            except Exception:  # noqa: BLE001 - the socket may already be gone
+                pass
+        await state.desktop.stop_control_vnc()
     log.info("control ended (%s) for %s; epoch now %s", reason, c["agent"], state.epoch)
 
 
@@ -565,8 +568,10 @@ async def shell(body: ShellBody):
         info = state.shells[proc.pid] = {"killed": False}
         timed_out = False
         try:
-            (out, out_trunc), (err, err_trunc) = await asyncio.wait_for(
-                asyncio.gather(read_capped(proc.stdout, SHELL_OUTPUT_CAP), read_capped(proc.stderr, SHELL_OUTPUT_CAP)),
+            # the timeout covers exit too: a command that closes its pipes and lingers must not escape it
+            (out, out_trunc), (err, err_trunc), _ = await asyncio.wait_for(
+                asyncio.gather(read_capped(proc.stdout, SHELL_OUTPUT_CAP), read_capped(proc.stderr, SHELL_OUTPUT_CAP),
+                               proc.wait()),
                 timeout=body.timeout)
         except asyncio.TimeoutError:
             timed_out = True
@@ -575,9 +580,9 @@ async def shell(body: ShellBody):
             except ProcessLookupError:
                 pass
             out, err, out_trunc, err_trunc = b"", b"", False, False
+            await proc.wait()
         finally:
             state.shells.pop(proc.pid, None)
-        await proc.wait()
     return {"exit_code": proc.returncode, "stdout": out.decode(errors="replace"), "stderr": err.decode(errors="replace"),
             "truncated": out_trunc or err_trunc, "timed_out": timed_out, "killed": info["killed"]}
 

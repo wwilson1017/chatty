@@ -140,6 +140,33 @@ def ws_send(sock, data: bytes):
     sock.sendall(header + mask + bytes(b ^ mask[i % 4] for i, b in enumerate(data)))
 
 
+def rfb_handshake(sock):
+    """Complete the RFB 3.8 handshake through the bridge (x11vnc drops clients that never do) and
+    return (banner, (width, height)) from ServerInit."""
+    buf = bytearray()
+
+    def take(n):
+        nonlocal buf
+        while len(buf) < n:
+            data = ws_recv(sock)
+            if not data:
+                raise RuntimeError("stream closed during the RFB handshake")
+            buf += data
+        out, buf = bytes(buf[:n]), buf[n:]
+        return out
+
+    banner = take(12)
+    ws_send(sock, b"RFB 003.008\n")
+    take(take(1)[0])  # security types; -nopw offers None
+    ws_send(sock, b"\x01")
+    take(4)  # SecurityResult
+    ws_send(sock, b"\x01")  # ClientInit: shared
+    size = struct.unpack(">HH", take(4))
+    take(16)
+    take(struct.unpack(">I", take(4))[0])
+    return banner, size
+
+
 # ----- the fixture page ---------------------------------------------------------------------------
 
 PAGE = """<title>Demo shop</title><h1>Demo shop</h1>
@@ -340,8 +367,9 @@ def main():
     sock, status = ws_connect("/vnc?mode=control&control_session_id=wrong", {"Authorization": f"Bearer {SECRET}"})
     check(sock is None and status != 101, f"a control connection with a wrong control_session_id is refused ({status})")
     sock, status = ws_connect("/vnc?mode=control&control_session_id=" + csid, {"Authorization": f"Bearer {SECRET}"})
-    banner = ws_recv(sock) if sock else b""
-    check(sock is not None and banner.startswith(b"RFB "), f"the control stream speaks RFB ({banner[:12]!r})")
+    banner, size = rfb_handshake(sock) if sock else (b"", None)
+    check(sock is not None and banner.startswith(b"RFB ") and size == (1280, 800),
+          f"the control stream completes an RFB handshake for a 1280x800 screen ({banner[:12]!r}, {size})")
     st, r = api("POST", "/browser/snapshot", {"lease": lease, "epoch": epoch})
     check(st == 409 and r["error"] == "human_in_control", "agent desktop calls get 409 human_in_control during takeover")
     st, r = api("POST", "/desktop/lease/renew", {"lease": lease})
@@ -370,7 +398,7 @@ def main():
     st, c = api("POST", "/control/start", {"agent": "ann", "task_id": "t2"})
     csid = c["control_session_id"]
     sock, status = ws_connect("/vnc?mode=control&control_session_id=" + csid, {"Authorization": f"Bearer {SECRET}"})
-    ws_recv(sock)
+    rfb_handshake(sock)
     sock.close()  # the phone dropped off
     t_drop = time.time()
     print("... waiting through the 60 s reconnect grace (and 120 s lease expiry)", flush=True)
@@ -378,7 +406,7 @@ def main():
     st, s = api("GET", "/control/status")
     check(s["human_in_control"] and port_open_in_container(5901), ":5901 stays up through the 60-second grace")
     sock2, status = ws_connect("/vnc?mode=control&control_session_id=" + csid, {"Authorization": f"Bearer {SECRET}"})
-    check(sock2 is not None and ws_recv(sock2).startswith(b"RFB "), "a reconnect with the same control_session_id is accepted")
+    check(sock2 is not None and rfb_handshake(sock2)[0].startswith(b"RFB "), "a reconnect with the same control_session_id is accepted")
     sock2.close()
     time.sleep(max(0, t_drop + 105 - time.time()))
     st, s = api("GET", "/control/status")
