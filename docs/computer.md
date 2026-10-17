@@ -96,7 +96,7 @@ These checks catch mistakes and hostile pages, not a determined attacker: the he
 
 **Signing in.** When the helper reaches a login page it stops and sends you a link to take over. You type the password; the helper never sees it. Password fields are never read, and screenshots stop during your turn. The cookies stay in that agent's Chrome profile on the computer, so the next task is already signed in. If nobody takes over within 15 minutes the task ends with "sign-in needed".
 
-**Signed-in sites** on the card lists, per agent, the sites with stored data. **Sign out** clears that site's cookies and storage on the computer; **Reset browser** clears the whole profile. Neither tells the site's servers, so a session may stay valid there until it expires.
+**Signed-in sites** on the card lists, per agent, the sites with stored data. **Sign out** clears that site's cookies on the computer (and its other stored data too while that agent's browser is running); **Reset browser** clears the whole profile. Neither tells the site's servers, so a session may stay valid there until it expires.
 
 ## What persists
 
