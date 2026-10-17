@@ -316,3 +316,21 @@ class TestMarkerSurvivesTruncation:
         ).fetchone()[0]
         assert len(stored) <= 10240          # truncation happened
         assert "auto_deliver" in stored      # ...but the prepended marker survived
+
+
+class TestScheduledActionIdOnRegistry:
+    """Both scheduled-action paths stamp the action id on the registry, so a
+    context_aware tool sees it as _ctx["action_id"]."""
+
+    def test_cron_and_heartbeat_set_turn_action_id(self, cron_env, hb_env, monkeypatch):
+        built: list = []
+
+        def fake_build_tools(*a, **k):
+            built.append(types.SimpleNamespace())
+            return [], built[-1], None
+
+        monkeypatch.setattr(processor, "_build_tools", fake_build_tools)
+        cron_env["result"] = hb_env["result"] = _fake_result(text="done")
+        processor._process_cron(_action())
+        processor._process_heartbeat(_hb_action())
+        assert [r._turn_action_id for r in built] == ["act-123456", "hb-123456"]
