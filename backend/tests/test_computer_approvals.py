@@ -393,6 +393,79 @@ class TestResume:
         f = _follow_up(ap, monkeypatch)
         assert f["status"] == "done" and db.get_gate(gate["id"])["status"] == "done" and len(ap.fake.performed) == 1
 
+    def test_a_stale_epoch_on_dispatch_retries_once_with_a_fresh_action_id(self, ap, monkeypatch):
+        _, gate = _stop_at_gate(ap, monkeypatch)
+        [f] = _approve(ap, gate["id"])
+        acts: list[dict] = []
+
+        def bump_once(path, body):
+            if path == "/browser/act":
+                acts.append(body)
+                if len(acts) == 1:
+                    ap.fake.epoch_n += 1  # the computer restarted: the first act is refused before journaling
+        ap.fake.before_call = bump_once
+        done = _follow_up(ap, monkeypatch)
+        [act] = ap.fake.performed
+        assert len(acts) == 2 and acts[0]["action_id"] != acts[1]["action_id"] and act["action_id"] == acts[1]["action_id"]
+        g = db.get_gate(gate["id"])
+        assert g["status"] == "done" and g["action_id"] == act["action_id"] and done["status"] == "done" and done["id"] == f["id"]
+        assert db.list_steps(f["id"])[0]["action_id"] == act["action_id"]
+
+    def test_a_person_taking_control_before_the_act_opens_a_new_gate_and_sends_nothing(self, ap, monkeypatch):
+        _, gate = _stop_at_gate(ap, monkeypatch)
+        _approve(ap, gate["id"])
+
+        def take_control(path, body):
+            if path == "/browser/act" and not ap.fake.human:
+                ap.fake.human = True
+                threading.Timer(0.05, lambda: setattr(ap.fake, "human", False)).start()
+        ap.fake.before_call = take_control
+        f = _follow_up(ap, monkeypatch)
+        assert ap.fake.performed == [] and f["status"] == "needs_approval"
+        assert db.get_gate(gate["id"])["status"] == "cancelled"
+        new = db.get_gate(f["gate_id"])
+        assert new["status"] == "pending" and new["note"].startswith("a person took control")
+
+    def test_a_person_holding_the_screen_during_locate_is_waited_out_then_the_action_proceeds(self, ap, monkeypatch):
+        _, gate = _stop_at_gate(ap, monkeypatch)
+        _approve(ap, gate["id"])
+
+        def take_control(path, body):
+            if path == "/browser/snapshot" and not getattr(take_control, "done", False):
+                take_control.done = True
+                ap.fake.human = True
+                threading.Timer(0.05, lambda: setattr(ap.fake, "human", False)).start()
+        ap.fake.before_call = take_control
+        f = _follow_up(ap, monkeypatch)
+        assert len(ap.fake.performed) == 1 and f["status"] == "done" and db.get_gate(gate["id"])["status"] == "done"
+
+    def test_a_journal_that_says_failed_after_a_lost_response_opens_a_new_gate(self, ap, monkeypatch):
+        _, gate = _stop_at_gate(ap, monkeypatch)
+        _approve(ap, gate["id"])
+        ap.fake.lose_response = True
+        ap.fake.on_act = lambda body: ap.fake.journal.__setitem__(body["action_id"], {"status": "failed"})
+        f = _follow_up(ap, monkeypatch)
+        assert len(ap.fake.performed) == 1 and f["status"] == "needs_approval"
+        assert db.get_gate(gate["id"])["status"] == "cancelled"
+        assert db.get_gate(f["gate_id"])["note"].startswith("the computer refused the action")
+
+    def test_a_journal_still_executing_on_the_first_read_is_waited_for(self, ap, monkeypatch):
+        _, gate = _stop_at_gate(ap, monkeypatch)
+        _approve(ap, gate["id"])
+
+        class Executing(dict):
+            reads = 0
+
+            def __getitem__(self, k):
+                if k == "status":
+                    Executing.reads += 1
+                    return "executing" if Executing.reads == 1 else "done"
+                return super().__getitem__(k)
+        ap.fake.lose_response = True
+        ap.fake.on_act = lambda body: ap.fake.journal.__setitem__(body["action_id"], Executing(status="x"))
+        f = _follow_up(ap, monkeypatch)
+        assert Executing.reads == 2 and f["status"] == "done" and db.get_gate(gate["id"])["status"] == "done"
+
     def test_unreachable_computer_is_outcome_unknown_too(self, ap, monkeypatch):
         _, gate = _stop_at_gate(ap, monkeypatch)
         _approve(ap, gate["id"])
@@ -417,6 +490,33 @@ class TestResume:
         db.execute("UPDATE tasks SET heartbeat_at = datetime('now', '-10 minutes'), phase = 'action', pending_action_id = 'ACT9' WHERE id = ?", (f["id"],))
         completion.sweep()
         assert db.get_task(f["id"])["status"] == "outcome_unknown" and db.get_gate(gate["id"])["status"] == "outcome_unknown"
+
+    def test_a_task_ended_while_waiting_for_the_screen_leaves_no_gate_dispatching(self, ap, monkeypatch):
+        """human_in_control is refused before journaling: a cancel during that wait sent nothing, so the
+        gate marked dispatching is spent, not parked in flight forever."""
+        _, gate = _stop_at_gate(ap, monkeypatch)
+        [f] = _approve(ap, gate["id"])
+
+        def take_control_and_cancel(path, body):
+            if path == "/browser/act" and not ap.fake.human:
+                ap.fake.human = True
+                db.finish_task(f["id"], "cancelled", "cancelled by owner", notify=False, cancel_requested=1)
+                threading.Timer(0.05, lambda: setattr(ap.fake, "human", False)).start()
+        ap.fake.before_call = take_control_and_cancel
+        done = _follow_up(ap, monkeypatch)
+        assert done["status"] == "cancelled" and ap.fake.performed == []
+        assert db.get_gate(gate["id"])["status"] == "cancelled"
+
+    def test_orphan_that_died_waiting_not_sending_spends_its_dispatching_gate(self, ap, monkeypatch):
+        monkeypatch.setattr(runner, "kick", lambda: False)
+        _, gate = _stop_at_gate(ap, monkeypatch)
+        [f] = _approve(ap, gate["id"])
+        db.claim_next("dead")
+        db.execute("UPDATE gates SET status = 'dispatching', action_id = 'ACT9' WHERE id = ?", (gate["id"],))
+        db.execute("UPDATE tasks SET heartbeat_at = datetime('now', '-10 minutes'), phase = 'wait' WHERE id = ?", (f["id"],))
+        completion.sweep()
+        assert (db.get_task(f["id"])["status"], db.get_task(f["id"])["finish_reason"]) == ("failed", "interrupted")
+        assert db.get_gate(gate["id"])["status"] == "cancelled"
 
     def test_multi_activation_is_refused_without_a_gate(self, ap, monkeypatch):
         """Text mode can't produce one, but the branch guards PR 5's double clicks and held keys."""

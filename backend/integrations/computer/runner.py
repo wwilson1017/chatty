@@ -805,6 +805,9 @@ class _Run:
                 except _Fenced:
                     await self.reconcile(gate, element)  # the lease is gone but the action may have run
                     raise
+                except _Stop:  # the task ended (cancel, policy) while we waited for a person to hand the screen back:
+                    db.execute("UPDATE gates SET status = 'cancelled' WHERE id = ? AND status = 'dispatching'", (gate["id"],))
+                    raise  # human_in_control is refused before journaling, so nothing was sent
                 db.execute("UPDATE gates SET status = 'done' WHERE id = ? AND status = 'dispatching'", (gate["id"],))
                 db.add_step(self.id, "approved_action", {"gate": gate["id"], "kind": kind, **params}, '{"performed": true}',
                             url=self.url, verdict=f"approved:{gate['kind']}", action_id=self.pending_action_id)

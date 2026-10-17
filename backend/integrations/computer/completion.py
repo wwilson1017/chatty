@@ -212,7 +212,11 @@ def sweep() -> None:
     for r in db.query("SELECT * FROM tasks WHERE status = 'running' AND heartbeat_at < datetime('now', ?)",
                       (f"-{ORPHAN_MINUTES} minutes",)):
         status, reason = orphan_outcome(dict(r))
-        db.finish_task(r["id"], status, reason, notify=True)
+        if db.finish_task(r["id"], status, reason, notify=True) and status != "outcome_unknown":
+            # The worker died outside a send (e.g. waiting for a person to hand the screen back, which the
+            # computer refuses before journaling): a gate it had marked dispatching never went out.
+            db.execute("UPDATE gates SET status = 'cancelled' WHERE status = 'dispatching' AND (id = ? OR task_id = ?)",
+                       (r["approved_gate_id"], r["id"]))
 
     for r in db.query("SELECT id FROM tasks WHERE accounting_pending = 1 AND status IN "
                       f"({','.join('?' * len(db.TERMINAL_STATUSES))})", db.TERMINAL_STATUSES):

@@ -50,6 +50,7 @@ class FakeComputer:
         self.lose_unjournaled = False     # the request never reaches the computer
         self.journal_hidden = False       # GET /actions/{id} answers 404 (a restart lost the row)
         self.on_act = None                # hook(body) run right before a successful act's response
+        self.before_call = None           # hook(path, body) run before the lease/epoch check of every lease-guarded call
         self.shots = 0
 
     @property
@@ -120,6 +121,8 @@ class FakeComputer:
             return httpx.Response(200, content=self.files[key], headers={"X-File-Name": p.rsplit("/", 1)[-1],
                                                                           "Content-Type": "application/octet-stream"})
         # everything below needs the lease
+        if self.before_call:
+            self.before_call(path, body or {})
         refused = self._check_lease(body or {})
         if refused:
             return refused
