@@ -175,9 +175,11 @@ in any of these.
 
 **`POST /shell`** `{lease, epoch, command, timeout?: 120 (≤ 600), cwd?}` → `{exit_code, stdout, stderr,
 truncated, timed_out, killed}`. Runs `bash -lc` as the `computer` user (passwordless sudo) in its own
-process group; default cwd `/workspace/<agent>`; output capped at 64 KB per stream. `killed` is true when
-the process group was killed because the lease expired and another activation arrived. Subject to
-`human_in_control`.
+process group; default cwd `/workspace/<agent>`; output capped at 64 KB per stream. The response comes
+back when the command exits: a server it leaves running in the background (`cmd &`) keeps running and
+doesn't hold the response up, even if it kept stdout open. On `timeout` the whole process group is
+killed. `killed` is true when the group was killed because the lease expired and another activation
+arrived. Subject to `human_in_control`.
 
 Files need no lease (the agent fetches results after a task). `path` is relative to
 `/workspace/<agent>` or absolute under `/workspace/…`; the real path, symlinks followed, must stay inside
@@ -194,10 +196,13 @@ Files need no lease (the agent fetches results after a task). `path` is relative
 | Route | Result |
 |---|---|
 | `GET /profiles/{agent}/sites` | `{agent, sites: [{domain, cookies}]}` from the profile's Cookies database |
-| `DELETE /profiles/{agent}/sites/{domain}` | `{cleared: true, live: bool}` — with that agent's Chromium running: cookies for the domain and its subdomains plus `Storage.clearDataForOrigin` (all storage); otherwise cookies only, edited in the database |
+| `DELETE /profiles/{agent}/sites/{domain}` | `{cleared: true, live: bool}` — cookies for the domain and its subdomains plus `Storage.clearDataForOrigin` (all storage) over CDP; `live` says whether that agent's Chromium was on the screen, otherwise the stored profile is opened headless on a side port for the clear (a few seconds) |
 | `DELETE /profiles/{agent}` | `{reset: true}` — removes the whole profile; `409 busy` / `409 human_in_control` while that agent is on the screen |
 
-Clearing removes what the browser stores; it does not sign the account out on the site's servers.
+Clearing removes cookies for the host and its subdomains and all storage (localStorage, IndexedDB,
+cache, service workers) for the host's standard-port origins (`https://host`, `http://host`) — the same
+whether the browser is running or stopped. It does not sign the account out on the site's servers, and
+storage held under a non-standard port is out of scope (real sites use 443/80).
 
 ## Takeover (one protocol for the viewer and the helper)
 
