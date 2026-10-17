@@ -38,7 +38,7 @@ def _view(sid: str, s: dict) -> dict:
 def _cache_entry(t: dict) -> dict:
     ann = t.get("annotations") if isinstance(t.get("annotations"), dict) else {}
     return {
-        "name": str(t["name"])[:128],
+        "name": str(t["name"]),  # verbatim: it goes back to the server; unique_tool_name bounds the provider-facing alias
         "description": str(t.get("description") or "")[:store.MAX_DESCRIPTION],
         "input_schema": t.get("inputSchema") if isinstance(t.get("inputSchema"), dict) else {},
         "read_only_hint": bool(ann["readOnlyHint"]) if "readOnlyHint" in ann else None,

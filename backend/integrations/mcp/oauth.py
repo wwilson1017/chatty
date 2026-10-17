@@ -292,6 +292,12 @@ async def _refresh(server_id: str, s: dict, o: dict) -> str:
     except httpx.HTTPStatusError as e:
         if e.response.status_code not in (400, 401):
             raise McpError(f"Token refresh failed: HTTP {e.response.status_code}") from e
+        # The lock is per loop, so a refresh on the scheduler's loop (refresh_stale) can race one
+        # here with a single-use refresh token: the loser gets invalid_grant. If the stored refresh
+        # token is no longer the one we sent, the other side won — use its tokens, clear nothing.
+        cur = (store.servers().get(server_id) or {}).get("oauth") or {}
+        if cur.get("refresh_token") and cur.get("refresh_token") != rt and cur.get("access_token"):
+            return cur["access_token"]
         try:
             why = str(e.response.json().get("error") or e.response.status_code)
         except (ValueError, AttributeError):

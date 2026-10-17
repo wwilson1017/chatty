@@ -213,7 +213,8 @@ def _build_auth_url(cfg: FlowConfig, code_challenge: str | None, state: str) -> 
     params.update(cfg.extra_auth_params)
     if cfg.resource:
         params["resource"] = cfg.resource
-    return f"{cfg.auth_url}?{urlencode(params)}"
+    # A discovered endpoint may already carry a query (?tenant=x); the built-in ones never do.
+    return f"{cfg.auth_url}{'&' if '?' in cfg.auth_url else '?'}{urlencode(params)}"
 
 
 # ── Public API ────────────────────────────────────────────────────────────────

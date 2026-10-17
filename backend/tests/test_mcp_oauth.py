@@ -5,6 +5,7 @@ and the card routes. Everything over httpx MockTransport; no network."""
 import asyncio
 import base64
 import json
+import time
 from urllib.parse import parse_qs, urlsplit
 
 import httpx
@@ -304,7 +305,6 @@ class TestTokens:
     async def test_refresh_within_the_margin_rotates_or_keeps_the_refresh_token(self, env, auth_server):
         srv = auth_server(AuthServer())
         await _sign_in(srv)
-        import time
         _set_tokens(expires_at=time.time() + 30)
         assert await oauth.access_token("cal") == "at2"
         req = srv.token_requests()[-1]
@@ -351,6 +351,22 @@ class TestTokens:
             await oauth.access_token("cal")
         assert _server()["oauth"]["refresh_token"] == "alive"  # a transient failure keeps the session
 
+    async def test_a_lost_cross_loop_refresh_race_keeps_the_winners_tokens(self, env, auth_server, monkeypatch):
+        """refresh_stale() refreshes on its own loop with its own lock. When both loops send the same
+        single-use refresh token, the loser's invalid_grant must not wipe what the winner stored."""
+        srv = auth_server(AuthServer())
+        await _sign_in(srv)
+        _set_tokens(expires_at=0)
+
+        async def lose(request):  # the other loop's refresh landed first
+            _set_tokens(access_token="at-other", refresh_token="rt-other", expires_at=time.time() + 3600, error=None)
+            return httpx.Response(400, json={"error": "invalid_grant"})
+        monkeypatch.setattr(core_oauth, "_http", lambda cfg: httpx.AsyncClient(transport=httpx.MockTransport(lose)))
+        assert await oauth.access_token("cal") == "at-other"
+        o = _server()["oauth"]
+        assert o["refresh_token"] == "rt-other" and o["error"] is None
+        assert oauth.view(_server())["status"] == "signed_in"
+
     async def test_token_refused_for_another_resource(self, env, auth_server):
         srv = auth_server(AuthServer())
         await _sign_in(srv)
@@ -362,7 +378,6 @@ class TestTokens:
         s = _server()
         assert oauth.view({**s, "api_key": "k"}) is None
         assert oauth.view(s)["status"] == "none"
-        import time
         base = {"token_endpoint": "t", "access_token": "a", "refresh_token": "r", "expires_at": time.time() + 3600}
         assert oauth.view({**s, "oauth": base})["status"] == "signed_in"
         assert oauth.view({**s, "oauth": {**base, "expires_at": 0}})["status"] == "expired"

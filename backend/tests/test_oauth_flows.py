@@ -152,6 +152,12 @@ class TestFlowConfig:
         assert body["resource"] == "https://mcp.test/mcp" and "client_secret" not in body  # public MCP client
         assert _params(out["auth_url"])["resource"] == "https://mcp.test/mcp"
 
+    def test_an_authorization_endpoint_with_a_query_keeps_it(self, token_server):
+        cfg = oauth.FlowConfig(provider="mcp", auth_url="https://as.test/authorize?tenant=t1", token_url="https://as.test/token", client_id="c")
+        url = oauth.start_flow(cfg)["auth_url"]
+        assert url.startswith("https://as.test/authorize?tenant=t1&client_id=c&") and url.count("?") == 1
+        assert _params(url)["tenant"] == "t1" and _params(url)["response_type"] == "code"
+
     def test_failed_exchange_marks_the_flow(self, token_server, monkeypatch):
         def handler(request):
             return httpx.Response(400, json={"error": "invalid_grant"})
