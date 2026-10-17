@@ -75,6 +75,7 @@ class State:
         self.op_lock = asyncio.Lock()
         self.shells: dict[int, dict] = {}  # pgid -> {"killed": bool}
         self.mcp: dict[str, dict] = {}
+        self.vnc_connections = 0  # open /vnc relays (view or control); an open viewer counts as activity
         self.last_activity = time.time()
         try:
             self.idle_minutes = int(json.loads(SETTINGS_FILE.read_text())["idle_minutes"])
@@ -188,7 +189,8 @@ async def idle_loop():
         try:
             idle_for = time.time() - state.last_activity
             if (state.idle_minutes and state.desktop.running and not state.lease_live()
-                    and state.control is None and state.inflight == 0 and idle_for > state.idle_minutes * 60):
+                    and state.control is None and state.inflight == 0 and state.vnc_connections == 0
+                    and idle_for > state.idle_minutes * 60):
                 log.info("idle for %d s; stopping the desktop", idle_for)
                 async with state.op_lock:
                     await state.browser.close()
@@ -224,6 +226,13 @@ app = FastAPI(title="chatty-computer", version=API_VERSION, lifespan=lifespan, d
 @app.exception_handler(ApiError)
 async def api_error_handler(_request, exc: ApiError):
     return JSONResponse({"error": exc.code, "detail": exc.detail, **exc.extra}, status_code=exc.status)
+
+
+@app.exception_handler(Exception)
+async def unexpected_error_handler(_request, exc: Exception):
+    """Keep the {error, detail} shape for anything that slipped past the routes (still logged by Starlette)."""
+    return JSONResponse({"error": "internal", "detail": str(exc).splitlines()[0][:300] if str(exc) else type(exc).__name__},
+                        status_code=500)
 
 
 def authorized(header: str) -> bool:
@@ -808,9 +817,12 @@ async def vnc(ws: WebSocket, mode: str = "view", control_session_id: str | None 
             await ws.send_bytes(data)
 
     tasks = [asyncio.create_task(ws_to_tcp()), asyncio.create_task(tcp_to_ws())]
+    state.vnc_connections += 1
     try:
         await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
     finally:
+        state.vnc_connections -= 1
+        state.last_activity = time.time()  # the idle clock starts when the viewer leaves
         for t in tasks:
             t.cancel()
         writer.close()

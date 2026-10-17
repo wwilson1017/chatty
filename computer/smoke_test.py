@@ -326,6 +326,8 @@ def part1():
     check(st == 403 and st_abs == 403 and st_link == 403, "path escapes (relative, absolute, symlink) are refused")
     st, r = api("GET", "/files/content?agent=tom&path=/workspace/shared/nothing-here")
     check(st == 404, "missing file is 404, not an escape")
+    st, r = api("DELETE", "/profiles/tom/sites/example.com")
+    check(st == 200 and r == {"cleared": True, "live": True}, f"sign out of a site while the agent's browser is on screen ({st} {r})")
 
     # --- no other container can reach VNC or CDP ---
     check(reachable(8080) and not reachable(5900) and not reachable(9222), "VNC and CDP aren't reachable from another container")
@@ -374,6 +376,8 @@ def part1():
     check(bool(shell_result) and shell_result[0][1].get("killed") is True, "the old lease's shell was killed")
     lease, epoch = activate("ann", "t2")
     check(True, "a new lease is granted once the old operation finished")
+    st, r = api("DELETE", "/profiles/tom/sites/example.com")  # tom's Chromium is off screen now
+    check(st == 200 and r == {"cleared": True, "live": False}, f"sign out of a site while the agent's browser is stopped ({st} {r})")
     api("POST", "/desktop/lease/release", {"lease": lease})
 
 
