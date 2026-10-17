@@ -227,8 +227,22 @@ class TestLegworkAndKinds:
         v = classify("act:press:Enter", el("Message", tag="div", role="textbox"))
         assert v.gated and v.kind == "send" and v.rule == "7.composer"
         assert classify("act:type", el("Message", tag="textarea", role="textbox")).kind == "send"
-        # inside a form Enter in a textarea is a newline (the plan's rule 7 is outside-form only)
-        assert not classify("act:press:Enter", el("Notes", tag="textarea", role="textbox", form=form())).gated
+        # inside a form Enter in a textarea is a newline only when the form was positively identified (rule 2)
+        login = form(text="sign in email password sign in", fields=[field("email", "email"), field("password", "password")])
+        assert not classify("act:press:Enter", el("Notes", tag="textarea", role="textbox", form=login)).gated
+        v = classify("act:press:Enter", el("Notes", tag="textarea", role="textbox", form=form()))
+        assert v.gated and v.kind == "send" and v.rule == "7.composer"
+
+    def test_enter_in_any_text_input_outside_a_form_is_send_unless_search(self):
+        for itype in ("text", "email", "url", "tel", "number", "password", None):
+            v = classify("act:press:Enter", el("Field", tag="input", role="textbox", type=itype))
+            assert v.gated and v.kind == "send" and v.rule == "7.composer", itype
+        assert classify("type", el("Chat", tag="input", role="textbox", type="text")).kind == "send"  # typed newline
+        assert not classify("act:press:Enter", el("Search", tag="input", role="searchbox", type="search")).gated
+        assert not classify("key:Return", el("Search", tag="input", role="searchbox", type="search")).gated
+        # Space in a text field is still a space; a checkbox outside a form is not a text field
+        assert not classify("act:press:Space", el("Field", tag="input", role="textbox", type="text")).gated
+        assert not classify("act:press:Enter", el("Gift wrap", tag="input", role="checkbox", type="checkbox")).gated
 
     def test_checkout_page_keeps_checkboxes_and_selects_free(self):
         assert not classify("act:click", el("Gift wrap", tag="input", role="checkbox", type="checkbox", path="/checkout")).gated
@@ -247,3 +261,85 @@ def test_expect_for_carries_the_seven_required_fields():
                  "frame_url": "https://shop.example/checkout/shipping", "role": "button", "name": "Continue",
                  "form_action": "https://shop.example/ship"}
     assert "context_fp" not in x and "total" not in x
+
+
+class TestApprovalBinding:
+    """The approval binding (PR 4): built from the stored gate, re-checked by the computer as `expect`."""
+
+    def _gate(self, element, action="act:click", kind="buy"):
+        """A gate row as insert_gate stores it (the columns the binding reads)."""
+        import json
+        page = element.get("page") or {}
+        return {"kind": kind, "action": action, "host": page.get("host"), "path": page.get("path"), "url": None,
+                "frame_url": element.get("frame_url"), "role": element.get("role"), "name": element.get("name"),
+                "form_action": (element.get("form") or {}).get("action"), "context_fp": element.get("context_fp"),
+                "element_json": json.dumps(element),
+                "total_json": json.dumps(element["total"]) if element.get("total") is not None else None}
+
+    def test_from_gate_equals_from_element_and_expect_carries_optional_fields_only_when_bound(self):
+        e = el("Place order", is_submit=True, form=form(action="https://shop.example/order"), path="/checkout/review")
+        e["total"] = {"amount": "45.00", "currency": "USD", "text": "Total $45.00"}
+        b = gates.ApprovalBinding.from_gate(self._gate(e))
+        assert b == gates.ApprovalBinding.from_element("act:click", e)
+        assert b.expect() == {"action": "act:click", "host": "shop.example", "path": "/checkout/review",
+                              "frame_url": "https://shop.example/checkout/review", "role": "button", "name": "Place order",
+                              "form_action": "https://shop.example/order", "context_fp": "fp",
+                              "total": {"amount": "45.00", "currency": "USD"}}
+        plain = gates.ApprovalBinding.from_element("act:click", el("Add to cart"))
+        assert "context_fp" not in plain.expect() and "total" not in plain.expect()
+        # the name compares like the computer does; everything else exactly
+        other = el("  place ORDER ", is_submit=True, form=form(action="https://shop.example/order"), path="/checkout/review")
+        other["total"] = {"amount": "45.00", "currency": "USD", "text": "TOTAL: $45.00"}
+        assert b.mismatches(gates.ApprovalBinding.from_element("act:click", other)) == []
+        other["total"]["amount"] = "50.00"
+        assert b.mismatches(gates.ApprovalBinding.from_element("act:click", other)) == ["total"]
+        assert "action" in b.mismatches(gates.ApprovalBinding.from_element("act:press:Enter", e))
+
+    def test_dispatch_for_is_one_plain_activation(self):
+        assert gates.dispatch_for("act:click") == ("click", {})
+        assert gates.dispatch_for("act:press:Enter") == ("press", {"key": "Enter"})
+        assert gates.dispatch_for("act:press:Space") == ("press", {"key": "Space"})
+        for label in ("double_click", "triple_click", "hold_key:Return", "act:type", "type", "act:select",
+                      "act:press:Control+Enter", "act:press:Tab", "left_click", "key:Return", ""):
+            assert gates.dispatch_for(label) is None, label
+
+    def test_unbindable_reasons(self):
+        bound = el("Place order", is_submit=True, form=form(), path="/checkout")
+        bound["total"] = {"amount": "45.00", "currency": "USD", "text": "Total $45.00"}
+        assert gates.unbindable_reason(self._gate(bound)) is None
+        ambiguous = dict(bound, total="ambiguous")
+        assert "no single order total" in gates.unbindable_reason(self._gate(ambiguous))
+        assert "no single order total" in gates.unbindable_reason(self._gate(dict(bound, total=None)))
+        # a delete needs no total
+        assert gates.unbindable_reason(self._gate(dict(bound, total=None), kind="delete")) is None
+        composer = el("Send", tag="div", role="button")
+        assert "composer" in gates.unbindable_reason(self._gate(composer, kind="send"))
+        assert "composer" in gates.unbindable_reason(self._gate(composer, kind="post"))
+        composer["context_fp"] = "to:bob|hello"
+        assert gates.unbindable_reason(self._gate(composer, kind="send")) is None
+        assert "no page element" in gates.unbindable_reason(self._gate({"found": False, "page": {}}))
+        assert "no page element" in gates.unbindable_reason({"kind": "send", "action": "act:click", "element_json": None})
+        assert "one plain click" in gates.unbindable_reason(self._gate(bound, action="double_click"))
+        assert "one plain click" in gates.unbindable_reason(self._gate(bound, action="act:type"))
+
+    def test_locate_finds_candidates_by_role_and_name(self):
+        snap = ('- heading "Checkout" [level=1] [ref=e1]\n- button "Add to cart" [ref=e5]\n'
+                '- button "Place order" [ref=e10]\n  - button "place  ORDER" [ref=e11]\n'
+                '- iframe [ref=e12]:\n  - button "Place order" [ref=f1e3]\n'
+                '- link "Place order" [ref=e13]\n- button "Say \\"Place order\\"" [ref=e14]\n'
+                '- textbox "Message" [ref=e15]: hello')
+        assert gates.locate(snap, "button", "Place order") == ["e10", "e11", "f1e3"]
+        assert gates.locate(snap, "link", "place order") == ["e13"]
+        assert gates.locate(snap, "button", 'Say "Place order"') == ["e14"]
+        assert gates.locate(snap, "textbox", "Message") == ["e15"]
+        assert gates.locate(snap, "button", "Buy") == [] and gates.locate("", "button", "x") == []
+
+    def test_change_reason(self):
+        e = el("Place order", is_submit=True, form=form(), path="/checkout")
+        e["total"] = {"amount": "45.00", "currency": "USD"}
+        b = gates.ApprovalBinding.from_element("act:click", e)
+        assert gates.change_reason(b, None).startswith("page changed")
+        assert gates.change_reason(b, gates.ApprovalBinding.from_element("act:click", dict(e, total={"amount": "50.00", "currency": "USD"}))) == "total changed 45.00 USD → 50.00 USD"
+        assert gates.change_reason(b, gates.ApprovalBinding.from_element("act:click", dict(e, context_fp="zz"))).startswith("form changed")
+        assert gates.change_reason(b, gates.ApprovalBinding.from_element("act:click", dict(e, page={"host": "evil.example", "path": "/checkout"}))).startswith("page changed")
+        assert gates.change_reason(b, gates.ApprovalBinding.from_element("act:press:Enter", e)) == "control changed: action"

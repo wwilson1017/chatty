@@ -8,6 +8,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../core/api/client';
 import { confirmDialog } from '../shared/confirm';
+import { useAuthedImage } from '../shared/useAuthedImage';
 import { INK, INK_MUTE, INK_DIM, LINE, LINE_STRONG, BG_RAISED, CORAL, SAGE, GOLD, FONT_MONO, mono } from '../shared/styles';
 import type { Agent } from '../core/types';
 
@@ -45,6 +46,34 @@ interface Task {
   result_text: string;
   result_truncated: boolean;
   parent_task_id: string | null;
+  approved_gate_id: string | null;
+}
+
+// A gate: where the helper stopped before a consequential action. `takeover_reason` null means
+// approving performs the bound action once; a string means the page facts couldn't be read, so
+// approving opens the screen for the owner to press it themselves.
+interface Gate {
+  id: string;
+  task_id: string;
+  agent_slug: string;
+  kind: string;
+  action: string | null;
+  host: string | null;
+  path: string | null;
+  url: string | null;
+  role: string | null;
+  name: string | null;
+  item: string | null;
+  store: string | null;
+  total_text: string | null;
+  total: { amount: string; currency: string; text?: string } | string | null;
+  reason: string | null; // the helper's own words (not verified)
+  note: string | null;   // Chatty's: which rule fired, or why this gate replaces an approved one
+  status: string;
+  has_screenshot: boolean;
+  takeover_reason: string | null;
+  created_at: string;
+  expires_at: string | null;
 }
 
 interface Step {
@@ -61,7 +90,7 @@ const fmtTime = (t: string | null) =>
   t ? new Date(t).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : '—';
 const fmtSecs = (s: number) => (s < 60 ? `${s}s` : s < 3600 ? `${Math.floor(s / 60)}m` : `${Math.floor(s / 3600)}h ${Math.floor((s % 3600) / 60)}m`);
 const statusColor = (s: string) =>
-  s === 'done' ? SAGE : s === 'running' || s === 'queued' ? GOLD : s === 'failed' || s === 'outcome_unknown' ? CORAL : INK_DIM;
+  s === 'done' ? SAGE : s === 'running' || s === 'queued' || s === 'needs_approval' ? GOLD : s === 'failed' || s === 'outcome_unknown' ? CORAL : INK_DIM;
 const pre: React.CSSProperties = {
   margin: 0, padding: 8, borderRadius: 4, background: BG_RAISED, color: INK,
   fontFamily: FONT_MONO, fontSize: 11, whiteSpace: 'pre-wrap', wordBreak: 'break-word',
@@ -93,6 +122,47 @@ const smallBtn: React.CSSProperties = {
   fontSize: 11, padding: '4px 10px', borderRadius: 4,
   background: 'transparent', color: INK_MUTE, border: `1px solid ${LINE_STRONG}`, cursor: 'pointer',
 };
+
+const pageTotal = (t: Gate['total']) =>
+  t && typeof t === 'object' ? (t.text || `${t.amount} ${t.currency}`) : t === 'ambiguous' ? 'ambiguous (several totals)' : 'none found';
+
+function ApprovalBox({ gate, agentName, onDecide }: { gate: Gate; agentName: string; onDecide: (id: string, decision: 'approve' | 'deny') => void }) {
+  const shot = useAuthedImage(gate.has_screenshot ? `/api/computer/gates/${gate.id}/screenshot` : undefined);
+  const helper = [gate.item && `item: ${gate.item}`, gate.store && `store: ${gate.store}`, gate.total_text && `total: ${gate.total_text}`].filter(Boolean).join(' · ');
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 6, padding: 8, borderRadius: 4, border: `1px solid ${LINE_STRONG}` }}>
+      <p style={{ margin: 0 }}>
+        <span style={{ color: INK }}>{agentName}</span>’s helper stopped before a <span style={{ color: INK }}>{gate.kind}</span> on{' '}
+        <span style={{ fontFamily: FONT_MONO, color: INK }}>{gate.host || gate.url || 'the page'}</span> · expires {fmtTime(gate.expires_at)}
+      </p>
+      {gate.note && <p style={{ margin: 0, color: INK_MUTE }}>Why Chatty stopped it: {gate.note}</p>}
+      {shot && <img src={shot} alt={`Screen before the ${gate.kind}`} style={{ maxWidth: '100%', borderRadius: 4, border: `1px solid ${LINE}` }} />}
+      {gate.takeover_reason ? (
+        <p style={{ margin: 0, lineHeight: 1.5 }}>
+          Chatty couldn’t bind an approval to page facts ({gate.takeover_reason}), so it won’t press this for you.
+          Approving opens the screen for you to do it yourself; you’ll get a link when the page is ready.
+        </p>
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+          <span style={mono(9)}>Checked on the page (re-checked before the click)</span>
+          <span>site: <span style={{ fontFamily: FONT_MONO, color: INK }}>{gate.host}{gate.path}</span></span>
+          <span>control: <span style={{ color: INK }}>{gate.role} “{gate.name}”</span> <span style={{ color: INK_DIM }}>({gate.action})</span></span>
+          {gate.kind === 'buy' && <span>total on the page: <span style={{ color: INK }}>{pageTotal(gate.total)}</span></span>}
+        </div>
+      )}
+      {(gate.reason || helper) && (
+        <p style={{ margin: 0, color: INK_DIM }}>Helper’s own account (not verified): {[gate.reason, helper].filter(Boolean).join(' · ')}</p>
+      )}
+      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+        <button onClick={() => onDecide(gate.id, 'approve')} aria-label={`Approve gate ${gate.id}`} style={{ ...smallBtn, color: INK }}>
+          {gate.takeover_reason ? 'Take over to do this yourself' : 'Approve'}
+        </button>
+        <button onClick={() => onDecide(gate.id, 'deny')} aria-label={`Deny gate ${gate.id}`} style={{ ...smallBtn, color: CORAL }}>Deny</button>
+        <span style={{ fontFamily: FONT_MONO, fontSize: 10, color: INK_DIM, alignSelf: 'center' }}>gate {gate.id} · task {gate.task_id}</span>
+      </div>
+    </div>
+  );
+}
 const selectStyle: React.CSSProperties = {
   alignSelf: 'flex-start', fontSize: 12, padding: '4px 6px', borderRadius: 4,
   background: BG_RAISED, color: INK, border: `1px solid ${LINE_STRONG}`,
@@ -115,6 +185,7 @@ export function ComputerPanel() {
   const sitesForRef = useRef<string | null>(null); // same value, readable after an await
   const [sites, setSites] = useState<Site[] | null>(null);
   const [tasks, setTasks] = useState<Task[]>([]);
+  const [gates, setGates] = useState<Gate[]>([]);
   // Exclude-list writes run one at a time, each from the list the previous write returned, so two
   // quick checkbox changes can't both derive from the same stale status and silently drop one.
   const disabledRef = useRef<string[]>([]);
@@ -126,6 +197,7 @@ export function ComputerPanel() {
     // best-effort polling: a missed tick just shows the previous state
     api<Status>('/api/integrations/computer/status').then(setStatus).catch(() => {});
     api<{ tasks: Task[] }>('/api/computer/tasks?limit=20').then(d => setTasks(d.tasks)).catch(() => {});
+    api<{ gates: Gate[] }>('/api/computer/gates?status=pending').then(d => setGates(d.gates)).catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -151,6 +223,9 @@ export function ComputerPanel() {
     api('/api/integrations/computer/helper-model', { method: 'PUT', body: JSON.stringify({ model }) }));
 
   const cancelTask = (id: string) => run(() => api(`/api/computer/tasks/${id}/cancel`, { method: 'POST' }));
+
+  const decideGate = (id: string, decision: 'approve' | 'deny') => run(() =>
+    api(`/api/computer/gates/${id}/decide`, { method: 'POST', body: JSON.stringify({ decision }) }));
 
   const toggleAgent = (slug: string, allowed: boolean) => {
     agentWrites.current += 1;
@@ -287,6 +362,13 @@ export function ComputerPanel() {
         </>
       )}
 
+      {gates.length > 0 && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          <p style={{ ...mono(9, GOLD), margin: 0 }}>Waiting for your approval</p>
+          {gates.map(g => <ApprovalBox key={g.id} gate={g} agentName={agentName(g.agent_slug)} onDecide={decideGate} />)}
+        </div>
+      )}
+
       {tasks.length > 0 && (
         <div>
           <p style={{ ...mono(9), margin: '0 0 4px' }}>Recent tasks</p>
@@ -308,7 +390,9 @@ export function ComputerPanel() {
                   <p style={{ margin: 0, color: t.error ? CORAL : INK_MUTE }}>{[t.finish_reason, t.error].filter(Boolean).join(' — ')}</p>
                 )}
                 {t.result_text && <pre style={pre}>{t.result_text}{t.result_truncated ? '\n…' : ''}</pre>}
-                <span style={{ fontFamily: FONT_MONO, fontSize: 10, color: INK_DIM }}>{t.id} · {t.helper_model}{t.parent_task_id ? ` · follow-up of ${t.parent_task_id}` : ''}</span>
+                <span style={{ fontFamily: FONT_MONO, fontSize: 10, color: INK_DIM }}>
+                  {t.id} · {t.helper_model}{t.parent_task_id ? ` · follow-up of ${t.parent_task_id}` : ''}{t.approved_gate_id ? ` · approved gate ${t.approved_gate_id}` : ''}
+                </span>
                 <StepLog taskId={t.id} />
                 {(t.status === 'queued' || t.status === 'running') && (
                   <div>

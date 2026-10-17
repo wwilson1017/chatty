@@ -12,8 +12,9 @@ and browser acts (`act:click`, `act:press:Enter`, `act:select`, `act:type`).
 count as Enter on the target.
 """
 
+import json
 import re
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 
 KINDS = ("buy", "delete", "post", "send", "submit")
 
@@ -239,9 +240,15 @@ def classify(label: str, element: dict | None, *, page_text: str = "", repeat: i
     if submits:
         return _gated("submit", "6.form", name, multi)
 
-    # 7. Enter in a composer (textarea / contenteditable) outside a form
-    if key and key.key == "enter" and not in_form and editable:
-        return _gated("send", "7.composer", name, multi)
+    # 7. Enter in a text field. Outside a form it sends (a composer, a chat box, a one-field widget
+    #    that posts from a key handler) unless the field is a search box; in a textarea inside a form
+    #    it is a newline only when the form was positively identified by rule 2.
+    if key and key.key == "enter":
+        text_field = editable or (tag == "input" and itype in _TEXT_INPUT_TYPES)
+        if not in_form and text_field and itype != "search":
+            return _gated("send", "7.composer", name, multi)
+        if in_form and editable and not (_is_login(form, name) or _is_search(form, checkout)):
+            return _gated("send", "7.composer", name, multi)
 
     return FREE
 
@@ -257,3 +264,115 @@ def expect_for(label: str, element: dict) -> dict:
         "frame_url": element.get("frame_url"), "role": element.get("role"), "name": element.get("name") or "",
         "form_action": (element.get("form") or {}).get("action"),
     }
+
+
+# ── approvals: what an approval is bound to ──────────────────────────────────
+
+@dataclass(frozen=True)
+class ApprovalBinding:
+    """The facts an approval is bound to — exactly the fields the computer re-checks inside the
+    click request (`expect`). Built from the STORED gate when the approved action is dispatched,
+    never from a fresh observation (which only locates a candidate), so an approved Enter stays an
+    Enter and an approved total stays that total. Shared by approvals.py (the card), runner.py
+    (dispatch) and the computer (`expect`)."""
+
+    action: str
+    host: str
+    path: str
+    frame_url: str | None
+    role: str | None
+    name: str
+    form_action: str | None
+    context_fp: str | None   # form fields, or a composer's recipients + text; None when unreadable
+    total: dict | None       # {amount, currency}; None when the page showed no single order total
+
+    @classmethod
+    def from_element(cls, action: str, element: dict) -> "ApprovalBinding":
+        page = element.get("page") or {}
+        total = element.get("total")
+        return cls(action, page.get("host") or "", page.get("path") or "", element.get("frame_url"),
+                   element.get("role"), element.get("name") or "", (element.get("form") or {}).get("action"),
+                   element.get("context_fp"),
+                   {"amount": total["amount"], "currency": total["currency"]} if isinstance(total, dict) else None)
+
+    @classmethod
+    def from_gate(cls, gate: dict) -> "ApprovalBinding":
+        total = json.loads(gate["total_json"]) if gate.get("total_json") else None
+        return cls(gate.get("action") or "", gate.get("host") or "", gate.get("path") or "", gate.get("frame_url"),
+                   gate.get("role"), gate.get("name") or "", gate.get("form_action"), gate.get("context_fp"),
+                   {"amount": total["amount"], "currency": total["currency"]} if isinstance(total, dict) else None)
+
+    def expect(self) -> dict:
+        """The computer's `expect`: the seven required fields plus context_fp / total when bound."""
+        x = asdict(self)
+        if not x["context_fp"]:
+            del x["context_fp"]
+        if not x["total"]:
+            del x["total"]
+        return x
+
+    def mismatches(self, other: "ApprovalBinding") -> list[str]:
+        """Fields where `other` differs (name compared like the computer: case/whitespace-insensitive)."""
+        out = []
+        for k in ("action", "host", "path", "frame_url", "role", "form_action", "context_fp", "total"):
+            if getattr(self, k) != getattr(other, k):
+                out.append(k)
+        if _norm(self.name).lower() != _norm(other.name).lower():
+            out.append("name")
+        return out
+
+
+def dispatch_for(action: str) -> tuple[str, dict] | None:
+    """The ONE browser act an approved action label is re-sent as — `(kind, extra params)` — or None
+    when the label can't be re-sent as a single activation (multi-clicks, held keys, typed text,
+    selects, and pixel actions until PR 5 maps them)."""
+    if action == "act:click":
+        return "click", {}
+    if action.startswith("act:press:"):
+        key = _key_of(action)
+        if key and key.key in ("enter", "space") and not key.mod:
+            return "press", {"key": action[len("act:press:"):]}
+    return None
+
+
+def unbindable_reason(gate: dict) -> str | None:
+    """Why an approval of this gate can't be bound to page facts — so the card becomes "take over
+    to do this yourself" — or None when it can be dispatched by Chatty. We never pretend an
+    approval is bound to details we couldn't read."""
+    element = json.loads(gate["element_json"]) if gate.get("element_json") else None
+    if not element or not element.get("found"):
+        return "no page element could be read for this action"
+    if dispatch_for(gate.get("action") or "") is None:
+        return f"{gate.get('action') or 'the action'} can't be re-sent as one plain click or key press"
+    b = ApprovalBinding.from_gate(gate)
+    if gate["kind"] in ("send", "post") and not b.context_fp:
+        return "no form or message composer could be read, so the recipient and text can't be pinned down"
+    if gate["kind"] == "buy" and not b.total:
+        return "the page shows no single order total (it is missing or ambiguous)"
+    return None
+
+
+def change_reason(bound: ApprovalBinding, fresh: ApprovalBinding | None) -> str:
+    """One line for the new gate when the approved action can't be sent as approved."""
+    if fresh is None:
+        return "page changed: the approved control is no longer on the page"
+    diff = bound.mismatches(fresh)
+    if "total" in diff:
+        fmt = lambda t: f"{t['amount']} {t['currency']}" if t else "none"  # noqa: E731
+        return f"total changed {fmt(bound.total)} → {fmt(fresh.total)}"
+    if "context_fp" in diff:
+        return "form changed: the fields, recipients or text differ from what was approved"
+    if {"host", "path", "frame_url", "form_action"} & set(diff):
+        return "page changed: the control now belongs to a different page or form"
+    return "control changed: " + ", ".join(diff)
+
+
+_SNAPSHOT_LINE = re.compile(r'^\s*-\s*([a-z]+)\s+"((?:[^"\\]|\\.)*)"[^\n]*?\[ref=([A-Za-z0-9]+)\]', re.M)
+
+
+def locate(snapshot: str, role: str | None, name: str) -> list[str]:
+    """Refs in a fresh aria snapshot whose role and name match the approved control — candidates
+    only; the binding (and the computer) decide which, if any, is the approved one."""
+    want_role, want_name = (role or "").lower(), _norm(name).lower()
+    return [m.group(3) for m in _SNAPSHOT_LINE.finditer(snapshot or "")
+            if m.group(1).lower() == want_role and _norm(m.group(2).replace('\\"', '"')).lower() == want_name]

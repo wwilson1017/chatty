@@ -23,7 +23,7 @@ from typing import Literal
 
 import websockets
 from fastapi import APIRouter, Depends, HTTPException, WebSocket
-from fastapi.responses import HTMLResponse
+from fastapi.responses import FileResponse, HTMLResponse
 from pydantic import BaseModel, Field
 
 from core.auth import get_current_user
@@ -238,6 +238,42 @@ def cancel_task(task_id: str, user=Depends(get_current_user)):
         raise HTTPException(status_code=404, detail="Task not found")
     cancelled = db.finish_task(task_id, "cancelled", "cancelled by owner", notify=False, cancel_requested=1)
     return {"ok": True, "cancelled": cancelled}
+
+
+# ── gates (approvals) ────────────────────────────────────────────────────────
+
+class GateDecideRequest(BaseModel):
+    decision: Literal["approve", "deny"]
+
+
+@router.get("/api/computer/gates")
+def list_gates(status: str = "pending", limit: int = 20, user=Depends(get_current_user)):
+    from . import db
+    limit = max(1, min(limit, 100))
+    sql, params = "SELECT * FROM gates", []
+    if status != "all":
+        sql, params = sql + " WHERE status = ?", [status]
+    rows = db.query(sql + " ORDER BY created_at DESC, rowid DESC LIMIT ?", (*params, limit))
+    return {"gates": [db.gate_view(dict(r)) for r in rows]}
+
+
+@router.get("/api/computer/gates/{gate_id}/screenshot")
+def gate_screenshot(gate_id: str, user=Depends(get_current_user)):
+    from . import approvals, db
+    gate = db.get_gate(gate_id)
+    path = approvals.screenshot_path(gate) if gate else None
+    if not path:
+        raise HTTPException(status_code=404, detail="No screenshot for this gate")
+    return FileResponse(path, media_type="image/png", headers={"Cache-Control": "private, max-age=3600"})
+
+
+@router.post("/api/computer/gates/{gate_id}/decide")
+def decide_gate(gate_id: str, body: GateDecideRequest, user=Depends(get_current_user)):
+    from . import approvals
+    result = approvals.decide(gate_id, body.decision, "card", str(user.get("sub") or "owner"))
+    if result.get("error"):
+        raise HTTPException(status_code=404 if result.get("not_found") else 409, detail=result["error"])
+    return result
 
 
 _UNBUILT_HTML = ("<!doctype html><meta charset='utf-8'><title>Computer</title>"

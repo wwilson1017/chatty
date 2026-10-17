@@ -17,7 +17,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 from core.agents.security.delimiters import wrap_result
 
-from . import card, db
+from . import card, db, gates
 
 logger = logging.getLogger(__name__)
 
@@ -41,14 +41,21 @@ _INSTRUCTIONS = {
 
 _STATUS_NOTES = {
     "needs_approval": (
-        "The helper stopped BEFORE a consequential action ({what}) because it needs the owner's approval. "
-        "Approvals from chat aren't available yet: tell the user exactly what was about to happen and that they "
-        "can finish it themselves on the computer's screen (/computer), or ask you to try a different approach."
+        "The helper stopped BEFORE a consequential action ({what}) and is waiting for the owner's approval. {how} "
+        "Tell the user exactly what is waiting (site, control, total) and where to decide. Do NOT try to perform "
+        "it yourself or queue a follow-up for it: approving queues the follow-up automatically."
     ),
     "outcome_unknown": (
-        "The helper performed an action ({what}) and could NOT confirm what happened. Tell the user to check the "
-        "site before anything is repeated; nothing will be retried automatically."
+        "The helper sent an approved action ({what}) and could NOT confirm whether it took effect: the computer's "
+        "response was lost and its journal couldn't confirm it. Tell the user to check the site before anything is "
+        "repeated; nothing will be retried automatically. A screenshot of the page is on the Computer card."
     ),
+}
+_HOW = {
+    "bound": ("Approve or deny on Telegram (the agent's bot sent a card with buttons) or on the Computer card in "
+              "Settings → Integrations; approving performs exactly that action once, after re-checking the page."),
+    "takeover": ("This one can't be bound to exact page facts ({why}), so approving it — on Telegram or the Computer "
+                 "card — opens the screen for the owner to press it themselves."),
 }
 
 
@@ -120,8 +127,10 @@ def complete_task(task_id: str) -> None:
     try:
         from core.agents.scheduled_actions.processor import _AGENT_TURN_ERRORS, run_agent_background_turn
         gate = db.get_gate(task["gate_id"]) if task["gate_id"] else None
-        what = (f"{gate['kind']}: {gate['name'] or gate['reason'] or ''} on {gate['host'] or gate['url'] or 'the page'}"
+        what = (f"{gate['kind']}: {gate['name'] or gate['note'] or ''} on {gate['host'] or gate['url'] or 'the page'}"
                 if gate else task["finish_reason"] or "")
+        why = gates.unbindable_reason(gate) if gate else None
+        how = _HOW["takeover"].format(why=why) if why else _HOW["bound"]
         payload = json.dumps({
             "task": task["task"],
             "result_text": (task["result_text"] or "")[:20000],
@@ -133,7 +142,7 @@ def complete_task(task_id: str) -> None:
             + (f" ({task['finish_reason']})" if task["finish_reason"] else "")
             + f". {task['steps']} steps, ${task['cost_reserved_usd'] + task['cost_actual_usd']:.2f}, "
               f"{(task['running_seconds'] or 0) / 60:.0f} min. Created {task['created_at']} UTC, finished {task['finished_at']} UTC."
-            + (" " + _STATUS_NOTES[task["status"]].format(what=what) if task["status"] in _STATUS_NOTES else "")
+            + (" " + _STATUS_NOTES[task["status"]].format(what=what, how=how) if task["status"] in _STATUS_NOTES else "")
             + " A follow-up is a new task: computer_task(task=..., follow_up_of='" + task["id"] + "')."
             + "\n\n" + wrap_result("computer_task", payload)
         )
@@ -178,20 +187,22 @@ def finalize(task_id: str, *, tool_log: list | tuple = ()) -> None:
 
 def orphan_outcome(task: dict) -> tuple[str, str]:
     """Where a dead worker's task ends up. A consequential action whose response never came back is
-    `outcome_unknown` (PR 4 marks the gate `dispatching` with the action id before sending it);
-    everything else — a model call or the gap between steps — is `failed` "interrupted", and a
-    reservation made for an unfinished model call stays charged."""
-    if task["phase"] == "action" and task["pending_action_id"] and db.query(
-            "SELECT 1 FROM gates WHERE task_id = ? AND status = 'dispatching' AND action_id = ?",
-            (task["id"], task["pending_action_id"])):
+    `outcome_unknown` (the runner marks the gate `dispatching` before sending it — the approved gate
+    of a follow-up, or a gate of the task's own); everything else — a model call or the gap between
+    steps — is `failed` "interrupted", and a reservation made for an unfinished model call stays charged."""
+    if task["phase"] == "action" and db.query(
+            "SELECT 1 FROM gates WHERE status = 'dispatching' AND (id = ? OR task_id = ?)",
+            (task["approved_gate_id"], task["id"])):
         return "outcome_unknown", "the worker died during a consequential action; check the site"
     return "failed", "interrupted"
 
 
 def sweep() -> None:
     """Scheduler job (60 s): policy cancels, orphans, usage rows, completion recovery, then kick the runner."""
-    from . import runner
+    from . import approvals, runner
     conn = db.get_db()
+
+    approvals.expire_stale()
 
     for r in db.query("SELECT id, agent_slug FROM tasks WHERE status = 'queued'"):
         err = card.policy_error(r["agent_slug"])

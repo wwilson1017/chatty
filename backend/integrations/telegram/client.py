@@ -112,6 +112,24 @@ def answer_callback_query(callback_query_id: str, text: str, bot_token: str) -> 
     return _post("answerCallbackQuery", payload, bot_token)
 
 
+def send_photo(chat_id: int | str, photo: bytes, bot_token: str, caption: str = "") -> dict:
+    """Upload a PNG as a photo with a plain caption (no parse_mode: captions carry untrusted text)."""
+    if not bot_token:
+        return {"ok": False, "error": "No bot token provided"}
+    try:
+        resp = httpx.post(
+            f"{_base_url(bot_token)}/sendPhoto",
+            data={"chat_id": str(chat_id), "caption": caption[:1024]},
+            files={"photo": ("screen.png", photo, "image/png")},
+            timeout=60,
+        )
+        resp.raise_for_status()
+        return resp.json()
+    except httpx.HTTPError as e:
+        logger.warning("Telegram sendPhoto failed: %s", e)
+        return {"ok": False, "error": str(e)}
+
+
 def edit_message_text(chat_id: int | str, message_id: int, text: str, bot_token: str) -> dict:
     """Replace a sent message's text (plain text; drops its inline keyboard)."""
     return _post(

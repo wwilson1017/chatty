@@ -164,8 +164,14 @@ def _claude_code_callback(agent_slug: str, callback_query: dict, bot_token: str)
 
 # callback_data prefix → handler(agent_slug, callback_query, bot_token). Each
 # feature that sends inline buttons owns one prefix.
+def _computer_callback(agent_slug: str, callback_query: dict, bot_token: str) -> None:
+    from integrations.computer.approvals import handle_telegram_callback
+    handle_telegram_callback(agent_slug, callback_query, bot_token)
+
+
 _CALLBACK_HANDLERS = {
     "cc:": _claude_code_callback,
+    "vc:": _computer_callback,
 }
 
 
