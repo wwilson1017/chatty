@@ -437,8 +437,10 @@ def part2():
     st, c = api("POST", "/control/start", {"agent": "ann", "task_id": "t2"})
     csid = c["control_session_id"]
     sock, status = ws_connect("/vnc?mode=control&control_session_id=" + csid, {"Authorization": f"Bearer {SECRET}"})
-    rfb_handshake(sock)
-    sock.close()  # the phone dropped off
+    check(sock is not None and rfb_handshake(sock)[0].startswith(b"RFB "),
+          f"a control socket right after /control/start is accepted ({status})")
+    if sock is not None:
+        sock.close()  # the phone dropped off
     t_drop = time.time()
     print("... waiting through the 60 s reconnect grace (and 120 s lease expiry)", flush=True)
     time.sleep(30)

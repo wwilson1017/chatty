@@ -113,6 +113,7 @@ class Desktop:
             self._spawn("openbox", ["openbox"])
         if not self._alive("vnc_view"):
             self._spawn("vnc_view", self._x11vnc_cmd(VIEW_PORT, viewonly=True))
+            await self._wait_port(VIEW_PORT)
 
     @staticmethod
     def _x11vnc_cmd(port: int, viewonly: bool) -> list[str]:
@@ -122,9 +123,22 @@ class Desktop:
             cmd.append("-viewonly")
         return cmd
 
+    async def _wait_port(self, port: int, timeout: float = 5.0):
+        """x11vnc takes a moment to listen; a viewer connects right after /control/start."""
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            try:
+                _, writer = await asyncio.open_connection("127.0.0.1", port)
+                writer.close()
+                return
+            except OSError:
+                await asyncio.sleep(0.05)
+        raise RuntimeError(f"VNC server on :{port} did not start")
+
     async def start_control_vnc(self):
         if not self._alive("vnc_control"):
             self._spawn("vnc_control", self._x11vnc_cmd(CONTROL_PORT, viewonly=False))
+            await self._wait_port(CONTROL_PORT)
 
     async def stop_control_vnc(self):
         await self._stop("vnc_control", grace=2)
