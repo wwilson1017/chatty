@@ -248,9 +248,13 @@ class TestSurfaces:
         monkeypatch.setattr(processor, "deliver_background_result", lambda *a, **kw: None)
         completion.complete_task(tid)
         assert len(turns) == 1
-        assert "status 'failed' (sign-in needed)" in turns[0]
-        assert "take over the screen (sign in to shop.example) and nobody did within 15 minutes" in turns[0]
-        assert "Never ask the user for a password" in turns[0]
+        msg = turns[0]
+        assert "status 'failed' (sign-in needed)" in msg
+        assert "take over the screen and nobody did within 15 minutes" in msg
+        assert "Never ask the user for a password" in msg
+        # the helper's reason reaches the agent only inside the untrusted wrapper, never in the note
+        assert msg.index("sign in to shop.example") > msg.index("<untrusted_tool_result")
+        assert msg.count("sign in to shop.example") == 1
 
     def test_old_db_gains_the_takeover_reason_column(self, fake):
         conn = db.get_db()
