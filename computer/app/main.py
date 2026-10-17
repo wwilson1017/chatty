@@ -12,6 +12,7 @@ import signal
 import socket
 import subprocess
 import sys
+import tempfile
 import time
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -639,17 +640,19 @@ async def put_file(request: Request, agent: str, path: str):
     if int(request.headers.get("content-length") or 0) > FILE_CAP:
         raise ApiError(413, "too_large", f"uploads over {FILE_CAP} bytes are refused")
     real.parent.mkdir(parents=True, exist_ok=True)
-    part = real.with_name(real.name + ".part")
     size = 0
-    with open(part, "wb") as f:
-        async for chunk in request.stream():
-            size += len(chunk)
-            if size > FILE_CAP:
-                f.close()
-                part.unlink(missing_ok=True)
-                raise ApiError(413, "too_large", f"uploads over {FILE_CAP} bytes are refused")
-            f.write(chunk)
-    os.replace(part, real)
+    fd, part = tempfile.mkstemp(dir=real.parent, prefix=f".{real.name}.", suffix=".part")
+    try:
+        with os.fdopen(fd, "wb") as f:
+            async for chunk in request.stream():
+                size += len(chunk)
+                if size > FILE_CAP:
+                    raise ApiError(413, "too_large", f"uploads over {FILE_CAP} bytes are refused")
+                f.write(chunk)
+        os.replace(part, real)
+    except BaseException:
+        Path(part).unlink(missing_ok=True)
+        raise
     return {"path": public_path(real), "size": size}
 
 
@@ -704,19 +707,26 @@ async def control_start(body: ControlStartBody):
                          "started_at": time.time(), "ws": None, "grace_task": None, "timeout_task": None}
     # anything already running finishes first; new agent calls now get human_in_control
     deadline = time.monotonic() + 30
-    while state.inflight > 0 and time.monotonic() < deadline:
+    while state.inflight > 0 and state.control is c and time.monotonic() < deadline:
         await asyncio.sleep(0.1)
+    if state.control is not c:  # ended through /control/end while we waited
+        raise ApiError(409, "control_ended", "this control session was ended before it started")
     if state.inflight > 0:
         state.control = None
         raise ApiError(409, "busy", "an action is still running; try again")
     try:
         async with state.op_lock:
+            if state.control is not c:
+                raise ApiError(409, "control_ended", "this control session was ended before it started")
             if not (state.lease_live() and state.desktop.active_agent == body.agent):
                 await bring_up(body.agent)
             await state.desktop.start_control_vnc()
+    except ApiError:
+        raise
     except Exception as e:  # noqa: BLE001
         log.exception("control start failed")
-        state.control = None
+        if state.control is c:
+            state.control = None
         raise ApiError(500, "desktop_failed", str(e)[:300]) from e
     c["grace_task"] = asyncio.create_task(control_grace(c))
     c["timeout_task"] = asyncio.create_task(control_timeout(c))
