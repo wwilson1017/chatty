@@ -71,6 +71,9 @@ async def enable_integration(name: str, user=Depends(get_current_user)):
         raise HTTPException(status_code=404, detail=f"Unknown integration: {name}")
     if not integrations[name]["configured"]:
         raise HTTPException(status_code=400, detail="Integration must be configured before enabling")
+    if name == "computer":
+        from .computer.card import check_enable
+        await check_enable()  # reachable and speaking our API major, or 400
     enable(name)
     return {"ok": True, "integration": name, "enabled": True}
 
@@ -82,6 +85,9 @@ async def disable_integration(name: str, user=Depends(get_current_user)):
     if name not in integrations:
         raise HTTPException(status_code=404, detail=f"Unknown integration: {name}")
     disable(name)
+    if name == "computer":
+        from .computer.viewer import close_all
+        await close_all("The computer was turned off.")
     return {"ok": True, "integration": name, "enabled": False}
 
 
@@ -351,6 +357,52 @@ def mcp_update_tool(server_id: str, tool: str, body: McpToolUpdateRequest, user=
         return set_tool(server_id, tool, body.enabled, body.read_only)
     except KeyError:
         raise HTTPException(status_code=404, detail="Unknown MCP server or tool")
+
+
+# ── Computer (card actions; the viewer's own routes are /api/computer/* in computer/viewer.py) ──
+
+class ComputerAgentsRequest(BaseModel):
+    disabled_agents: list[str] = Field(default_factory=list, max_length=200)
+
+
+class ComputerSettingsRequest(BaseModel):
+    always_on: bool
+
+
+@router.get("/computer/status")
+async def computer_status(user=Depends(get_current_user)):
+    from .computer.card import status
+    return await status()
+
+
+@router.put("/computer/settings")
+async def computer_set_settings(body: ComputerSettingsRequest, user=Depends(get_current_user)):
+    from .computer.card import set_keep_running
+    return await set_keep_running(body.always_on)
+
+
+@router.put("/computer/agents")
+def computer_set_agents(body: ComputerAgentsRequest, user=Depends(get_current_user)):
+    from .computer.card import set_disabled_agents
+    return set_disabled_agents(body.disabled_agents)
+
+
+@router.get("/computer/profiles/{agent}/sites")
+async def computer_sites(agent: str, user=Depends(get_current_user)):
+    from .computer.card import list_sites
+    return await list_sites(agent)
+
+
+@router.delete("/computer/profiles/{agent}/sites/{domain}")
+async def computer_clear_site(agent: str, domain: str, user=Depends(get_current_user)):
+    from .computer.card import clear_site
+    return await clear_site(agent, domain)
+
+
+@router.delete("/computer/profiles/{agent}")
+async def computer_reset_browser(agent: str, user=Depends(get_current_user)):
+    from .computer.card import reset_browser
+    return await reset_browser(agent)
 
 
 @router.post("/quickbooks/setup")
