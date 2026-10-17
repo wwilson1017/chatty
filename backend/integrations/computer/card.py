@@ -22,7 +22,9 @@ DEFAULT_HELPER_MODEL = "claude-sonnet-5-5"
 _PROVIDER_PREFIXES = (("claude-", "anthropic"), ("gpt-", "openai"), ("o1", "openai"), ("o3", "openai"),
                       ("o4", "openai"), ("gemini-", "google"))
 SLUG_RE = re.compile(r"^[a-z0-9-]{1,64}$")  # the computer's own rule for agent slugs
-DOMAIN_RE = re.compile(r"^[A-Za-z0-9-]{1,63}(\.[A-Za-z0-9-]{1,63})*$")  # hostname labels: no bare/leading/double dots, so "." or ".." can never walk the computer's path
+# Hostname labels, optionally with Chromium's leading dot for domain cookies (".example.com" is what
+# the computer lists). No bare or double dots, so "." or ".." can never walk the computer's path.
+DOMAIN_RE = re.compile(r"^\.?[A-Za-z0-9-]{1,63}(\.[A-Za-z0-9-]{1,63})*$")
 
 
 def creds() -> dict:
