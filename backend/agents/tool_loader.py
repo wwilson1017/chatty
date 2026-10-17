@@ -43,6 +43,7 @@ INTEGRATION_MODULES = {
     "paperclip": ("integrations.paperclip.tools", "PAPERCLIP_TOOL_DEFS"),
     "todoist": ("integrations.todoist.tools", "TODOIST_TOOL_DEFS"),
     "claude_code": ("integrations.claude_code.tools", "CLAUDE_CODE_TOOL_DEFS"),
+    "mcp": ("integrations.mcp.tools", "MCP_TOOL_DEFS"),
 }
 
 

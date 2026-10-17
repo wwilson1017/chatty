@@ -182,6 +182,23 @@ class ClaudeCodeDecideRequest(BaseModel):
     decision: Literal["full", "sandbox", "cancel"]
 
 
+class McpServerRequest(BaseModel):
+    name: str = Field(..., min_length=1, max_length=60)
+    url: str = Field(..., min_length=1, max_length=2048)
+    api_key: str = Field("", max_length=4096)
+    header: str = Field("Authorization", min_length=1, max_length=64, pattern=r"^[A-Za-z0-9-]+$")
+
+
+class McpServerUpdateRequest(BaseModel):
+    enabled: bool | None = None
+    allow_in_background: bool | None = None
+
+
+class McpToolUpdateRequest(BaseModel):
+    enabled: bool | None = None
+    read_only: bool | None = None
+
+
 @router.post("/claude_code/pair-code")
 def claude_code_pair_code(user=Depends(get_current_user)):
     from .claude_code.connector_api import create_pair_code
@@ -234,6 +251,58 @@ def claude_code_set_access(body: ClaudeCodeAccessRequest, user=Depends(get_curre
 def claude_code_decide(job_id: str, body: ClaudeCodeDecideRequest, user=Depends(get_current_user)):
     from .claude_code.connector_api import decide_job
     return decide_job(job_id, body.decision)
+
+
+# ── MCP servers (card; every route returns the card's status, never an api_key) ──
+
+@router.get("/mcp/status")
+def mcp_status(user=Depends(get_current_user)):
+    from .mcp.service import status
+    return status()
+
+
+@router.post("/mcp/servers")
+async def mcp_add_server(body: McpServerRequest, user=Depends(get_current_user)):
+    """Validate the URL (https, public host), fetch the tool list, save."""
+    from .mcp.client import McpError
+    from .mcp.service import add_server
+    try:
+        return await add_server(body.name, body.url, body.api_key, body.header)
+    except (ValueError, McpError) as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.delete("/mcp/servers/{server_id}")
+def mcp_remove_server(server_id: str, user=Depends(get_current_user)):
+    from .mcp.service import remove_server
+    return remove_server(server_id)
+
+
+@router.put("/mcp/servers/{server_id}")
+def mcp_update_server(server_id: str, body: McpServerUpdateRequest, user=Depends(get_current_user)):
+    from .mcp.service import update_server
+    try:
+        return update_server(server_id, body.enabled, body.allow_in_background)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="Unknown MCP server")
+
+
+@router.post("/mcp/servers/{server_id}/refresh")
+async def mcp_refresh_server(server_id: str, user=Depends(get_current_user)):
+    from .mcp.service import refresh_server
+    try:
+        return await refresh_server(server_id)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="Unknown MCP server")
+
+
+@router.put("/mcp/servers/{server_id}/tools/{tool}")
+def mcp_update_tool(server_id: str, tool: str, body: McpToolUpdateRequest, user=Depends(get_current_user)):
+    from .mcp.service import set_tool
+    try:
+        return set_tool(server_id, tool, body.enabled, body.read_only)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="Unknown MCP server or tool")
 
 
 @router.post("/quickbooks/setup")
@@ -735,6 +804,9 @@ async def get_tool_defs(name: str, user=Depends(get_current_user)):
     elif name == "todoist":
         from .todoist.tools import TODOIST_TOOL_DEFS
         return {"tools": TODOIST_TOOL_DEFS}
+    elif name == "mcp":
+        from .mcp.tools import MCP_TOOL_DEFS
+        return {"tools": MCP_TOOL_DEFS()}
     else:
         return {"tools": []}
 

@@ -12,6 +12,7 @@ Available integrations:
   whatsapp    — WhatsApp (stub)
   brain       — second-brain server (per-agent memory backend, no tools of its own)
   claude_code — the user's own Claude Code / Codex via the chatty-connector (paired, polls outbound)
+  mcp         — remote MCP servers (streamable HTTP + API key); every agent gets their tools
 """
 
 import json
@@ -98,6 +99,12 @@ AVAILABLE_INTEGRATIONS = {
         "name": "Claude Code",
         "description": "Let agents hand tasks to your own Claude Code or Codex, via a small connector on your computer",
         "icon": "🛠️",
+        "auth_type": "api_key",
+    },
+    "mcp": {
+        "name": "MCP servers",
+        "description": "Connect remote MCP servers with an API key — every agent gets their tools",
+        "icon": "🔌",
         "auth_type": "api_key",
     },
 }
@@ -360,6 +367,8 @@ def list_integrations() -> list[dict]:
             if key == "claude_code":
                 # A pending pair code or a saved agent list isn't a connection.
                 is_configured = bool(creds.get("token_hash"))
+            if key == "mcp":
+                is_configured = bool(creds.get("servers"))
             is_enabled_val = bool(creds.get("enabled", False))
 
         entry = {

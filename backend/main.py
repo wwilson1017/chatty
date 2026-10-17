@@ -209,6 +209,10 @@ async def lifespan(app: FastAPI):
     _scheduler.add_job(_claude_code_sweep, "interval", seconds=120, id="claude_code_sweep",
                        next_run_time=datetime.now(timezone.utc))
 
+    # MCP servers: re-fetch tool lists older than 6 h (agents load from the cache only).
+    from integrations.mcp.service import refresh_stale as _mcp_refresh
+    _scheduler.add_job(_mcp_refresh, "interval", hours=1, id="mcp_tool_refresh")
+
     _scheduler.start()
     logger.info("APScheduler started (reminder heartbeat + scheduled actions + sweeper + nightly jobs)")
 

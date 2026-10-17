@@ -10,7 +10,7 @@
 - User creates agents from a dashboard; each has name/personality/knowledge via conversational onboarding (training mode)
 - Optional branding: logo, company name, accent color
 - Multi-provider AI: Anthropic, OpenAI, Google Gemini, Ollama (local), Together AI — all via API key paste (no OAuth for AI providers)
-- Integrations: QuickBooks Online (OAuth), QuickBooks CSV import, Gmail (multiple accounts), Google Calendar, Google Drive, WhatsApp (Baileys bridge), Telegram (multiple bots), CRM Lite (optional, default OFF), Odoo, BambooHR, Paperclip (agent orchestration), Todoist, Claude Code (agents delegate tasks to the user's own Claude Code/Codex via `chatty-connector`)
+- Integrations: QuickBooks Online (OAuth), QuickBooks CSV import, Gmail (multiple accounts), Google Calendar, Google Drive, WhatsApp (Baileys bridge), Telegram (multiple bots), CRM Lite (optional, default OFF), Odoo, BambooHR, Paperclip (agent orchestration), Todoist, Claude Code (agents delegate tasks to the user's own Claude Code/Codex via `chatty-connector`), MCP servers (remote, API key)
 - **Todos (GTD)** — core always-on feature (NOT an integration): global store in `core/todo/`, 11 `todo_*` agent tools, multi-page UI at `/todos`, GTD coaching block injected into every agent's system prompt (admin setting `gtd_coaching_text`), public no-login `/capture` page (optional secret token), no-login `/todo[/{token}]` web app serving the whole todo UI outside the dashboard (`core/todo/web.py`, off by default), deterministic Telegram "capture" intercept
 - Agent features: memory system, dreaming/context archival, shared context across agents, scheduled actions (heartbeat), reminders (one-time and recurring), notifications (web push, Telegram, WhatsApp), knowledge import (OpenClaw, paste, folder, ZIP)
 - File uploads: PDF, DOCX, and text files via drag-and-drop in chat
@@ -186,6 +186,10 @@ Setup (the template for any teammate wiring a harness to the brain):
 4. Agent → Knowledge tab → Memory backend → **Second brain**.
 
 Tests: `backend/tests/test_brain_backend.py` (httpx `MockTransport`, no network) and `backend/tests/test_brain_prompt_context.py` (prompt block, tool policy, merged search, nightly promotion, and a source check that no prompt path builds its own `ContextManager`).
+
+## MCP servers
+
+`integrations/mcp/` connects remote MCP servers (streamable HTTP, API key in a configurable header) and gives every agent their tools as `mcp_<server>__<tool>` (`kind: "integration"`, wrapped untrusted, `context_aware`). `client.py` is a hand-rolled JSON-RPC-over-streamable-HTTP client on the pinned-IP transport in `core/security/ssrf.py` (the official SDK runs on `httpx2` and can't carry it); one short-lived session per call. `store.py` owns `data/integrations/mcp.json` (`servers` is a dict keyed by server id so `api_key` is encrypted; the cached tool list is a list) and `call_error()`, the policy check every executor re-runs on each call against `_ctx.origin`: **every MCP tool is `writes: True`** unless the user marks it read-only on the card (the server's `readOnlyHint` is only shown as a suggestion); write tools are refused in background turns unless the server's `allow_in_background` is on; a tool that became stricter since it was loaded is refused ("permissions changed; ask again") so the next turn reloads it. Loading never touches the network: tool lists are cached and refreshed from the card or hourly when older than 6 h (`service.refresh_stale`). `core/security/ssrf.py` is shared with Odoo discovery: `validate_url` (https + every resolved address public) at add time, `pinned_client()` connects only to the address it just validated; `allow_origins` is the exact-origin exemption for the computer (PR 11). User guide: `docs/mcp-setup.md`; tests: `tests/test_mcp.py`, `tests/test_ssrf.py`.
 
 ## Claude Code connector
 

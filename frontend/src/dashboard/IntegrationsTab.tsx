@@ -6,6 +6,7 @@ import { useOAuthFlow } from '../core/hooks/useOAuthFlow';
 import { GoogleIntegrationCard } from './GoogleIntegrationCard';
 import { AppCredentialsForm } from './AppCredentialsForm';
 import { ClaudeCodePanel } from './ClaudeCodePanel';
+import { McpPanel } from './McpPanel';
 import type { Integration, Agent } from '../core/types';
 import { IconGlobe, IconUsers, IconFile, IconPhone, IconMail, IconChart, IconBook, IconZap } from '../shared/icons';
 import { TelegramSettings } from '../agent/components/TelegramSettings';
@@ -25,6 +26,7 @@ const INTEGRATION_ICONS: Record<string, React.ComponentType<{ size?: number; cla
   todoist: IconBook,
   brain: IconZap,
   claude_code: IconZap,
+  mcp: IconGlobe,
 };
 
 const mono = (size: number, color = 'rgba(237,240,244,0.38)') => ({
@@ -452,8 +454,8 @@ export function IntegrationsTab() {
                         </>
                       )}
 
-                      {/* Setup button — only when not configured (Claude Code pairs from its panel) */}
-                      {!isConfigured && integration.id !== 'claude_code' && (
+                      {/* Setup button — only when not configured (Claude Code pairs, MCP adds servers, from their panels) */}
+                      {!isConfigured && integration.id !== 'claude_code' && integration.id !== 'mcp' && (
                         <button onClick={() => {
                           if (integration.id === 'quickbooks') {
                             if (hasAppCreds) setupQuickBooks();
@@ -604,6 +606,7 @@ export function IntegrationsTab() {
             )}
 
             {integration.id === 'claude_code' && <ClaudeCodePanel onChanged={loadIntegrations} />}
+            {integration.id === 'mcp' && <McpPanel onChanged={loadIntegrations} />}
 
             {/* Paperclip agent mapping */}
             {integration.id === 'paperclip' && integration.enabled && integration.configured && (
