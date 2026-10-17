@@ -77,6 +77,7 @@ _SCHEMA = f"""
                                                            'done','failed','cancelled')),
         finish_reason         TEXT,
         takeover_state        TEXT,
+        takeover_reason       TEXT,
         cancel_requested      INTEGER NOT NULL DEFAULT 0,
         phase                 TEXT NOT NULL DEFAULT '',
         pending_action_id     TEXT,
@@ -170,6 +171,10 @@ def _setup_connection() -> None:
     _connection.execute("PRAGMA busy_timeout=5000")
     _connection.execute("PRAGMA synchronous=FULL")
     _connection.executescript(_SCHEMA)
+    # Migration for DBs created before the takeover_reason column existed.
+    cols = {r[1] for r in _connection.execute("PRAGMA table_info(tasks)")}
+    if "takeover_reason" not in cols:
+        _connection.execute("ALTER TABLE tasks ADD COLUMN takeover_reason TEXT")
     _connection.commit()
     logger.info("Computer tasks DB initialized at %s", DB_PATH)
 
@@ -279,6 +284,13 @@ def heartbeat(task_id: str, worker_id: str, running_seconds: float, phase: str,
     ) == 1
 
 
+def set_takeover(task_id: str, state: str, reason: str | None = None) -> None:
+    """takeover_state: '' (nobody), 'waiting' (the helper asked, no one has the screen yet) or
+    'active' (a person has the screen). The reason stays once set, for the viewer and forensics."""
+    execute("UPDATE tasks SET takeover_state = ?, takeover_reason = COALESCE(?, takeover_reason) WHERE id = ?",
+            (state, reason, task_id))
+
+
 def chain_totals(root_task_id: str) -> dict:
     """Steps, counted seconds and money (reserved + actual) across the whole follow-up chain."""
     row = query(
@@ -385,7 +397,7 @@ def task_view(task: dict, *, result_chars: int = 2000) -> dict:
     """Public shape of a task row (card + tools)."""
     out = {k: task[k] for k in (
         "id", "agent_slug", "origin", "mode", "helper_model", "status", "task", "finish_reason", "error",
-        "takeover_state", "parent_task_id", "root_task_id", "approved_gate_id", "gate_id", "conversation_id",
+        "takeover_state", "takeover_reason", "parent_task_id", "root_task_id", "approved_gate_id", "gate_id", "conversation_id",
         "steps", "input_tokens", "output_tokens",
     )}
     for k in ("created_at", "started_at", "finished_at"):

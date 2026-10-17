@@ -39,7 +39,13 @@ _INSTRUCTIONS = {
     ),
 }
 
+# Keyed by status, or by finish_reason for a reason that needs its own wording.
 _STATUS_NOTES = {
+    "sign-in needed": (
+        "The helper needed the owner to take over the screen ({what}) and nobody did within 15 minutes, so it "
+        "stopped. Tell the user what the helper needed, that they can do it themselves on the computer's screen "
+        "(/computer) and then ask you for a follow-up. Never ask the user for a password."
+    ),
     "needs_approval": (
         "The helper stopped BEFORE a consequential action ({what}) because it needs the owner's approval. "
         "Approvals from chat aren't available yet: tell the user exactly what was about to happen and that they "
@@ -121,7 +127,8 @@ def complete_task(task_id: str) -> None:
         from core.agents.scheduled_actions.processor import _AGENT_TURN_ERRORS, run_agent_background_turn
         gate = db.get_gate(task["gate_id"]) if task["gate_id"] else None
         what = (f"{gate['kind']}: {gate['name'] or gate['reason'] or ''} on {gate['host'] or gate['url'] or 'the page'}"
-                if gate else task["finish_reason"] or "")
+                if gate else task["takeover_reason"] or task["finish_reason"] or "")
+        note = _STATUS_NOTES.get(task["status"]) or _STATUS_NOTES.get(task["finish_reason"] or "")
         payload = json.dumps({
             "task": task["task"],
             "result_text": (task["result_text"] or "")[:20000],
@@ -133,7 +140,7 @@ def complete_task(task_id: str) -> None:
             + (f" ({task['finish_reason']})" if task["finish_reason"] else "")
             + f". {task['steps']} steps, ${task['cost_reserved_usd'] + task['cost_actual_usd']:.2f}, "
               f"{(task['running_seconds'] or 0) / 60:.0f} min. Created {task['created_at']} UTC, finished {task['finished_at']} UTC."
-            + (" " + _STATUS_NOTES[task["status"]].format(what=what) if task["status"] in _STATUS_NOTES else "")
+            + (" " + note.format(what=what) if note else "")
             + " A follow-up is a new task: computer_task(task=..., follow_up_of='" + task["id"] + "')."
             + "\n\n" + wrap_result("computer_task", payload)
         )
