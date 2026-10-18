@@ -1195,7 +1195,7 @@ class _Run:
         db.add_step(self.id, member, inp, json.dumps(result), url=self.url, screenshot=shot,
                     verdict=self._verdict_tag(verdicts[0] if verdicts else None))
         if "error" in result:
-            return {"content": result["error"], "is_error": True}
+            return {"content": " — ".join(filter(None, (result["error"], result.get("hint")))), "is_error": True}
         if "stopped" in result:
             return {"content": result["stopped"], "is_error": False}
         if image:

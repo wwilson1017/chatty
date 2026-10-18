@@ -241,6 +241,21 @@ class TestScreenshotLoop:
             assert results[2]["is_error"] and "more than once" in results[2]["content"] and not run.finished
             _end(run)
 
+    def test_a_declared_free_click_is_gated_and_a_changed_page_refuses_the_click(self, shot, monkeypatch):
+        """The helper's request_approval declaration gates the next pixel click whatever the classifier says;
+        and when the page changes between our read and the click, the computer's 409 comes back as an error."""
+        _queue()
+        run = _live_run()
+        shot.element_changed = True  # the computer's expect check fails on the (free) cart click
+        [r] = asyncio.run(run.batch([CLICK_CART]))
+        assert r["is_error"] and "take a screenshot" in r["content"] and shot.actions[-1]["name"] == "left_click"
+        shot.element_changed = False
+        results = asyncio.run(run.batch([custom("request_approval", {"kind": "post", "reason": "the cart button posts a review"}, "d"), CLICK_CART]))
+        assert "Declared" in results[0]["content"] and results[1]["content"].startswith("needs approval (post)")
+        gate = db.get_gate(run.gate_id)
+        assert (gate["kind"], gate["rule"], gate["action"], gate["reason"]) == ("post", "declared", "left_click", "the cart button posts a review")
+        assert [a["name"] for a in shot.actions] == ["left_click", "screenshot"] and run.finished
+
     def test_a_click_the_page_cannot_identify_is_a_gate_fail_closed(self, shot, monkeypatch):
         """A click with no coordinate lands where the cursor is; nothing of the page is there (a desktop app, say)."""
         _queue()
