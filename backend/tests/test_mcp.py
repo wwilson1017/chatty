@@ -62,11 +62,14 @@ class TestNaming:
         assert names == {"mcp_github__create_issue", "mcp_github__get_issue"}
         assert all(re.fullmatch(r"[A-Za-z0-9_-]{1,64}", n) for n in names)
 
-    def test_collision_and_overflow_get_a_hash_suffix(self):
+    def test_collision_and_overflow_get_a_hash_suffix_independent_of_order(self):
         seen: set[str] = set()
         a = store.unique_tool_name("s", "a.b", seen)
         b = store.unique_tool_name("s", "a_b", seen)
-        assert a == "mcp_s__a_b" and b != a and b.startswith("mcp_s__a_b_") and len(b) <= 64
+        assert b == "mcp_s__a_b" and a != b and a.startswith("mcp_s__a_b_") and len(a) <= 64
+        # Listed the other way round, each tool keeps its alias: an approved write can never name the other tool.
+        seen2: set[str] = set()
+        assert store.unique_tool_name("s", "a_b", seen2) == b and store.unique_tool_name("s", "a.b", seen2) == a
         long = store.unique_tool_name("s", "x" * 100, seen)
         assert len(long) == 64 and re.fullmatch(r"[A-Za-z0-9_-]+", long)
         assert long != store.unique_tool_name("s", "x" * 101, set())
@@ -167,6 +170,8 @@ class TestCallTime:
         assert out == {"content": "a\nb", "omitted_content_types": ["image"], "structured": {"n": 1}, "is_error": True}
         big = mcp_tools._shape({"content": [{"type": "text", "text": "x" * (mcp_tools.MAX_RESULT_CHARS + 5)}]})
         assert len(big["content"]) == mcp_tools.MAX_RESULT_CHARS and big["truncated"] is True
+        huge = mcp_tools._shape({"content": [], "structuredContent": {"rows": ["y" * 1000] * 30}})
+        assert "structured" not in huge and huge["structured_omitted"].startswith("structuredContent over")
 
 
 class TestWrappingAndDiscovery:

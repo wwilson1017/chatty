@@ -10,6 +10,7 @@ import { OnboardingPage } from './onboarding/OnboardingPage';
 import { AgentPage } from './agent/AgentPage';
 import { WebbyPage } from './webby/WebbyPage';
 import { UsagePage } from './usage/UsagePage';
+import { ComputerPage } from './computer/ComputerPage';
 import { CrmLayout } from './crm/CrmLayout';
 import { CrmDashboardPage } from './crm/CrmDashboardPage';
 import { ContactsPage } from './crm/ContactsPage';
@@ -46,6 +47,16 @@ export default function App() {
             element={
               <ProtectedRoute>
                 <OnboardingPage />
+              </ProtectedRoute>
+            }
+          />
+
+          {/* The computer's live screen: full-screen, no nav rail (phones take over from here). */}
+          <Route
+            path="/computer"
+            element={
+              <ProtectedRoute>
+                <ComputerPage />
               </ProtectedRoute>
             }
           />
