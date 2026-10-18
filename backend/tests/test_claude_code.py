@@ -361,6 +361,16 @@ class TestDelegate:
         cc.client.put("/api/integrations/claude_code/access", json={"level": "full"})
         assert "background" in _delegate(origin="background", level="full")["error"]
 
+    def test_group_turns_are_background_for_the_connector(self, cc):
+        """A Telegram group turn carries origin "group": never full access, and stored
+        and budgeted as background (jobs.origin only knows user/background/system)."""
+        cc.client.put("/api/integrations/claude_code/access", json={"level": "full"})
+        assert "background" in _delegate(origin="group", level="full")["error"]
+        for i in range(tools.BACKGROUND_BUDGET):
+            out = _delegate(origin="group", task=f"g{i}", route={"channel": "telegram", "chat_id": "-100"})
+            assert db.get_job(out["job_id"])["origin"] == "background"
+        assert "budget" in _delegate(origin="group")["error"]
+
     def test_not_paired_refused(self, client):
         assert "not connected" in _delegate()["error"]
 
