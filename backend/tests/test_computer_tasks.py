@@ -4,6 +4,7 @@ boundary, the lease and runner lock, orphan sweep outcomes, completion at most o
 idempotent usage row. No network, no real model."""
 
 import asyncio
+import base64
 import fcntl
 import json
 import threading
@@ -20,6 +21,7 @@ from integrations.registry import save_credentials
 SECRET = "s3cret-s3cret-s3cret-s3cret-s3cret"
 MODEL = "claude-sonnet-4-6"  # exactly priced ($3 / $15)
 _real_is_active = runner.is_active  # the `fake` fixture patches it True; one test wants the real one
+PNG = b"\x89PNG\r\n\x1a\n" + b"fake-screen" * 4  # what the fake's screenshot action returns (base64 on the wire)
 
 
 # ── fakes ────────────────────────────────────────────────────────────────────
@@ -41,6 +43,15 @@ class FakeComputer:
         self.url = "https://shop.example/checkout"
         self.files: dict[str, bytes] = {}
         self.lock = threading.Lock()
+        # the action journal (/actions, GET /actions/{id}) and ways to lose a /browser/act response
+        self.journal: dict[str, dict] = {}
+        self.performed: list[dict] = []   # /browser/act bodies the fake really acted on (expect matched)
+        self.lose_response = False        # act, journal it, then drop the response (a timeout)
+        self.lose_unjournaled = False     # the request never reaches the computer
+        self.journal_hidden = False       # GET /actions/{id} answers 404 (a restart lost the row)
+        self.on_act = None                # hook(body) run right before a successful act's response
+        self.before_call = None           # hook(path, body) run before the lease/epoch check of every lease-guarded call
+        self.shots = 0
 
     @property
     def epoch(self):
@@ -91,6 +102,11 @@ class FakeComputer:
             return httpx.Response(200, json={"released": released})
         if path == "/control/status":
             return httpx.Response(200, json={"human_in_control": self.human, "epoch": self.epoch, "control": None})
+        if path.startswith("/actions/") and request.method == "GET":
+            j = None if self.journal_hidden else self.journal.get(path.rsplit("/", 1)[-1])
+            if not j:
+                return self._err(404, "unknown_action")
+            return httpx.Response(200, json={"action_id": path.rsplit("/", 1)[-1], "status": j["status"], "http_status": 200, "response": None})
         if path.startswith("/files"):
             agent, p = request.url.params["agent"], request.url.params["path"]
             if path == "/files":
@@ -105,6 +121,8 @@ class FakeComputer:
             return httpx.Response(200, content=self.files[key], headers={"X-File-Name": p.rsplit("/", 1)[-1],
                                                                           "Content-Type": "application/octet-stream"})
         # everything below needs the lease
+        if self.before_call:
+            self.before_call(path, body or {})
         refused = self._check_lease(body or {})
         if refused:
             return refused
@@ -114,25 +132,62 @@ class FakeComputer:
         if path == "/browser/element":
             el = self.elements.get(body.get("ref")) if body.get("ref") else self.focused
             return httpx.Response(200, json=el or {"found": False, "page": {"host": "shop.example", "path": "/checkout", "title": "Checkout"}})
+        if path == "/actions":
+            if body.get("name") != "screenshot":
+                return self._err(400, "bad_input")
+            self.shots += 1
+            self.journal[body["action_id"]] = {"status": "done"}
+            return httpx.Response(200, json={"action_id": body["action_id"], "status": "done",
+                                             "result": {"image": base64.b64encode(PNG).decode(), "width": 1280, "height": 800}})
         if path == "/browser/act":
-            if self.element_changed:
-                return self._err(409, "element_changed", mismatches=["name"])
+            if self.lose_unjournaled:
+                raise httpx.ConnectError("the computer is unreachable")
+            mismatches = self._mismatches(body)
+            if mismatches:
+                self.journal[body["action_id"]] = {"status": "failed"}
+                return self._err(409, "element_changed", mismatches=mismatches)
+            self.performed.append(body)
+            self.journal[body["action_id"]] = {"status": "done"}
+            if self.on_act:
+                self.on_act(body)
+            if self.lose_response:
+                self.lose_response = False
+                raise httpx.ReadTimeout("the response was lost")
             return httpx.Response(200, json={"action_id": body["action_id"], "status": "done", "result": {"url": self.url, "title": "Checkout"}})
         if path == "/shell":
             return httpx.Response(200, json={"exit_code": 0, "stdout": f"ran: {body['command']}", "stderr": "", "truncated": False,
                                              "timed_out": False, "killed": False})
         return httpx.Response(404, json={"error": "not_found", "detail": path})
 
+    def _mismatches(self, body) -> list[str]:
+        """The computer's `expect` check: describe the target right before acting and compare every field sent."""
+        if self.element_changed:
+            return ["name"]
+        exp = body.get("expect")
+        if not exp:
+            return []
+        el = self.elements.get(body["ref"]) if body.get("ref") else self.focused
+        if not el or not el.get("found"):
+            return ["name"]
+        total = el.get("total")
+        actual = {"action": f"act:press:{body.get('key')}" if body["kind"] == "press" else f"act:{body['kind']}",
+                  "host": el["page"]["host"], "path": el["page"]["path"], "frame_url": el.get("frame_url"),
+                  "role": el.get("role"), "name": (el.get("name") or "").strip().lower(),
+                  "form_action": (el.get("form") or {}).get("action"), "context_fp": el.get("context_fp"),
+                  "total": {"amount": total["amount"], "currency": total["currency"]} if isinstance(total, dict) else None}
+        return [k for k, v in exp.items() if actual.get(k) != (str(v).strip().lower() if k == "name" else v)]
+
     def acts(self):
         return [b for m, p, b in self.calls if p == "/browser/act"]
 
 
-def element(name, ref="e10", *, is_submit=True, path="/checkout", role="button", form_action="https://shop.example/order"):
+def element(name, ref="e10", *, is_submit=True, path="/checkout", role="button", form_action="https://shop.example/order",
+            host="shop.example", total="45.00", context_fp="abc"):
     return {"found": True, "ref": ref, "tag": "button", "role": role, "name": name, "type": "submit", "href": None,
             "is_submit": is_submit, "form": {"action": form_action, "method": "post"} if is_submit else None,
-            "frame_url": f"https://shop.example{path}", "page": {"host": "shop.example", "path": path, "title": "Checkout"},
-            "context_kind": "form" if is_submit else None, "context_fp": "abc" if is_submit else None,
-            "total": {"amount": "45.00", "currency": "USD", "text": "Total $45.00"}}
+            "frame_url": f"https://{host}{path}", "page": {"host": host, "path": path, "title": "Checkout"},
+            "context_kind": "form" if is_submit else None, "context_fp": context_fp if is_submit else None,
+            "total": {"amount": total, "currency": "USD", "text": f"Total ${total}"} if total and total != "ambiguous" else total}
 
 
 class FakeProvider:
@@ -347,14 +402,39 @@ class TestHelperLoop:
         assert [s["verdict"] for s in db.list_steps(tid)] == [None, "free:3.legwork", None, None]
         assert t["cost_actual_usd"] > 0 and t["cost_reserved_usd"] == 0 and t["input_tokens"] == 3000
 
-    def test_request_approval_tool_ends_the_task(self, fake, monkeypatch):
+    def test_request_approval_declares_and_the_next_action_is_gated_with_the_details(self, fake, monkeypatch):
+        """The helper's declaration doesn't stop the task; the click it precedes does, and the gate carries the
+        helper's item/store/total so the card shows them next to the page's own facts."""
+        fake.elements["e10"] = element("Place order")
         tid = _queue()
-        prov = FakeProvider([{"tool_calls": [("request_approval", {"kind": "send", "reason": "send the draft", "item": "email to Bob"})]}, FINAL])
+        declare = ("request_approval", {"kind": "buy", "reason": "ordering the mug as asked", "item": "blue mug",
+                                        "store": "shop.example", "total": "$45.00"})
+        prov = FakeProvider([{"tool_calls": [declare]}, {"text": "Ordering.", "tool_calls": [CLICK_ORDER]}, FINAL])
         _, t = _run(fake, prov, monkeypatch)
-        assert t["status"] == "needs_approval" and prov.calls == 1
+        assert t["status"] == "needs_approval" and prov.calls == 2
+        assert "noted" in prov.seen[1][-1]["content"][0]["content"]
         gate = db.get_gate(t["gate_id"])
-        assert gate["kind"] == "send" and gate["rule"] == "helper" and gate["item"] == "email to Bob" and gate["element_json"] is None
-        assert db.list_steps(tid)[0]["tool"] == "request_approval"
+        assert (gate["kind"], gate["rule"], gate["item"], gate["store"], gate["total_text"], gate["reason"]) == (
+            "buy", "1.buy", "blue mug", "shop.example", "$45.00", "ordering the mug as asked")
+        assert gate["element_json"] and gate["screenshot"] == f"shots/{tid}/{gate['id']}.png"
+        assert (db.DATA_DIR / gate["screenshot"]).read_bytes() == PNG
+        assert [s["tool"] for s in db.list_steps(tid)] == ["request_approval", "browser"]
+        assert fake.performed == []
+
+    def test_declared_total_must_match_the_page_and_a_declared_free_click_is_still_gated(self, fake, monkeypatch):
+        fake.elements["e10"] = element("Place order")
+        fake.elements["e5"] = element("Add to cart", "e5", is_submit=False)
+        _queue()
+        wrong = ("request_approval", {"kind": "buy", "reason": "r", "total": "$39.99"})
+        right = ("request_approval", {"kind": "post", "reason": "the cart button posts the review, trust me"})
+        prov = FakeProvider([{"tool_calls": [wrong]}, {"tool_calls": [CLICK_ORDER]}, {"tool_calls": [right]}, {"tool_calls": [CLICK_CART]}, FINAL])
+        _, t = _run(fake, prov, monkeypatch)
+        refused = prov.seen[2][-1]["content"][0]["content"]
+        assert "refused" in refused and "$39.99" in refused and "45.00" in refused
+        assert t["status"] == "needs_approval" and prov.calls == 4 and fake.performed == []
+        gate = db.get_gate(t["gate_id"])
+        assert gate["kind"] == "post" and gate["rule"] == "declared" and gate["name"] == "Add to cart"
+        assert db.query("SELECT COUNT(*) AS n FROM gates")[0]["n"] == 1  # the refused declaration opened none
 
     def test_element_changed_is_reported_not_fatal(self, fake, monkeypatch):
         fake.elements["e5"] = element("Add to cart", "e5", is_submit=False)
@@ -759,7 +839,7 @@ class TestCompletion:
         completion.complete_task(tid)
         completion.sweep()
         assert len(turns) == 1
-        assert "needs the owner's approval" in turns[0] and "buy: Place order on shop.example" in turns[0]
+        assert "waiting for the owner's approval" in turns[0] and "buy: Place order on shop.example" in turns[0]
         assert "<untrusted_tool_result" in turns[0] and "cart is full" in turns[0]
         t = db.get_task(tid)
         assert t["completion_status"] == "done" and t["summary_text"].startswith("Stopped before buying")

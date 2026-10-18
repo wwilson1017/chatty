@@ -129,6 +129,7 @@ _SCHEMA = f"""
         store         TEXT,
         total_text    TEXT,
         reason        TEXT,
+        note          TEXT,
         screenshot    TEXT,
         status        TEXT NOT NULL DEFAULT 'pending'
                       CHECK(status IN ('pending','approved','denied','expired','dispatching','done',
@@ -171,9 +172,10 @@ def _setup_connection() -> None:
     _connection.execute("PRAGMA busy_timeout=5000")
     _connection.execute("PRAGMA synchronous=FULL")
     _connection.executescript(_SCHEMA)
-    # Migration for DBs created before the takeover_reason column existed.
-    cols = {r[1] for r in _connection.execute("PRAGMA table_info(tasks)")}
-    if "takeover_reason" not in cols:
+    # Migrations for dev stores created before these columns existed.
+    if "note" not in {r[1] for r in _connection.execute("PRAGMA table_info(gates)")}:
+        _connection.execute("ALTER TABLE gates ADD COLUMN note TEXT")
+    if "takeover_reason" not in {r[1] for r in _connection.execute("PRAGMA table_info(tasks)")}:
         _connection.execute("ALTER TABLE tasks ADD COLUMN takeover_reason TEXT")
     _connection.commit()
     logger.info("Computer tasks DB initialized at %s", DB_PATH)
@@ -367,7 +369,7 @@ def finish_task(task_id: str, status: str, reason: str, *, notify: bool, commit:
         raise ValueError(f"finish_task: unknown fields {bad}")
     db = get_db()
     with _write_lock:
-        row = db.execute("SELECT origin FROM tasks WHERE id = ?", (task_id,)).fetchone()
+        row = db.execute("SELECT origin, approved_gate_id FROM tasks WHERE id = ?", (task_id,)).fetchone()
         if not row:
             return False
         notify = notify and row["origin"] != "system"
@@ -383,6 +385,16 @@ def finish_task(task_id: str, status: str, reason: str, *, notify: bool, commit:
         changed = db.execute(
             f"UPDATE tasks SET {', '.join(sets)} WHERE id = ? AND status IN ('queued','running')", params,
         ).rowcount == 1
+        if changed:
+            # An approval whose follow-up ended before it was dispatched is spent (never dispatchable
+            # again); a dispatch whose worker died mid-action shares the task's outcome_unknown. A gate
+            # already dispatching/done keeps its own outcome — a cancel undoes nothing on the site.
+            if row["approved_gate_id"]:
+                db.execute("UPDATE gates SET status = 'cancelled' WHERE id = ? AND status = 'approved'",
+                           (row["approved_gate_id"],))
+            if status == "outcome_unknown":
+                db.execute("UPDATE gates SET status = 'outcome_unknown' WHERE status = 'dispatching' AND (id = ? OR task_id = ?)",
+                           (row["approved_gate_id"], task_id))
         if commit:
             db.commit()
     if changed and commit:
@@ -411,12 +423,14 @@ def task_view(task: dict, *, result_chars: int = 2000) -> dict:
 
 # ── gates ────────────────────────────────────────────────────────────────────
 
-def insert_gate(task: dict, *, kind: str, reason: str, rule: str = "", action: str | None = None,
-                element: dict | None = None, url: str | None = None, item: str | None = None,
-                store: str | None = None, total_text: str | None = None, screenshot: str | None = None,
-                commit: bool = True) -> str:
-    """Record what the helper was stopped before. `element` is the /browser/element description;
-    its page/frame/form facts are copied into columns PR 4's approval binding reads."""
+def insert_gate(task: dict, *, kind: str, note: str = "", reason: str | None = None, rule: str = "",
+                action: str | None = None, element: dict | None = None, url: str | None = None,
+                item: str | None = None, store: str | None = None, total_text: str | None = None,
+                screenshot: str | None = None, commit: bool = True) -> str:
+    """Record what the helper was stopped before. `note` is Chatty's own account (which rule fired,
+    or why a new gate replaces an approved one); `reason`/item/store/total_text are the helper's
+    declaration, shown apart as "not verified". `element` is the /browser/element description; its
+    page/frame/form facts are copied into the columns the approval binding reads."""
     assert kind in GATE_KINDS, kind
     gate_id = uuid.uuid4().hex[:12]
     el = element or {}
@@ -426,14 +440,14 @@ def insert_gate(task: dict, *, kind: str, reason: str, rule: str = "", action: s
         db.execute(
             """INSERT INTO gates (id, task_id, root_task_id, agent_slug, kind, rule, action, host, path, url, frame_url,
                                   role, name, form_action, context_fp, element_json, total_json, item, store, total_text,
-                                  reason, screenshot, status, expires_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', datetime('now', ?))""",
+                                  reason, note, screenshot, status, expires_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', datetime('now', ?))""",
             (gate_id, task["id"], task["root_task_id"], task["agent_slug"], kind, rule, action,
              page.get("host"), page.get("path"), url, el.get("frame_url"), el.get("role"), el.get("name"),
              (el.get("form") or {}).get("action"), el.get("context_fp"),
              json.dumps(element) if element else None,
              json.dumps(el["total"]) if el.get("total") is not None else None,
-             item, store, total_text, reason, screenshot, f"+{GATE_TTL_HOURS} hours"),
+             item, store, total_text, reason, note, screenshot, f"+{GATE_TTL_HOURS} hours"),
         )
         if commit:
             db.commit()
@@ -446,11 +460,15 @@ def get_gate(gate_id: str) -> dict | None:
 
 
 def gate_view(gate: dict) -> dict:
+    from . import gates
     out = {k: gate[k] for k in ("id", "task_id", "root_task_id", "agent_slug", "kind", "rule", "action", "host",
                                 "path", "url", "frame_url", "role", "name", "form_action", "item", "store",
-                                "total_text", "reason", "status", "decision", "decided_via")}
+                                "total_text", "reason", "note", "status", "decision", "decided_via")}
     out["total"] = json.loads(gate["total_json"]) if gate["total_json"] else None
     out["has_screenshot"] = bool(gate["screenshot"])
+    # None: approving dispatches the bound action once; a string: approving opens the screen for
+    # the owner to do it themselves, because the page facts the binding needs couldn't be read.
+    out["takeover_reason"] = gates.unbindable_reason(gate)
     for k in ("created_at", "expires_at", "decided_at"):
         out[k] = iso_z(gate[k])
     return out

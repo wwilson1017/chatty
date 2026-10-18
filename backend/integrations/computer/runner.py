@@ -6,11 +6,14 @@ flock so one Chatty process owns the queue, and the computer's screen lease is
 the real lock across overlapping deploys. The loop is text mode: the helper
 model sees aria snapshots and acts through refs; PR 5 adds screenshot-and-click.
 
-Every checked action is classified by gates.classify() BEFORE it is sent. In
-this PR a gate ends the task as `needs_approval`; PR 4 adds approval + resume.
-Logins never go through the helper: `request_takeover` hands the screen to the
-owner and waits (tool_request_takeover), the computer refusing every agent call
-meanwhile.
+Every checked action is classified by gates.classify() BEFORE it is sent. A gate
+ends the task as `needs_approval` and asks the owner (approvals.py); approving
+queues a follow-up whose first step is _Run.consume(): one activation bound to
+the stored gate, re-checked by the computer, never re-sent. A gate that can't be
+bound becomes a takeover task (_Run.takeover) that opens the page for the owner
+and performs nothing itself. Logins never go through the helper either:
+`request_takeover` hands the screen to the owner and waits
+(tool_request_takeover), the computer refusing every agent call meanwhile.
 
 Caps cover the whole follow-up chain (root_task_id): steps and time are hard;
 money is a budget enforced on conservative reservations saved before each
@@ -19,6 +22,7 @@ db.finish_task().
 """
 
 import asyncio
+import base64
 import fcntl
 import json
 import logging
@@ -27,21 +31,23 @@ import re
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
+from urllib.parse import urlsplit
 
 from core.agents.security.delimiters import DELIMITER_SYSTEM_INSTRUCTION, wrap_result
 from core.config import settings
 from core.providers import get_ai_provider
 from core.providers.pricing import get_max_rates, rates_for_prompt
 
-from . import card, db, gates
+from . import approvals, card, db, gates
 from .client import ComputerClient, ComputerError, get_client
 
 logger = logging.getLogger(__name__)
 
 RENEW_EVERY_S = 30
 CONTROL_POLL_S = 2
-TAKEOVER_WAIT_S = 15 * 60  # request_takeover: how long the helper holds the screen for someone to take it
+TAKEOVER_WAIT_S = 15 * 60  # how long the screen is held for the owner to take it (request_takeover and takeover tasks)
 BUSY_RETRY_S = 5
+RECONCILE_WAIT_S = 5       # between the two journal reads after a lost response
 MODEL_TIMEOUT_S = 300
 SHELL_DEFAULT_S = 120
 SHELL_MAX_S = 600
@@ -240,9 +246,11 @@ TOOL_DEFS = [
     {
         "name": "request_approval",
         "description": (
-            "Call this BEFORE any action that leaves the computer and can't be undone: buy/pay, send, post, "
-            "delete, or submit a form. The task stops here and the owner is asked; a follow-up task "
-            "continues after approval. For a purchase give item, store and total exactly as the page shows them."
+            "Declare the consequential action you are about to take (buy/pay, send, post, delete, submit a form), "
+            "then take it with ONE plain click or key press. Chatty stops that action for the owner's approval and "
+            "shows your details next to what it read from the page; a follow-up task performs it once approved. "
+            "For a purchase give item, store and total exactly as the page shows them — a total that differs from "
+            "the page's total is refused."
         ),
         "input_schema": {
             "type": "object",
@@ -280,9 +288,10 @@ _RULES = (
     "# Rules\n"
     "- Work from snapshots. Refs (e12, f1e3) are valid only for the latest snapshot; take a new one when the page changed.\n"
     "- Consequential actions — buying or paying, sending, posting, deleting, submitting a form, confirming — need the "
-    "owner's approval. Call request_approval(kind, reason, item/store/total) right before such a click. Chatty also "
-    "checks every click itself and stops the task at an approval point; that is expected, not an error. Do everything "
-    "up to that point (fill the cart, write the message) and let the task stop there.\n"
+    "owner's approval. Call request_approval(kind, reason, item/store/total) right before such a click, then make the "
+    "click (one plain click or Enter, never a double click): Chatty stops it there, asks the owner, and a follow-up "
+    "task performs it once approved. Chatty also checks every click itself; a stop at an approval point is expected, "
+    "not an error. Do everything up to that point (fill the cart, write the message) and let the task stop there.\n"
     "- Drafts: when asked to write an email, post or message, write it and leave it unsent.\n"
     "- Passwords and keys: never type them, never look for saved ones, never ask the owner for them. If a site "
     "needs a sign-in, a 2FA code or a CAPTCHA, call request_takeover(reason): the owner does it on the screen "
@@ -376,6 +385,8 @@ class _Run:
         self.url = ""
         self.snapshot_text = ""
         self.last_text = ""
+        self.gate_id: str | None = None      # the gate this run opened or consumed (goes on the report)
+        self.declared: dict | None = None    # the helper's request_approval declaration, attached to the next gate
         # Counted time: wall time minus takeover waits. `segment_start` is None while paused.
         self.counted = float(task["running_seconds"] or 0)
         self.segment_start: float | None = time.monotonic()
@@ -438,6 +449,7 @@ class _Run:
         if not self.finished:
             self.finished = True
             fields.setdefault("result_text", self.last_text or None)
+            fields.setdefault("gate_id", self.gate_id)
             db.finish_task(self.id, status, reason, notify=True, running_seconds=self.seconds(), **fields)
 
     def cap_report(self, reason: str) -> str:
@@ -625,19 +637,26 @@ class _Run:
         return {k: r.get(k) for k in ("url", "title", "snapshot", "truncated", "tabs")}
 
     async def act(self, kind: str, params: dict, *, label: str, text: str | None = None, verdict_out: list) -> dict:
-        """Classify (when checked), then send the act with an action id and `expect`."""
+        """Classify (when checked), then send the act with an action id and `expect`. A gated action
+        — or any checked action the helper declared consequential — opens a gate instead."""
         expect = None
         if gates.needs_check(label, text):
             target = {"ref": params["ref"]} if params.get("ref") else {"focused": True}
             element = await self.computer("POST", "/browser/element", body=target)
             verdict = gates.classify(label, element, page_text=self.snapshot_text)
+            if not verdict.gated and self.declared:  # the helper said so; the classifier missing it changes nothing
+                verdict = gates.Verdict(True, self.declared["kind"], "declared", f"{self.declared['kind']}: declared by the helper")
             verdict_out.append(verdict)
             if verdict.gated:
-                gate_id = db.insert_gate(self.task, kind=verdict.kind, reason=verdict.reason, rule=verdict.rule,
-                                         action=label, element=element, url=self.url)
-                self.finish("needs_approval", f"stopped before {verdict.kind}: {element.get('name') or label}",
-                            gate_id=gate_id)
-                return {"stopped": f"needs approval ({verdict.kind}): {element.get('name') or label}"}
+                name = element.get("name") or label
+                if verdict.multi:
+                    return {"error": f"refused: {label} on {name!r} would activate it more than once; a consequential "
+                                     "control gets exactly one plain click or key press, after the owner's approval"}
+                err = self.declaration_error(element)
+                if err:
+                    return {"error": err}
+                await self.open_gate(verdict.kind, verdict.reason, verdict.rule, label, element)
+                return {"stopped": f"needs approval ({verdict.kind}): {name}"}
             expect = gates.expect_for(label, element)
         action_id = db.ulid()
         body = {"action_id": action_id, "kind": kind, **{k: v for k, v in params.items() if v is not None}}
@@ -718,14 +737,247 @@ class _Run:
         return {"error": f"unknown files action {action!r}"}
 
     def tool_request_approval(self, a: dict) -> dict:
+        """The helper's declaration. It doesn't stop the task: the next checked action is gated (whatever
+        the classifier says) and carries these details, so the card shows the helper's item, store and
+        total next to what the page shows."""
         kind = a.get("kind")
         if kind not in gates.KINDS:
             return {"error": f"kind must be one of {', '.join(gates.KINDS)}"}
-        gate_id = db.insert_gate(self.task, kind=kind, reason=(a.get("reason") or "")[:1000], rule="helper",
-                                 url=self.url, item=a.get("item"), store=a.get("store"), total_text=a.get("total"))
-        self.finish("needs_approval", f"stopped before {kind}: {(a.get('item') or a.get('reason') or '')[:120]}",
-                    gate_id=gate_id)
-        return {"stopped": f"needs approval ({kind})"}
+        self.declared = {"kind": kind, "reason": (a.get("reason") or "")[:1000], "item": a.get("item"),
+                         "store": a.get("store"), "total": a.get("total")}
+        return {"noted": f"Declared: {kind}. Now take the action itself with one plain click or key press; Chatty "
+                         "stops it for the owner's approval with these details attached."}
+
+    @staticmethod
+    def _amount(text) -> float | None:
+        m = re.search(r"\d[\d,]*(?:\.\d+)?", str(text or ""))
+        return float(m.group(0).replace(",", "")) if m else None
+
+    def declaration_error(self, element: dict) -> str | None:
+        """A declared total that isn't the page's total is refused (the declaration is dropped)."""
+        d = self.declared or {}
+        page_total = element.get("total")
+        if d.get("total") and isinstance(page_total, dict):
+            mine, theirs = self._amount(d["total"]), self._amount(page_total.get("amount"))
+            if mine is None or theirs is None or abs(mine - theirs) > 0.005:
+                self.declared = None
+                return (f"refused: your declared total {d['total']!r} doesn't match the page's total "
+                        f"{page_total.get('text') or page_total.get('amount')!r}; re-check the page and declare again")
+        return None
+
+    # ── gates: open, resume, dispatch, take over ─────────────────────────────
+
+    async def screenshot_to(self, rel: str) -> str | None:
+        """Best effort: a PNG of the screen saved under data/computer/<rel>; None on any failure (a
+        gate without a screenshot is still a gate)."""
+        try:
+            r = await self.computer("POST", "/actions", body={"action_id": db.ulid(), "name": "screenshot", "input": {}})
+            image = (r.get("result") or {}).get("image")
+            if not image:
+                return None
+            path = db.DATA_DIR / rel
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(base64.b64decode(image))
+            return rel
+        except (_Paused, _Fenced, ComputerError, ValueError, OSError):
+            return None
+
+    async def open_gate(self, kind: str, note: str, rule: str, label: str, element: dict | None, *,
+                        reason: str | None = None, item: str | None = None, store: str | None = None,
+                        total_text: str | None = None) -> str:
+        """Stop before a consequential action: record the gate (Chatty's `note`, the helper's declaration
+        if any, and a screenshot), end the task as needs_approval and ask the owner."""
+        d, self.declared = self.declared or {}, None
+        gate_id = db.insert_gate(self.task, kind=kind, note=note[:1000], reason=reason or d.get("reason"), rule=rule,
+                                 action=label, element=element, url=self.url, item=item or d.get("item"),
+                                 store=store or d.get("store"), total_text=total_text or d.get("total"))
+        shot = await self.screenshot_to(f"shots/{self.id}/{gate_id}.png")
+        if shot:
+            db.execute("UPDATE gates SET screenshot = ? WHERE id = ?", (shot, gate_id))
+        self.gate_id = gate_id
+        name = (element or {}).get("name") or label
+        self.finish("needs_approval", f"stopped before {kind}: {name[:120]}", gate_id=gate_id)
+        await asyncio.to_thread(approvals.request, gate_id)
+        return gate_id
+
+    def _page_only(self) -> dict:
+        u = urlsplit(self.url or "")
+        return {"found": False, "page": {"host": u.hostname or "", "path": u.path or "", "title": ""}}
+
+    async def regate(self, gate: dict, reason: str, element: dict | None) -> None:
+        """The approved action can't be sent as approved: spend the old gate (nothing happened) and open
+        a new one for the control as it is now — with no readable control it becomes a takeover card."""
+        db.execute("UPDATE gates SET status = 'cancelled' WHERE id = ? AND status IN ('approved', 'dispatching')", (gate["id"],))
+        await self.open_gate(gate["kind"], f"{reason} (replaces gate {gate['id']})", "rebind", gate["action"] or "",
+                             element or self._page_only(), reason=gate["reason"], item=gate["item"], store=gate["store"],
+                             total_text=gate["total_text"])
+
+    async def locate(self, bound: gates.ApprovalBinding) -> tuple[str | None, dict | None]:
+        """(ref, element) of the control in a fresh snapshot that still matches the binding; (None,
+        first look-alike) when none does; (None, None) when nothing of that role and name is there."""
+        await self.snapshot()
+        fresh = None
+        for ref in gates.locate(self.snapshot_text, bound.role, bound.name):
+            el = await self.computer("POST", "/browser/element", body={"ref": ref})
+            if not el.get("found"):
+                continue
+            fresh = fresh or el
+            if not bound.mismatches(gates.ApprovalBinding.from_element(bound.action, el)):
+                return ref, el
+        return None, fresh
+
+    async def consume(self, gate: dict) -> str | None:
+        """The approved gate a follow-up starts with. A FRESH snapshot (old refs are stale) is used only
+        to locate candidates; the binding — built from the stored gate — picks the one that is still
+        the approved control, and dispatch() sends exactly one activation with that binding as
+        `expect`. Returns the note the helper continues from, or None when the task is over (a new gate
+        opened, or the outcome is unknown)."""
+        self.gate_id = gate["id"]
+        bound = gates.ApprovalBinding.from_gate(gate)
+        for attempt in (1, 2):
+            try:
+                chosen, fresh = await self.locate(bound)
+                break
+            except _Paused:  # nothing sent yet: a person had the screen, look again once they hand it back
+                if attempt == 2:
+                    await self.regate(gate, "a person kept control of the screen", None)
+                    return None
+        if not chosen:
+            await self.regate(gate, gates.change_reason(bound, gates.ApprovalBinding.from_element(bound.action, fresh) if fresh else None), fresh)
+            return None
+        if not await self.dispatch(gate, {"ref": chosen}, fresh):
+            return None
+        try:
+            page = await self.snapshot()
+        except (_Paused, ComputerError):
+            page = {"hint": "take a new snapshot"}
+        kind, _ = gates.dispatch_for(bound.action)
+        return (f"## Approved action performed\nThe owner approved this {gate['kind']} — {bound.role} \"{bound.name}\" on "
+                f"{bound.host}{bound.path} — and Chatty has just performed it ONCE (one {kind}). Do not repeat it. Continue "
+                f"from the page as it is now: confirm the outcome and report.\n\n" + wrap_result("browser", json.dumps(page)))
+
+    async def dispatch(self, gate: dict, params: dict, element: dict) -> bool:
+        """Send the ONE activation an approved gate allows, with `expect` built from the stored gate so
+        the computer refuses anything that differs (409 element_changed → a new gate). The gate is
+        marked `dispatching` with its action id BEFORE the send; a lost response goes to reconcile().
+        A consequential action is never re-sent: the only retry is after `stale_epoch`, which the
+        computer refuses before journaling anything. True when the action was performed."""
+        bound = gates.ApprovalBinding.from_gate(gate)
+        kind, extra = gates.dispatch_for(bound.action) or (None, None)
+        if kind is None:
+            self.finish("failed", "approval can't be dispatched", error=f"{bound.action} isn't a single activation")
+            return False
+        if self.fenced:
+            raise _Fenced()
+        self.phase, self.pending_action_id = "action", db.ulid()
+        self.heartbeat()  # still ours — checked before the gate is marked, so a dead task never marks one
+        if db.execute("UPDATE gates SET status = 'dispatching', action_id = ? WHERE id = ? AND status = 'approved'",
+                      (self.pending_action_id, gate["id"])) != 1:
+            self.phase, self.pending_action_id = "", None
+            self.finish("failed", "approval no longer valid", error=f"gate {gate['id']} is {(db.get_gate(gate['id']) or {}).get('status')}")
+            return False
+        try:
+            for attempt in (1, 2):
+                body = {"action_id": self.pending_action_id, "kind": kind, **params, **extra, "expect": bound.expect()}
+                try:
+                    await self.computer("POST", "/browser/act", body=body, retry_epoch=False)
+                except ComputerError as e:
+                    if e.code == "stale_epoch" and attempt == 1:  # refused before journaling: fresh id, nothing ran
+                        self.epoch = e.body.get("epoch") or self.epoch
+                        self.pending_action_id = db.ulid()
+                        db.execute("UPDATE gates SET action_id = ? WHERE id = ? AND status = 'dispatching'",
+                                   (self.pending_action_id, gate["id"]))
+                        continue
+                    if e.code == "element_changed":  # journaled as failed; nothing was clicked
+                        # The facts we located are the ones the computer just rejected: describe the control
+                        # again for the replacement gate (unreadable → a takeover card, never stale facts).
+                        try:
+                            fresh = await self.computer("POST", "/browser/element", body=params)
+                        except (_Paused, ComputerError):
+                            fresh = None
+                        await self.regate(gate, "changed under the click: " + ", ".join(e.body.get("mismatches") or ["page"]),
+                                          fresh if fresh and fresh.get("found") else None)
+                        return False
+                    return await self.reconcile(gate, element) == "done"
+                except _Paused:  # refused before journaling, but a person had the screen: the page may differ now
+                    await self.regate(gate, "a person took control of the screen before the action was sent", element)
+                    return False
+                except _Fenced:
+                    await self.reconcile(gate, element)  # the lease is gone but the action may have run
+                    raise
+                except _Stop:  # the task ended (cancel, policy) while we waited for a person to hand the screen back:
+                    db.execute("UPDATE gates SET status = 'cancelled' WHERE id = ? AND status = 'dispatching'", (gate["id"],))
+                    raise  # human_in_control is refused before journaling, so nothing was sent
+                db.execute("UPDATE gates SET status = 'done' WHERE id = ? AND status = 'dispatching'", (gate["id"],))
+                db.add_step(self.id, "approved_action", {"gate": gate["id"], "kind": kind, **params}, '{"performed": true}',
+                            url=self.url, verdict=f"approved:{gate['kind']}", action_id=self.pending_action_id)
+                return True
+            return False  # unreachable: the loop returns or raises
+        finally:
+            self.phase, self.pending_action_id = "", None
+
+    async def reconcile(self, gate: dict, element: dict) -> str:
+        """After a lost response, ask the journal. `done` → the gate is done; `failed` (the computer
+        refused it, nothing was performed) → a new gate for the page as it is; anything else →
+        outcome_unknown: the gate and task end there, the report carries a screenshot, and nothing is
+        ever re-sent."""
+        status = None
+        for _ in range(2):
+            try:
+                status = (await self.client.request("GET", f"/actions/{self.pending_action_id}")).get("status")
+            except ComputerError:
+                status = None
+            if status not in ("reserved", "executing"):
+                break
+            await asyncio.sleep(RECONCILE_WAIT_S)
+        if status == "done":
+            db.execute("UPDATE gates SET status = 'done' WHERE id = ? AND status = 'dispatching'", (gate["id"],))
+            return "done"
+        if status == "failed":
+            await self.regate(gate, "the computer refused the action; nothing was performed", element)
+            return "failed"
+        db.execute("UPDATE gates SET status = 'outcome_unknown' WHERE id = ? AND status = 'dispatching'", (gate["id"],))
+        shot = await self.screenshot_to(f"shots/{self.id}/{gate['id']}-unknown.png")
+        if shot:
+            db.execute("UPDATE gates SET screenshot = ? WHERE id = ?", (shot, gate["id"]))
+        self.finish("outcome_unknown", f"sent {gate['kind']}: {gate['name'] or gate['action']} and couldn't confirm the outcome",
+                    gate_id=gate["id"],
+                    error="the computer's response to the approved action was lost and its journal couldn't confirm it; "
+                          "check the site before anything is repeated — nothing is retried automatically")
+        return "unknown"
+
+    async def takeover(self, gate: dict) -> None:
+        """An unbindable gate the owner approved: open the gate's page on this agent's screen, send
+        the viewer link, wait (≤ 15 min) for a person to take control and then hand it back, and
+        finish WITHOUT acting. The owner does the pressing; the report says what they left on screen."""
+        self.gate_id = gate["id"]
+        b = gates.ApprovalBinding.from_gate(gate)
+        what = f"{gate['kind']} ({b.role or 'control'} \"{b.name}\") on {b.host or gate['url'] or 'the page'}"
+        try:
+            if gate["url"] and (await self.snapshot()).get("url") != gate["url"]:
+                await self.act("navigate", {"url": gate["url"]}, label="act:navigate", verdict_out=[])
+        except (_Paused, ComputerError):  # best effort: the owner can navigate themselves
+            pass
+        reason = f"you approved doing the {what} yourself; the page is open and held for {TAKEOVER_WAIT_S // 60:.0f} minutes"
+        db.set_takeover(self.id, "waiting", reason)
+        try:
+            await asyncio.to_thread(notify_takeover, self.task, reason)
+            if await self.wait_control(human=True, timeout=TAKEOVER_WAIT_S) is None:
+                self.finish("failed", f"nobody took over within {TAKEOVER_WAIT_S // 60:.0f} min",
+                            result_text=f"The page for the {what} was opened and the owner was sent the screen link, "
+                                        "but nobody took control. Nothing was done.")
+                return
+            await self.wait_for_control_end()
+        finally:
+            db.set_takeover(self.id, "")
+        try:
+            page = await self.snapshot()
+        except (_Paused, ComputerError):
+            page = {}
+        self.finish("done", "handed back after takeover",
+                    result_text=f"The owner took over the screen for the {what}; Chatty performed nothing itself. "
+                                f"The screen now shows {page.get('title') or ''} ({page.get('url') or self.url}).\n\n"
+                                + (page.get("snapshot") or "")[:3000])
 
     async def tool_request_takeover(self, a: dict) -> dict:
         """Ask the owner to take the screen, hold it until they do (≤ 15 min, the clock stopped), wait
@@ -789,7 +1041,8 @@ class _Run:
 
     # ── the loop ─────────────────────────────────────────────────────────────
 
-    async def loop(self) -> None:
+    async def loop(self, preamble: str | None = None) -> None:
+        """The helper loop. `preamble` (an approved action just performed) is appended to the opening message."""
         provider = get_ai_provider(agent_provider=self.task["helper_provider"], agent_model=self.task["helper_model"])
         if not provider:
             self.finish("failed", f"no {self.task['helper_provider']} credentials for the helper model")
@@ -798,7 +1051,7 @@ class _Run:
         agent = get_agent_by_slug(self.slug) or {}
         system = build_system_prompt(agent.get("agent_name") or self.slug, self.slug)
         parent = db.get_task(self.task["parent_task_id"]) if self.task.get("parent_task_id") else None
-        messages = [{"role": "user", "content": build_user_message(self.task, parent)}]
+        messages = [{"role": "user", "content": build_user_message(self.task, parent) + (f"\n\n{preamble}" if preamble else "")}]
         tools = TOOL_DEFS
 
         while True:
@@ -876,11 +1129,20 @@ async def run_task(task: dict, worker_id: str, client: ComputerClient | None = N
         if reason:
             run.finish("failed", reason, result_text=run.cap_report(reason))
             return "done"
+        gate = db.get_gate(task["approved_gate_id"]) if task.get("approved_gate_id") else None
+        if gate and gate["status"] != "approved":
+            run.finish("failed", "approval no longer valid", error=f"gate {gate['id']} is {gate['status']}")
+            return "done"
         if await run.activate() == "busy":
             db.requeue(run.id, worker_id)
             return "busy"
         renew = asyncio.create_task(run.renew_loop())
-        await run.loop()
+        if gate and gates.unbindable_reason(gate):
+            await run.takeover(gate)
+        else:
+            note = await run.consume(gate) if gate else None
+            if not run.finished:
+                await run.loop(note)
     except _Fenced:
         run.finish("failed", "lost the screen", error="the computer's screen lease was lost; nothing was retried")
     except _Stop:
