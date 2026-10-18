@@ -270,22 +270,37 @@ jobs:
 
           echo "api_error=false" >> "$GITHUB_OUTPUT"
 
-          # Extract the review text from the Anthropic response
-          echo "$BODY" | jq -r '.content[0].text' > /tmp/review.txt
+          # Extract the review text: join every text block. Sonnet 5.5 thinks by default, so
+          # content[0] is a thinking block and `.content[0].text` is null (the empty reviews).
+          printf '%s' "$BODY" | jq -r '[.content[]? | select(.type == "text") | .text] | join("\n")' > /tmp/review.txt
+          # Later steps interpolate stop_reason as a workflow expression inside shell, so keep it to a bare token.
+          STOP_REASON=$(printf '%s' "$BODY" | jq -r '.stop_reason // ""' | tr -cd 'a-z_')
+          echo "stop_reason=$STOP_REASON" >> "$GITHUB_OUTPUT"
+
+          if [ -z "$(tr -d '[:space:]' < /tmp/review.txt)" ]; then
+            echo "::error::The model returned no review text (stop_reason=$STOP_REASON)."
+            echo "empty_review=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "empty_review=false" >> "$GITHUB_OUTPUT"
 
       # ── Upsert review comment (create or update) ─
       - name: Post or update review comment
-        if: steps.diff.outputs.empty != 'true' && steps.diff.outputs.skip != 'true' && steps.diff.outputs.diff_status != 'too_large' && steps.review.outputs.api_error != 'true'
+        if: steps.diff.outputs.empty != 'true' && steps.diff.outputs.skip != 'true' && steps.diff.outputs.diff_status != 'too_large' && steps.review.outputs.api_error != 'true' && steps.review.outputs.empty_review != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           REVIEW=$(cat /tmp/review.txt)
           TRUNCATED="${{ steps.diff.outputs.truncated }}"
           DIFF_STATUS="${{ steps.diff.outputs.diff_status }}"
+          STOP_REASON="${{ steps.review.outputs.stop_reason }}"
 
           TRUNCATION_BANNER=""
           if [ "$TRUNCATED" = "true" ]; then
             TRUNCATION_BANNER=$'\n> **Note:** The diff was truncated to 300,000 characters. Some changes may not be covered in this review.\n'
+          fi
+          if [ "$STOP_REASON" = "max_tokens" ]; then
+            TRUNCATION_BANNER="${TRUNCATION_BANNER}"$'\n> **Note:** The review hit the output limit and ends early.\n'
           fi
 
           DIFF_BANNER=""
@@ -322,15 +337,29 @@ jobs:
               -f body="$COMMENT"
           fi
 
-      # ── Handle skip / error / too-large cases ───
+      # ── Handle skip / error / too-large / empty cases ───
+      # A review that did not happen must not be a green check: API errors and empty
+      # output post a notice and then fail the job. Skips (no code, too large) stay green
+      # because the notice says so explicitly.
       - name: Post skip or error notice
-        if: steps.diff.outputs.empty == 'true' || steps.diff.outputs.skip == 'true' || steps.diff.outputs.diff_status == 'too_large' || steps.review.outputs.api_error == 'true'
+        if: steps.diff.outputs.empty == 'true' || steps.diff.outputs.skip == 'true' || steps.diff.outputs.diff_status == 'too_large' || steps.review.outputs.api_error == 'true' || steps.review.outputs.empty_review == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           MARKER="<!-- ai-code-review-bot -->"
+          FAIL="false"
 
-          if [ "${{ steps.diff.outputs.empty }}" = "true" ] || [ "${{ steps.diff.outputs.skip }}" = "true" ]; then
+          if [ "${{ steps.review.outputs.empty_review }}" = "true" ]; then
+            FAIL="true"
+            BODY="${MARKER}
+          ## AI Code Review
+
+          :warning: The model returned no review text (stop_reason: \`${{ steps.review.outputs.stop_reason }}\`). This check is marked failed so an unreviewed PR is not shown as green. Re-run the workflow or review manually.
+
+          ---
+          *Automated review by Claude Sonnet 5.5*"
+
+          elif [ "${{ steps.diff.outputs.empty }}" = "true" ] || [ "${{ steps.diff.outputs.skip }}" = "true" ]; then
             BODY="${MARKER}
           ## AI Code Review
 
@@ -350,6 +379,7 @@ jobs:
           *Automated review by Claude Sonnet 5.5*"
 
           elif [ "${{ steps.review.outputs.api_error }}" = "true" ]; then
+            FAIL="true"
             ERROR_DETAIL=""
             if [ -f /tmp/api_error.txt ]; then
               ERROR_DETAIL=$(cat /tmp/api_error.txt | jq -r '.error.message // .error // "Unknown error"' 2>/dev/null || cat /tmp/api_error.txt)
@@ -386,4 +416,9 @@ jobs:
             gh api \
               "repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/comments" \
               -f body="$BODY"
+          fi
+
+          if [ "$FAIL" = "true" ]; then
+            echo "::error::AI review did not run; failing the check so the PR is not shown as reviewed."
+            exit 1
           fi

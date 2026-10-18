@@ -1,0 +1,7 @@
+fastapi==0.143.3
+uvicorn[standard]==0.54.0
+playwright==1.64.0
+mss==10.2.0
+pillow==12.1.0
+httpx==0.28.1
+mcp-proxy==0.13.0
