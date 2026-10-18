@@ -358,7 +358,7 @@ def load_deferred_tools(
     return loaded_names
 
 
-_INTERNAL_FIELDS = {"kind", "writes", "context_memory", "integration"}
+_INTERNAL_FIELDS = {"kind", "writes", "context_memory", "integration", "context_aware"}
 
 
 def build_provider_tools(tool_defs: list[dict]) -> list[dict]:

@@ -170,6 +170,7 @@ def build_coach_context(agent: dict) -> dict:
         INTEGRATION_MODULES,
         build_agent_handlers,
         load_integration_tools,
+        tool_flags,
     )
     from core.agents.tool_definitions import get_tool_definitions
     from core.agents.tool_registry import ToolRegistry
@@ -234,6 +235,7 @@ def build_coach_context(agent: dict) -> dict:
         gcs_prefix=config.gcs_prefix,
         google_connected=bool(gmail_ids or calendar_ids or drive_ids),
         integration_executors=integration_executors,
+        integration_tool_flags=tool_flags(integration_tool_defs),
         agent_slug=agent["slug"],
         agent_name=config.agent_name,
         reminder_handlers=reminder_handlers,

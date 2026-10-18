@@ -6,7 +6,8 @@ for full) — with writes: True they would vanish from Telegram and route every
 job through the browser-held web confirmation.
 
 Every executor takes a server-built `_ctx` that ToolRegistry injects (and
-strips from caller args): {agent_slug, agent_name, conversation_id, origin, route}.
+strips from caller args): {agent_slug, agent_name, conversation_id, origin, route,
+action_id, cache_dir}.
 """
 
 import logging
@@ -65,7 +66,9 @@ def _own_job(job_id: str, agent_slug: str) -> dict | None:
 def delegate(task: str, runner: str | None = None, level: str | None = None,
              follow_up_of: str | None = None, *, _ctx: dict) -> dict:
     slug = _ctx["agent_slug"]
-    origin = _ctx["origin"]
+    # jobs.origin knows user / background / system; a group (or any other
+    # non-owner) turn is background work here: sandbox cap, budgeted.
+    origin = "user" if _ctx["origin"] == "user" else "background"
     task = (task or "").strip()
     if not task:
         return {"error": "task is required"}
