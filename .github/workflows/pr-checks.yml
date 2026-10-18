@@ -41,6 +41,11 @@ jobs:
         working-directory: backend
         run: python -m pytest -x -q --tb=short
 
+      - name: Run CLI tests
+        run: |
+          pip install "./cli[dev]"
+          python -m pytest -x -q --tb=short cli/tests
+
       - name: Import check — verify all modules load
         working-directory: backend
         run: |
