@@ -248,6 +248,10 @@ async def process_group_message(
         drive_account_ids=drive_ids,
         account_info_map=account_info_map,
     )
+    # A group member asked, not the owner: never user-originated (no full access,
+    # no approvals), but anything the turn delegates reports back to the group.
+    registry._turn_origin = "group"
+    registry._turn_route = {"channel": "telegram", "chat_id": str(chat_id)}
 
     group_sender_id = f"group:{chat_id}"
     conv = state.get_or_create_conversation(group_sender_id, agent_id)
