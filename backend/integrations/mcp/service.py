@@ -9,10 +9,11 @@ import time
 
 from core.security.ssrf import validate_url
 
-from . import store
-from .client import McpClient, McpError
+from . import oauth, store
+from .client import McpAuthError, McpClient, McpError
 
 logger = logging.getLogger(__name__)
+NOT_SIGNED_IN = "Not signed in. Use Sign in with OAuth."
 
 
 def status() -> dict:
@@ -27,6 +28,7 @@ def _view(sid: str, s: dict) -> dict:
         "has_key": bool(s.get("api_key")), "enabled": s.get("enabled", True),
         "allow_in_background": bool(s.get("allow_in_background")),
         "tools_refreshed_at": s.get("tools_refreshed_at"), "last_error": s.get("last_error"),
+        "oauth": oauth.view(s),
         "tools": [{"name": t["name"], "description": (t.get("description") or "")[:300],
                    "read_only_hint": t.get("read_only_hint"), **store.tool_policy(s, t["name"])}
                   for t in s.get("tools") or []],
@@ -36,25 +38,32 @@ def _view(sid: str, s: dict) -> dict:
 def _cache_entry(t: dict) -> dict:
     ann = t.get("annotations") if isinstance(t.get("annotations"), dict) else {}
     return {
-        "name": str(t["name"])[:128],
+        "name": str(t["name"]),  # verbatim: it goes back to the server; unique_tool_name bounds the provider-facing alias
         "description": str(t.get("description") or "")[:store.MAX_DESCRIPTION],
         "input_schema": t.get("inputSchema") if isinstance(t.get("inputSchema"), dict) else {},
         "read_only_hint": bool(ann["readOnlyHint"]) if "readOnlyHint" in ann else None,
     }
 
 
-async def _fetch_tools(url: str, api_key: str, header: str) -> list[dict]:
-    return [_cache_entry(t) for t in await McpClient(url, api_key, header).list_tools()]
+async def _fetch_tools(server_id: str) -> list[dict]:
+    return [_cache_entry(t) for t in await oauth.run(server_id, lambda c: c.list_tools())]
 
 
 async def add_server(name: str, url: str, api_key: str, header: str) -> dict:
-    """Validate the URL, fetch the tool list (the connection test) and save. Raises ValueError / McpError."""
+    """Validate the URL, fetch the tool list (the connection test) and save. Raises ValueError / McpError.
+    A 401 from a server given no key is not a failure: it needs an OAuth sign-in from the card."""
     name, url, api_key = name.strip(), url.strip(), api_key.strip()
     if err := validate_url(url):
         raise ValueError(err)
     if not api_key.isprintable():  # httpx would echo an illegal header value, key included, in its error
         raise ValueError("API key contains control characters")
-    tools = await _fetch_tools(url, api_key, header)
+    tools, error, auth = [], None, None
+    try:
+        tools = [_cache_entry(t) for t in await McpClient(url, api_key, header).list_tools()]
+    except McpAuthError as e:
+        if api_key:
+            raise
+        error, auth = NOT_SIGNED_IN, {"resource_metadata": oauth.challenge_metadata_url(e.challenge)}
 
     def apply(c):
         servers = c.setdefault("servers", {})
@@ -64,7 +73,8 @@ async def add_server(name: str, url: str, api_key: str, header: str) -> dict:
             sid, n = f"{base}_{n}", n + 1
         servers[sid] = {"name": name, "url": url, "api_key": api_key, "header": header or "Authorization",
                         "enabled": True, "allow_in_background": False, "tools": tools,
-                        "tools_refreshed_at": time.time(), "last_error": None, "overrides": {}}
+                        "tools_refreshed_at": time.time(), "last_error": error, "overrides": {},
+                        "generation": time.time_ns(), "oauth": auth}
         c.setdefault("enabled", True)  # the first server switches the integration on
         # Telegram/WhatsApp only cap integrations whose file names a tool_mode; without this
         # line write tools would run there with nobody to confirm them.
@@ -81,7 +91,7 @@ async def refresh_server(server_id: str) -> dict:
     tools, error = None, validate_url(s["url"])
     if not error:
         try:
-            tools = await _fetch_tools(s["url"], s.get("api_key") or "", s.get("header") or "Authorization")
+            tools = await _fetch_tools(server_id)
         except McpError as e:
             error = str(e)
 

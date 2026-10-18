@@ -1,11 +1,13 @@
 /**
  * Chatty — MCP servers card body: add/remove remote servers, test and refresh their tool
- * lists, and set each tool's enabled / read-only / allow-in-background policy.
+ * lists, set each tool's enabled / read-only / allow-in-background policy, and sign in
+ * with OAuth (popup + polling through useOAuthFlow, like the Google card).
  * Rendered inside the mcp integration card in IntegrationsTab.
  */
 
 import { useState, useEffect, useCallback } from 'react';
 import { api } from '../core/api/client';
+import { useOAuthFlow } from '../core/hooks/useOAuthFlow';
 import { confirmDialog } from '../shared/confirm';
 import { INK, INK_MUTE, INK_DIM, LINE, LINE_STRONG, BG_RAISED, CORAL, SAGE, GOLD, FONT_MONO, mono, inputStyle } from '../shared/styles';
 
@@ -27,8 +29,17 @@ interface Server {
   allow_in_background: boolean;
   tools_refreshed_at: number | null;
   last_error: string | null;
+  /** Null for a server with an API key. */
+  oauth: { status: 'none' | 'signed_in' | 'expired' | 'sign_in_again'; error: string | null; has_client: boolean } | null;
   tools: Tool[];
 }
+
+const OAUTH_LABEL: Record<NonNullable<Server['oauth']>['status'], [string, string]> = {
+  none: ['not signed in', INK_DIM],
+  signed_in: ['signed in', SAGE],
+  expired: ['token expired, refreshes on next use', GOLD],
+  sign_in_again: ['sign in again', CORAL],
+};
 
 interface Status {
   enabled: boolean;
@@ -53,11 +64,24 @@ export function McpPanel({ onChanged }: { onChanged: () => void }) {
   const [adding, setAdding] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [clientFor, setClientFor] = useState('');  // server id whose client id/secret form is open
+  const [clientForm, setClientForm] = useState({ client_id: '', client_secret: '' });
+  const oauth = useOAuthFlow();
 
   const load = useCallback(() => {
     api<Status>('/api/integrations/mcp/status').then(setStatus).catch(() => {});
   }, []);
   useEffect(() => { load(); }, [load]);
+
+  // /oauth/complete answers with the full status, like every other mcp route.
+  useEffect(() => {
+    if (oauth.state.status === 'success') {
+      setStatus(oauth.state.result as Status); onChanged(); oauth.reset();
+    } else if (oauth.state.status === 'error') {
+      setError(oauth.state.error || 'Sign-in failed'); oauth.reset();
+    }
+  }, [oauth.state.status]);  // eslint-disable-line react-hooks/exhaustive-deps
+  const signingIn = oauth.state.status !== 'idle';
 
   // Every mcp route answers with the full status, so one handler refreshes the card.
   async function run(fn: () => Promise<Status>) {
@@ -77,6 +101,18 @@ export function McpPanel({ onChanged }: { onChanged: () => void }) {
   const refresh = (id: string) => run(() => api<Status>(`/api/integrations/mcp/servers/${id}/refresh`, { method: 'POST' }));
   const patchTool = (id: string, tool: string, body: { enabled?: boolean; read_only?: boolean }) =>
     run(() => api<Status>(`/api/integrations/mcp/servers/${id}/tools/${encodeURIComponent(tool)}`, { method: 'PUT', body: JSON.stringify(body) }));
+  const signIn = (id: string) => {
+    setError('');
+    oauth.start({
+      setupUrl: `/api/integrations/mcp/servers/${id}/oauth/start`,
+      completeUrl: `/api/integrations/mcp/servers/${id}/oauth/complete`,
+    });
+  };
+  const saveClient = (id: string) => run(async () => {
+    const s = await api<Status>(`/api/integrations/mcp/servers/${id}/oauth/client`, { method: 'PUT', body: JSON.stringify(clientForm) });
+    setClientFor(''); setClientForm({ client_id: '', client_secret: '' });
+    return s;
+  });
   const remove = async (s: Server) => {
     if (!await confirmDialog({
       title: `Remove ${s.name}`,
@@ -114,6 +150,33 @@ export function McpPanel({ onChanged }: { onChanged: () => void }) {
               <button onClick={() => refresh(s.id)} disabled={busy} style={{ ...smallBtn, marginLeft: 'auto' }}>Test &amp; refresh tools</button>
               <button onClick={() => remove(s)} disabled={busy} style={{ ...smallBtn, color: CORAL, borderColor: 'transparent' }}>Remove</button>
             </div>
+
+            {s.oauth && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px 14px', alignItems: 'center' }}>
+                  <span>OAuth: <span style={{ color: OAUTH_LABEL[s.oauth.status][1] }}>{OAUTH_LABEL[s.oauth.status][0]}</span></span>
+                  {s.oauth.error && <span style={{ color: CORAL }}>{s.oauth.error}</span>}
+                  <button onClick={() => signIn(s.id)} disabled={busy || signingIn} style={{ ...smallBtn, color: INK }}>
+                    {signingIn ? 'Waiting for the popup…' : s.oauth.status === 'none' ? 'Sign in with OAuth' : 'Sign in again'}
+                  </button>
+                  <button onClick={() => setClientFor(clientFor === s.id ? '' : s.id)} style={{ ...smallBtn, borderColor: 'transparent' }}>
+                    {s.oauth.has_client ? 'Change OAuth client' : 'Use my own OAuth client'}
+                  </button>
+                </div>
+                {clientFor === s.id && (
+                  <form onSubmit={e => { e.preventDefault(); saveClient(s.id); }} style={{ display: 'flex', flexWrap: 'wrap', gap: 6, padding: 8, borderRadius: 4, background: BG_RAISED }}>
+                    <input required placeholder="Client ID" value={clientForm.client_id} style={{ ...field, flex: 1, minWidth: 140 }}
+                      onChange={e => setClientForm({ ...clientForm, client_id: e.target.value })} />
+                    <input type="password" autoComplete="off" placeholder="Client secret (if any)" value={clientForm.client_secret} style={{ ...field, flex: 1, minWidth: 140 }}
+                      onChange={e => setClientForm({ ...clientForm, client_secret: e.target.value })} />
+                    <button type="submit" disabled={busy} style={{ ...smallBtn, color: INK }}>Save</button>
+                    <p style={{ margin: 0, width: '100%', color: INK_DIM }}>
+                      Only for servers without dynamic client registration. Register the client with Chatty's OAuth redirect URI (shown under the Google card's own-credentials form), then sign in.
+                    </p>
+                  </form>
+                )}
+              </div>
+            )}
 
             {s.tools.length > 0 && (
               <table style={{ borderCollapse: 'collapse', width: '100%' }}>
@@ -158,11 +221,11 @@ export function McpPanel({ onChanged }: { onChanged: () => void }) {
           <div style={{ display: 'flex', gap: 6 }}>
             <input required placeholder="Header" value={form.header} pattern="[A-Za-z0-9-]+" title="Header name, e.g. Authorization or X-API-Key" style={{ ...field, width: 150 }}
               onChange={e => setForm({ ...form, header: e.target.value })} />
-            <input type="password" autoComplete="off" placeholder="API key (optional; Authorization gets 'Bearer ' added)" value={form.api_key} style={{ ...field, flex: 1 }}
+            <input type="password" autoComplete="off" placeholder="API key (leave empty for OAuth; Authorization gets 'Bearer ' added)" value={form.api_key} style={{ ...field, flex: 1 }}
               onChange={e => setForm({ ...form, api_key: e.target.value })} />
           </div>
           <p style={{ margin: 0, color: INK_DIM }}>
-            Must be https on a public host. Every tool counts as a write (asks before running in chat, refused in background turns) until you mark it read-only here.
+            Must be https on a public host. A server that asks for OAuth is saved with a Sign in button. Every tool counts as a write (asks before running in chat, refused in background turns) until you mark it read-only here.
           </p>
           <div style={{ display: 'flex', gap: 6 }}>
             <button type="submit" disabled={busy} style={{ ...smallBtn, color: INK }}>{busy ? 'Connecting…' : 'Connect'}</button>

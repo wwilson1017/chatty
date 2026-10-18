@@ -363,6 +363,10 @@ class TestService:
         service.refresh_stale()
         assert refreshed == ["github"]
 
+    def test_cached_tool_name_is_verbatim_description_capped(self):
+        entry = service._cache_entry({"name": "n" * 300, "description": "d" * 5000})
+        assert entry["name"] == "n" * 300 and len(entry["description"]) == store.MAX_DESCRIPTION
+
     def test_remove_and_unknown_tool(self, mcp_env):
         with pytest.raises(KeyError):
             service.set_tool("github", "nope", read_only=True)
