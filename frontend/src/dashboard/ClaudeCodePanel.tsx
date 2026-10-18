@@ -90,7 +90,7 @@ const pre: React.CSSProperties = {
   fontFamily: FONT_MONO, fontSize: 11, whiteSpace: 'pre-wrap', wordBreak: 'break-word',
 };
 
-function CopyLine({ text }: { text: string }) {
+export function CopyLine({ text }: { text: string }) {
   const { copied, copy } = useCopyToClipboard();
   return (
     <div style={{ display: 'flex', gap: 6, alignItems: 'flex-start' }}>

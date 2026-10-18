@@ -30,6 +30,8 @@ from agents.import_router import router as import_router
 from branding.router import router as branding_router
 from integrations.router import router as integrations_router
 from integrations.claude_code.connector_api import router as connector_router
+from integrations.computer.viewer import router as computer_viewer_router
+from core.terminal.router import router as terminal_router
 from integrations.crm_lite.router import router as crm_router
 from integrations.qb_csv.router import router as qb_csv_router
 from integrations.whatsapp.router import router as whatsapp_router
@@ -143,6 +145,11 @@ async def lifespan(app: FastAPI):
     from integrations.claude_code.db import init_db as init_claude_code_db
     _safe_init("claude_code", init_claude_code_db)
 
+    from integrations.computer.db import init_db as init_computer_db
+    _safe_init("computer", init_computer_db)
+    from core.terminal.db import init_db as init_terminal_db
+    _safe_init("terminal", init_terminal_db)
+
     from core.agents.shared_context.db import init_db as init_shared_context_db
     _safe_init("shared_context", init_shared_context_db)
 
@@ -209,6 +216,17 @@ async def lifespan(app: FastAPI):
     _scheduler.add_job(_claude_code_sweep, "interval", seconds=120, id="claude_code_sweep",
                        next_run_time=datetime.now(timezone.utc))
 
+    # Computer helper: orphaned tasks, usage rows, completion recovery, and the queue kick. The
+    # runner itself starts only here (never in the CLI), behind an exclusive lock on data/computer.
+    from integrations.computer import runner as _computer_runner
+    from integrations.computer.completion import sweep as _computer_sweep
+    _computer_runner.start()
+    _scheduler.add_job(_computer_sweep, "interval", seconds=60, id="computer_sweep",
+                       next_run_time=datetime.now(timezone.utc))
+    # MCP servers: re-fetch tool lists older than 6 h (agents load from the cache only).
+    from integrations.mcp.service import refresh_stale as _mcp_refresh
+    _scheduler.add_job(_mcp_refresh, "interval", hours=1, id="mcp_tool_refresh")
+
     _scheduler.start()
     logger.info("APScheduler started (reminder heartbeat + scheduled actions + sweeper + nightly jobs)")
 
@@ -264,6 +282,8 @@ async def lifespan(app: FastAPI):
     # Shutdown scheduler + executor
     if _scheduler:
         _scheduler.shutdown(wait=False)
+    from integrations.computer import runner as _computer_runner_stop
+    _computer_runner_stop.stop()
     try:
         from core.agents.scheduled_actions.processor import shutdown_executor
         shutdown_executor()
@@ -318,6 +338,7 @@ app.include_router(import_router, tags=["import"])
 app.include_router(branding_router, prefix="/api/branding", tags=["branding"])
 app.include_router(integrations_router, prefix="/api/integrations", tags=["integrations"])
 app.include_router(connector_router, prefix="/api/connector", tags=["connector"])
+app.include_router(terminal_router, prefix="/api/terminal", tags=["terminal"])
 app.include_router(whatsapp_router, prefix="/api/messaging", tags=["messaging"])
 app.include_router(crm_router, prefix="/api/crm", tags=["crm"])
 app.include_router(qb_csv_router, prefix="/api/qb-csv", tags=["qb-csv"])
@@ -340,6 +361,9 @@ app.include_router(capture_router, tags=["capture"])
 app.include_router(todo_web_public_api, prefix="/api/todo-web", tags=["todo-web"])
 app.include_router(todo_web_token_api, prefix="/api/todo-web/{token}", tags=["todo-web"])
 app.include_router(todo_web_router, tags=["todo-web"])
+# Computer viewer: /api/computer/* plus GET /computer (the SPA shell — same
+# "before the StaticFiles mount" rule as /capture and /todo).
+app.include_router(computer_viewer_router, tags=["computer"])
 app.include_router(setup_router, prefix="/api/setup", tags=["setup"])
 app.include_router(backup_router, prefix="/api/backup", tags=["backup"])
 app.include_router(telegram_router, prefix="/api/telegram", tags=["telegram"])

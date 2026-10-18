@@ -145,6 +145,15 @@ class TestWebhookCallbacks:
         assert calls["answered"] == [("cq1", "", "bot:tok")]
         assert calls["cc"] == [] and processed == []
 
+    def test_new_prefix_is_one_map_entry(self, webhook, monkeypatch):
+        client, calls, _ = webhook
+        seen = []
+        monkeypatch.setitem(tg_router._CALLBACK_HANDLERS, "vc:", lambda slug, cq, tok: seen.append((slug, cq["data"], tok)))
+        client.post("/webhook/ally", json=_cb("vc:3:approve"),
+                    headers={"X-Telegram-Bot-Api-Secret-Token": SECRET})
+        assert seen == [("ally", "vc:3:approve", "bot:tok")]
+        assert calls["cc"] == [] and calls["answered"] == []
+
     def test_bad_secret_rejected(self, webhook):
         client, calls, _ = webhook
         r = client.post("/webhook/ally", json=_cb("cc:7:full"),

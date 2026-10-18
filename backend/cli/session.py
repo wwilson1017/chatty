@@ -42,7 +42,7 @@ def create_session(slug: str, tool_mode: str = "normal",
     )
     from core.providers import get_ai_provider
     from core.providers.credentials import CredentialStore
-    from agents.tool_loader import load_integration_tools, build_agent_handlers, INTEGRATION_MODULES
+    from agents.tool_loader import load_integration_tools, build_agent_handlers, INTEGRATION_MODULES, tool_flags
     from integrations.registry import get_tool_mode
     from integrations.google.policy import google_capabilities
     from core.agents.tool_definitions import get_tool_definitions, build_writes_map
@@ -102,6 +102,7 @@ def create_session(slug: str, tool_mode: str = "normal",
         drive_account_ids=drive_ids,
         account_info_map=account_info_map,
         integration_executors=integration_executors,
+        integration_tool_flags=tool_flags(integration_tool_defs),
         agent_slug=slug,
         agent_name=config.agent_name,
         reminder_handlers=reminder_handlers,

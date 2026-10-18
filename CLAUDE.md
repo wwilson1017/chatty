@@ -10,7 +10,7 @@
 - User creates agents from a dashboard; each has name/personality/knowledge via conversational onboarding (training mode)
 - Optional branding: logo, company name, accent color
 - Multi-provider AI: Anthropic, OpenAI, Google Gemini, Ollama (local), Together AI — all via API key paste (no OAuth for AI providers)
-- Integrations: QuickBooks Online (OAuth), QuickBooks CSV import, Gmail (multiple accounts), Google Calendar, Google Drive, WhatsApp (Baileys bridge), Telegram (multiple bots), CRM Lite (optional, default OFF), Odoo, BambooHR, Paperclip (agent orchestration), Todoist, Claude Code (agents delegate tasks to the user's own Claude Code/Codex via `chatty-connector`)
+- Integrations: QuickBooks Online (OAuth), QuickBooks CSV import, Gmail (multiple accounts), Google Calendar, Google Drive, WhatsApp (Baileys bridge), Telegram (multiple bots), CRM Lite (optional, default OFF), Odoo, BambooHR, Paperclip (agent orchestration), Todoist, Claude Code (agents delegate tasks to the user's own Claude Code/Codex via `chatty-connector`), MCP servers (remote, API key or OAuth), Computer (a virtual desktop container a helper loop drives for agents; `computer/` image + `integrations/computer/`; user guide `docs/computer.md`)
 - **Todos (GTD)** — core always-on feature (NOT an integration): global store in `core/todo/`, 11 `todo_*` agent tools, multi-page UI at `/todos`, GTD coaching block injected into every agent's system prompt (admin setting `gtd_coaching_text`), public no-login `/capture` page (optional secret token), no-login `/todo[/{token}]` web app serving the whole todo UI outside the dashboard (`core/todo/web.py`, off by default), deterministic Telegram "capture" intercept
 - Agent features: memory system, dreaming/context archival, shared context across agents, scheduled actions (heartbeat), reminders (one-time and recurring), notifications (web push, Telegram, WhatsApp), knowledge import (OpenClaw, paste, folder, ZIP)
 - File uploads: PDF, DOCX, and text files via drag-and-drop in chat
@@ -112,12 +112,13 @@ backend/
 │   ├── providers/                   # AI provider abstraction (Anthropic, OpenAI, Gemini, Ollama, Together AI)
 │   ├── todo/                        # Todo (GTD) core feature: db, service, tools, REST router, /capture page, coaching
 │   └── agents/                      # Agent engine (ai_service, tool_registry, context_manager, chat_history, memory, dreaming, shared_context, reminders, scheduled_actions, alerts, notifications)
-├── integrations/                    # Google (Gmail/Calendar/Drive), QuickBooks, QB CSV, Telegram, WhatsApp, CRM (optional), Odoo, BambooHR, Paperclip, Claude Code
+├── integrations/                    # Google (Gmail/Calendar/Drive), QuickBooks, QB CSV, Telegram, WhatsApp, CRM (optional), Odoo, BambooHR, Paperclip, Claude Code, Computer
 ├── branding/                        # Logo/name/color
 └── whatsapp-bridge/                 # Node.js Baileys sidecar
 
 connector/                           # chatty-connector: separate pip package the user runs next to their Claude Code
 cli/                                 # chatty: the terminal client, separate pip package talking to a running Chatty over HTTP
+computer/                            # the virtual computer image (ghcr.io/wwilson1017/chatty-computer): desktop container + control API, independent of backend/
 
 frontend/src/
 ├── agent/                           # Agent chat page + components (includes heartbeat panel, reminders panel)
@@ -161,7 +162,7 @@ integrations/{name}/
 ### Tool auto-discovery
 
 Tools appear for agents automatically when their integration is enabled globally:
-- **QB/Odoo/BambooHR/CRM/QB CSV/Paperclip**: `_load_integration_tools()` in `agents/router.py` checks `is_enabled(name)` and injects tools + executors
+- **QB/Odoo/BambooHR/CRM/QB CSV/Paperclip/Todoist/Claude Code**: `agents/tool_loader.load_integration_tools()` walks `INTEGRATION_MODULES`, checks `is_enabled(name)` and injects tools + executors. Every entry point (web chat, CLI, Telegram, WhatsApp, Paperclip, heartbeats, crons, coach) uses this one loader. A module's defs attribute and `TOOL_EXECUTORS` may be data or zero-arg callables returning it; executors may be async. A definition with `"context_aware": True` gets the server-built `_ctx` (`agent_slug, agent_name, conversation_id, origin, route, action_id, cache_dir`) injected into its executor; the flag is read from the `tool_flags()` map every `ToolRegistry` receives, never from the model's arguments.
 - **Google (Gmail/Calendar/Drive)**: `google_capabilities()` in `integrations/google/policy.py` reads scope grants from `google.json` and returns capability flags passed to `get_tool_definitions()`. Supports multiple Google accounts with per-agent, per-service assignment.
 - **Telegram**: each agent gets its own bot token; a single Telegram user can be linked to multiple agents simultaneously
 - **Do NOT require per-agent flags** for new integrations. Connect once → all agents get the tools.
@@ -189,6 +190,12 @@ Setup (the template for any teammate wiring a harness to the brain):
 
 Tests: `backend/tests/test_brain_backend.py` (httpx `MockTransport`, no network) and `backend/tests/test_brain_prompt_context.py` (prompt block, tool policy, merged search, nightly promotion, and a source check that no prompt path builds its own `ContextManager`).
 
+## MCP servers
+
+`integrations/mcp/` connects remote MCP servers (streamable HTTP, API key in a configurable header) and gives every agent their tools as `mcp_<server>__<tool>` (`kind: "integration"`, wrapped untrusted, `context_aware`). `client.py` is a hand-rolled JSON-RPC-over-streamable-HTTP client on the pinned-IP transport in `core/security/ssrf.py` (the official SDK runs on `httpx2` and can't carry it); one short-lived session per call. `store.py` owns `data/integrations/mcp.json` (`servers` is a dict keyed by server id so `api_key` is encrypted; the cached tool list is a list) and `call_error()`, the policy check every executor re-runs on each call against `_ctx.origin`: **every MCP tool is `writes: True`** unless the user marks it read-only on the card (the server's `readOnlyHint` is only shown as a suggestion); write tools are refused in background turns unless the server's `allow_in_background` is on; a tool that became stricter since it was loaded is refused ("permissions changed; ask again") so the next turn reloads it. Loading never touches the network: tool lists are cached and refreshed from the card or hourly when older than 6 h (`service.refresh_stale`). `core/security/ssrf.py` is shared with Odoo discovery: `validate_url` (https + every resolved address public) at add time, `pinned_client()` connects only to the address it just validated; `allow_origins` is the exact-origin exemption for the computer (PR 11). User guide: `docs/mcp-setup.md`; tests: `tests/test_mcp.py`, `tests/test_ssrf.py`.
+
+**OAuth sign-in** (`integrations/mcp/oauth.py`): a key-less server that answers 401 is saved with `oauth: {resource_metadata}` and a Sign in button. `start()` discovers per the MCP authorization spec — protected-resource metadata (challenge URL, then the well-known paths), authorization-server metadata whose `issuer` must equal where it was found, dynamic client registration or a client the user pasted (`set_client`, which bumps the server's `generation`) — every URL through `ssrf.validate_url` and the pinned client, then builds a frozen `core.providers.oauth.FlowConfig` (PKCE S256, `resource` on the authorization and every token request, `check_iss`, `server_id` + `generation`, `pinned`) and calls `start_flow()`. The same `FlowConfig` now carries Google/OpenAI/QuickBooks flows (`provider_config()` from `OAUTH_CONFIG`); `complete_oauth_flow` validates `iss` when the config asks (the auth.mechatty.com proxy forwards it). `complete(server_id, flow_id)` attaches tokens only when the server id, generation and canonical URL still match. Tokens live in the server's `oauth` dict (`access_token`/`refresh_token`/`client_secret`, so `encrypt_dict` covers them); `access_token()` refreshes within 60 s of expiry under a per-server lock, a rotated refresh token replaces the old, and a refused refresh or a missing refresh token means "Sign in again" on the card. `run(server_id, op)` is the one entry point executors and the tool refresh use: the right credential, and after an HTTP 401 raised before the tool call ran (`McpAuthError.retry_safe`) one refreshed token and one retry — never for a failure of the call itself. PR 11 reuses `run()` for command servers. Tests: `tests/test_mcp_oauth.py`, `tests/test_oauth_flows.py` (built-in provider regressions).
+
 ## Claude Code connector
 
 `integrations/claude_code/` lets agents hand tasks to the user's own Claude Code or Codex. `connector/` is a separate package (`chatty-connector`, httpx only) that the user installs on their machine, pairs with a one-time code from the integration card, and runs as a service. It **polls outbound** (`/api/connector/*`, bearer token, only the sha256 is stored) and runs `claude -p` / `codex exec` per job. Agent tools: `delegate`, `job_get`, `job_list`, `job_cancel`, `connector_info` (`writes: False`; they gate themselves). User guide: `docs/claude-code-connector.md`; design record: `connector/SPIKE.md`.
@@ -199,6 +206,10 @@ Tests: `backend/tests/test_brain_backend.py` (httpx `MockTransport`, no network)
 - What `look`/`sandbox` can actually do is the settings files `setup` writes (`look-settings.json`, `sandbox-settings.json`); their strength is the user's responsibility. Without a working OS sandbox it is "deny rules only".
 
 **Invariants.** `db.finish_job()` is the only code path that makes a job terminal (results, lost/stale jobs, cancels, disconnect, re-pair). Completion runs the agent's background turn **at most once**; everything after it goes through the idempotent `completion.finalize()`, which recovery paths re-run and which never invokes a turn. Tests: `backend/tests/test_claude_code.py`, `backend/tests/test_claude_code_approvals.py`, `connector/tests/`.
+
+## Virtual computer
+
+`integrations/computer/` is the Chatty side of the `computer/` container (`client.py` control-API client, `card.py` card actions and per-agent policy, `viewer.py` tickets + VNC relay, `railway.py` "Add computer to this Railway project"). `ComputerSettings` reads `COMPUTER_URL`/`COMPUTER_SECRET` from env first (the Railway template sets them), else the card's saved `url`/`api_key`; half an env pair counts as nothing. `railway.add_to_railway()` runs `serviceCreate` → `volumeCreate` → `serviceInstanceDeployV2` with a pasted Railway token that is never stored, logged or echoed, then saves the private URL + a fresh secret so Chatty needs no redeploy. Locally `run.py`'s `setup_computer()` asks once and manages the `chatty-computer` Docker container. User guide: `docs/computer.md`; container contract: `computer/README.md`. Tests: `backend/tests/test_computer*.py`, `backend/tests/test_run_py.py`.
 
 ## Model Pricing
 

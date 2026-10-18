@@ -189,6 +189,11 @@ Chatty connects to your existing business tools so your agents can answer questi
 | [Odoo](docs/odoo-setup.md) | API key | Sales, inventory, accounting, HR, and more from your Odoo ERP |
 | [BambooHR](docs/bamboohr-setup.md) | API key | Employee directory, time off, and HR data |
 | Second Brain | URL + API key | Point an agent's memory tools at a personal [`brain`](https://github.com/wwilson1017/brain) server instead of its own memory (per-agent `memory_backend`, set in the Knowledge tab) |
+| [Computer](docs/computer.md) | One click on Railway, or Docker | A virtual desktop (browser, terminal, files) a helper drives for your agents; watch or take over the screen, approve anything that buys, sends, posts or deletes |
+
+### Virtual computer
+
+Agents can hand real work to a [virtual computer](docs/computer.md): a Linux desktop container running next to Chatty, driven by a helper model so agents never click blindly. On Railway the Computer card adds it to your project with one pasted token; locally `python run.py` offers to start it in Docker. You can watch the screen live, take it over to sign in (the helper never sees your password), and every purchase, send, post or delete stops for your approval first. See the [guide](docs/computer.md) for the trust model and known limits.
 
 ## Deploy to Railway
 

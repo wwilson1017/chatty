@@ -10,6 +10,7 @@ from dotenv import load_dotenv
 
 _backend_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 load_dotenv(os.path.join(_backend_dir, ".env"))
+load_dotenv(os.path.join(os.path.dirname(_backend_dir), ".env"))  # the repo-root .env that run.py writes
 
 # Railway injects RAILWAY_PUBLIC_DOMAIN (e.g. "chatty-production.up.railway.app")
 RAILWAY_PUBLIC_DOMAIN = os.getenv("RAILWAY_PUBLIC_DOMAIN", "")
@@ -127,6 +128,36 @@ class WhatsAppSettings:
         return bool(self.bridge_url)
 
 
+class ComputerSettings:
+    """The virtual computer (integrations/computer). COMPUTER_URL/COMPUTER_SECRET
+    from env win (the Railway template sets them); otherwise the card's saved
+    credentials (`url`, `api_key`). Read on every access: the card can save
+    credentials while the server runs."""
+
+    @staticmethod
+    def _source() -> dict:
+        """The one pair in use: both env vars, else the saved pair. One env var alone counts as
+        nothing (not a mix), so a saved secret is never sent to an env-named host or the reverse."""
+        url, secret = os.getenv("COMPUTER_URL", ""), os.getenv("COMPUTER_SECRET", "")
+        if url or secret:
+            return {"url": url, "api_key": secret} if url and secret else {}
+        from integrations.registry import get_credentials
+        return get_credentials("computer")
+
+    @property
+    def url(self) -> str:
+        return self._source().get("url", "").rstrip("/")
+
+    @property
+    def secret(self) -> str:
+        return self._source().get("api_key", "")
+
+    @property
+    def is_configured(self) -> bool:
+        src = self._source()
+        return bool(src.get("url") and src.get("api_key"))
+
+
 class Settings:
     auth = AuthSettings()
     jwt = JWTSettings()
@@ -135,6 +166,7 @@ class Settings:
     quickbooks_oauth = QuickBooksOAuthSettings()
     webby = WebbySettings()
     whatsapp = WhatsAppSettings()
+    computer = ComputerSettings()
 
     # GCS bucket for Phase 2 cloud deployment (no-ops if empty)
     gcs_bucket: str = os.getenv("CONFIG_BUCKET", "")

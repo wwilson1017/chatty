@@ -167,6 +167,16 @@ def _do_restore(file: UploadFile, content: bytes) -> dict:
         if not resolved.is_relative_to(data_dir_resolved):
             raise HTTPException(status_code=400, detail=f"Invalid path in ZIP: {name}")
 
+    # The computer runner writes tasks.db from its own thread: stop it (a running task ends
+    # "interrupted" at its next step) before the connection closes; restarted after reinit.
+    from integrations.computer import runner as computer_runner
+    runner_was_started = computer_runner._started
+    if not computer_runner.stop(wait_s=30):  # waits, then cancels the in-flight call; False only if that failed too
+        if runner_was_started:
+            computer_runner.start()
+        raise HTTPException(status_code=409, detail="A computer task is still running and could not be stopped. "
+                                                    "Cancel it on the Computer card, then restore again.")
+
     # Close all database connections before overwriting files
     from agents.engine import close_all_agent_dbs
     from agents.db import close_db as close_agents_db
@@ -175,6 +185,8 @@ def _do_restore(file: UploadFile, content: bytes) -> dict:
     from core.agents.tool_config_db import close_db as close_tool_config_db
     from core.todo.db import close_db as close_todo_db
     from integrations.claude_code.db import close_db as close_claude_code_db
+    from integrations.computer.db import close_db as close_computer_db
+    from core.terminal.db import close_db as close_terminal_db
     from integrations.crm_lite.db import close_db as close_crm_db
     from integrations.qb_csv.db import close_db as close_qb_csv_db
     from integrations.telegram.state import close_db as close_telegram_db
@@ -187,6 +199,8 @@ def _do_restore(file: UploadFile, content: bytes) -> dict:
     close_tool_config_db()
     close_todo_db()
     close_claude_code_db()
+    close_computer_db()
+    close_terminal_db()
     close_crm_db()
     close_qb_csv_db()
     close_telegram_db()
@@ -252,6 +266,13 @@ def _do_restore(file: UploadFile, content: bytes) -> dict:
 
     from integrations.claude_code.db import init_db as init_claude_code_db
     _reinit("claude_code", init_claude_code_db)
+
+    from integrations.computer.db import init_db as init_computer_db
+    _reinit("computer", init_computer_db)
+    if runner_was_started:
+        _reinit("computer_runner", computer_runner.start)
+    from core.terminal.db import init_db as init_terminal_db
+    _reinit("terminal", init_terminal_db)
 
     from integrations.telegram.state import init_db as init_telegram_db
     _reinit("telegram", init_telegram_db)

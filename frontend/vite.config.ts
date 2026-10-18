@@ -14,6 +14,7 @@ export default defineConfig({
         // VITE_API_PORT lets multiple dev instances run side by side
         target: `http://localhost:${process.env.VITE_API_PORT || 8000}`,
         changeOrigin: true,
+        ws: true, // /api/computer/vnc (the screen viewer) is a WebSocket
       },
     },
   },
