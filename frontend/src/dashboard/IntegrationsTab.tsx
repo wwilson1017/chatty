@@ -7,8 +7,10 @@ import { GoogleIntegrationCard } from './GoogleIntegrationCard';
 import { AppCredentialsForm } from './AppCredentialsForm';
 import { ClaudeCodePanel } from './ClaudeCodePanel';
 import { McpPanel } from './McpPanel';
+import { ComputerPanel } from './ComputerPanel';
+import { toast } from '../shared/toast';
 import type { Integration, Agent } from '../core/types';
-import { IconGlobe, IconUsers, IconFile, IconPhone, IconMail, IconChart, IconBook, IconZap } from '../shared/icons';
+import { IconGlobe, IconUsers, IconFile, IconPhone, IconMail, IconChart, IconBook, IconZap, IconMonitor } from '../shared/icons';
 import { TelegramSettings } from '../agent/components/TelegramSettings';
 
 const INTEGRATION_ICONS: Record<string, React.ComponentType<{ size?: number; className?: string; strokeWidth?: number }>> = {
@@ -27,6 +29,7 @@ const INTEGRATION_ICONS: Record<string, React.ComponentType<{ size?: number; cla
   brain: IconZap,
   claude_code: IconZap,
   mcp: IconGlobe,
+  computer: IconMonitor,
 };
 
 const mono = (size: number, color = 'rgba(237,240,244,0.38)') => ({
@@ -177,7 +180,13 @@ export function IntegrationsTab() {
 
   async function toggleEnable(id: string, enabled: boolean) {
     const endpoint = enabled ? 'disable' : 'enable';
-    await api(`/api/integrations/${id}/${endpoint}`, { method: 'POST' });
+    try {
+      await api(`/api/integrations/${id}/${endpoint}`, { method: 'POST' });
+    } catch (err: unknown) {
+      // e.g. the computer refuses to enable while unreachable or on another API version
+      toast.error(err instanceof Error ? err.message : `Could not ${endpoint} ${id}`);
+      return;
+    }
     setIntegrations(prev => prev.map(i => i.id === id ? { ...i, enabled: !enabled } : i));
     // AppShell listens and refetches so nav entries (e.g. CRM) update live.
     document.dispatchEvent(new CustomEvent('chatty:integrations-changed'));
@@ -454,8 +463,8 @@ export function IntegrationsTab() {
                         </>
                       )}
 
-                      {/* Setup button — only when not configured (Claude Code pairs, MCP adds servers, from their panels) */}
-                      {!isConfigured && integration.id !== 'claude_code' && integration.id !== 'mcp' && (
+                      {/* Setup button — only when not configured (Claude Code pairs and MCP adds servers from their panels; the computer is set up by env vars) */}
+                      {!isConfigured && integration.id !== 'claude_code' && integration.id !== 'mcp' && integration.id !== 'computer' && (
                         <button onClick={() => {
                           if (integration.id === 'quickbooks') {
                             if (hasAppCreds) setupQuickBooks();
@@ -607,6 +616,7 @@ export function IntegrationsTab() {
 
             {integration.id === 'claude_code' && <ClaudeCodePanel onChanged={loadIntegrations} />}
             {integration.id === 'mcp' && <McpPanel onChanged={loadIntegrations} />}
+            {integration.id === 'computer' && <ComputerPanel />}
 
             {/* Paperclip agent mapping */}
             {integration.id === 'paperclip' && integration.enabled && integration.configured && (
