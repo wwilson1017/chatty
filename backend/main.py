@@ -30,6 +30,7 @@ from agents.import_router import router as import_router
 from branding.router import router as branding_router
 from integrations.router import router as integrations_router
 from integrations.claude_code.connector_api import router as connector_router
+from integrations.computer.viewer import router as computer_viewer_router
 from core.terminal.router import router as terminal_router
 from integrations.crm_lite.router import router as crm_router
 from integrations.qb_csv.router import router as qb_csv_router
@@ -345,6 +346,9 @@ app.include_router(capture_router, tags=["capture"])
 app.include_router(todo_web_public_api, prefix="/api/todo-web", tags=["todo-web"])
 app.include_router(todo_web_token_api, prefix="/api/todo-web/{token}", tags=["todo-web"])
 app.include_router(todo_web_router, tags=["todo-web"])
+# Computer viewer: /api/computer/* plus GET /computer (the SPA shell — same
+# "before the StaticFiles mount" rule as /capture and /todo).
+app.include_router(computer_viewer_router, tags=["computer"])
 app.include_router(setup_router, prefix="/api/setup", tags=["setup"])
 app.include_router(backup_router, prefix="/api/backup", tags=["backup"])
 app.include_router(telegram_router, prefix="/api/telegram", tags=["telegram"])

@@ -29,3 +29,4 @@ prompt_toolkit==3.0.52
 rich==15.0.0
 sqlite-vec==0.1.9
 pywebpush==2.3.0
+websockets==17.1

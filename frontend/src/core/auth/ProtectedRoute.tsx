@@ -1,6 +1,7 @@
 /**
  * Chatty — Protected route guard.
- * Redirects unauthenticated users to /login.
+ * Redirects unauthenticated users to /login, remembering where they were
+ * headed so a deep link (e.g. a Telegram link to /computer) lands after login.
  */
 
 import { Navigate, useLocation } from 'react-router-dom';
