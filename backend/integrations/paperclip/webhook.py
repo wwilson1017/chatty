@@ -4,10 +4,9 @@ Receives heartbeat POSTs from Paperclip's built-in HTTP adapter and runs
 the mapped Chatty agent via run_sync() (the non-streaming execution path
 also used by Telegram).
 
-Self-contained: does not import private helpers from agents/router.py.
+Tool loading is shared with every other entry point via agents/tool_loader.
 """
 
-import importlib
 import logging
 
 from fastapi import Request
@@ -15,83 +14,14 @@ from fastapi.responses import JSONResponse
 
 from agents import db as agent_db
 from agents.engine import build_agent_config, get_context_manager
+from agents.tool_loader import INTEGRATION_MODULES, load_integration_tools, build_agent_handlers, tool_flags
 from core.providers import get_ai_provider
 from core.agents.tool_registry import ToolRegistry
-from core.agents.reminders.tools import (
-    create_reminder_handler,
-    list_reminders_handler,
-    cancel_reminder_handler,
-)
-from core.agents.scheduled_actions.tools import (
-    create_scheduled_action_handler,
-    list_scheduled_actions_handler,
-    update_scheduled_action_handler,
-    delete_scheduled_action_handler,
-)
 from core.agents import ai_service
 
 from .client import paperclip_run_ctx
 
 logger = logging.getLogger(__name__)
-
-
-# Integration module registry (same as agents/router.py + telegram/service.py)
-_INTEGRATION_MODULES = {
-    "crm_lite": ("integrations.crm_lite.tools", "CRM_LITE_TOOL_DEFS"),
-    "odoo": ("integrations.odoo.tools", "ODOO_TOOL_DEFS"),
-    "bamboohr": ("integrations.bamboohr.tools", "BAMBOOHR_TOOL_DEFS"),
-    "quickbooks": ("integrations.quickbooks.tools", "QB_TOOL_DEFS"),
-    "qb_csv": ("integrations.qb_csv.tools", "QB_CSV_TOOL_DEFS"),
-    "paperclip": ("integrations.paperclip.tools", "PAPERCLIP_TOOL_DEFS"),
-    "todoist": ("integrations.todoist.tools", "TODOIST_TOOL_DEFS"),
-    "claude_code": ("integrations.claude_code.tools", "CLAUDE_CODE_TOOL_DEFS"),
-}
-
-
-def _load_integration_tools() -> tuple[list[dict], dict]:
-    """Load tool definitions and executors from all enabled integrations."""
-    from integrations.registry import is_enabled
-
-    tool_defs: list[dict] = []
-    executors: dict = {}
-
-    for name, (module_path, defs_attr) in _INTEGRATION_MODULES.items():
-        if not is_enabled(name):
-            continue
-        try:
-            if name == "crm_lite":
-                from integrations.crm_lite.db import init_db, _connection
-                if _connection is None:
-                    init_db()
-            if name == "qb_csv":
-                from integrations.qb_csv.db import init_db as init_qb_csv, _connection as qb_csv_conn
-                if qb_csv_conn is None:
-                    init_qb_csv()
-
-            mod = importlib.import_module(module_path)
-            defs = getattr(mod, defs_attr, [])
-            execs = getattr(mod, "TOOL_EXECUTORS", {})
-            tool_defs.extend({**d, "integration": name} for d in defs)
-            executors.update(execs)
-        except Exception as e:
-            logger.warning("Failed to load integration %s: %s", name, e)
-
-    return tool_defs, executors
-
-
-def _build_agent_handlers(agent_slug: str):
-    reminder_handlers = {
-        "create_reminder": lambda **kw: create_reminder_handler(agent_slug, **kw),
-        "list_reminders": lambda **kw: list_reminders_handler(agent_slug, **kw),
-        "cancel_reminder": lambda **kw: cancel_reminder_handler(agent_slug, **kw),
-    }
-    sa_handlers = {
-        "create_scheduled_action": lambda **kw: create_scheduled_action_handler(agent_slug, **kw),
-        "list_scheduled_actions": lambda **kw: list_scheduled_actions_handler(agent_slug, **kw),
-        "update_scheduled_action": lambda **kw: update_scheduled_action_handler(agent_slug, **kw),
-        "delete_scheduled_action": lambda **kw: delete_scheduled_action_handler(agent_slug, **kw),
-    }
-    return reminder_handlers, sa_handlers
 
 
 async def handle_heartbeat(request: Request):
@@ -180,22 +110,23 @@ async def handle_heartbeat(request: Request):
             for aid, a in all_ga.items()
         }
 
-        integration_tool_defs, integration_executors = _load_integration_tools()
+        integration_tool_defs, integration_executors = load_integration_tools()
 
         # Force Paperclip writes to "power" — no approval UI in headless mode
         from integrations.registry import get_credentials as _get_creds
         integration_tool_modes = {
             name: get_tool_mode(name)
-            for name in _INTEGRATION_MODULES
+            for name in INTEGRATION_MODULES
             if "tool_mode" in _get_creds(name)
         }
         integration_tool_modes["paperclip"] = "power"
 
-        reminder_handlers, sa_handlers = _build_agent_handlers(slug)
+        reminder_handlers, sa_handlers = build_agent_handlers(slug)
         registry = ToolRegistry(
             context_dir=config.context_dir,
             google_connected=google_connected,
             integration_executors=integration_executors,
+            integration_tool_flags=tool_flags(integration_tool_defs),
             agent_slug=slug,
             reminder_handlers=reminder_handlers,
             scheduled_action_handlers=sa_handlers,

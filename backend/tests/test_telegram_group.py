@@ -71,3 +71,50 @@ class TestBotReplyLimit:
         )
         assert ok is True
         assert reason == "ok"
+
+
+class TestTurnContext:
+    """Private chats run as the owner ("user"); group chats never do ("group"), but
+    both stamp the chat they came from so delegated work reports back there."""
+
+    def _drive(self, monkeypatch, tmp_path):
+        import asyncio
+        import types
+        import integrations.registry as reg
+        from integrations.telegram import service as tg_service
+
+        agent = {"id": "a1", "slug": "ally", "telegram_enabled": 1}
+        monkeypatch.setattr(tg_service.agent_db, "get_agent", lambda agent_id: agent)
+        monkeypatch.setattr(tg_service, "build_agent_config", lambda a: types.SimpleNamespace(
+            provider_override=None, model_override=None, model_tier="top", google_accounts={},
+            context_dir=str(tmp_path / "context")))
+        monkeypatch.setattr(tg_service, "get_context_manager", lambda slug: types.SimpleNamespace())
+        monkeypatch.setattr(tg_service, "get_chat_service", lambda slug: None)
+        monkeypatch.setattr(tg_service, "get_ai_provider", lambda **kw: object())
+        monkeypatch.setattr(tg_service, "load_integration_tools", lambda: ([], {}))
+        monkeypatch.setattr(reg, "list_google_accounts", lambda: {})
+        monkeypatch.setattr(reg, "get_credentials", lambda name: {})
+        monkeypatch.setattr(tg_service.state, "get_mapping_by_sender", lambda *a: {"id": 1})
+        monkeypatch.setattr(tg_service.state, "get_or_create_conversation",
+                            lambda sid, aid: {"id": "c1", "chatty_conversation_id": None})
+        seen = {}
+
+        async def run_sync(**kw):
+            seen["registry"] = kw["registry"]
+            return "ok"
+
+        monkeypatch.setattr(tg_service.ai_service, "run_sync", run_sync)
+
+        def turn(coro):
+            asyncio.run(coro)
+            reg_ = seen.pop("registry")
+            return reg_._turn_origin, reg_._turn_route
+
+        return tg_service, turn
+
+    def test_group_turn_is_group_origin_routed_to_the_group(self, monkeypatch, tmp_path):
+        tg_service, turn = self._drive(monkeypatch, tmp_path)
+        assert turn(tg_service.process_group_message(-100123, "a1", "Ann", False, "Ops", "hi")) == (
+            "group", {"channel": "telegram", "chat_id": "-100123"})
+        assert turn(tg_service.process_message("42", "Will", "hi", "a1")) == (
+            "user", {"channel": "telegram", "chat_id": "42"})
