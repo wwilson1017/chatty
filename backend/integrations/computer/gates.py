@@ -9,7 +9,9 @@ Action labels follow the computer's `expect.action` convention: toolset members
 (`left_click`, `left_mouse_down`, `key:ctrl+Return`, `hold_key:space`, `type`)
 and browser acts (`act:click`, `act:press:Enter`, `act:select`, `act:type`).
 `type` / `act:type` are checked only when the text contains a newline, and then
-count as Enter on the target.
+count as Enter on the target. Delete / Backspace (additive to PR 3's checked-key
+list) are editing keys in a text field and a `delete` gate on any other focused
+element: a mail row or a file-manager item is destroyed on that keystroke.
 """
 
 import json
@@ -45,10 +47,12 @@ _MODS = {"ctrl", "control", "cmd", "meta", "super", "command", "controlormeta", 
 _IGNORED_MODS = {"shift", "alt", "option"}
 _ENTER = {"return", "enter", "kp_enter", "numpadenter", "\r", "\n"}
 _SPACE = {"space", " "}
-# Keys known not to activate anything: navigation and editing keys, function keys, and
-# Playwright's code names for printable characters. Anything else is treated as Enter —
-# an alias we didn't anticipate must fail closed, not slip through unclassified.
-_FREE_KEY = re.compile(r"^(?:arrow(?:up|down|left|right)|up|down|left|right|tab|escape|esc|backspace|delete|del"
+_DELETE = {"delete", "del", "backspace", "\x7f", "\b"}  # xdotool and Playwright names; Shift/Ctrl variants included
+_EDIT_ROLES = frozenset({"textbox", "searchbox", "combobox"})  # where Delete/Backspace only edit text
+# Keys known not to activate anything: navigation keys, function keys, and Playwright's code
+# names for printable characters. Anything else is treated as Enter — an alias we didn't
+# anticipate must fail closed, not slip through unclassified.
+_FREE_KEY = re.compile(r"^(?:arrow(?:up|down|left|right)|up|down|left|right|tab|escape|esc"
                        r"|home|end|pageup|pagedown|page_up|page_down|prior|next|insert|capslock"
                        r"|f(?:[1-9]|1[0-9]|2[0-4])|key[a-z]|digit[0-9]|numpad[0-9]"
                        r"|numpad(?:add|subtract|multiply|divide|decimal))$")
@@ -57,7 +61,7 @@ _NEWLINES = "\r\n\x0b\x0c  "
 
 @dataclass(frozen=True)
 class _Key:
-    key: str   # "enter" | "space" | a free key | a single printable character
+    key: str   # "enter" | "space" | "delete" | a free key | a single printable character
     mod: bool  # Ctrl/Cmd held
 
 
@@ -77,6 +81,8 @@ def _key_of(label: str) -> _Key | None:
                 return _Key("enter", mod)
             if name in _SPACE or raw in _SPACE:
                 return _Key("space", mod)
+            if name in _DELETE or raw in _DELETE:
+                return _Key("delete", mod)
             if (len(name) == 1 and name.isprintable()) or _FREE_KEY.match(name):
                 return _Key(name, mod)
             return _Key("enter", mod)
@@ -93,7 +99,7 @@ def needs_check(label: str, text: str | None = None) -> bool:
     key = _key_of(label)
     if key is None:
         return False
-    return key.key in ("enter", "space") or (key.mod and key.key == "s")
+    return key.key in ("enter", "space", "delete") or (key.mod and key.key == "s")
 
 
 # ── vocabularies (the plan's rule words) ─────────────────────────────────────
@@ -194,9 +200,15 @@ def classify(label: str, element: dict | None, *, page_text: str = "", repeat: i
     editable = tag == "textarea" or (role == "textbox" and tag != "input")
     activatable = role in _ACTIVATABLE_ROLES or tag in ("button", "a") or (tag == "input" and itype not in _TEXT_INPUT_TYPES)
 
-    # A key press is an activation when it can fire something: Enter anywhere, Space on a control.
-    # Space in a text field is a space; Enter in a textarea is a newline (rule 7 decides composers).
+    # A key press is an activation when it can fire something: Enter anywhere, Space on a control,
+    # Delete/Backspace on anything that isn't a text field (a focused mail row or file is destroyed
+    # at once; in a field they edit). Space in a text field is a space; Enter in a textarea is a
+    # newline (rule 7 decides composers).
     if key:
+        if key.key == "delete":
+            if editable or (tag == "input" and itype in _TEXT_INPUT_TYPES) or role in _EDIT_ROLES:
+                return FREE
+            return _gated("delete", "1.delete-key", name or role or tag, multi)
         if key.key == "space" and not activatable:
             return FREE
         if key.key not in ("enter", "space"):

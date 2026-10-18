@@ -260,6 +260,27 @@ class TestScreenshotLoop:
         assert (gate["kind"], gate["rule"], gate["action"], gate["reason"]) == ("post", "declared", "left_click", "the cart button posts a review")
         assert [a["name"] for a in shot.actions] == ["left_click", "screenshot"] and run.finished
 
+    def test_delete_key_edits_in_a_text_field_but_is_gated_on_a_focused_row(self, shot, monkeypatch):
+        field = {"found": True, "ref": "e20", "tag": "textarea", "role": "textbox", "name": "Message", "type": "", "form": None,
+                 "frame_url": "https://mail.example/compose", "page": {"host": "mail.example", "path": "/compose", "title": "Compose"},
+                 "context_kind": "composer", "context_fp": "cfp", "total": None, "screen_box": None}
+        shot.focused = field
+        _queue()
+        run = _live_run()
+        [r] = asyncio.run(run.batch([tool("key", {"text": "Delete"}, "a")]))
+        assert r["content"] == "OK" and shot.actions[-1]["expect"]["action"] == "key:Delete"  # checked, free, re-checked by the computer
+        _end(run)
+        shot.focused = {**field, "tag": "tr", "role": "row", "name": "Re: invoice", "context_kind": None, "context_fp": None,
+                        "page": {"host": "mail.example", "path": "/inbox", "title": "Inbox"}}
+        _queue()
+        run = _live_run()
+        [r] = asyncio.run(run.batch([tool("key", {"text": "BackSpace"}, "b")]))
+        assert r["content"].startswith("needs approval (delete)") and run.finished
+        gate = db.get_gate(run.gate_id)
+        assert (gate["kind"], gate["rule"], gate["action"], gate["name"]) == ("delete", "1.delete-key", "key:BackSpace", "Re: invoice")
+        assert "can't be re-sent" in gates.unbindable_reason(gate)  # approving = take over and press it yourself
+        assert [a["name"] for a in shot.actions] == ["key", "screenshot"]  # the field's Delete, then the gate's screenshot
+
     def test_a_click_the_page_cannot_identify_is_a_gate_fail_closed(self, shot, monkeypatch):
         """A click with no coordinate lands where the cursor is; nothing of the page is there (a desktop app, say)."""
         _queue()
