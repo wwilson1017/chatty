@@ -235,6 +235,14 @@ class TestTools:
         info = tools.computer_info(_ctx=_ctx())
         assert info["enabled_for_this_agent"] and info["queued"] == 1 and info["helper_model"] == MODEL
 
+    def test_group_and_other_origins_queue_as_background_with_their_route(self, fake):
+        route = {"channel": "telegram", "chat_id": -1001}
+        tid = _queue(origin="group", route=route)
+        t = db.get_task(tid)
+        assert t["origin"] == "background" and json.loads(t["route"]) == route
+        assert db.get_task(_queue(origin="system"))["origin"] == "background"
+        assert db.get_task(_queue(origin="user"))["origin"] == "user"
+
     def test_cancel_own_task_only(self, fake):
         tid = _queue()
         assert "error" in tools.computer_task_cancel(tid, _ctx=_ctx("dana"))

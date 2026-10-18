@@ -20,7 +20,8 @@ export function ProtectedRoute({ children }: { children: React.ReactNode }) {
   }
 
   if (!isLoggedIn) {
-    return <Navigate to="/login" replace state={{ from: location.pathname + location.search }} />;
+    // Remember where we were going (e.g. a `chatty login` QR's /?pair=<code>) for after login.
+    return <Navigate to="/login" replace state={{ from: location }} />;
   }
 
   return <>{children}</>;

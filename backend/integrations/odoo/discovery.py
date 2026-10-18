@@ -5,13 +5,14 @@ endpoints. Tries XML-RPC db.list(), then JSON-RPC /web/database/list, then URL
 inference as a final fallback.
 """
 
-import ipaddress
 import logging
 import socket
 import xmlrpc.client
 from urllib.parse import urlparse
 
 import httpx
+
+from core.security.ssrf import validate_host as _validate_host
 
 logger = logging.getLogger(__name__)
 
@@ -56,19 +57,6 @@ def _check_ssrf(url: str) -> str | None:
     parsed = urlparse(url)
     host = parsed.hostname or ""
     return _validate_host(host)
-
-
-def _validate_host(host: str) -> str | None:
-    """Resolve host and reject private/internal IPs. Returns error or None."""
-    try:
-        addrs = socket.getaddrinfo(host, None)
-    except socket.gaierror:
-        return f"Cannot resolve host: {host}"
-    for info in addrs:
-        ip = ipaddress.ip_address(info[4][0])
-        if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved:
-            return "Requests to internal addresses are not allowed"
-    return None
 
 
 def _normalize_url(url: str) -> str:
