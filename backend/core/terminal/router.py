@@ -156,8 +156,16 @@ def device_token(authorization: str = Header("")):
 
 # ── Web side (logged in) ─────────────────────────────────────────────────────
 
+def web_user(user=Depends(get_current_user)) -> dict:
+    """A password login, not a terminal's own JWT: otherwise a stolen terminal
+    could enroll a fresh device for itself and outlive its revoke."""
+    if user.get("device"):
+        raise HTTPException(status_code=403, detail="Manage terminals from the web app")
+    return user
+
+
 @router.get("/pair/{user_code}")
-def pair_lookup(user_code: str, user=Depends(get_current_user)):
+def pair_lookup(user_code: str, user=Depends(web_user)):
     with db.write_lock():
         row = db.get_db().execute(
             "SELECT user_code, host, platform, ip, created_at, expires_at, status FROM pairings"
@@ -173,7 +181,7 @@ class DecideRequest(BaseModel):
 
 
 @router.post("/pair/{user_code}/decide")
-def pair_decide(user_code: str, body: DecideRequest, user=Depends(get_current_user)):
+def pair_decide(user_code: str, body: DecideRequest, user=Depends(web_user)):
     with db.write_lock():
         conn = db.get_db()
         cur = conn.execute(
@@ -193,7 +201,7 @@ class DeviceRequest(BaseModel):
 
 
 @router.post("/devices")
-def create_device(body: DeviceRequest, user=Depends(get_current_user)):
+def create_device(body: DeviceRequest, user=Depends(web_user)):
     """Enroll a terminal that logged in with the password (`chatty login --password`)."""
     with db.write_lock():
         conn = db.get_db()
@@ -203,7 +211,7 @@ def create_device(body: DeviceRequest, user=Depends(get_current_user)):
 
 
 @router.get("/devices")
-def list_devices(user=Depends(get_current_user)):
+def list_devices(user=Depends(web_user)):
     with db.write_lock():
         rows = db.get_db().execute(
             "SELECT id, label, host, platform, created_at, last_seen_at FROM devices ORDER BY id").fetchall()
@@ -211,7 +219,7 @@ def list_devices(user=Depends(get_current_user)):
 
 
 @router.delete("/devices/{device_id}")
-def revoke_device(device_id: int, user=Depends(get_current_user)):
+def revoke_device(device_id: int, user=Depends(web_user)):
     with db.write_lock():
         conn = db.get_db()
         cur = conn.execute("DELETE FROM devices WHERE id = ?", (device_id,))

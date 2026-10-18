@@ -111,6 +111,19 @@ def test_password_login_enrolls_a_device(tc):
     assert tc.get("/api/terminal/devices", headers=tc.web).json()["devices"][0]["label"] == "fred"
 
 
+def test_terminal_jwt_cannot_manage_terminals(tc):
+    """A stolen terminal must not be able to enroll itself a fresh device and outlive its revoke."""
+    dev = tc.post("/api/terminal/devices", headers=tc.web, json={"host": "laptop"}).json()
+    h = {"Authorization": f"Bearer {_jwt(tc, dev['token']).json()['access_token']}"}
+    assert tc.get("/api/agents", headers=h).status_code == 200  # the rest of the API works
+    assert tc.post("/api/terminal/devices", headers=h, json={"host": "evil"}).status_code == 403
+    assert tc.get("/api/terminal/devices", headers=h).status_code == 403
+    assert tc.delete(f"/api/terminal/devices/{dev['device_id']}", headers=h).status_code == 403
+    p = _start(tc)
+    assert tc.get(f"/api/terminal/pair/{p['user_code']}", headers=h).status_code == 403
+    assert tc.post(f"/api/terminal/pair/{p['user_code']}/decide", headers=h, json={"approve": True}).status_code == 403
+
+
 def test_token_needs_a_device_bearer(tc):
     assert tc.post("/api/terminal/token").status_code == 401
     assert _jwt(tc, "garbage").status_code == 401
