@@ -83,7 +83,8 @@ class FakeComputer:
         conn.send(b"RFB 003.008\n")  # a VNC server speaks first
         for msg in conn:
             if msg == b"bye":
-                return  # upstream hangs up
+                conn.close(1000, "desktop stopped")  # the computer hangs up, with a reason
+                return
             conn.send(b"echo:" + (msg if isinstance(msg, bytes) else msg.encode()))
 
 
@@ -298,7 +299,8 @@ class TestRelay:
             ws.send_bytes(b"bye")
             with pytest.raises(WebSocketDisconnect) as ei:
                 ws.receive_bytes()
-            assert ei.value.code == 1000
+            # The computer's own reason reaches the page instead of a bare "Disconnected".
+            assert (ei.value.code, ei.value.reason) == (4000, "The computer ended the stream: desktop stopped")
         path, auth, protocols = fake.ws_requests[0]
         assert urlparse(path).query == "mode=view" and auth == "Bearer s3cret-s3cret-s3cret-s3cret-s3cret"
         assert "binary" in protocols  # noVNC's subprotocol, offered upstream like the browser would
