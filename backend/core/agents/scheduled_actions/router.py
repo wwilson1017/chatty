@@ -26,6 +26,15 @@ class UpdateActionRequest(BaseModel):
     always_on: bool | None = None
 
 
+class PreapprovedItem(BaseModel):
+    host: str
+    button_text: str
+
+
+class PreapprovedRequest(BaseModel):
+    items: list[PreapprovedItem]
+
+
 # -- Static routes (must come before /{agent_slug} to avoid capture) ------
 
 _VALID_LOG_STATUSES = {"ok", "error", "action_taken", "skipped", "running", "lease_lost"}
@@ -164,7 +173,18 @@ async def list_all_actions(user=Depends(get_current_user)):
 @router.get("/{agent_slug}")
 async def list_agent_actions(agent_slug: str, user=Depends(get_current_user)):
     actions = service.list_actions(agent=agent_slug)
+    for a in actions:
+        a["preapproved"] = service.preapproved_for(a)  # live list: [] once the prompt changed
     return {"actions": actions}
+
+
+@router.put("/{action_id}/preapproved")
+async def set_preapproved(action_id: str, body: PreapprovedRequest, user=Depends(get_current_user)):
+    """The only writer of a cron action's computer pre-approvals (bound to the current prompt)."""
+    result = service.set_preapproved(action_id, [i.model_dump() for i in body.items])
+    if "error" in result:
+        raise HTTPException(status_code=404 if "not found" in result["error"] else 400, detail=result["error"])
+    return result
 
 
 @router.patch("/{action_id}")

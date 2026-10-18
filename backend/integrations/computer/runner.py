@@ -11,7 +11,9 @@ ends the task as `needs_approval` and asks the owner (approvals.py); approving
 queues a follow-up whose first step is _Run.consume(): one activation bound to
 the stored gate, re-checked by the computer, never re-sent. A gate that can't be
 bound becomes a takeover task (_Run.takeover) that opens the page for the owner
-and performs nothing itself. Logins never go through the helper either:
+and performs nothing itself. A gate a scheduled action pre-approved
+(preapprovals.match: host + button text, never a purchase) is recorded already
+approved and dispatched at once. Logins never go through the helper either:
 `request_takeover` hands the screen to the owner and waits
 (tool_request_takeover), the computer refusing every agent call meanwhile.
 
@@ -38,7 +40,7 @@ from core.config import settings
 from core.providers import get_ai_provider
 from core.providers.pricing import get_max_rates, rates_for_prompt
 
-from . import approvals, card, db, gates
+from . import approvals, card, db, gates, preapprovals
 from .client import ComputerClient, ComputerError, get_client
 
 logger = logging.getLogger(__name__)
@@ -655,6 +657,22 @@ class _Run:
                 err = self.declaration_error(element)
                 if err:
                     return {"error": err}
+                # ── pre-approved (scheduled actions): a named host + button crosses without asking ──
+                kind = "buy" if (self.declared or {}).get("kind") == "buy" else verdict.kind  # a declared purchase is one
+                pre = preapprovals.match(self.task.get("action_id"), kind, label, element)
+                if pre:
+                    verdict_out[-1] = gates.Verdict(True, verdict.kind, "preapproved", f"{verdict.kind}: {name!r} pre-approved ({verdict.rule})")
+                    d, self.declared = self.declared or {}, None
+                    self.gate_id = db.insert_gate(
+                        self.task, kind=verdict.kind, rule=verdict.rule, action=label, element=element, url=self.url,
+                        note=f"pre-approved for scheduled action {self.task['action_id']}: {pre['host']} / {pre['button_text']!r} ({verdict.rule})",
+                        reason=d.get("reason"), decision="preapproved", decided_by=f"scheduled_action:{self.task['action_id']}")
+                    if not await self.dispatch(db.get_gate(self.gate_id), {"ref": params["ref"]} if params.get("ref") else {}, element):
+                        return {"stopped": f"pre-approved {verdict.kind} on {name!r} was not performed as approved"}
+                    return {"performed": True, "url": self.url,
+                            "preapproved": f"Chatty performed this {verdict.kind} ({name!r} on {pre['host']}) ONCE: it is allowed "
+                                           "without asking for this scheduled action. Do not repeat it; continue from the page as it is."}
+                # ── end pre-approved ──
                 await self.open_gate(verdict.kind, verdict.reason, verdict.rule, label, element)
                 return {"stopped": f"needs approval ({verdict.kind}): {name}"}
             expect = gates.expect_for(label, element)
@@ -910,7 +928,8 @@ class _Run:
                     raise  # human_in_control is refused before journaling, so nothing was sent
                 db.execute("UPDATE gates SET status = 'done' WHERE id = ? AND status = 'dispatching'", (gate["id"],))
                 db.add_step(self.id, "approved_action", {"gate": gate["id"], "kind": kind, **params}, '{"performed": true}',
-                            url=self.url, verdict=f"approved:{gate['kind']}", action_id=self.pending_action_id)
+                            url=self.url, verdict=f"{'pre' if gate.get('decision') == 'preapproved' else ''}approved:{gate['kind']}",
+                            action_id=self.pending_action_id)
                 return True
             return False  # unreachable: the loop returns or raises
         finally:
@@ -1032,11 +1051,14 @@ class _Run:
         verdict = verdicts[0] if verdicts else None
         s = json.dumps(result)
         db.add_step(self.id, name, args, s, url=self.url,
-                    verdict=(f"gated:{verdict.kind}" if verdict.gated else f"free:{verdict.rule}") if verdict else None)
+                    verdict=(f"{'preapproved' if verdict.rule == 'preapproved' else 'gated'}:{verdict.kind}" if verdict.gated
+                             else f"free:{verdict.rule}") if verdict else None)
         if "stopped" in result or name == "request_approval":
             return s
         if name == "request_takeover" and "handback" in result:  # our own words stay outside the untrusted wrapper
             return result.pop("handback") + "\n" + wrap_result("browser", json.dumps(result))
+        if name == "browser" and "preapproved" in result:  # likewise Chatty's note about a pre-approved action
+            return result.pop("preapproved") + "\n" + wrap_result("browser", json.dumps(result))
         return wrap_result(name, s)
 
     # ── the loop ─────────────────────────────────────────────────────────────
