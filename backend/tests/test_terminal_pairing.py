@@ -118,10 +118,19 @@ def test_terminal_jwt_cannot_manage_terminals(tc):
     assert tc.get("/api/agents", headers=h).status_code == 200  # the rest of the API works
     assert tc.post("/api/terminal/devices", headers=h, json={"host": "evil"}).status_code == 403
     assert tc.get("/api/terminal/devices", headers=h).status_code == 403
-    assert tc.delete(f"/api/terminal/devices/{dev['device_id']}", headers=h).status_code == 403
+    other = tc.post("/api/terminal/devices", headers=tc.web, json={"host": "fred"}).json()
+    assert tc.delete(f"/api/terminal/devices/{other['device_id']}", headers=h).status_code == 403
     p = _start(tc)
     assert tc.get(f"/api/terminal/pair/{p['user_code']}", headers=h).status_code == 403
     assert tc.post(f"/api/terminal/pair/{p['user_code']}/decide", headers=h, json={"approve": True}).status_code == 403
+
+
+def test_terminal_can_revoke_itself(tc):
+    """`chatty logout` deletes its own token on the server."""
+    dev = tc.post("/api/terminal/devices", headers=tc.web, json={"host": "laptop"}).json()
+    h = {"Authorization": f"Bearer {_jwt(tc, dev['token']).json()['access_token']}"}
+    assert tc.delete(f"/api/terminal/devices/{dev['device_id']}", headers=h).status_code == 200
+    assert _jwt(tc, dev["token"]).status_code == 401
 
 
 def test_token_needs_a_device_bearer(tc):

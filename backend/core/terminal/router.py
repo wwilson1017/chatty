@@ -219,7 +219,10 @@ def list_devices(user=Depends(web_user)):
 
 
 @router.delete("/devices/{device_id}")
-def revoke_device(device_id: int, user=Depends(web_user)):
+def revoke_device(device_id: int, user=Depends(get_current_user)):
+    # The web revokes any terminal; a terminal may only revoke itself (`chatty logout`).
+    if user.get("device") not in (None, device_id):
+        raise HTTPException(status_code=403, detail="Manage terminals from the web app")
     with db.write_lock():
         conn = db.get_db()
         cur = conn.execute("DELETE FROM devices WHERE id = ?", (device_id,))
