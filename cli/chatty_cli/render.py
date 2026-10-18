@@ -1,6 +1,7 @@
 """Terminal output: one turn's event stream (state always, display unless muted) and one-line prompts."""
 
 import json
+import re
 import sys
 import textwrap
 
@@ -10,9 +11,22 @@ from rich.markup import escape
 
 console = Console(highlight=False)
 
+# Server text (replies can echo emails and web pages) must not drive the terminal: drop control characters,
+# ESC above all, keeping only newline and tab. escape() alone stops rich markup, not escape sequences.
+_CONTROL = re.compile(r"[\x00-\x08\x0b-\x1f\x7f-\x9f]")
+
+
+def clean(text) -> str:
+    return _CONTROL.sub("", str(text))
+
+
+def safe(text) -> str:
+    """Server text, ready for rich markup."""
+    return escape(clean(text))
+
 
 def note(text: str) -> None:
-    console.print(f"[dim]{escape(text)}[/]")
+    console.print(f"[dim]{safe(text)}[/]")
 
 
 async def ask(text: str) -> str:
@@ -61,7 +75,7 @@ class Renderer:
         # simplification: plain text, no markdown rendering; upgrade: render finished blocks with rich.Markdown (#170)
         if t == "text":
             self._in_text = True
-            sys.stdout.write(e.get("text", ""))
+            sys.stdout.write(clean(e.get("text", "")))
             sys.stdout.flush()
             return
         if t == "tool_args":
@@ -71,7 +85,7 @@ class Renderer:
         if t == "tool_end":
             self._tool_line(e)
         elif t == "confirm":
-            console.print(f"  [dim]▸ {escape(e.get('tool', ''))}[/] [yellow]needs your approval[/]")
+            console.print(f"  [dim]▸ {safe(e.get('tool', ''))}[/] [yellow]needs your approval[/]")
         elif t == "compacted":
             note("(earlier messages were compacted)")
         elif t == "title_update":
@@ -79,7 +93,7 @@ class Renderer:
         elif t == "transcription":
             note(f"transcribing {e.get('filename', '')}: {e.get('message', '')}")
         elif t == "error":
-            console.print(f"[red]Error:[/] {escape(self.error)}")
+            console.print(f"[red]Error:[/] {safe(self.error)}")
         elif t == "done":
             model = e.get("model") or "?"
             note(f"{model}{' · ' + e['tier'] if e.get('tier') else ''} · "
@@ -90,7 +104,7 @@ class Renderer:
         ok = not result.get("error") and result.get("ok", result.get("status") != "error")
         ms = e.get("elapsed_ms") or 0
         took = f"{ms}ms" if ms < 1000 else f"{ms / 1000:.1f}s"
-        console.print(f"  [dim]▸ {escape(e.get('tool', ''))}[/] {'[green]✓[/]' if ok else '[red]✗[/]'} [dim]{took}[/]")
+        console.print(f"  [dim]▸ {safe(e.get('tool', ''))}[/] {'[green]✓[/]' if ok else '[red]✗[/]'} [dim]{took}[/]")
         if self.verbose:
             for value in (self.args.get(e.get("tool_use_id")), result):
                 if value:
@@ -113,7 +127,7 @@ class Renderer:
         self.error = message
         if not self.muted:
             self._end_text()
-            console.print(f"[red]Error:[/] {escape(message)}")
+            console.print(f"[red]Error:[/] {safe(message)}")
 
     def finish(self) -> None:
         """The stream ended."""

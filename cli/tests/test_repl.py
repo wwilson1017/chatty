@@ -218,3 +218,13 @@ def test_agent_is_remembered(fake, isolated_config, monkeypatch):
     assert json.loads(isolated_config.read_text())["last_agent_id"] == "a-uuid-2"
     again = asyncio.run(open_session(s.api, argparse.Namespace(agent=None, cont=False), session.cfg))
     assert again.agent["slug"] == "jordan"  # no second question (answer() would raise StopIteration)
+
+
+def test_server_text_cannot_drive_the_terminal(fake, capsys):
+    """Replies can echo emails and web pages: no escape sequences reach the terminal, no markup crashes."""
+    from chatty_cli.render import Renderer, clean, console, safe
+
+    assert clean("a\x1b]0;title\x07b\x1b[2Jc\x9bd\n\te") == "a]0;titleb[2Jcd\n\te"
+    console.print(f"[bold]{safe('Bob [/x]')}[/]")  # an agent name like this raised MarkupError
+    Renderer(make_session(fake)).handle({"type": "text", "text": "hi\x1b[2J"})
+    assert "\x1b" not in capsys.readouterr().out

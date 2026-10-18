@@ -3,11 +3,9 @@
 import shlex
 from pathlib import Path
 
-from rich.markup import escape
-
 from . import config
 from .api import ApiError
-from .render import ask, console, note
+from .render import ask, console, note, safe
 
 COMMANDS = {
     "/help": "show this help",
@@ -29,7 +27,7 @@ TAIL = 20
 async def pick(items: list, label):
     """Numbered list; returns the chosen item, or None on Enter."""
     for i, item in enumerate(items, 1):
-        console.print(f"  {i}. {escape(label(item))}")
+        console.print(f"  {i}. {safe(label(item))}")
     a = await ask(f"Choose 1-{len(items)} (Enter to cancel): ")
     return items[int(a) - 1] if a.isdigit() and 1 <= int(a) <= len(items) else None
 
@@ -47,7 +45,7 @@ async def open_conversation(session, conversation_id: str) -> None:
     note(f"Continuing \"{conv.get('title') or 'Untitled'}\"" + (f", last {TAIL} messages:" if len(msgs) > TAIL else ":"))
     for m in msgs[-TAIL:]:
         who = "you" if m["role"] == "user" else session.agent["agent_name"]
-        console.print(f"[bold]{escape(who)}:[/] {escape(m['content'].strip())}")
+        console.print(f"[bold]{safe(who)}:[/] {safe(m['content'].strip())}")
 
 
 def set_agent(session, agent: dict) -> None:

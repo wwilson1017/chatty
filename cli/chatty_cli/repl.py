@@ -16,11 +16,9 @@ from prompt_toolkit import PromptSession
 from prompt_toolkit.completion import Completer, Completion
 from prompt_toolkit.history import FileHistory
 from prompt_toolkit.key_binding import KeyBindings
-from rich.markup import escape
-
 from . import commands, config
 from .api import Api, ApiError
-from .render import Renderer, ask, console, note
+from .render import Renderer, ask, console, note, safe
 
 
 @dataclass
@@ -124,8 +122,8 @@ async def approve(session: Session, renderer: Renderer) -> None:
                 note(f"{rest.get('tool')}: not run.")
             return
         tool, args = c.get("tool", ""), c.get("args") or {}
-        console.print(f"\n[bold yellow]{escape(tool)}[/] {escape(c.get('description') or '')}")
-        console.print(f"[dim]{escape(json.dumps(args, indent=2, ensure_ascii=False)[:2000])}[/]")
+        console.print(f"\n[bold yellow]{safe(tool)}[/] {safe(c.get('description') or '')}")
+        console.print(f"[dim]{safe(json.dumps(args, indent=2, ensure_ascii=False)[:2000])}[/]")
         if (await ask("Allow? [y/N] ")).lower() not in ("y", "yes"):
             note("Not run.")
             continue
@@ -136,7 +134,7 @@ async def approve(session: Session, renderer: Renderer) -> None:
             result, text = {"error": str(e)}, f"[Action failed] {tool}: {e}"
         except (httpx.HTTPError, asyncio.CancelledError) as e:
             # It may have run; replaying could run it twice.
-            console.print(f"[red]{escape(tool)} didn't report back ({escape(why(e))}).[/] "
+            console.print(f"[red]{safe(tool)} didn't report back ({safe(why(e))}).[/] "
                           "Not retried: check before asking again.")
             return
         await send(session, text, approved_tool={"tool": tool, "args": args, "toolUseId": c.get("tool_use_id"),
@@ -152,12 +150,12 @@ async def submit(session: Session, line: str) -> bool:
         except asyncio.CancelledError:
             note("Cancelled.")
         except (ApiError, httpx.HTTPError) as e:
-            console.print(f"[red]{escape(why(e))}[/]")
+            console.print(f"[red]{safe(why(e))}[/]")
         return True
     try:
         files = [(p.name, p.read_bytes()) for p in session.staged]
     except OSError as e:
-        console.print(f"[red]{escape(str(e))}[/] (/attach again, or /attach alone to clear)")
+        console.print(f"[red]{safe(str(e))}[/] (/attach again, or /attach alone to clear)")
         return True
     session.staged = []
     await send(session, line, files=files)

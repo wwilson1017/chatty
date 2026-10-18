@@ -9,7 +9,7 @@ import httpx
 from . import __version__, commands, config
 from .api import Api, ApiError
 from .login import cmd_login, cmd_logout
-from .render import console, note
+from .render import console, note, safe
 from .repl import Session, run, why
 
 
@@ -48,7 +48,7 @@ async def chat(args, cfg: dict) -> int:
         session = await open_session(api, args, cfg)
         if not session:
             return 1
-        console.print(f"[bold]{session.agent['agent_name']}[/] [dim]· {cfg['url']} · {session.mode} mode · "
+        console.print(f"[bold]{safe(session.agent['agent_name'])}[/] [dim]· {safe(cfg['url'])} · {session.mode} mode · "
                       "/help for commands, Ctrl+D to exit[/]")
         await run(session)
         return 0
