@@ -273,7 +273,8 @@ jobs:
           # Extract the review text: join every text block. Sonnet 5.5 thinks by default, so
           # content[0] is a thinking block and `.content[0].text` is null (the empty reviews).
           printf '%s' "$BODY" | jq -r '[.content[]? | select(.type == "text") | .text] | join("\n")' > /tmp/review.txt
-          STOP_REASON=$(printf '%s' "$BODY" | jq -r '.stop_reason // ""')
+          # Later steps interpolate stop_reason via ${{ }} inside shell, so keep it to a bare token.
+          STOP_REASON=$(printf '%s' "$BODY" | jq -r '.stop_reason // ""' | tr -cd 'a-z_')
           echo "stop_reason=$STOP_REASON" >> "$GITHUB_OUTPUT"
 
           if [ -z "$(tr -d '[:space:]' < /tmp/review.txt)" ]; then
