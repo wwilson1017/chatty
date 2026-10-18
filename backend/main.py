@@ -145,6 +145,8 @@ async def lifespan(app: FastAPI):
     from integrations.claude_code.db import init_db as init_claude_code_db
     _safe_init("claude_code", init_claude_code_db)
 
+    from integrations.computer.db import init_db as init_computer_db
+    _safe_init("computer", init_computer_db)
     from core.terminal.db import init_db as init_terminal_db
     _safe_init("terminal", init_terminal_db)
 
@@ -214,6 +216,13 @@ async def lifespan(app: FastAPI):
     _scheduler.add_job(_claude_code_sweep, "interval", seconds=120, id="claude_code_sweep",
                        next_run_time=datetime.now(timezone.utc))
 
+    # Computer helper: orphaned tasks, usage rows, completion recovery, and the queue kick. The
+    # runner itself starts only here (never in the CLI), behind an exclusive lock on data/computer.
+    from integrations.computer import runner as _computer_runner
+    from integrations.computer.completion import sweep as _computer_sweep
+    _computer_runner.start()
+    _scheduler.add_job(_computer_sweep, "interval", seconds=60, id="computer_sweep",
+                       next_run_time=datetime.now(timezone.utc))
     # MCP servers: re-fetch tool lists older than 6 h (agents load from the cache only).
     from integrations.mcp.service import refresh_stale as _mcp_refresh
     _scheduler.add_job(_mcp_refresh, "interval", hours=1, id="mcp_tool_refresh")
@@ -273,6 +282,8 @@ async def lifespan(app: FastAPI):
     # Shutdown scheduler + executor
     if _scheduler:
         _scheduler.shutdown(wait=False)
+    from integrations.computer import runner as _computer_runner_stop
+    _computer_runner_stop.stop()
     try:
         from core.agents.scheduled_actions.processor import shutdown_executor
         shutdown_executor()

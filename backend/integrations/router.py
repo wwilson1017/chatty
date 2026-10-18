@@ -319,6 +319,16 @@ class ComputerSettingsRequest(BaseModel):
     always_on: bool
 
 
+class ComputerHelperModelRequest(BaseModel):
+    model: str = Field(..., min_length=1, max_length=120)
+
+
+@router.put("/computer/helper-model")
+def computer_set_helper_model(body: ComputerHelperModelRequest, user=Depends(get_current_user)):
+    from .computer.card import set_helper_model
+    return set_helper_model(body.model)
+
+
 @router.get("/computer/status")
 async def computer_status(user=Depends(get_current_user)):
     from .computer.card import status

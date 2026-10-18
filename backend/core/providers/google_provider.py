@@ -141,6 +141,7 @@ class GoogleProvider(AIProvider):
         model_kwargs = {
             "model_name": self.model,
             "system_instruction": system_prompt,
+            "generation_config": genai.types.GenerationConfig(max_output_tokens=self.max_tokens),
         }
         if gemini_tools:
             model_kwargs["tools"] = gemini_tools

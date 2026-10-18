@@ -22,9 +22,72 @@ interface Status {
   error: string | null;
   viewers: number;
   control: { control_session_id: string; agent: string; task_id: string | null } | null;
+  helper_model: string;
+  helper_models: { model: string; provider: string; input: number; output: number }[];
 }
 
 interface Site { domain: string; [k: string]: unknown }
+
+interface Task {
+  id: string;
+  agent_slug: string;
+  origin: string;
+  helper_model: string;
+  status: string;
+  task: string;
+  finish_reason: string | null;
+  error: string | null;
+  steps: number;
+  cost_usd: number;
+  running_seconds: number;
+  created_at: string;
+  finished_at: string | null;
+  result_text: string;
+  result_truncated: boolean;
+  parent_task_id: string | null;
+}
+
+interface Step {
+  n: number;
+  tool: string;
+  args_excerpt: string | null;
+  result_excerpt: string | null;
+  url: string | null;
+  verdict: string | null;
+  cost_so_far_usd: number | null;
+}
+
+const fmtTime = (t: string | null) =>
+  t ? new Date(t).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : '—';
+const fmtSecs = (s: number) => (s < 60 ? `${s}s` : s < 3600 ? `${Math.floor(s / 60)}m` : `${Math.floor(s / 3600)}h ${Math.floor((s % 3600) / 60)}m`);
+const statusColor = (s: string) =>
+  s === 'done' ? SAGE : s === 'running' || s === 'queued' ? GOLD : s === 'failed' || s === 'outcome_unknown' ? CORAL : INK_DIM;
+const pre: React.CSSProperties = {
+  margin: 0, padding: 8, borderRadius: 4, background: BG_RAISED, color: INK,
+  fontFamily: FONT_MONO, fontSize: 11, whiteSpace: 'pre-wrap', wordBreak: 'break-word',
+};
+
+function StepLog({ taskId }: { taskId: string }) {
+  const [steps, setSteps] = useState<Step[] | null>(null);
+  useEffect(() => {
+    api<{ steps: Step[] }>(`/api/computer/tasks/${taskId}/steps`).then(d => setSteps(d.steps)).catch(() => setSteps([]));
+  }, [taskId]);
+  if (steps === null) return <span style={{ color: INK_DIM }}>Loading steps…</span>;
+  if (steps.length === 0) return <span style={{ color: INK_DIM }}>No steps yet.</span>;
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+      {steps.map(s => (
+        <div key={s.n} style={{ display: 'flex', gap: 8, fontFamily: FONT_MONO, fontSize: 11, alignItems: 'baseline' }}>
+          <span style={{ color: INK_DIM, minWidth: 24, textAlign: 'right' }}>{s.n}</span>
+          <span style={{ color: INK }}>{s.tool}</span>
+          {s.verdict && <span style={{ color: s.verdict.startsWith('gated') ? CORAL : SAGE }}>{s.verdict}</span>}
+          <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: INK_MUTE }}>{s.args_excerpt}</span>
+          {s.cost_so_far_usd != null && <span style={{ color: INK_DIM }}>${s.cost_so_far_usd.toFixed(2)}</span>}
+        </div>
+      ))}
+    </div>
+  );
+}
 
 const smallBtn: React.CSSProperties = {
   fontSize: 11, padding: '4px 10px', borderRadius: 4,
@@ -51,6 +114,7 @@ export function ComputerPanel() {
   const [sitesFor, setSitesFor] = useState<string | null>(null);
   const sitesForRef = useRef<string | null>(null); // same value, readable after an await
   const [sites, setSites] = useState<Site[] | null>(null);
+  const [tasks, setTasks] = useState<Task[]>([]);
   // Exclude-list writes run one at a time, each from the list the previous write returned, so two
   // quick checkbox changes can't both derive from the same stale status and silently drop one.
   const disabledRef = useRef<string[]>([]);
@@ -61,6 +125,7 @@ export function ComputerPanel() {
   const load = useCallback(() => {
     // best-effort polling: a missed tick just shows the previous state
     api<Status>('/api/integrations/computer/status').then(setStatus).catch(() => {});
+    api<{ tasks: Task[] }>('/api/computer/tasks?limit=20').then(d => setTasks(d.tasks)).catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -81,6 +146,11 @@ export function ComputerPanel() {
 
   const setKeepRunning = (always_on: boolean) => run(() =>
     api('/api/integrations/computer/settings', { method: 'PUT', body: JSON.stringify({ always_on }) }));
+
+  const setHelperModel = (model: string) => run(() =>
+    api('/api/integrations/computer/helper-model', { method: 'PUT', body: JSON.stringify({ model }) }));
+
+  const cancelTask = (id: string) => run(() => api(`/api/computer/tasks/${id}/cancel`, { method: 'POST' }));
 
   const toggleAgent = (slug: string, allowed: boolean) => {
     agentWrites.current += 1;
@@ -156,6 +226,18 @@ export function ComputerPanel() {
             </select>
           </label>
 
+          <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+            <span style={mono(9)}>Helper model (drives the computer; only models with a known price)</span>
+            <select value={status.helper_model} onChange={e => setHelperModel(e.target.value)} style={selectStyle}>
+              {!status.helper_models.some(m => m.model === status.helper_model) && (
+                <option value={status.helper_model}>{status.helper_model} (no price — tasks are refused)</option>
+              )}
+              {status.helper_models.map(m => (
+                <option key={m.model} value={m.model}>{m.model} · {m.provider} · ${m.input}/${m.output} per M</option>
+              ))}
+            </select>
+          </label>
+
           {agents.length > 0 && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
               <span style={mono(9)}>Agents that can use it</span>
@@ -204,6 +286,40 @@ export function ComputerPanel() {
             the helper never sees what you type.
           </p>
         </>
+      )}
+
+      {tasks.length > 0 && (
+        <div>
+          <p style={{ ...mono(9), margin: '0 0 4px' }}>Recent tasks</p>
+          {tasks.map(t => (
+            <details key={t.id} style={{ borderTop: `1px solid ${LINE}`, padding: '4px 0' }}>
+              <summary style={{ cursor: 'pointer', display: 'flex', flexWrap: 'wrap', gap: '2px 10px', alignItems: 'center' }}>
+                <span>{fmtTime(t.created_at)}</span>
+                <span style={{ color: INK }}>{agentName(t.agent_slug)}</span>
+                <span>{t.origin}</span>
+                <span style={{ color: statusColor(t.status) }}>{t.status.replace('_', ' ')}</span>
+                <span>{t.steps} steps</span>
+                <span>${t.cost_usd.toFixed(2)}</span>
+                <span>{fmtSecs(t.running_seconds)}</span>
+                <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: INK_DIM }}>{t.task}</span>
+              </summary>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6, padding: '6px 0 4px' }}>
+                <pre style={pre}>{t.task}</pre>
+                {(t.finish_reason || t.error) && (
+                  <p style={{ margin: 0, color: t.error ? CORAL : INK_MUTE }}>{[t.finish_reason, t.error].filter(Boolean).join(' — ')}</p>
+                )}
+                {t.result_text && <pre style={pre}>{t.result_text}{t.result_truncated ? '\n…' : ''}</pre>}
+                <span style={{ fontFamily: FONT_MONO, fontSize: 10, color: INK_DIM }}>{t.id} · {t.helper_model}{t.parent_task_id ? ` · follow-up of ${t.parent_task_id}` : ''}</span>
+                <StepLog taskId={t.id} />
+                {(t.status === 'queued' || t.status === 'running') && (
+                  <div>
+                    <button onClick={() => cancelTask(t.id)} aria-label={`Cancel task ${t.id}`} style={{ ...smallBtn, color: CORAL }}>Cancel</button>
+                  </div>
+                )}
+              </div>
+            </details>
+          ))}
+        </div>
       )}
     </div>
   );
