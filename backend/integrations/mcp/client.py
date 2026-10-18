@@ -21,17 +21,22 @@ TIMEOUT = 60.0
 
 
 class McpError(Exception):
-    """A transport or protocol failure, worded for the card and the agent."""
+    """A transport or protocol failure, worded for the card and the agent. `status` is the HTTP
+    status behind it (0 for anything else); `retry_safe` says the refused request was not the
+    tool call itself, so repeating it cannot run a tool twice."""
+
+    def __init__(self, message: str, *, status: int = 0, retry_safe: bool = False):
+        super().__init__(message)
+        self.status = status
+        self.retry_safe = retry_safe
 
 
 class McpAuthError(McpError):
-    """HTTP 401 from the server. `challenge` is its WWW-Authenticate header; `retry_safe` says the
-    refused request was not the tool call itself, so a refreshed token may retry it."""
+    """HTTP 401 from the server. `challenge` is its WWW-Authenticate header."""
 
     def __init__(self, message: str, challenge: str = "", retry_safe: bool = True):
-        super().__init__(message)
+        super().__init__(message, status=401, retry_safe=retry_safe)
         self.challenge = challenge
-        self.retry_safe = retry_safe
 
 
 class McpClient:
@@ -111,7 +116,7 @@ class McpClient:
                     text = f"HTTP {resp.status_code}" + (f": {detail}" if detail else "")
                     if resp.status_code == 401:
                         raise McpAuthError(text, resp.headers.get("www-authenticate", ""), method != "tools/call")
-                    raise McpError(text)
+                    raise McpError(text, status=resp.status_code, retry_safe=method != "tools/call")
                 if want_id is None:
                     return resp, {}
                 if resp.headers.get("content-type", "").startswith("text/event-stream"):

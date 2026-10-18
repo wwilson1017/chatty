@@ -8,11 +8,16 @@ encrypted by field name, so `api_key` is; lists are left alone, so the tool cach
          "name", "url", "api_key", "header", "enabled", "allow_in_background",
          "generation": int,            # changes with the auth config; an OAuth flow is bound to it
          "oauth": dict | None,         # see oauth.py; None for a server with an API key
+         "kind": "remote" | "command", # command: runs on the computer (command.py); url is ""
+         "command": str,               # command servers only
+         "env": {"<NAME>": {"api_key": value}},  # command servers only: each value under a field
+                                       # name encrypt_dict covers, so it is encrypted on disk
          "tools": [{"name", "description", "input_schema", "read_only_hint"}],  # cached
          "tools_refreshed_at": epoch, "last_error": str | None,
          "overrides": {"<tool>": {"enabled": bool, "read_only": bool}}}}}
 
-The server id is a slug of its name and the first half of every tool name.
+The server id is a slug of its name, the first half of every tool name and, for a
+command server, its process name on the computer.
 """
 
 import hashlib
@@ -61,6 +66,25 @@ def unique_tool_name(server_id: str, tool: str, seen: set[str]) -> str:
     return name
 
 
+def is_command(server: dict) -> bool:
+    return server.get("kind") == "command"
+
+
+def env_values(server: dict) -> dict[str, str]:
+    """A command server's environment as {NAME: value}, out of the encrypted storage shape."""
+    return {k: str((v or {}).get("api_key") or "") for k, v in (server.get("env") or {}).items()}
+
+
+def computer_error() -> str | None:
+    """Why no command server can run right now: they live on the computer, which must be set up and on."""
+    from core.config import settings
+    if not settings.computer.is_configured:
+        return "Command MCP servers run on the computer, and no computer is set up (see the Computer card)."
+    if not is_enabled("computer"):
+        return "Command MCP servers run on the computer, which is turned off (see the Computer card)."
+    return None
+
+
 def tool_policy(server: dict, tool: str) -> dict:
     """The user's settings for one tool: every tool is enabled and a write until they say otherwise."""
     ov = (server.get("overrides") or {}).get(tool) or {}
@@ -74,13 +98,14 @@ def call_error(server_id: str, tool: str, loaded_writes: bool, origin: str) -> s
     loaded in a conversation. `loaded_writes` is the writes flag of the definition the
     model was given: a tool that has since become a write (or whose integration mode now
     forbids writes) is refused so the next turn reloads it and goes through confirmation.
-    PR 11 (command servers) adds its checks here.
     """
     if not is_enabled(NAME):
         return "MCP servers are turned off."
     s = servers().get(server_id)
     if not s or not s.get("enabled", True):
         return f"MCP server '{server_id}' is turned off."
+    if is_command(s) and (err := computer_error()):
+        return err
     pol = tool_policy(s, tool)
     if not pol["enabled"]:
         return f"Tool '{tool}' is turned off for this server."

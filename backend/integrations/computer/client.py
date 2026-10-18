@@ -24,7 +24,7 @@ class ComputerError(Exception):
         self.status = status
         self.detail = detail
         self.code = code
-        self.body = body or {}  # the computer's extra fields (`holder`, `epoch`, `mismatches`, …)
+        self.body = body or {}  # the computer's full error object: `holder`, `epoch`, `mismatches`, a log tail, …
 
 
 def api_version_error(health: dict) -> str | None:

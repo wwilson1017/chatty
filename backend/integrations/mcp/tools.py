@@ -9,7 +9,7 @@ Loading reads the file only, never the network.
 
 import json
 
-from . import oauth, store
+from . import service, store
 from .client import McpError
 
 MAX_RESULT_CHARS = 20000
@@ -49,7 +49,7 @@ def _executor(server_id: str, tool: str, loaded_writes: bool):
             return {"error": err}
         s = store.servers()[server_id]
         try:
-            result = await oauth.run(server_id, lambda c: c.call_tool(tool, arguments))
+            result = await service.run(server_id, lambda c: c.call_tool(tool, arguments))
         except McpError as e:
             return {"error": f"MCP server '{s['name']}': {e}"}
         return _shape(result)
