@@ -38,6 +38,10 @@ def _sse(data: dict) -> str:
 class AIProvider(ABC):
     """Abstract AI provider. Subclasses implement stream_turn() for each API."""
 
+    # Output cap per call. Callers with a budget (the computer helper) lower it per call;
+    # providers that build their own request read it from here.
+    max_tokens: int = 16384
+
     def __init__(self, model: str):
         self.model = model
 

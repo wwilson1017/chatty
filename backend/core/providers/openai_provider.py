@@ -152,7 +152,7 @@ class OpenAIProvider(AIProvider):
                 "model": self.model,
                 "messages": api_messages,
                 "stream": True,
-                token_param: 16384,
+                token_param: self.max_tokens,
             }
             if openai_tools:
                 kwargs["tools"] = openai_tools

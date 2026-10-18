@@ -24,8 +24,8 @@ Spike notes (aria-ref over CDP, mcp-proxy paths, pixel offset) are in `NOTES.md`
 - **Auth.** Every route except `GET /health` needs `Authorization: Bearer $COMPUTER_SECRET`
   (constant-time compare). Missing or wrong → `401 {"error":"unauthorized"}`. The WebSocket uses the
   same header; a bad one is refused before the upgrade (HTTP 403).
-- **Errors** are `{"error": "<code>", "detail": "<sentence>", ...extra}` with the HTTP status below.
-  Malformed bodies get FastAPI's `422`.
+- **Errors** are `{"error": "<code>", "detail": "<sentence>", ...extra}` with the HTTP status below;
+  anything unexpected is `500 {"error": "internal", "detail"}`. Malformed bodies get FastAPI's `422`.
 - **Agent slugs** must match `^[a-z0-9-]{1,64}$` (`400 bad_agent`). `shared` is a slug every agent may
   use for files.
 - **`api_version`** is `"1.0"`; Chatty refuses a different major.
@@ -195,7 +195,7 @@ Files need no lease (the agent fetches results after a task). `path` is relative
 
 | Route | Result |
 |---|---|
-| `GET /profiles/{agent}/sites` | `{agent, sites: [{domain, cookies}]}` from the profile's Cookies database |
+| `GET /profiles/{agent}/sites` | `{agent, sites: [{domain, cookies}], live}` — from the running browser over CDP when that agent is on screen (`live: true`, immediate), otherwise from the profile's Cookies database (which Chromium flushes lazily, so a just-stopped browser's list can lag by ~30 s) |
 | `DELETE /profiles/{agent}/sites/{domain}` | `{cleared: true, live: bool}` — cookies for the domain and its subdomains plus `Storage.clearDataForOrigin` (all storage) over CDP; `live` says whether that agent's Chromium was on the screen, otherwise the stored profile is opened headless on a side port for the clear (a few seconds) |
 | `DELETE /profiles/{agent}` | `{reset: true}` — removes the whole profile; `409 busy` / `409 human_in_control` while that agent is on the screen |
 
@@ -254,8 +254,8 @@ lease, human_in_control, control, control_ended, idle_minutes, disk: {total, use
 
 `PUT /settings {idle_minutes}` → `{idle_minutes}`; persisted in `/data/settings.json`. `0` keeps the
 desktop always on; otherwise a 60-second loop stops Chromium, VNC, openbox and Xvfb after that many
-minutes with no authenticated request, no live lease and no control session. The container stays up and
-the next activation brings everything back.
+minutes with no authenticated request, no open `/vnc` viewer, no live lease and no control session. The
+container stays up and the next activation brings everything back.
 
 ## Smoke test
 

@@ -15,8 +15,9 @@ const mono = (size: number, color = 'rgba(237,240,244,0.38)') => ({
 export function LoginPage() {
   const { login, verify2fa } = useAuth();
   const navigate = useNavigate();
-  // ProtectedRoute sends the page the visitor wanted; default to the dashboard.
-  const from = (useLocation().state as { from?: string } | null)?.from || '/';
+  // ProtectedRoute passes the page we were sent away from; go back there after login.
+  const from = (useLocation().state as { from?: { pathname: string; search: string } } | null)?.from;
+  const next = from ? from.pathname + from.search : '/';
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
@@ -43,7 +44,7 @@ export function LoginPage() {
         setPendingToken(result.pendingToken);
         setStep('2fa');
       } else {
-        navigate(from, { replace: true });
+        navigate(next);
       }
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Login failed');
@@ -58,7 +59,7 @@ export function LoginPage() {
     setLoading(true);
     try {
       await verify2fa(pendingToken, code, trustDevice);
-      navigate(from, { replace: true });
+      navigate(next);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Verification failed');
       setCode('');

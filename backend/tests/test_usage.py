@@ -69,6 +69,37 @@ class TestPricing:
 
     def test_prefix_match_dated_snapshot(self):
         assert get_model_pricing("claude-haiku-4-5-20251001") == (1.00, 5.00)
+        assert get_model_pricing("claude-haiku-4-5@20251001") == (1.00, 5.00)
+
+    def test_prefix_fallback_only_for_snapshot_suffixes(self, monkeypatch):
+        # A longer id is a different model, not a snapshot: claude-sonnet-5-5 used to resolve to
+        # claude-sonnet-5 ($3/$15) and pass is_priced(), hiding it from the "pricing unknown" flag.
+        from core.providers import pricing
+        monkeypatch.delitem(pricing.MODEL_PRICING, "claude-sonnet-5-5", raising=False)
+        assert pricing.get_model_pricing("claude-sonnet-5-5") is None
+        assert pricing.is_priced("claude-sonnet-5-5") is False
+        assert pricing.get_model_pricing("claude-sonnet-5-5-turbo") is None  # an invented longer id
+        assert pricing.get_model_pricing("claude-sonnet-4-6-latest") is None
+        assert pricing.get_model_pricing("claude-sonnet-4-6-20260101") == (3.00, 15.00)
+
+    def test_long_context_tier(self):
+        from core.providers import pricing
+        # no tier: max rates are the standard rates
+        assert pricing.get_max_rates("claude-sonnet-5-5") == (2.00, 10.00)
+        assert pricing.rates_for_prompt("claude-sonnet-5-5", 900_000) == (2.00, 10.00)
+        # Haiku 5.5 bills prompts over 100K higher; the reservation always assumes the higher rate
+        assert pricing.get_model_pricing("claude-haiku-5-5") == (0.10, 0.50)
+        assert pricing.get_max_rates("claude-haiku-5-5") == (0.50, 2.50)
+        assert pricing.rates_for_prompt("claude-haiku-5-5", 100_000) == (0.10, 0.50)
+        assert pricing.rates_for_prompt("claude-haiku-5-5", 100_001) == (0.50, 2.50)
+        assert pricing.get_max_rates("claude-haiku-5-5-20261001") == (0.50, 2.50)  # snapshots inherit the tier
+        assert pricing.rates_for_prompt("gpt-5.5", 300_000) == (10.00, 45.00)
+        # the usage dashboard's estimate follows the tier too
+        assert pricing.estimate_cost("gpt-5.4", 300_000, 1_000) == pytest.approx(300_000 * 5.00 / 1e6 + 1_000 * 22.50 / 1e6)
+        assert pricing.estimate_cost("gpt-5.4", 100_000, 1_000) == pytest.approx(100_000 * 2.50 / 1e6 + 1_000 * 15.00 / 1e6)
+        assert pricing.get_max_rates("nope") is None and pricing.rates_for_prompt("nope", 1) is None
+        for model, (lin, lout, _) in pricing.MODEL_PRICING_LONG.items():
+            assert model in pricing.MODEL_PRICING and (lin, lout) >= pricing.MODEL_PRICING[model]
 
     def test_unknown_model_returns_none_and_zero_cost(self):
         assert get_model_pricing("llama3.2") is None

@@ -7,6 +7,8 @@
  * never holds the computer's secret: it asks Chatty for a single-use ticket and
  * Chatty relays the VNC bytes. The control session id lives in sessionStorage
  * so a phone that drops off can reattach within the computer's grace period.
+ * Opened with ?task= (the helper's takeover link), the page shows why the helper
+ * is waiting and "I'm done" is the handback that lets it continue.
  */
 
 import { useEffect, useRef, useState } from 'react';
@@ -15,11 +17,13 @@ import type RFB from '@novnc/novnc';
 import { api } from '../core/api/client';
 import { INK, INK_MUTE, INK_DIM, LINE, LINE_STRONG, BG_ELEV, BG_RAISED, CORAL, SAGE, GOLD, FONT_MONO, mono } from '../shared/styles';
 import { useIsMobile } from '../shared/useIsMobile';
+import { SESSION_KEY, initialMode, parseStoredControl, type Mode } from './session';
 
-type Mode = 'view' | 'control';
 type Conn = 'connecting' | 'connected' | 'disconnected';
+interface Task { status: string; takeover_state: string | null; takeover_reason: string | null }
 
-const SESSION_KEY = 'chatty_control_session'; // {agent, id}
+const RUNNING = ['queued', 'running'];
+
 const KEYS: Record<string, number> = { Enter: 0xff0d, Backspace: 0xff08, Tab: 0xff09, Escape: 0xff1b };
 
 // X11 keysyms: Latin-1 maps 1:1, anything else is the Unicode keysym range.
@@ -28,12 +32,7 @@ function keysym(ch: string): number {
   return cp === 10 ? KEYS.Enter : cp < 0x100 ? cp : 0x01000000 | cp;
 }
 
-function storedControl(agent: string): string | null {
-  try {
-    const v = JSON.parse(sessionStorage.getItem(SESSION_KEY) || 'null') as { agent: string; id: string } | null;
-    return v && v.agent === agent ? v.id : null;
-  } catch { return null; }
-}
+const storedControl = (agent: string) => parseStoredControl(sessionStorage.getItem(SESSION_KEY), agent);
 
 const btn: React.CSSProperties = {
   fontSize: 12, padding: '6px 12px', borderRadius: 4, cursor: 'pointer',
@@ -44,22 +43,34 @@ export function ComputerPage() {
   const [params] = useSearchParams();
   const agent = params.get('agent') || '';
   const taskId = params.get('task') || undefined;
-  const [mode, setMode] = useState<Mode>(params.get('mode') === 'control' ? 'control' : 'view');
+  const [mode, setMode] = useState<Mode>(() => initialMode(params.get('mode'), storedControl(agent)));
   const [conn, setConn] = useState<Conn>('connecting');
   const [error, setError] = useState('');
   const [controlId, setControlId] = useState<string | null>(() => storedControl(agent));
   const [text, setText] = useState('');
   const [attempt, setAttempt] = useState(0); // bump to reconnect
+  const [task, setTask] = useState<Task | null>(null);
   const screenRef = useRef<HTMLDivElement>(null);
   const rfbRef = useRef<RFB | null>(null);
   const isMobile = useIsMobile();
 
   useEffect(() => { document.title = `${agent || 'Computer'} · screen`; }, [agent]);
 
+  // The task the link came from: its takeover state tells the person what the helper is waiting for.
+  useEffect(() => {
+    if (!taskId) return;
+    let stop = false;
+    const load = () => api<Task>(`/api/computer/tasks/${taskId}`).then(t => { if (!stop) setTask(t); }).catch(() => {});
+    load();
+    const iv = setInterval(load, 5000);
+    return () => { stop = true; clearInterval(iv); };
+  }, [taskId]);
+
   useEffect(() => {
     if (!agent) return;
     let cancelled = false;
     let rfb: RFB | null = null;
+    let live = false; // RFB built and not yet disconnected: only then may cleanup call disconnect() (noVNC logs an error otherwise)
     let connected = false;
     let closeReason = '';
     setConn('connecting');
@@ -79,6 +90,7 @@ export function ComputerPage() {
         const sock = new WebSocket(`${proto}://${location.host}/api/computer/vnc?ticket=${encodeURIComponent(ticket)}`);
         sock.addEventListener('close', ev => { closeReason = ev.reason; });
         rfb = new Rfb(screenRef.current, sock);
+        live = true;
         rfb.background = '#0A0C0F';
         rfb.scaleViewport = true;
         rfb.resizeSession = false;
@@ -97,6 +109,7 @@ export function ComputerPage() {
           }
         });
         rfb.addEventListener('disconnect', e => {
+          live = false;
           if (cancelled) return;
           const { clean } = (e as CustomEvent<{ clean: boolean }>).detail;
           setConn('disconnected');
@@ -108,7 +121,7 @@ export function ComputerPage() {
         if (!cancelled) { setConn('disconnected'); setError(err instanceof Error ? err.message : 'Could not connect'); }
       }
     })();
-    return () => { cancelled = true; rfbRef.current = null; rfb?.disconnect(); };
+    return () => { cancelled = true; rfbRef.current = null; if (live) rfb?.disconnect(); };
   }, [agent, taskId, mode, attempt]);
 
   const reconnect = () => setAttempt(a => a + 1);
@@ -147,6 +160,13 @@ export function ComputerPage() {
     : conn === 'disconnected' ? 'Disconnected'
     : inControl ? 'You have control — the helper is paused until you press I’m done'
     : 'Watching — view only';
+  // Why the helper is waiting (from its request_takeover), or that the task is over.
+  const reason = task?.takeover_reason || 'the page needs you in person';
+  const taskLine = !task ? ''
+    : !RUNNING.includes(task.status) ? `This task has finished (${task.status}).`
+    : task.takeover_state === 'waiting' ? `${agent} needs you: ${reason}. Press Take control, do it on the screen, then I’m done — the helper sees nothing you type.`
+    : task.takeover_state === 'active' ? `You have the screen: ${reason}. Press I’m done when finished and the helper continues.`
+    : '';
 
   return (
     <div style={{ height: '100dvh', display: 'flex', flexDirection: 'column', background: BG_ELEV, color: INK_MUTE, fontSize: 12 }}>
@@ -159,8 +179,9 @@ export function ComputerPage() {
         <span style={{ flex: 1 }} />
         {conn === 'disconnected' && <button onClick={reconnect} style={btn}>{inControl && controlId ? 'Reconnect (keep control)' : 'Reconnect'}</button>}
         {!inControl && <button onClick={() => setMode('control')} style={{ ...btn, borderColor: GOLD, color: GOLD }}>Take control</button>}
-        {inControl && <button onClick={done} style={{ ...btn, borderColor: SAGE, color: SAGE }}>I’m done</button>}
+        {inControl && <button onClick={done} style={{ ...btn, borderColor: SAGE, color: SAGE }}>{taskId ? 'I’m done — hand back to the helper' : 'I’m done'}</button>}
       </header>
+      {taskLine && <p role="status" style={{ margin: 0, padding: '6px 12px', color: GOLD, borderBottom: `1px solid ${LINE}` }}>{taskLine}</p>}
       {error && <p role="alert" style={{ margin: 0, padding: '6px 12px', color: CORAL, borderBottom: `1px solid ${LINE}` }}>{error}</p>}
 
       {/* noVNC draws its canvas into this box and scales the 1280×800 desktop to fit. */}

@@ -106,7 +106,7 @@ class TogetherProvider(AIProvider):
             messages=messages,
             tools=tools,
             system_prompt=system_prompt,
-            max_tokens=8192,
+            max_tokens=min(self.max_tokens, 8192),
         ):
             # Rewrite generic connection error with Together-specific message
             if event.get("type") == "error" and event.get("error") == "connection_error":
