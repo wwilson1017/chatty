@@ -41,7 +41,11 @@ def _chain_cap_error(root_task_id: str) -> str | None:
 
 async def computer_task(task: str, follow_up_of: str | None = None, file_refs: list[str] | None = None,
                         *, _ctx: dict) -> dict:
-    slug, origin = _ctx["agent_slug"], _ctx["origin"]
+    slug = _ctx["agent_slug"]
+    # Only a private user turn is "user"; group chats, scheduled and completion turns all count as
+    # background for the caps and (PR 4) approvals. The route is kept as-is so the report goes
+    # back to the group.
+    origin = "user" if _ctx["origin"] == "user" else "background"
     task = (task or "").strip()
     if not task:
         return {"error": "task is required"}

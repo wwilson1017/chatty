@@ -66,7 +66,9 @@ def _own_job(job_id: str, agent_slug: str) -> dict | None:
 def delegate(task: str, runner: str | None = None, level: str | None = None,
              follow_up_of: str | None = None, *, _ctx: dict) -> dict:
     slug = _ctx["agent_slug"]
-    origin = _ctx["origin"]
+    # jobs.origin knows user / background / system; a group (or any other
+    # non-owner) turn is background work here: sandbox cap, budgeted.
+    origin = "user" if _ctx["origin"] == "user" else "background"
     task = (task or "").strip()
     if not task:
         return {"error": "task is required"}
