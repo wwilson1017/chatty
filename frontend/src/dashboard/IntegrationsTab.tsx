@@ -463,7 +463,7 @@ export function IntegrationsTab() {
                         </>
                       )}
 
-                      {/* Setup button — only when not configured (Claude Code pairs and MCP adds servers from their panels; the computer is set up by env vars) */}
+                      {/* Setup button — only when not configured (Claude Code pairs, MCP adds servers and the computer is set up from their own panels) */}
                       {!isConfigured && integration.id !== 'claude_code' && integration.id !== 'mcp' && integration.id !== 'computer' && (
                         <button onClick={() => {
                           if (integration.id === 'quickbooks') {
@@ -616,7 +616,7 @@ export function IntegrationsTab() {
 
             {integration.id === 'claude_code' && <ClaudeCodePanel onChanged={loadIntegrations} />}
             {integration.id === 'mcp' && <McpPanel onChanged={loadIntegrations} />}
-            {integration.id === 'computer' && <ComputerPanel />}
+            {integration.id === 'computer' && <ComputerPanel onChanged={loadIntegrations} />}
 
             {/* Paperclip agent mapping */}
             {integration.id === 'paperclip' && integration.enabled && integration.configured && (

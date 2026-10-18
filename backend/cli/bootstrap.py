@@ -22,6 +22,7 @@ def bootstrap():
     """Initialize Chatty backend for CLI use."""
     from dotenv import load_dotenv
     load_dotenv(_BACKEND_DIR / ".env")
+    load_dotenv(_BACKEND_DIR.parent / ".env")  # the repo-root .env that run.py writes
 
     from core.encryption import EncryptionKeyManager
     EncryptionKeyManager.get_key()

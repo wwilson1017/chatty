@@ -3,7 +3,8 @@ Chatty — the computer card's actions (called from the authed integrations
 router) and the per-agent policy every later PR re-checks.
 
 Creds file `computer.json`: enabled, disabled_agents, idle_minutes, and — when
-the Railway env vars aren't set — url + api_key (PR 8 writes those).
+the Railway env vars aren't set — url + api_key + setup_at (written by
+railway.add_to_railway).
 """
 
 import re
@@ -140,6 +141,8 @@ async def status() -> dict:
         "error": None,
         "viewers": viewer.open_count(),
         "control": viewer.current_control(),
+        "is_railway": settings.is_railway,  # which setup path the card offers
+        "setup_at": c.get("setup_at"),  # when "Add computer" ran; the card shows "starting up" instead of an error for a while
         "helper_model": helper_model(),
         "helper_models": helper_models(),
         "mode": mode_for(helper_model()),

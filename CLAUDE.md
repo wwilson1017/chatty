@@ -10,7 +10,7 @@
 - User creates agents from a dashboard; each has name/personality/knowledge via conversational onboarding (training mode)
 - Optional branding: logo, company name, accent color
 - Multi-provider AI: Anthropic, OpenAI, Google Gemini, Ollama (local), Together AI — all via API key paste (no OAuth for AI providers)
-- Integrations: QuickBooks Online (OAuth), QuickBooks CSV import, Gmail (multiple accounts), Google Calendar, Google Drive, WhatsApp (Baileys bridge), Telegram (multiple bots), CRM Lite (optional, default OFF), Odoo, BambooHR, Paperclip (agent orchestration), Todoist, Claude Code (agents delegate tasks to the user's own Claude Code/Codex via `chatty-connector`), MCP servers (remote, API key or OAuth)
+- Integrations: QuickBooks Online (OAuth), QuickBooks CSV import, Gmail (multiple accounts), Google Calendar, Google Drive, WhatsApp (Baileys bridge), Telegram (multiple bots), CRM Lite (optional, default OFF), Odoo, BambooHR, Paperclip (agent orchestration), Todoist, Claude Code (agents delegate tasks to the user's own Claude Code/Codex via `chatty-connector`), MCP servers (remote, API key or OAuth), Computer (a virtual desktop container a helper loop drives for agents; `computer/` image + `integrations/computer/`; user guide `docs/computer.md`)
 - **Todos (GTD)** — core always-on feature (NOT an integration): global store in `core/todo/`, 11 `todo_*` agent tools, multi-page UI at `/todos`, GTD coaching block injected into every agent's system prompt (admin setting `gtd_coaching_text`), public no-login `/capture` page (optional secret token), no-login `/todo[/{token}]` web app serving the whole todo UI outside the dashboard (`core/todo/web.py`, off by default), deterministic Telegram "capture" intercept
 - Agent features: memory system, dreaming/context archival, shared context across agents, scheduled actions (heartbeat), reminders (one-time and recurring), notifications (web push, Telegram, WhatsApp), knowledge import (OpenClaw, paste, folder, ZIP)
 - File uploads: PDF, DOCX, and text files via drag-and-drop in chat
@@ -111,11 +111,12 @@ backend/
 │   ├── providers/                   # AI provider abstraction (Anthropic, OpenAI, Gemini, Ollama, Together AI)
 │   ├── todo/                        # Todo (GTD) core feature: db, service, tools, REST router, /capture page, coaching
 │   └── agents/                      # Agent engine (ai_service, tool_registry, context_manager, chat_history, memory, dreaming, shared_context, reminders, scheduled_actions, alerts, notifications)
-├── integrations/                    # Google (Gmail/Calendar/Drive), QuickBooks, QB CSV, Telegram, WhatsApp, CRM (optional), Odoo, BambooHR, Paperclip, Claude Code
+├── integrations/                    # Google (Gmail/Calendar/Drive), QuickBooks, QB CSV, Telegram, WhatsApp, CRM (optional), Odoo, BambooHR, Paperclip, Claude Code, Computer
 ├── branding/                        # Logo/name/color
 └── whatsapp-bridge/                 # Node.js Baileys sidecar
 
 connector/                           # chatty-connector: separate pip package the user runs next to their Claude Code
+computer/                            # the virtual computer image (ghcr.io/wwilson1017/chatty-computer): desktop container + control API, independent of backend/
 
 frontend/src/
 ├── agent/                           # Agent chat page + components (includes heartbeat panel, reminders panel)
@@ -203,6 +204,10 @@ Tests: `backend/tests/test_brain_backend.py` (httpx `MockTransport`, no network)
 - What `look`/`sandbox` can actually do is the settings files `setup` writes (`look-settings.json`, `sandbox-settings.json`); their strength is the user's responsibility. Without a working OS sandbox it is "deny rules only".
 
 **Invariants.** `db.finish_job()` is the only code path that makes a job terminal (results, lost/stale jobs, cancels, disconnect, re-pair). Completion runs the agent's background turn **at most once**; everything after it goes through the idempotent `completion.finalize()`, which recovery paths re-run and which never invokes a turn. Tests: `backend/tests/test_claude_code.py`, `backend/tests/test_claude_code_approvals.py`, `connector/tests/`.
+
+## Virtual computer
+
+`integrations/computer/` is the Chatty side of the `computer/` container (`client.py` control-API client, `card.py` card actions and per-agent policy, `viewer.py` tickets + VNC relay, `railway.py` "Add computer to this Railway project"). `ComputerSettings` reads `COMPUTER_URL`/`COMPUTER_SECRET` from env first (the Railway template sets them), else the card's saved `url`/`api_key`; half an env pair counts as nothing. `railway.add_to_railway()` runs `serviceCreate` → `volumeCreate` → `serviceInstanceDeployV2` with a pasted Railway token that is never stored, logged or echoed, then saves the private URL + a fresh secret so Chatty needs no redeploy. Locally `run.py`'s `setup_computer()` asks once and manages the `chatty-computer` Docker container. User guide: `docs/computer.md`; container contract: `computer/README.md`. Tests: `backend/tests/test_computer*.py`, `backend/tests/test_run_py.py`.
 
 ## Model Pricing
 
