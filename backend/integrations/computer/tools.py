@@ -91,7 +91,7 @@ async def computer_task(task: str, follow_up_of: str | None = None, file_refs: l
     task_id = db.insert_task(
         agent_slug=slug, origin=origin, task=task, helper_provider=card.provider_for_model(model), helper_model=model,
         conversation_id=_ctx.get("conversation_id"), route=_ctx.get("route"), action_id=_ctx.get("action_id"),
-        parent=parent,
+        parent=parent, mode=card.mode_for(model),
     )
     runner.kick()
     return {

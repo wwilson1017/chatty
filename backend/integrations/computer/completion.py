@@ -252,4 +252,5 @@ def sweep() -> None:
             except Exception:
                 logger.exception("Computer completion recovery %s failed", r["id"])
 
+    runner.prune_shots()
     runner.kick()

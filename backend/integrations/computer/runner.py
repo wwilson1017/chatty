@@ -3,8 +3,10 @@ Chatty — the helper loop: one worker drives the computer for one task at a tim
 
 The pool has one thread (the process-level lock), `start()` takes an exclusive
 flock so one Chatty process owns the queue, and the computer's screen lease is
-the real lock across overlapping deploys. The loop is text mode: the helper
-model sees aria snapshots and acts through refs; PR 5 adds screenshot-and-click.
+the real lock across overlapping deploys. Two backends: text mode (any provider;
+the helper sees aria snapshots and acts through refs) and screenshot mode
+(Anthropic's computer_toolset_20260801 through the SDK; the helper sees the screen
+and clicks by pixel — _Run.screenshot_loop / batch / pixel). card.mode_for picks.
 
 Every checked action is classified by gates.classify() BEFORE it is sent. A gate
 ends the task as `needs_approval` and asks the owner (approvals.py); approving
@@ -28,6 +30,7 @@ import json
 import logging
 import math
 import re
+import shutil
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -56,6 +59,17 @@ FILE_READ_CHARS = 60000
 DEFAULT_MAX_TOKENS = 8192
 MIN_OUTPUT_TOKENS = 256
 CACHE_WRITE_MARGIN = 1.25  # a cache write bills 1.25× the input rate; the reservation assumes every token is one
+
+# Screenshot mode (Anthropic). The toolset entry takes no name or display size; calls arrive as
+# tool_use blocks named by member with toolset_name "computer", and every result echoes it.
+TOOLSET = {"type": "computer_toolset_20260801"}
+# Old screenshots are cleared by the API (context editing), never pruned here: removing one would
+# invalidate every later thinking block. Trigger well under the model's window; keep the last few.
+CONTEXT_BETA = "context-management-2025-06-27"
+CONTEXT_EDITS = [{"type": "clear_tool_uses_20250919", "trigger": {"type": "input_tokens", "value": 40000},
+                  "keep": {"type": "tool_uses", "value": 5}, "clear_at_least": {"type": "input_tokens", "value": 8000}}]
+SKIPPED = "skipped: an earlier action needs approval or failed"
+SHOT_TTL_DAYS = 14  # a task's screenshots (step and gate) are deleted this long after it finished
 
 _pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="computer-runner")
 _lock_file = None
@@ -284,9 +298,17 @@ TOOL_DEFS = [
 HANDBACK_NOTE = ("The person is done and handed the screen back. The screen may have changed: work from this fresh "
                  "snapshot. Never ask for or type the password yourself.")
 
+_SEEING = {
+    "text": "- Work from snapshots. Refs (e12, f1e3) are valid only for the latest snapshot; take a new one when the page changed.\n",
+    "screenshot": (
+        "- Work from screenshots: the screen is 1280×800 and coordinates are screen pixels. The browser tool is there "
+        "too — snapshot for a page's exact text, act on a ref for a reliable click on a named control (refs are valid "
+        "only for the latest snapshot). Several actions in one turn run in order and stop at the first that fails or "
+        "needs approval.\n"
+    ),
+}
+
 _RULES = (
-    "# Rules\n"
-    "- Work from snapshots. Refs (e12, f1e3) are valid only for the latest snapshot; take a new one when the page changed.\n"
     "- Consequential actions — buying or paying, sending, posting, deleting, submitting a form, confirming — need the "
     "owner's approval. Call request_approval(kind, reason, item/store/total) right before such a click, then make the "
     "click (one plain click or Enter, never a double click): Chatty stops it there, asks the owner, and a follow-up "
@@ -305,12 +327,28 @@ _RULES = (
 )
 
 
-def build_system_prompt(agent_name: str, slug: str) -> str:
+def build_system_prompt(agent_name: str, slug: str, mode: str = "text") -> str:
     return (
         f"You are the computer helper working for {agent_name}, a Chatty agent. You operate a Linux desktop "
         f"(Chromium, bash, files under /workspace/{slug}) to complete ONE task for the agent, then report back.\n\n"
-        + _RULES + "\n" + DELIMITER_SYSTEM_INSTRUCTION
+        "# Rules\n" + _SEEING[mode] + _RULES + "\n" + DELIMITER_SYSTEM_INSTRUCTION
     )
+
+
+def anthropic_client(provider):
+    """The SDK client for the helper's Anthropic credentials (count_tokens, and the screenshot backend)."""
+    from core.providers.anthropic_provider import _get_client
+    return _get_client(provider.api_key, provider.auth_token)
+
+
+def _countable(messages: list) -> list:
+    """Messages with image data swapped for a placeholder worth ~1,500 tokens (a 1280×800 screenshot),
+    so the chars ÷ 2 estimate counts a screenshot as a screenshot, not as 200 KB of base64."""
+    def fix(x):
+        if isinstance(x, dict):
+            return {"type": "image", "data": "x" * 3000} if x.get("type") == "image" else {k: fix(v) for k, v in x.items()}
+        return [fix(v) for v in x] if isinstance(x, list) else x
+    return fix(messages)
 
 
 def build_user_message(task: dict, parent: dict | None) -> str:
@@ -387,6 +425,8 @@ class _Run:
         self.last_text = ""
         self.gate_id: str | None = None      # the gate this run opened or consumed (goes on the report)
         self.declared: dict | None = None    # the helper's request_approval declaration, attached to the next gate
+        self.last_result: dict = {}          # execute()'s last raw result (batch() reads error/stopped from it)
+        self.shots = 0                       # screenshots saved for the record: shots/<task>/<n>.png
         # Counted time: wall time minus takeover waits. `segment_start` is None while paused.
         self.counted = float(task["running_seconds"] or 0)
         self.segment_start: float | None = time.monotonic()
@@ -561,22 +601,26 @@ class _Run:
 
     # ── model calls and money ────────────────────────────────────────────────
 
-    async def count_input_tokens(self, provider, system: str, messages: list, tools: list) -> int:
-        """Exact for Anthropic (count_tokens), otherwise chars ÷ 2 — deliberately high."""
+    async def count_input_tokens(self, provider, system: str, messages: list, tools: list,
+                                 api_tools: list | None = None) -> int:
+        """Exact for Anthropic (count_tokens), otherwise chars ÷ 2 — deliberately high. `api_tools` is
+        screenshot mode's wire-format tool list (the toolset entry plus the custom tools), whose
+        history carries thinking blocks and screenshots."""
         if getattr(provider, "provider_name", "") == "anthropic":
             try:
-                from core.providers.anthropic_provider import _get_client
-                client = _get_client(provider.api_key, provider.auth_token)
-                r = await client.messages.count_tokens(
-                    model=provider.model, system=system, tools=provider._format_tools(tools),
-                    messages=[m for m in messages if m.get("role") in ("user", "assistant")],
+                kw = {"tools": api_tools, "thinking": {"type": "adaptive"}} if api_tools is not None \
+                    else {"tools": provider._format_tools(tools)}
+                r = await anthropic_client(provider).messages.count_tokens(
+                    model=provider.model, system=system,
+                    messages=[m for m in messages if m.get("role") in ("user", "assistant")], **kw,
                 )
                 return int(r.input_tokens)
             except Exception as e:  # fall back to the estimate rather than stall the task
                 logger.warning("count_tokens failed (%s); estimating", e.__class__.__name__)
-        return (len(json.dumps(messages)) + len(system) + len(json.dumps(tools))) // 2
+        return (len(json.dumps(_countable(messages))) + len(system) + len(json.dumps(tools))) // 2
 
-    async def reserve(self, provider, system: str, messages: list, tools: list) -> tuple[float, int, int] | None:
+    async def reserve(self, provider, system: str, messages: list, tools: list,
+                      api_tools: list | None = None) -> tuple[float, int, int] | None:
         """Reserve the most this call could cost, in one transaction with the budget check:
         input at the model's highest rate × the cache-write margin, plus max_tokens of output.
         max_tokens is cut to fit; None when even a minimal answer doesn't fit.
@@ -584,7 +628,7 @@ class _Run:
         rates = get_max_rates(provider.model)
         if not rates:
             return None
-        in_tok = await self.count_input_tokens(provider, system, messages, tools)
+        in_tok = await self.count_input_tokens(provider, system, messages, tools, api_tools)
         in_cost = in_tok * rates[0] * CACHE_WRITE_MARGIN / 1e6
         out_rate = rates[1] / 1e6
         remaining = db.BUDGET_USD - self.chain()["cost"]
@@ -767,19 +811,25 @@ class _Run:
 
     # ── gates: open, resume, dispatch, take over ─────────────────────────────
 
+    @staticmethod
+    def save_png(rel: str, image_b64: str) -> str | None:
+        """Write a base64 PNG under data/computer/<rel>; None on failure (a gate or step without its
+        screenshot is still a gate or step)."""
+        try:
+            path = db.DATA_DIR / rel
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(base64.b64decode(image_b64))
+            return rel
+        except (ValueError, OSError):
+            return None
+
     async def screenshot_to(self, rel: str) -> str | None:
-        """Best effort: a PNG of the screen saved under data/computer/<rel>; None on any failure (a
-        gate without a screenshot is still a gate)."""
+        """Best effort: a PNG of the screen saved under data/computer/<rel>; None on any failure."""
         try:
             r = await self.computer("POST", "/actions", body={"action_id": db.ulid(), "name": "screenshot", "input": {}})
             image = (r.get("result") or {}).get("image")
-            if not image:
-                return None
-            path = db.DATA_DIR / rel
-            path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_bytes(base64.b64decode(image))
-            return rel
-        except (_Paused, _Fenced, ComputerError, ValueError, OSError):
+            return self.save_png(rel, image) if image else None
+        except (_Paused, _Fenced, ComputerError):
             return None
 
     async def open_gate(self, kind: str, note: str, rule: str, label: str, element: dict | None, *,
@@ -857,16 +907,24 @@ class _Run:
                 f"from the page as it is now: confirm the outcome and report.\n\n" + wrap_result("browser", json.dumps(page)))
 
     async def dispatch(self, gate: dict, params: dict, element: dict) -> bool:
-        """Send the ONE activation an approved gate allows, with `expect` built from the stored gate so
-        the computer refuses anything that differs (409 element_changed → a new gate). The gate is
-        marked `dispatching` with its action id BEFORE the send; a lost response goes to reconcile().
-        A consequential action is never re-sent: the only retry is after `stale_epoch`, which the
-        computer refuses before journaling anything. True when the action was performed."""
+        """Send the ONE activation an approved gate allows — a browser act on the located ref, or for a
+        pixel gate one left_click at the located control's centre through /actions — with `expect`
+        built from the stored gate so the computer refuses anything that differs (409 element_changed
+        → a new gate). The gate is marked `dispatching` with its action id BEFORE the send; a lost
+        response goes to reconcile(). A consequential action is never re-sent: the only retry is after
+        `stale_epoch`, which the computer refuses before journaling anything. True when performed."""
         bound = gates.ApprovalBinding.from_gate(gate)
         kind, extra = gates.dispatch_for(bound.action) or (None, None)
         if kind is None:
             self.finish("failed", "approval can't be dispatched", error=f"{bound.action} isn't a single activation")
             return False
+        coord = None
+        if kind in gates.PIXEL_KINDS:
+            box = (element or {}).get("screen_box")
+            if not box:
+                await self.regate(gate, "the control's position on the screen couldn't be read", element)
+                return False
+            coord = [int(box["x"] + box["w"] / 2), int(box["y"] + box["h"] / 2)]
         if self.fenced:
             raise _Fenced()
         self.phase, self.pending_action_id = "action", db.ulid()
@@ -878,9 +936,15 @@ class _Run:
             return False
         try:
             for attempt in (1, 2):
-                body = {"action_id": self.pending_action_id, "kind": kind, **params, **extra, "expect": bound.expect()}
+                if coord:
+                    path = "/actions"
+                    body = {"action_id": self.pending_action_id, "name": kind, "input": {"coordinate": coord, **extra},
+                            "expect": bound.expect()}
+                else:
+                    path = "/browser/act"
+                    body = {"action_id": self.pending_action_id, "kind": kind, **params, **extra, "expect": bound.expect()}
                 try:
-                    await self.computer("POST", "/browser/act", body=body, retry_epoch=False)
+                    await self.computer("POST", path, body=body, retry_epoch=False)
                 except ComputerError as e:
                     if e.code == "stale_epoch" and attempt == 1:  # refused before journaling: fresh id, nothing ran
                         self.epoch = e.body.get("epoch") or self.epoch
@@ -909,8 +973,8 @@ class _Run:
                     db.execute("UPDATE gates SET status = 'cancelled' WHERE id = ? AND status = 'dispatching'", (gate["id"],))
                     raise  # human_in_control is refused before journaling, so nothing was sent
                 db.execute("UPDATE gates SET status = 'done' WHERE id = ? AND status = 'dispatching'", (gate["id"],))
-                db.add_step(self.id, "approved_action", {"gate": gate["id"], "kind": kind, **params}, '{"performed": true}',
-                            url=self.url, verdict=f"approved:{gate['kind']}", action_id=self.pending_action_id)
+                db.add_step(self.id, "approved_action", {"gate": gate["id"], "kind": kind, **params, **({"coordinate": coord} if coord else {})},
+                            '{"performed": true}', url=self.url, verdict=f"approved:{gate['kind']}", action_id=self.pending_action_id)
                 return True
             return False  # unreachable: the loop returns or raises
         finally:
@@ -1031,15 +1095,219 @@ class _Run:
             result = {"error": f"{e.__class__.__name__}: {e}"[:300]}
         verdict = verdicts[0] if verdicts else None
         s = json.dumps(result)
-        db.add_step(self.id, name, args, s, url=self.url,
-                    verdict=(f"gated:{verdict.kind}" if verdict.gated else f"free:{verdict.rule}") if verdict else None)
+        db.add_step(self.id, name, args, s, url=self.url, verdict=self._verdict_tag(verdict))
+        self.last_result = result
         if "stopped" in result or name == "request_approval":
             return s
         if name == "request_takeover" and "handback" in result:  # our own words stay outside the untrusted wrapper
             return result.pop("handback") + "\n" + wrap_result("browser", json.dumps(result))
         return wrap_result(name, s)
 
+    @staticmethod
+    def _verdict_tag(verdict: gates.Verdict | None) -> str | None:
+        return (f"gated:{verdict.kind}" if verdict.gated else f"free:{verdict.rule}") if verdict else None
+
+    # ── screenshot mode: pixel actions, checked at press time ────────────────
+
+    async def gate_or_expect(self, label: str, element: dict, verdict_out: list, *, repeat: int = 1) -> tuple[dict | None, dict | None]:
+        """Classify a checked pixel action from the element the computer described. (refusal, None)
+        when it must not go — a multi-activation, a bad declaration, or a gate (recorded, task ended
+        as needs_approval); (None, expect) when it may, with the `expect` the computer re-checks."""
+        verdict = gates.classify(label, element, page_text=self.snapshot_text, repeat=repeat)
+        if not verdict.gated and self.declared:  # the helper said so; the classifier missing it changes nothing
+            verdict = gates.Verdict(True, self.declared["kind"], "declared", f"{self.declared['kind']}: declared by the helper")
+        verdict_out.append(verdict)
+        if not verdict.gated:
+            return None, gates.expect_for(label, element)
+        name = element.get("name") or label
+        if verdict.multi:
+            return {"error": f"refused: {label} on {name!r} would activate it more than once; a consequential control "
+                             "gets exactly one plain click or key press, after the owner's approval"}, None
+        err = self.declaration_error(element)
+        if err:
+            return {"error": err}, None
+        await self.open_gate(verdict.kind, verdict.reason, verdict.rule, label, element)
+        return {"stopped": f"needs approval ({verdict.kind}): {name}"}, None
+
+    async def pixel_action(self, member: str, inp: dict, label: str, verdicts: list) -> dict:
+        """One toolset member. Checked members — every click, mouse-down and drag start, Enter/Space/
+        Ctrl+Enter/Ctrl+S keys, typed newlines — are classified first from the element under the pixel
+        (the focused element for keys), with a fresh snapshot for the page-level facts; a target the
+        page can't identify is a gate (fail closed), so a click on a desktop app ends up as a takeover
+        card. Allowed actions go through /actions with an action id and `expect`."""
+        expect = None
+        if gates.needs_check(label, inp.get("text") if member == "type" else None):
+            if member in gates.CLICK_MEMBERS:
+                coord = inp.get("start_coordinate") if member == "left_click_drag" else inp.get("coordinate")
+                if not coord:  # a click where the cursor is
+                    pos = (await self.computer("POST", "/actions", body={"action_id": db.ulid(), "name": "cursor_position",
+                                                                         "input": {}})).get("result") or {}
+                    coord = [pos.get("x"), pos.get("y")]
+                target = {"x": int(coord[0]), "y": int(coord[1])}
+            else:
+                target = {"focused": True}
+            try:
+                await self.snapshot()
+            except ComputerError:  # no browser attached: the classifier works from the element alone
+                self.snapshot_text = ""
+            element = await self.computer("POST", "/browser/element", body=target)
+            refusal, expect = await self.gate_or_expect(label, element, verdicts, repeat=int(inp.get("repeat") or 1))
+            if refusal:
+                return refusal
+        action_id = db.ulid()
+        body = {"action_id": action_id, "name": member, "input": inp}
+        if expect:
+            body["expect"] = expect
+        self.phase, self.pending_action_id = "action", action_id
+        self.heartbeat()
+        try:
+            r = await self.computer("POST", "/actions", body=body)
+        finally:
+            self.phase, self.pending_action_id = "", None
+        return dict(r.get("result") or {})
+
+    async def pixel(self, member: str, inp: dict) -> dict:
+        """A toolset call → the fields of its tool_result (`content`, `is_error`), logged as a step.
+        screenshot/zoom images are saved under shots/<task>/<n>.png for the record and returned as an
+        image block; everything else answers "OK" (cursor_position its coordinates)."""
+        label = f"{member}:{inp.get('text') or ''}" if member in ("key", "hold_key") else member
+        verdicts: list = []
+        try:
+            result = await self.pixel_action(member, inp, label, verdicts)
+            if member in ("screenshot", "zoom") and not result.get("image"):
+                result = {"error": "the computer returned no image"}
+        except _Stop:
+            raise
+        except _Paused:
+            result = {"error": "not performed: a person took control of the screen and has handed it back; "
+                               "the screen may have changed — take a screenshot"}
+        except ComputerError as e:
+            result = {"error": e.detail, "code": e.code}
+            if e.code == "element_changed":
+                result["hint"] = "the page changed under the action; take a screenshot"
+        except Exception as e:  # bad arguments and the like: the helper's mistake, not the task's end
+            result = {"error": f"{e.__class__.__name__}: {e}"[:300]}
+        image, shot = result.pop("image", None), None
+        if image:
+            self.shots += 1
+            shot = self.save_png(f"shots/{self.id}/{self.shots}.png", image)
+            result["screenshot"] = shot
+        db.add_step(self.id, member, inp, json.dumps(result), url=self.url, screenshot=shot,
+                    verdict=self._verdict_tag(verdicts[0] if verdicts else None))
+        if "error" in result:
+            return {"content": result["error"], "is_error": True}
+        if "stopped" in result:
+            return {"content": result["stopped"], "is_error": False}
+        if image:
+            return {"content": [{"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": image}}],
+                    "is_error": False}
+        if member == "cursor_position":
+            return {"content": f"({result.get('x')}, {result.get('y')})", "is_error": False}
+        return {"content": "OK", "is_error": False}
+
+    async def batch(self, calls: list[dict]) -> list[dict]:
+        """A response's tool_use blocks, run ONE AT A TIME in order and dispatched by (toolset_name,
+        name). The batch stops at the first gated or failed call; every later call gets an is_error
+        result that still echoes toolset_name, so the conversation stays valid and nothing runs past
+        an approval point. Returns the tool_result blocks for the next user message."""
+        results, halted = [], False
+        for c in calls:
+            res = {"type": "tool_result", "tool_use_id": c["id"]}
+            if c.get("toolset_name"):
+                res["toolset_name"] = c["toolset_name"]
+            if not halted:
+                self.check_alive()
+                reason = self.cap_reason()
+                if reason:
+                    self.finish("failed", reason, result_text=self.cap_report(reason))
+                    halted = True
+            if halted:
+                results.append({**res, "is_error": True, "content": SKIPPED})
+                continue
+            args = c.get("input") or {}
+            if c.get("toolset_name") == "computer":
+                res.update(await self.pixel(c["name"], args))
+            else:
+                res["content"] = await self.execute({"id": c["id"], "name": c["name"], "args": args})
+                res["is_error"] = "error" in self.last_result
+            halted = self.finished or res["is_error"]
+            results.append(res)
+        return results
+
+    async def screenshot_loop(self, provider, system: str, opening: str) -> None:
+        """Screenshot-and-click: the SDK called directly with the computer toolset plus the custom
+        tools, adaptive thinking, and server-side context editing. History is append-only — each
+        response's blocks go back verbatim (to_dict(), thinking blocks included) and screenshots are
+        never pruned here."""
+        import anthropic
+        client = anthropic_client(provider)
+        api_tools = [TOOLSET, *provider._format_tools(TOOL_DEFS)]
+        messages: list[dict] = [{"role": "user", "content": opening}]
+        while True:
+            prepared = await self.prepare_call(provider, system, messages, TOOL_DEFS, api_tools)
+            if prepared is None:
+                return
+            reserved, max_tokens, _in_tok, remaining = prepared
+            self.phase = "model"
+            self.heartbeat()
+            try:
+                response = await asyncio.wait_for(client.beta.messages.create(
+                    model=provider.model, max_tokens=max_tokens,
+                    system=[{"type": "text", "text": system, "cache_control": {"type": "ephemeral"}}],
+                    messages=messages, tools=api_tools, thinking={"type": "adaptive"},
+                    betas=[CONTEXT_BETA], context_management={"edits": CONTEXT_EDITS},
+                ), timeout=min(MODEL_TIMEOUT_S, remaining))
+            except asyncio.TimeoutError:
+                self.finish("failed", "model call timed out")  # usage unknown: the reservation stays charged
+                return
+            except anthropic.APIError as e:
+                self.finish("failed", f"model error: {e}"[:200])
+                return
+            finally:
+                self.phase = ""
+            usage = response.usage.to_dict()
+            db.settle(self.id, reserved, self.actual_cost(provider.model, usage),
+                      int(usage.get("input_tokens") or 0), int(usage.get("output_tokens") or 0))
+            blocks = [b.to_dict() for b in response.content]
+            messages.append({"role": "assistant", "content": blocks})
+            text = "".join(b.get("text", "") for b in blocks if b.get("type") == "text").strip()
+            if text:
+                self.last_text = text
+            if response.stop_reason == "refusal":
+                self.finish("failed", "model refused the task")
+                return
+            calls = [b for b in blocks if b.get("type") == "tool_use"]
+            if not calls:
+                self.finish("done", "finished", result_text=self.last_text or "(no report)")
+                return
+            messages.append({"role": "user", "content": await self.batch(calls)})
+            if self.finished:
+                return
+
     # ── the loop ─────────────────────────────────────────────────────────────
+
+    async def prepare_call(self, provider, system: str, messages: list, tools: list, api_tools: list | None = None):
+        """Before every model call: alive, under the caps, a reservation that fits, time left.
+        (reserved_usd, max_tokens, counted_input_tokens, remaining_seconds), or None when the task was
+        finished here."""
+        self.check_alive()
+        reason = self.cap_reason()
+        if reason:
+            self.finish("failed", reason, result_text=self.cap_report(reason))
+            return None
+        reservation = await self.reserve(provider, system, messages, tools, api_tools)
+        if reservation is None:
+            reason = f"budget reached (${db.BUDGET_USD:.2f} over the task chain)"
+            self.finish("failed", reason, result_text=self.cap_report(reason))
+            return None
+        reserved, max_tokens, in_tok = reservation
+        remaining = self.remaining_seconds()  # counting tokens took time too
+        if remaining < 1:
+            db.settle(self.id, reserved, 0, 0, 0)  # nothing was called; give the reservation back
+            reason = f"time cap reached ({db.MAX_SECONDS // 3600} h over the task chain)"
+            self.finish("failed", reason, result_text=self.cap_report(reason))
+            return None
+        return reserved, max_tokens, in_tok, remaining
 
     async def loop(self, preamble: str | None = None) -> None:
         """The helper loop. `preamble` (an approved action just performed) is appended to the opening message."""
@@ -1049,29 +1317,20 @@ class _Run:
             return
         from agents.db import get_agent_by_slug
         agent = get_agent_by_slug(self.slug) or {}
-        system = build_system_prompt(agent.get("agent_name") or self.slug, self.slug)
+        mode = self.task.get("mode") or "text"
+        system = build_system_prompt(agent.get("agent_name") or self.slug, self.slug, mode)
         parent = db.get_task(self.task["parent_task_id"]) if self.task.get("parent_task_id") else None
-        messages = [{"role": "user", "content": build_user_message(self.task, parent) + (f"\n\n{preamble}" if preamble else "")}]
+        opening = build_user_message(self.task, parent) + (f"\n\n{preamble}" if preamble else "")
+        if mode == "screenshot":
+            return await self.screenshot_loop(provider, system, opening)
+        messages = [{"role": "user", "content": opening}]
         tools = TOOL_DEFS
 
         while True:
-            self.check_alive()
-            reason = self.cap_reason()
-            if reason:
-                self.finish("failed", reason, result_text=self.cap_report(reason))
+            prepared = await self.prepare_call(provider, system, messages, tools)
+            if prepared is None:
                 return
-            reservation = await self.reserve(provider, system, messages, tools)
-            if reservation is None:
-                reason = f"budget reached (${db.BUDGET_USD:.2f} over the task chain)"
-                self.finish("failed", reason, result_text=self.cap_report(reason))
-                return
-            reserved, max_tokens, in_tok = reservation
-            remaining = self.remaining_seconds()  # counting tokens took time too
-            if remaining < 1:
-                db.settle(self.id, reserved, 0, 0, 0)  # nothing was called; give the reservation back
-                reason = f"time cap reached ({db.MAX_SECONDS // 3600} h over the task chain)"
-                self.finish("failed", reason, result_text=self.cap_report(reason))
-                return
+            reserved, max_tokens, in_tok, remaining = prepared
             provider.max_tokens = max_tokens
             self.phase = "model"
             self.heartbeat()
@@ -1161,6 +1420,22 @@ async def run_task(task: dict, worker_id: str, client: ComputerClient | None = N
     if not run.finished:  # a _Stop raised by heartbeat() means someone else finished it
         logger.info("Computer task %s ended elsewhere (%s)", run.id, (db.get_task(run.id) or {}).get("status"))
     return "done"
+
+
+def prune_shots() -> int:
+    """Sweep: delete a task's screenshot folder (step shots and gate shots alike) SHOT_TTL_DAYS after
+    the task finished, or when its task row is gone. Returns how many folders went."""
+    root = db.DATA_DIR / "shots"
+    if not root.is_dir():
+        return 0
+    n = 0
+    for folder in root.iterdir():
+        keep = db.query("SELECT 1 FROM tasks WHERE id = ? AND (finished_at IS NULL OR finished_at > datetime('now', ?))",
+                        (folder.name, f"-{SHOT_TTL_DAYS} days"))
+        if not keep:
+            shutil.rmtree(folder, ignore_errors=True)
+            n += 1
+    return n
 
 
 _SAFE_NAME = re.compile(r"[^A-Za-z0-9._-]+")

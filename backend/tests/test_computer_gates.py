@@ -299,8 +299,10 @@ class TestApprovalBinding:
         assert gates.dispatch_for("act:click") == ("click", {})
         assert gates.dispatch_for("act:press:Enter") == ("press", {"key": "Enter"})
         assert gates.dispatch_for("act:press:Space") == ("press", {"key": "Space"})
+        assert gates.dispatch_for("left_click") == ("left_click", {})  # a pixel gate replays as one left_click (PR 5)
         for label in ("double_click", "triple_click", "hold_key:Return", "act:type", "type", "act:select",
-                      "act:press:Control+Enter", "act:press:Tab", "left_click", "key:Return", ""):
+                      "act:press:Control+Enter", "act:press:Tab", "left_mouse_down", "left_click_drag", "right_click",
+                      "key:Return", "key:space", ""):
             assert gates.dispatch_for(label) is None, label
 
     def test_unbindable_reasons(self):

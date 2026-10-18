@@ -59,11 +59,11 @@ def _approval_chat(task: dict | None, agent: dict) -> str | None:
     return str(user) if user else None
 
 
-def screenshot_path(gate: dict) -> Path | None:
-    """The gate's screenshot file (under data/computer), or None."""
-    if not gate.get("screenshot"):
+def screenshot_path(row: dict) -> Path | None:
+    """A gate's (or step's) screenshot file under data/computer, or None (missing, or swept)."""
+    if not row.get("screenshot"):
         return None
-    p = (db.DATA_DIR / gate["screenshot"]).resolve()
+    p = (db.DATA_DIR / row["screenshot"]).resolve()
     return p if p.is_file() and p.is_relative_to(db.DATA_DIR.resolve()) else None
 
 

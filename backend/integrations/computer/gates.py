@@ -36,6 +36,7 @@ FREE = Verdict(False, rule="free")
 
 _CLICKS = frozenset({"left_click", "right_click", "middle_click", "double_click", "triple_click",
                      "left_mouse_down", "left_click_drag", "act:click"})
+CLICK_MEMBERS = frozenset(c for c in _CLICKS if not c.startswith("act:"))  # the toolset's pixel clicks, checked at press time
 _ACTIVATABLE_ROLES = frozenset({"button", "link", "checkbox", "radio", "switch", "menuitem", "menuitemcheckbox",
                                 "menuitemradio", "tab", "option", "treeitem"})
 _TEXT_INPUT_TYPES = frozenset({"", "text", "search", "email", "url", "tel", "number", "password"})
@@ -322,12 +323,22 @@ class ApprovalBinding:
         return out
 
 
+PIXEL_KINDS = frozenset({"left_click"})  # dispatch kinds that go through /actions (a toolset member), not /browser/act
+
+
 def dispatch_for(action: str) -> tuple[str, dict] | None:
-    """The ONE browser act an approved action label is re-sent as — `(kind, extra params)` — or None
-    when the label can't be re-sent as a single activation (multi-clicks, held keys, typed text,
-    selects, and pixel actions until PR 5 maps them)."""
+    """The ONE activation an approved action label is re-sent as — `(kind, extra params)`: a browser
+    act, or for a pixel gate a single `left_click` at the located control's centre (runner.dispatch
+    sends it through /actions with the stored `expect`, whose `action` must equal the member the
+    computer sees — so only a plain left_click replays). None when the label can't be re-sent as one
+    activation with the approved `expect`: multi-clicks, held keys, typed text, selects, mouse-down and
+    drag presses, and pixel Enter/Space, whose focused target can't be restored without a click.
+    # simplification: those become "take over to do this yourself" cards; upgrade: focus the located
+    control via /browser/act and press with expect.action rewritten."""
     if action == "act:click":
         return "click", {}
+    if action == "left_click":
+        return "left_click", {}
     if action.startswith("act:press:"):
         key = _key_of(action)
         if key and key.key in ("enter", "space") and not key.mod:

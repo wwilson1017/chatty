@@ -52,6 +52,7 @@ class FakeComputer:
         self.on_act = None                # hook(body) run right before a successful act's response
         self.before_call = None           # hook(path, body) run before the lease/epoch check of every lease-guarded call
         self.shots = 0
+        self.actions: list[dict] = []     # /actions bodies (toolset members: screenshots, pixel clicks, keys)
 
     @property
     def epoch(self):
@@ -130,15 +131,24 @@ class FakeComputer:
             return httpx.Response(200, json={"url": self.url, "title": "Checkout", "snapshot": self.snapshot, "truncated": False,
                                              "total": None, "tabs": [{"index": 0, "url": self.url, "title": "Checkout", "active": True}]})
         if path == "/browser/element":
-            el = self.elements.get(body.get("ref")) if body.get("ref") else self.focused
+            el = self.elements.get(body["ref"]) if body.get("ref") else self.at((body["x"], body["y"])) if "x" in body else self.focused
             return httpx.Response(200, json=el or {"found": False, "page": {"host": "shop.example", "path": "/checkout", "title": "Checkout"}})
         if path == "/actions":
-            if body.get("name") != "screenshot":
+            name = body.get("name")
+            if name not in ACTION_MEMBERS:
                 return self._err(400, "bad_input")
-            self.shots += 1
+            self.actions.append(body)
+            mismatches = self._mismatches(body)
+            if mismatches:
+                self.journal[body["action_id"]] = {"status": "failed"}
+                return self._err(409, "element_changed", mismatches=mismatches)
             self.journal[body["action_id"]] = {"status": "done"}
-            return httpx.Response(200, json={"action_id": body["action_id"], "status": "done",
-                                             "result": {"image": base64.b64encode(PNG).decode(), "width": 1280, "height": 800}})
+            if name in ("screenshot", "zoom"):
+                self.shots += name == "screenshot"
+                return httpx.Response(200, json={"action_id": body["action_id"], "status": "done",
+                                                 "result": {"image": base64.b64encode(PNG).decode(), "width": 1280, "height": 800}})
+            result = {"x": 640, "y": 400} if name == "cursor_position" else {"ok": True}
+            return httpx.Response(200, json={"action_id": body["action_id"], "status": "done", "result": result})
         if path == "/browser/act":
             if self.lose_unjournaled:
                 raise httpx.ConnectError("the computer is unreachable")
@@ -159,6 +169,25 @@ class FakeComputer:
                                              "timed_out": False, "killed": False})
         return httpx.Response(404, json={"error": "not_found", "detail": path})
 
+    def at(self, coord) -> dict | None:
+        """The element whose screen_box holds the pixel (elementFromPoint)."""
+        x, y = coord
+        for el in self.elements.values():
+            b = el.get("screen_box")
+            if b and b["x"] <= x < b["x"] + b["w"] and b["y"] <= y < b["y"] + b["h"]:
+                return el
+        return None
+
+    def _target(self, body) -> tuple[dict | None, str]:
+        """(the element the action would hit, its action label) as the computer's expect check sees them."""
+        if "kind" in body:  # /browser/act
+            el = self.elements.get(body["ref"]) if body.get("ref") else self.focused
+            return el, f"act:press:{body.get('key')}" if body["kind"] == "press" else f"act:{body['kind']}"
+        name, inp = body["name"], body.get("input") or {}
+        coord = inp.get("start_coordinate") if name == "left_click_drag" else inp.get("coordinate")
+        el = self.at(coord) if coord else self.focused
+        return el, f"{name}:{inp.get('text', '')}" if name in ("key", "hold_key") else name
+
     def _mismatches(self, body) -> list[str]:
         """The computer's `expect` check: describe the target right before acting and compare every field sent."""
         if self.element_changed:
@@ -166,11 +195,11 @@ class FakeComputer:
         exp = body.get("expect")
         if not exp:
             return []
-        el = self.elements.get(body["ref"]) if body.get("ref") else self.focused
+        el, label = self._target(body)
         if not el or not el.get("found"):
             return ["name"]
         total = el.get("total")
-        actual = {"action": f"act:press:{body.get('key')}" if body["kind"] == "press" else f"act:{body['kind']}",
+        actual = {"action": label,
                   "host": el["page"]["host"], "path": el["page"]["path"], "frame_url": el.get("frame_url"),
                   "role": el.get("role"), "name": (el.get("name") or "").strip().lower(),
                   "form_action": (el.get("form") or {}).get("action"), "context_fp": el.get("context_fp"),
@@ -182,12 +211,17 @@ class FakeComputer:
 
 
 def element(name, ref="e10", *, is_submit=True, path="/checkout", role="button", form_action="https://shop.example/order",
-            host="shop.example", total="45.00", context_fp="abc"):
+            host="shop.example", total="45.00", context_fp="abc", box=None):
     return {"found": True, "ref": ref, "tag": "button", "role": role, "name": name, "type": "submit", "href": None,
             "is_submit": is_submit, "form": {"action": form_action, "method": "post"} if is_submit else None,
             "frame_url": f"https://{host}{path}", "page": {"host": host, "path": path, "title": "Checkout"},
             "context_kind": "form" if is_submit else None, "context_fp": context_fp if is_submit else None,
-            "total": {"amount": total, "currency": "USD", "text": f"Total ${total}"} if total and total != "ambiguous" else total}
+            "total": {"amount": total, "currency": "USD", "text": f"Total ${total}"} if total and total != "ambiguous" else total,
+            "screen_box": box}
+
+
+ACTION_MEMBERS = {"key", "hold_key", "type", "cursor_position", "mouse_move", "left_mouse_down", "left_mouse_up", "left_click",
+                  "right_click", "middle_click", "double_click", "triple_click", "left_click_drag", "scroll", "wait", "screenshot", "zoom"}
 
 
 class FakeProvider:
@@ -483,7 +517,7 @@ class TestBudgetAndCaps:
     def test_budget_stops_the_task_with_a_report_and_no_extra_call(self, fake, monkeypatch):
         tid = _queue()
         # Every call: 600K input tokens (reserved at $3 × 1.25) and max_tokens of output.
-        async def count(self, provider, system, messages, tools):
+        async def count(self, provider, system, messages, tools, api_tools=None):
             return 600_000
         monkeypatch.setattr(runner._Run, "count_input_tokens", count)
         prov = FakeProvider([{"text": "working", "tool_calls": [("files", {"action": "list", "path": "."})]}],
