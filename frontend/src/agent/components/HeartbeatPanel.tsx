@@ -3,6 +3,7 @@ import { HeartbeatStatusBar } from './heartbeat/HeartbeatStatusBar';
 import { HeartbeatChecklist } from './heartbeat/HeartbeatChecklist';
 import { HeartbeatHistory } from './heartbeat/HeartbeatHistory';
 import { HeartbeatConfig } from './heartbeat/HeartbeatConfig';
+import { ScheduledActions } from './heartbeat/ScheduledActions';
 import { FONT_SANS, INK_DIM, LINE_STRONG } from '../../shared/styles';
 
 interface Props {
@@ -53,6 +54,10 @@ export default function HeartbeatPanel({ agentSlug, apiPrefix }: Props) {
           onUpdateConfig={hb.updateConfig}
         />
       )}
+
+      <div style={{ borderTop: `1px solid ${LINE_STRONG}` }}>
+        <ScheduledActions agentSlug={agentSlug} />
+      </div>
     </div>
   );
 }
