@@ -132,6 +132,19 @@ class TestCrmDemotion:
         assert is_enabled("crm_lite") is False
 
 
+class TestMcp:
+    def test_configured_only_with_servers_and_key_encrypted(self, registry_dir):
+        import json
+        from integrations.registry import list_integrations, save_credentials
+
+        assert {e["id"]: e for e in list_integrations()}["mcp"]["configured"] is False
+        save_credentials("mcp", {"enabled": True, "servers": {"x": {"name": "X", "url": "https://x.test", "api_key": "sek-ret"}}})
+        entry = {e["id"]: e for e in list_integrations()}["mcp"]
+        assert entry["configured"] is True and entry["enabled"] is True and "sek-ret" not in str(entry)
+        on_disk = json.loads((registry_dir / "mcp.json").read_text())
+        assert on_disk["servers"]["x"]["api_key"].startswith("enc:v1:")
+
+
 class TestBrainReconfigure:
     def test_status_exposes_url_not_key_and_blank_key_is_kept(self, registry_dir, monkeypatch):
         import httpx
