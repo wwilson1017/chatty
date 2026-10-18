@@ -112,12 +112,15 @@ export function ComputerPage() {
 
   const done = async () => {
     const id = controlId;
-    sessionStorage.removeItem(SESSION_KEY);
-    setControlId(null);
     if (id) {
       try { await api('/api/computer/control/end', { method: 'POST', body: JSON.stringify({ control_session_id: id }) }); }
-      catch (err: unknown) { setError(err instanceof Error ? err.message : 'Could not end control'); }
+      // Keep control mode and the id: the computer still has the human in control, so the user must be able to retry.
+      catch (err: unknown) { setError(err instanceof Error ? err.message : 'Could not end control. Try again.'); return; }
     }
+    // No id yet (the status request is still in flight or failed): leaving control closes the relay socket and the
+    // computer ends the session after its disconnect grace, so the button never traps the user in control mode.
+    sessionStorage.removeItem(SESSION_KEY);
+    setControlId(null);
     setMode('view');
     setAttempt(a => a + 1);
   };

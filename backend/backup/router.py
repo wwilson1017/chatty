@@ -186,6 +186,7 @@ def _do_restore(file: UploadFile, content: bytes) -> dict:
     from core.todo.db import close_db as close_todo_db
     from integrations.claude_code.db import close_db as close_claude_code_db
     from integrations.computer.db import close_db as close_computer_db
+    from core.terminal.db import close_db as close_terminal_db
     from integrations.crm_lite.db import close_db as close_crm_db
     from integrations.qb_csv.db import close_db as close_qb_csv_db
     from integrations.telegram.state import close_db as close_telegram_db
@@ -199,6 +200,7 @@ def _do_restore(file: UploadFile, content: bytes) -> dict:
     close_todo_db()
     close_claude_code_db()
     close_computer_db()
+    close_terminal_db()
     close_crm_db()
     close_qb_csv_db()
     close_telegram_db()
@@ -269,6 +271,8 @@ def _do_restore(file: UploadFile, content: bytes) -> dict:
     _reinit("computer", init_computer_db)
     if runner_was_started:
         _reinit("computer_runner", computer_runner.start)
+    from core.terminal.db import init_db as init_terminal_db
+    _reinit("terminal", init_terminal_db)
 
     from integrations.telegram.state import init_db as init_telegram_db
     _reinit("telegram", init_telegram_db)
