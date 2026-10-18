@@ -164,6 +164,23 @@ class TestAdversarialFixtures:
         assert classify("act:click", el("Search", is_submit=True, form=f, path="/checkout")).gated
         assert classify("act:click", el("Search", is_submit=True, form=form(method="post", role="search"))).gated
 
+    def test_delete_key_destroys_a_focused_row_or_file_but_only_edits_in_a_text_field(self):
+        """Delete on a focused mail conversation or a file-manager item deletes it at once (PR 5, after
+        Codex's review); in a text field, search box or combobox it is an editing key."""
+        row = el("Re: invoice", tag="tr", role="row")
+        for label in ("key:Delete", "key:BackSpace", "key:shift+Delete", "key:ctrl+Delete", "act:press:Delete", "act:press:Backspace"):
+            assert needs_check(label), label
+            v = classify(label, row)
+            assert (v.gated, v.kind, v.rule, v.multi) == (True, "delete", "1.delete-key", False), label
+        assert classify("key:Delete", el("report.pdf", tag="div", role="treeitem")).kind == "delete"
+        assert classify("hold_key:Delete", row).multi and classify("key:Delete", row, repeat=3).multi
+        for field_el in (el("Subject", tag="input", role="textbox", type="text"), el("Body", tag="div", role="textbox"),
+                         el("Notes", tag="textarea", role="textbox"), el("Search", tag="input", role="searchbox", type="search"),
+                         el("City", tag="input", role="combobox", type="text")):
+            assert not classify("key:Delete", field_el).gated and not classify("act:press:Backspace", field_el).gated, field_el["name"]
+        assert classify("key:Delete", el(found=False)).rule == "unidentified"  # nothing of the page focused: fail closed
+        assert gates.dispatch_for("key:Delete") is None  # approving a delete means taking over and pressing it yourself
+
     def test_unidentified_target_fails_closed(self):
         v = classify("act:click", {"found": False, "page": {"host": "x", "path": "/", "title": ""}})
         assert v.gated and v.rule == "unidentified"
@@ -299,8 +316,10 @@ class TestApprovalBinding:
         assert gates.dispatch_for("act:click") == ("click", {})
         assert gates.dispatch_for("act:press:Enter") == ("press", {"key": "Enter"})
         assert gates.dispatch_for("act:press:Space") == ("press", {"key": "Space"})
+        assert gates.dispatch_for("left_click") == ("left_click", {})  # a pixel gate replays as one left_click (PR 5)
         for label in ("double_click", "triple_click", "hold_key:Return", "act:type", "type", "act:select",
-                      "act:press:Control+Enter", "act:press:Tab", "left_click", "key:Return", ""):
+                      "act:press:Control+Enter", "act:press:Tab", "left_mouse_down", "left_click_drag", "right_click",
+                      "key:Return", "key:space", ""):
             assert gates.dispatch_for(label) is None, label
 
     def test_unbindable_reasons(self):

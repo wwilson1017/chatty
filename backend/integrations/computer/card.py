@@ -60,6 +60,17 @@ def helper_model() -> str:
     return creds().get("helper_model") or DEFAULT_HELPER_MODEL
 
 
+# Claude models that take Anthropic's computer_toolset_20260801 (screenshot-and-click): Opus 4.8 and
+# the 5.x families. Anything else — older Claude, other providers — drives the browser as text.
+# simplification: an id-prefix list; upgrade: the Models API `capabilities` field
+_TOOLSET_MODELS = re.compile(r"^claude-(?:fable|mythos|opus-5|opus-4-8|sonnet-5|haiku-5)")
+
+
+def mode_for(model: str) -> str:
+    """'screenshot' when the helper model can see and click the screen, else 'text'."""
+    return "screenshot" if provider_for_model(model) == "anthropic" and _TOOLSET_MODELS.match(model) else "text"
+
+
 def helper_model_error(model: str) -> str | None:
     """Why `model` can't run the helper loop, or None. The budget is priced from pricing.py, so
     the model needs an EXACT entry there (a dated snapshot of a priced model doesn't count)."""
@@ -131,6 +142,7 @@ async def status() -> dict:
         "control": viewer.current_control(),
         "helper_model": helper_model(),
         "helper_models": helper_models(),
+        "mode": mode_for(helper_model()),
     }
     if out["configured"]:
         client = get_client()

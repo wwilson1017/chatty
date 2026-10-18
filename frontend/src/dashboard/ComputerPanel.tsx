@@ -25,6 +25,7 @@ interface Status {
   control: { control_session_id: string; agent: string; task_id: string | null } | null;
   helper_model: string;
   helper_models: { model: string; provider: string; input: number; output: number }[];
+  mode: 'text' | 'screenshot'; // what the helper model can do: read pages as text, or see and click the screen
 }
 
 interface Site { domain: string; [k: string]: unknown }
@@ -34,6 +35,7 @@ interface Task {
   agent_slug: string;
   origin: string;
   helper_model: string;
+  mode: string;
   status: string;
   task: string;
   finish_reason: string | null;
@@ -82,6 +84,7 @@ interface Step {
   args_excerpt: string | null;
   result_excerpt: string | null;
   url: string | null;
+  screenshot: string | null; // set on screenshot/zoom steps; the file is kept 14 days after the task ends
   verdict: string | null;
   cost_so_far_usd: number | null;
 }
@@ -105,15 +108,23 @@ function StepLog({ taskId }: { taskId: string }) {
   if (steps.length === 0) return <span style={{ color: INK_DIM }}>No steps yet.</span>;
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-      {steps.map(s => (
-        <div key={s.n} style={{ display: 'flex', gap: 8, fontFamily: FONT_MONO, fontSize: 11, alignItems: 'baseline' }}>
-          <span style={{ color: INK_DIM, minWidth: 24, textAlign: 'right' }}>{s.n}</span>
-          <span style={{ color: INK }}>{s.tool}</span>
-          {s.verdict && <span style={{ color: s.verdict.startsWith('gated') ? CORAL : SAGE }}>{s.verdict}</span>}
-          <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: INK_MUTE }}>{s.args_excerpt}</span>
-          {s.cost_so_far_usd != null && <span style={{ color: INK_DIM }}>${s.cost_so_far_usd.toFixed(2)}</span>}
-        </div>
-      ))}
+      {steps.map(s => <StepRow key={s.n} taskId={taskId} s={s} />)}
+    </div>
+  );
+}
+
+function StepRow({ taskId, s }: { taskId: string; s: Step }) {
+  const shot = useAuthedImage(s.screenshot ? `/api/computer/tasks/${taskId}/steps/${s.n}/screenshot` : undefined);
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+      <div style={{ display: 'flex', gap: 8, fontFamily: FONT_MONO, fontSize: 11, alignItems: 'baseline' }}>
+        <span style={{ color: INK_DIM, minWidth: 24, textAlign: 'right' }}>{s.n}</span>
+        <span style={{ color: INK }}>{s.tool}</span>
+        {s.verdict && <span style={{ color: s.verdict.startsWith('gated') ? CORAL : SAGE }}>{s.verdict}</span>}
+        <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: INK_MUTE }}>{s.args_excerpt}</span>
+        {s.cost_so_far_usd != null && <span style={{ color: INK_DIM }}>${s.cost_so_far_usd.toFixed(2)}</span>}
+      </div>
+      {shot && <img src={shot} alt={`The screen at step ${s.n}`} style={{ maxWidth: 320, marginLeft: 32, borderRadius: 4, border: `1px solid ${LINE}` }} />}
     </div>
   );
 }
@@ -311,6 +322,11 @@ export function ComputerPanel() {
                 <option key={m.model} value={m.model}>{m.model} · {m.provider} · ${m.input}/${m.output} per M</option>
               ))}
             </select>
+            <span style={{ fontSize: 11, color: INK_DIM }}>
+              {status.mode === 'screenshot'
+                ? 'Screenshot-and-click: this model sees the screen and clicks by pixel, desktop apps included. Every consequential click is still checked against the page first.'
+                : 'Text mode: this model reads pages as an accessibility tree and acts on named controls. Screenshot-and-click needs a Claude model with the computer toolset (Sonnet 5.5, Opus 5.5, Haiku 5.5, Opus 4.8).'}
+            </span>
           </label>
 
           {agents.length > 0 && (
@@ -392,7 +408,7 @@ export function ComputerPanel() {
                 )}
                 {t.result_text && <pre style={pre}>{t.result_text}{t.result_truncated ? '\n…' : ''}</pre>}
                 <span style={{ fontFamily: FONT_MONO, fontSize: 10, color: INK_DIM }}>
-                  {t.id} · {t.helper_model}{t.parent_task_id ? ` · follow-up of ${t.parent_task_id}` : ''}{t.approved_gate_id ? ` · approved gate ${t.approved_gate_id}` : ''}
+                  {t.id} · {t.helper_model} · {t.mode}{t.parent_task_id ? ` · follow-up of ${t.parent_task_id}` : ''}{t.approved_gate_id ? ` · approved gate ${t.approved_gate_id}` : ''}
                 </span>
                 <StepLog taskId={t.id} />
                 {(t.status === 'queued' || t.status === 'running') && (

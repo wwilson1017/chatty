@@ -243,6 +243,17 @@ def get_task_steps(task_id: str, user=Depends(get_current_user)):
     return {"steps": db.list_steps(task_id)}
 
 
+@router.get("/api/computer/tasks/{task_id}/steps/{n}/screenshot")
+def step_screenshot(task_id: str, n: int, user=Depends(get_current_user)):
+    """The screen as the helper saw it at step `n` (screenshot mode), kept 14 days after the task ends."""
+    from . import approvals, db
+    rows = db.query("SELECT screenshot FROM steps WHERE task_id = ? AND n = ?", (task_id, n))
+    path = approvals.screenshot_path(dict(rows[0])) if rows else None
+    if not path:
+        raise HTTPException(status_code=404, detail="No screenshot for this step")
+    return FileResponse(path, media_type="image/png", headers={"Cache-Control": "private, max-age=3600"})
+
+
 @router.post("/api/computer/tasks/{task_id}/cancel")
 def cancel_task(task_id: str, user=Depends(get_current_user)):
     from . import db
