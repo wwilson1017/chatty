@@ -77,7 +77,7 @@ class Renderer:
         elif t == "title_update":
             note(f"title: {e.get('title', '')}")
         elif t == "transcription":
-            note(f"transcribed: {e.get('text', '')}")
+            note(f"transcribing {e.get('filename', '')}: {e.get('message', '')}")
         elif t == "error":
             console.print(f"[red]Error:[/] {escape(self.error)}")
         elif t == "done":
