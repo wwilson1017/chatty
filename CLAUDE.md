@@ -159,7 +159,7 @@ integrations/{name}/
 ### Tool auto-discovery
 
 Tools appear for agents automatically when their integration is enabled globally:
-- **QB/Odoo/BambooHR/CRM/QB CSV/Paperclip**: `_load_integration_tools()` in `agents/router.py` checks `is_enabled(name)` and injects tools + executors
+- **QB/Odoo/BambooHR/CRM/QB CSV/Paperclip/Todoist/Claude Code**: `agents/tool_loader.load_integration_tools()` walks `INTEGRATION_MODULES`, checks `is_enabled(name)` and injects tools + executors. Every entry point (web chat, CLI, Telegram, WhatsApp, Paperclip, heartbeats, crons, coach) uses this one loader. A module's defs attribute and `TOOL_EXECUTORS` may be data or zero-arg callables returning it; executors may be async. A definition with `"context_aware": True` gets the server-built `_ctx` (`agent_slug, agent_name, conversation_id, origin, route, action_id, cache_dir`) injected into its executor; the flag is read from the `tool_flags()` map every `ToolRegistry` receives, never from the model's arguments.
 - **Google (Gmail/Calendar/Drive)**: `google_capabilities()` in `integrations/google/policy.py` reads scope grants from `google.json` and returns capability flags passed to `get_tool_definitions()`. Supports multiple Google accounts with per-agent, per-service assignment.
 - **Telegram**: each agent gets its own bot token; a single Telegram user can be linked to multiple agents simultaneously
 - **Do NOT require per-agent flags** for new integrations. Connect once → all agents get the tools.

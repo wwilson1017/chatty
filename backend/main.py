@@ -30,6 +30,7 @@ from agents.import_router import router as import_router
 from branding.router import router as branding_router
 from integrations.router import router as integrations_router
 from integrations.claude_code.connector_api import router as connector_router
+from core.terminal.router import router as terminal_router
 from integrations.crm_lite.router import router as crm_router
 from integrations.qb_csv.router import router as qb_csv_router
 from integrations.whatsapp.router import router as whatsapp_router
@@ -142,6 +143,9 @@ async def lifespan(app: FastAPI):
 
     from integrations.claude_code.db import init_db as init_claude_code_db
     _safe_init("claude_code", init_claude_code_db)
+
+    from core.terminal.db import init_db as init_terminal_db
+    _safe_init("terminal", init_terminal_db)
 
     from core.agents.shared_context.db import init_db as init_shared_context_db
     _safe_init("shared_context", init_shared_context_db)
@@ -318,6 +322,7 @@ app.include_router(import_router, tags=["import"])
 app.include_router(branding_router, prefix="/api/branding", tags=["branding"])
 app.include_router(integrations_router, prefix="/api/integrations", tags=["integrations"])
 app.include_router(connector_router, prefix="/api/connector", tags=["connector"])
+app.include_router(terminal_router, prefix="/api/terminal", tags=["terminal"])
 app.include_router(whatsapp_router, prefix="/api/messaging", tags=["messaging"])
 app.include_router(crm_router, prefix="/api/crm", tags=["crm"])
 app.include_router(qb_csv_router, prefix="/api/qb-csv", tags=["qb-csv"])

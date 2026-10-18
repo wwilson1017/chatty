@@ -1,9 +1,15 @@
 """Tests for integration tool loading and agent handler construction."""
 
+import asyncio
+import re
+from pathlib import Path
 from unittest.mock import patch
 from types import ModuleType
 
-from agents.tool_loader import format_current_time, load_integration_tools, build_agent_handlers
+from agents import tool_loader
+from agents.tool_loader import format_current_time, load_integration_tools, build_agent_handlers, tool_flags
+
+BACKEND = Path(__file__).resolve().parent.parent
 
 
 class TestFormatCurrentTime:
@@ -55,6 +61,61 @@ class TestLoadIntegrationTools:
 
         assert defs == []
         assert execs == {}
+
+    def test_callable_defs_and_executors_load(self):
+        """A module may build its tool list at load time; async executors pass through."""
+        async def run(**kw):
+            return {"ok": True}
+
+        fake_mod = ModuleType("fake_dynamic")
+        fake_mod.TODOIST_TOOL_DEFS = lambda: [{"name": "dyn_tool", "kind": "integration", "input_schema": {},
+                                               "context_aware": True}]
+        fake_mod.TOOL_EXECUTORS = lambda: {"dyn_tool": run}
+
+        with patch("integrations.registry.is_enabled", side_effect=lambda n: n == "todoist"), \
+             patch("importlib.import_module", return_value=fake_mod):
+            defs, execs = load_integration_tools()
+
+        assert [(d["name"], d["integration"], d["context_aware"]) for d in defs] == [("dyn_tool", "todoist", True)]
+        assert asyncio.iscoroutinefunction(execs["dyn_tool"])
+        assert tool_flags(defs) == {"dyn_tool": {"context_aware": True}}
+
+
+class TestToolFlags:
+    def test_collects_only_flag_keys(self):
+        defs = [{"name": "a", "context_aware": True, "writes": True}, {"name": "b"}]
+        assert tool_flags(defs) == {"a": {"context_aware": True}, "b": {}}
+
+
+class TestEveryEntryPointSharesTheLoader:
+    """Telegram, WhatsApp and Paperclip used to carry private copies of the integration
+    map; they now get the exact same tool set as web chat, and every ToolRegistry that
+    takes integration executors also gets the server-owned flags map."""
+
+    FORMER_COPIES = ("integrations.telegram.service", "integrations.whatsapp.service",
+                     "integrations.paperclip.webhook")
+
+    def test_former_copies_use_the_shared_loader(self):
+        import importlib
+        for path in self.FORMER_COPIES:
+            mod = importlib.import_module(path)
+            assert mod.load_integration_tools is tool_loader.load_integration_tools, path
+            assert mod.INTEGRATION_MODULES is tool_loader.INTEGRATION_MODULES, path
+            assert not hasattr(mod, "_INTEGRATION_MODULES") and not hasattr(mod, "_load_integration_tools"), path
+
+    def test_every_registry_with_executors_gets_the_flags_map(self):
+        sites = 0
+        for py in BACKEND.rglob("*.py"):
+            if "tests" in py.parts or ".venv" in py.parts:
+                continue
+            src = py.read_text(encoding="utf-8")
+            for m in re.finditer(r"ToolRegistry\((.*?)\n\s*\)", src, re.S):
+                if "integration_executors=" not in m.group(1):
+                    continue
+                sites += 1
+                assert "integration_tool_flags=tool_flags(integration_tool_defs)" in m.group(1), \
+                    f"{py.relative_to(BACKEND)} builds a ToolRegistry without the flags map"
+        assert sites >= 10  # router ×2, cli, heartbeat, cron, coach, telegram ×2, whatsapp, paperclip
 
 
 class TestBuildAgentHandlers:

@@ -157,15 +157,28 @@ async def telegram_webhook(agent_slug: str, request: Request):
     return {"status": "ok"}
 
 
+def _claude_code_callback(agent_slug: str, callback_query: dict, bot_token: str) -> None:
+    from integrations.claude_code.approvals import handle_telegram_callback
+    handle_telegram_callback(agent_slug, callback_query, bot_token)
+
+
+# callback_data prefix → handler(agent_slug, callback_query, bot_token). Each
+# feature that sends inline buttons owns one prefix.
+_CALLBACK_HANDLERS = {
+    "cc:": _claude_code_callback,
+}
+
+
 def _safe_process_callback(agent_slug: str, callback_query: dict, bot_token: str) -> None:
-    """Route an inline-button press. ``cc:`` buttons belong to Claude Code approvals;
-    anything else is acknowledged and ignored."""
+    """Route an inline-button press by its ``callback_data`` prefix; anything
+    without a registered prefix is acknowledged and ignored."""
     cq_id = callback_query.get("id", "")
+    data = str(callback_query.get("data") or "")
     try:
-        if str(callback_query.get("data") or "").startswith("cc:"):
-            from integrations.claude_code.approvals import handle_telegram_callback
-            handle_telegram_callback(agent_slug, callback_query, bot_token)
-            return
+        for prefix, handler in _CALLBACK_HANDLERS.items():
+            if data.startswith(prefix):
+                handler(agent_slug, callback_query, bot_token)
+                return
         answer_callback_query(cq_id, "", bot_token)
     except Exception:
         logger.exception("Telegram callback processing failed for %s", agent_slug)
