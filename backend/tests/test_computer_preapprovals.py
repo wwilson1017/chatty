@@ -10,7 +10,7 @@ import pytest
 from core.agents import tool_definitions
 from core.agents.scheduled_actions import service
 from core.agents.scheduled_actions import tools as sa_tools
-from integrations.computer import approvals, db, preapprovals
+from integrations.computer import approvals, db, gates, preapprovals
 
 from tests.test_computer_tasks import (  # noqa: F401 (fake is a fixture)
     CLICK_ORDER, FINAL, SNAP, FakeProvider, _queue, _run, element, fake,
@@ -133,6 +133,21 @@ class TestPreapprovedRun:
         # a reminder turn (or any turn without a scheduled action behind it) has no action_id at all
         t, asked, _ = _submit_run(fc, monkeypatch, None)
         assert t["status"] == "needs_approval" and asked == [t["gate_id"]] and fc.performed == []
+
+    def test_a_send_whose_composer_cannot_be_read_is_not_pre_approved_and_becomes_a_takeover_card(self, fc, monkeypatch):
+        aid = _cron()
+        _allow(aid, host="mail.example", text="Send")
+        send = {**element("Send", is_submit=False, host="mail.example", path="/compose", total=None),
+                "page": {"host": "mail.example", "path": "/compose", "title": "Compose"}}  # rule 1 send; no form, no composer fp
+        assert send["context_fp"] is None
+        assert preapprovals.match(aid, "send", "act:click", send) is None
+        assert preapprovals.match(aid, "post", "act:click", send) is None
+        assert preapprovals.match(aid, "send", "act:click", {**send, "context_fp": "fp1", "context_kind": "composer"}) is not None
+        t, asked, _ = _submit_run(fc, monkeypatch, aid, el=send)
+        assert t["status"] == "needs_approval" and asked == [t["gate_id"]] and fc.performed == []
+        gate = db.get_gate(t["gate_id"])
+        assert gate["kind"] == "send" and gate["status"] == "pending" and gate["decision"] is None
+        assert "no form or message composer could be read" in gates.unbindable_reason(gate)  # the owner presses it themselves
 
     def test_a_page_that_changed_under_the_pre_approved_click_asks_the_owner(self, fc, monkeypatch):
         aid = _cron()
