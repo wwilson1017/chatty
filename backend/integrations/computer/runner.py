@@ -13,7 +13,9 @@ ends the task as `needs_approval` and asks the owner (approvals.py); approving
 queues a follow-up whose first step is _Run.consume(): one activation bound to
 the stored gate, re-checked by the computer, never re-sent. A gate that can't be
 bound becomes a takeover task (_Run.takeover) that opens the page for the owner
-and performs nothing itself. Logins never go through the helper either:
+and performs nothing itself. A gate a scheduled action pre-approved
+(preapprovals.match: host + button text, never a purchase) is recorded already
+approved and dispatched at once. Logins never go through the helper either:
 `request_takeover` hands the screen to the owner and waits
 (tool_request_takeover), the computer refusing every agent call meanwhile.
 
@@ -41,7 +43,7 @@ from core.config import settings
 from core.providers import get_ai_provider
 from core.providers.pricing import get_max_rates, rates_for_prompt
 
-from . import approvals, card, db, gates
+from . import approvals, card, db, gates, preapprovals
 from .client import ComputerClient, ComputerError, get_client
 
 logger = logging.getLogger(__name__)
@@ -682,27 +684,16 @@ class _Run:
         return {k: r.get(k) for k in ("url", "title", "snapshot", "truncated", "tabs")}
 
     async def act(self, kind: str, params: dict, *, label: str, text: str | None = None, verdict_out: list) -> dict:
-        """Classify (when checked), then send the act with an action id and `expect`. A gated action
-        — or any checked action the helper declared consequential — opens a gate instead."""
+        """Classify (when checked, via gate_or_expect), then send the act with an action id and `expect`.
+        A gated action — or any checked action the helper declared consequential — opens a gate instead,
+        unless a scheduled action pre-approved it."""
         expect = None
         if gates.needs_check(label, text):
             target = {"ref": params["ref"]} if params.get("ref") else {"focused": True}
             element = await self.computer("POST", "/browser/element", body=target)
-            verdict = gates.classify(label, element, page_text=self.snapshot_text)
-            if not verdict.gated and self.declared:  # the helper said so; the classifier missing it changes nothing
-                verdict = gates.Verdict(True, self.declared["kind"], "declared", f"{self.declared['kind']}: declared by the helper")
-            verdict_out.append(verdict)
-            if verdict.gated:
-                name = element.get("name") or label
-                if verdict.multi:
-                    return {"error": f"refused: {label} on {name!r} would activate it more than once; a consequential "
-                                     "control gets exactly one plain click or key press, after the owner's approval"}
-                err = self.declaration_error(element)
-                if err:
-                    return {"error": err}
-                await self.open_gate(verdict.kind, verdict.reason, verdict.rule, label, element)
-                return {"stopped": f"needs approval ({verdict.kind}): {name}"}
-            expect = gates.expect_for(label, element)
+            done, expect = await self.gate_or_expect(label, element, verdict_out, params=params)
+            if done:
+                return done
         action_id = db.ulid()
         body = {"action_id": action_id, "kind": kind, **{k: v for k, v in params.items() if v is not None}}
         if expect:
@@ -956,8 +947,9 @@ class _Run:
                     if e.code == "element_changed":  # journaled as failed; nothing was clicked
                         # The facts we located are the ones the computer just rejected: describe the control
                         # again for the replacement gate (unreadable → a takeover card, never stale facts).
-                        try:
-                            fresh = await self.computer("POST", "/browser/element", body=params)
+                        try:  # by ref when one was located; a pre-approved pixel click by its pixel, a pre-approved key by focus
+                            fresh = await self.computer("POST", "/browser/element",
+                                                        body=params or ({"x": coord[0], "y": coord[1]} if coord else {"focused": True}))
                         except (_Paused, ComputerError):
                             fresh = None
                         await self.regate(gate, "changed under the click: " + ", ".join(e.body.get("mismatches") or ["page"]),
@@ -975,7 +967,8 @@ class _Run:
                     raise  # human_in_control is refused before journaling, so nothing was sent
                 db.execute("UPDATE gates SET status = 'done' WHERE id = ? AND status = 'dispatching'", (gate["id"],))
                 db.add_step(self.id, "approved_action", {"gate": gate["id"], "kind": kind, **params, **({"coordinate": coord} if coord else {})},
-                            '{"performed": true}', url=self.url, verdict=f"approved:{gate['kind']}", action_id=self.pending_action_id)
+                            '{"performed": true}', url=self.url, action_id=self.pending_action_id,
+                            verdict=f"{'pre' if gate.get('decision') == 'preapproved' else ''}approved:{gate['kind']}")
                 return True
             return False  # unreachable: the loop returns or raises
         finally:
@@ -1102,18 +1095,27 @@ class _Run:
             return s
         if name == "request_takeover" and "handback" in result:  # our own words stay outside the untrusted wrapper
             return result.pop("handback") + "\n" + wrap_result("browser", json.dumps(result))
+        if name == "browser" and "preapproved" in result:  # likewise Chatty's note about a pre-approved action
+            return result.pop("preapproved") + "\n" + wrap_result("browser", json.dumps(result))
         return wrap_result(name, s)
 
     @staticmethod
     def _verdict_tag(verdict: gates.Verdict | None) -> str | None:
-        return (f"gated:{verdict.kind}" if verdict.gated else f"free:{verdict.rule}") if verdict else None
+        if not verdict:
+            return None
+        if not verdict.gated:
+            return f"free:{verdict.rule}"
+        return f"{'preapproved' if verdict.rule == 'preapproved' else 'gated'}:{verdict.kind}"
 
     # ── screenshot mode: pixel actions, checked at press time ────────────────
 
-    async def gate_or_expect(self, label: str, element: dict, verdict_out: list, *, repeat: int = 1) -> tuple[dict | None, dict | None]:
-        """Classify a checked pixel action from the element the computer described. (refusal, None)
-        when it must not go — a multi-activation, a bad declaration, or a gate (recorded, task ended
-        as needs_approval); (None, expect) when it may, with the `expect` the computer re-checks."""
+    async def gate_or_expect(self, label: str, element: dict, verdict_out: list, *, repeat: int = 1,
+                             params: dict | None = None) -> tuple[dict | None, dict | None]:
+        """Classify a checked action — a browser act or a pixel action — from the element the computer
+        described. (result, None) when it is not sent as asked: refused (a multi-activation, a bad
+        declaration), gated (recorded, task ended as needs_approval), or already performed ONCE as a
+        scheduled action's pre-approval; (None, expect) when it may go, with the `expect` the computer
+        re-checks. `params` is the browser act's ref, which dispatch() re-reads a pre-approved control by."""
         verdict = gates.classify(label, element, page_text=self.snapshot_text, repeat=repeat)
         if not verdict.gated and self.declared:  # the helper said so; the classifier missing it changes nothing
             verdict = gates.Verdict(True, self.declared["kind"], "declared", f"{self.declared['kind']}: declared by the helper")
@@ -1127,6 +1129,22 @@ class _Run:
         err = self.declaration_error(element)
         if err:
             return {"error": err}, None
+        # ── pre-approved (scheduled actions): a named host + button crosses without asking ──
+        kind = "buy" if (self.declared or {}).get("kind") == "buy" else verdict.kind  # a declared purchase is one
+        pre = preapprovals.match(self.task.get("action_id"), kind, label, element)
+        if pre:
+            verdict_out[-1] = gates.Verdict(True, verdict.kind, "preapproved", f"{verdict.kind}: {name!r} pre-approved ({verdict.rule})")
+            d, self.declared = self.declared or {}, None
+            self.gate_id = db.insert_gate(
+                self.task, kind=verdict.kind, rule=verdict.rule, action=label, element=element, url=self.url,
+                note=f"pre-approved for scheduled action {self.task['action_id']}: {pre['host']} / {pre['button_text']!r} ({verdict.rule})",
+                reason=d.get("reason"), decision="preapproved", decided_by=f"scheduled_action:{self.task['action_id']}")
+            if not await self.dispatch(db.get_gate(self.gate_id), {"ref": params["ref"]} if (params or {}).get("ref") else {}, element):
+                return {"stopped": f"pre-approved {verdict.kind} on {name!r} was not performed as approved"}, None
+            return {"performed": True, "url": self.url,
+                    "preapproved": f"Chatty performed this {verdict.kind} ({name!r} on {pre['host']}) ONCE: it is allowed "
+                                   "without asking for this scheduled action. Do not repeat it; continue from the page as it is."}, None
+        # ── end pre-approved ──
         await self.open_gate(verdict.kind, verdict.reason, verdict.rule, label, element)
         return {"stopped": f"needs approval ({verdict.kind}): {name}"}, None
 
@@ -1199,6 +1217,8 @@ class _Run:
             return {"content": " — ".join(filter(None, (result["error"], result.get("hint")))), "is_error": True}
         if "stopped" in result:
             return {"content": result["stopped"], "is_error": False}
+        if "preapproved" in result:  # Chatty's own note about a pre-approved action; no wrapper needed
+            return {"content": result["preapproved"], "is_error": False}
         if image:
             return {"content": [{"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": image}}],
                     "is_error": False}

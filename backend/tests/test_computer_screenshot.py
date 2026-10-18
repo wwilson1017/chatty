@@ -11,8 +11,9 @@ import anthropic
 import httpx
 import pytest
 
+from core.agents.scheduled_actions import service as sa_service
 from core.providers.anthropic_provider import AnthropicProvider
-from integrations.computer import approvals, card, completion, db, gates, runner
+from integrations.computer import approvals, card, completion, db, gates, preapprovals, runner
 from integrations.registry import save_credentials
 
 from tests.test_computer_tasks import PNG, _ctx, _queue, element, fake  # noqa: F401 (fake is a fixture)
@@ -383,6 +384,42 @@ class TestApprovedPixelGate:
         assert f["status"] == "needs_approval" and [a["name"] for a in shot.actions] == ["screenshot"]
         assert db.get_gate(f["gate_id"])["note"].startswith("total changed 45.00 USD → 50.00 USD")
         assert db.get_gate(gate["id"])["status"] == "cancelled"
+
+
+class TestPreapprovedPixel:
+    def test_a_pre_approved_pixel_click_proceeds_without_a_card_and_a_purchase_still_asks(self, shot, monkeypatch):
+        """A scheduled action's {host, button_text} crosses a pixel gate the same way it crosses a text one:
+        recorded as an already-approved gate and dispatched once as a left_click with the binding; a purchase
+        on the same list still asks, and a press (mouse-down) never pre-approves."""
+        aid = sa_service.create_action("tom", "cron", name="Timesheet", cron_expression="0 9 * * 5", prompt="Submit the timesheet.")["id"]
+        assert sa_service.set_preapproved(aid, [{"host": "time.example", "button_text": "Submit timesheet"},
+                                                {"host": "shop.example", "button_text": "Buy now"}])["ok"]
+        box = {"x": 500, "y": 500, "w": 100, "h": 40}
+        submit = {**element("Submit timesheet", "e7", host="time.example", path="/week", total=None,
+                            form_action="https://time.example/submit", box=box),
+                  "page": {"host": "time.example", "path": "/week", "title": "Weekly timesheet"}}
+        shot.elements["e7"] = submit
+        asked: list[str] = []
+        monkeypatch.setattr(approvals, "request", lambda gid: asked.append(gid) or "card")
+        _queue("submit the timesheet", action_id=aid, origin="background")
+        fa, t = _run(shot, monkeypatch, [[tool("left_click", {"coordinate": [550, 520]}, "a")], [CLICK_ORDER], [text("x")]])
+        # the pre-approved click: one left_click at the control's centre, bound like an owner's approval
+        [r] = fa.results(1)
+        assert r["toolset_name"] == "computer" and not r["is_error"]
+        assert r["content"].startswith("Chatty performed this submit ('Submit timesheet' on time.example) ONCE")
+        [click] = [a for a in shot.actions if a["name"] == "left_click"]
+        assert click["input"] == {"coordinate": [550, 520]}
+        assert (click["expect"]["action"], click["expect"]["host"], click["expect"]["name"], click["expect"]["context_fp"]) == (
+            "left_click", "time.example", "Submit timesheet", "abc") and "total" not in click["expect"]
+        pre = db.query("SELECT * FROM gates WHERE decision = 'preapproved'")
+        assert len(pre) == 1 and (pre[0]["status"], pre[0]["action"], pre[0]["kind"], pre[0]["action_id"]) == ("done", "left_click", "submit", click["action_id"])
+        # the purchase on the same list still asks the owner
+        assert t["status"] == "needs_approval" and asked == [t["gate_id"]] and len(fa.requests) == 2
+        assert db.get_gate(t["gate_id"])["kind"] == "buy" and db.get_gate(t["gate_id"])["status"] == "pending"
+        assert [(s["tool"], s["verdict"]) for s in db.list_steps(t["id"])] == [
+            ("approved_action", "preapproved:submit"), ("left_click", "preapproved:submit"), ("left_click", "gated:buy")]
+        # a press is never pre-approved: it can't be replayed as one activation
+        assert preapprovals.match(aid, "submit", "left_click", submit) and preapprovals.match(aid, "submit", "left_mouse_down", submit) is None
 
 
 def fa_png() -> str:

@@ -426,11 +426,13 @@ def task_view(task: dict, *, result_chars: int = 2000) -> dict:
 def insert_gate(task: dict, *, kind: str, note: str = "", reason: str | None = None, rule: str = "",
                 action: str | None = None, element: dict | None = None, url: str | None = None,
                 item: str | None = None, store: str | None = None, total_text: str | None = None,
-                screenshot: str | None = None, commit: bool = True) -> str:
+                screenshot: str | None = None, decision: str | None = None, decided_by: str | None = None,
+                commit: bool = True) -> str:
     """Record what the helper was stopped before. `note` is Chatty's own account (which rule fired,
     or why a new gate replaces an approved one); `reason`/item/store/total_text are the helper's
     declaration, shown apart as "not verified". `element` is the /browser/element description; its
-    page/frame/form facts are copied into the columns the approval binding reads."""
+    page/frame/form facts are copied into the columns the approval binding reads. A `decision`
+    (e.g. 'preapproved' by a scheduled action) records the gate already `approved`, ready to dispatch."""
     assert kind in GATE_KINDS, kind
     gate_id = uuid.uuid4().hex[:12]
     el = element or {}
@@ -440,14 +442,16 @@ def insert_gate(task: dict, *, kind: str, note: str = "", reason: str | None = N
         db.execute(
             """INSERT INTO gates (id, task_id, root_task_id, agent_slug, kind, rule, action, host, path, url, frame_url,
                                   role, name, form_action, context_fp, element_json, total_json, item, store, total_text,
-                                  reason, note, screenshot, status, expires_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', datetime('now', ?))""",
+                                  reason, note, screenshot, status, decision, decided_by, decided_via, decided_at, expires_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                       CASE WHEN ? IS NULL THEN NULL ELSE datetime('now') END, datetime('now', ?))""",
             (gate_id, task["id"], task["root_task_id"], task["agent_slug"], kind, rule, action,
              page.get("host"), page.get("path"), url, el.get("frame_url"), el.get("role"), el.get("name"),
              (el.get("form") or {}).get("action"), el.get("context_fp"),
              json.dumps(element) if element else None,
              json.dumps(el["total"]) if el.get("total") is not None else None,
-             item, store, total_text, reason, note, screenshot, f"+{GATE_TTL_HOURS} hours"),
+             item, store, total_text, reason, note, screenshot,
+             "approved" if decision else "pending", decision, decided_by, decision, decision, f"+{GATE_TTL_HOURS} hours"),
         )
         if commit:
             db.commit()

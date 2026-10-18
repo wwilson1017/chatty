@@ -3,9 +3,13 @@
 Uses the shared reminders DB for storage.
 """
 
+import hashlib
+import json
 import logging
+import re
 import uuid
 from datetime import datetime, timezone, timedelta
+from urllib.parse import urlsplit
 
 from croniter import croniter
 
@@ -20,6 +24,7 @@ DEFAULT_INTERVAL_MINUTES = 30
 _DEFAULT_LEASE_MINUTES = 15
 AUTO_DISABLE_THRESHOLD = 10
 _ERROR_BACKOFF_SECONDS = [30, 60, 300, 900, 3600]
+MAX_PREAPPROVED = 20
 
 
 def _error_backoff_seconds(consecutive_errors: int) -> int:
@@ -269,6 +274,11 @@ def update_action(action_id: str, **fields) -> dict:
             updates["active_hours_start"] = _normalize_hour(updates["active_hours_start"], "00:00")
         if "active_hours_end" in updates:
             updates["active_hours_end"] = _normalize_hour(updates["active_hours_end"], "23:59")
+        if "prompt" in updates and updates["prompt"] != action.get("prompt"):
+            # A changed prompt clears the computer pre-approvals for good (so editing it back
+            # doesn't revive them); set_preapproved is the only path that grants any.
+            updates["preapproved_json"] = None
+            updates["preapproved_prompt_sha256"] = None
 
         for bool_field in ("enabled", "triage_enabled", "always_on"):
             if bool_field in updates:
@@ -291,6 +301,69 @@ def update_action(action_id: str, **fields) -> dict:
         conn.commit()
 
     return {"ok": True, "id": action_id}
+
+
+# ── Computer pre-approvals ───────────────────────────────────────────────────
+# The gates a cron action's computer tasks may cross without asking ("submit the
+# timesheet every Friday"). Written ONLY here, from the dashboard — never by
+# update_action or an agent tool — and bound to the prompt's sha256 at save time,
+# so editing the prompt voids them. integrations/computer/preapprovals.py reads them.
+
+def _prompt_sha256(prompt) -> str:
+    return hashlib.sha256(str(prompt or "").encode("utf-8")).hexdigest()
+
+
+def normalize_host(host) -> str:
+    """Lowercase hostname, no scheme/port/path, no leading www."""
+    h = str(host or "").strip().lower()
+    if "//" in h:
+        h = urlsplit(h).hostname or ""
+    h = h.split("/")[0].split(":")[0]
+    return h[4:] if h.startswith("www.") else h
+
+
+def normalize_text(text) -> str:
+    """Whitespace-collapsed; compared case-insensitively to the element's accessible name."""
+    return re.sub(r"\s+", " ", str(text or "")).strip()
+
+
+def set_preapproved(action_id: str, items: list) -> dict:
+    """Replace a cron action's pre-approvals with `items` ([{host, button_text}]; [] clears)."""
+    clean: list[dict] = []
+    for it in items or []:
+        row = {"host": normalize_host((it or {}).get("host")), "button_text": normalize_text((it or {}).get("button_text"))}
+        if not row["host"] or not row["button_text"]:
+            return {"error": "Each pre-approval needs a host and a button text"}
+        if row not in clean:
+            clean.append(row)
+    if len(clean) > MAX_PREAPPROVED:
+        return {"error": f"At most {MAX_PREAPPROVED} pre-approvals per action"}
+    conn = db.get_db()
+    with db.write_lock():
+        row = conn.execute("SELECT action_type, prompt FROM scheduled_actions WHERE id = ?", (action_id,)).fetchone()
+        if not row:
+            return {"error": f"Action {action_id} not found"}
+        if row["action_type"] != "cron":
+            return {"error": "Only scheduled (cron) actions can carry pre-approvals"}
+        conn.execute(
+            "UPDATE scheduled_actions SET preapproved_json = ?, preapproved_prompt_sha256 = ?, updated_at = ? WHERE id = ?",
+            (json.dumps(clean) if clean else None, _prompt_sha256(row["prompt"]) if clean else None, _now_utc(), action_id),
+        )
+        conn.commit()
+    return {"ok": True, "id": action_id, "preapproved": clean}
+
+
+def preapproved_for(action: dict | None) -> list[dict]:
+    """The action's live pre-approvals: [] unless it is a cron action whose prompt is still the one
+    they were saved against."""
+    if not action or action.get("action_type") != "cron" or not action.get("preapproved_json"):
+        return []
+    if action.get("preapproved_prompt_sha256") != _prompt_sha256(action.get("prompt")):
+        return []
+    try:
+        return json.loads(action["preapproved_json"])
+    except ValueError:
+        return []
 
 
 def delete_action(action_id: str) -> dict:
