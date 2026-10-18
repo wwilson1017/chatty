@@ -48,10 +48,12 @@ def slug(name: str) -> str:
 
 
 def unique_tool_name(server_id: str, tool: str, seen: set[str]) -> str:
-    """mcp_<server>__<tool>, provider-safe ([A-Za-z0-9_-], 64 chars); a hash suffix on overflow or collision."""
+    """mcp_<server>__<tool>, provider-safe ([A-Za-z0-9_-], 64 chars). A hash suffix whenever sanitizing
+    changed the name or it overflows, so the alias depends on the tool name alone, never on the order the
+    server lists its tools in (an approved alias must keep naming the same tool across a refresh)."""
     raw = f"mcp_{server_id}__{tool}"
     name = re.sub(r"[^A-Za-z0-9_-]", "_", raw)
-    if len(name) > MAX_TOOL_NAME or name in seen:
+    if name != raw or len(name) > MAX_TOOL_NAME or name in seen:
         name = f"{name[:MAX_TOOL_NAME - 9]}_{hashlib.sha1(raw.encode()).hexdigest()[:8]}"
     seen.add(name)
     return name
