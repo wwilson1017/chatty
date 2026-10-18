@@ -111,6 +111,8 @@ SWEEP_ALLOWLIST = {
     ("POST", "/api/messaging/whatsapp/webhook"),  # Baileys sidecar, X-Api-Key auth
     ("POST", "/api/integrations/paperclip/heartbeat"),  # X-Webhook-Secret auth
     ("POST", "/api/connector/pair"),            # one-time pair code (rate-limited); the rest is bearer-guarded
+    ("POST", "/api/terminal/pair/start"),       # `chatty login` starts a device-code pairing (rate-limited, capped)
+    ("POST", "/api/terminal/pair/poll"),        # secret device_code; a token only after the logged-in web approves
     # Quick-capture is deliberately public (phone bookmark, no login);
     # the optional secret lives in the URL path (todo_capture_token).
     ("GET", "/capture"),
@@ -120,6 +122,7 @@ SWEEP_ALLOWLIST = {
     ("POST", "/api/capture"),
     ("POST", "/api/capture/{token}"),
     ("GET", "/todo"),                           # no-login todo web app root (subpaths ride the prefixes below)
+    ("GET", "/computer"),                       # the SPA shell for the screen viewer; the SPA's ProtectedRoute gates it
 }
 
 # The no-login todo web app (page + its own copy of the todo API). Same trust

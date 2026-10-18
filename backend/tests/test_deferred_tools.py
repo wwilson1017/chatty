@@ -488,3 +488,7 @@ class TestBuildProviderTools:
         assert "writes" not in provider[0]
         assert "context_memory" not in provider[0]
         assert "integration" not in provider[0]
+
+    def test_context_aware_flag_never_reaches_the_provider(self):
+        tool = {**_make_tool("mcp_x__do", "integration", integration="mcp"), "context_aware": True}
+        assert "context_aware" not in build_provider_tools([tool])[0]

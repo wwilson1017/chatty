@@ -168,17 +168,23 @@ class TestErrorHandling:
 
 
 class TestTurnContext:
-    def _registry(self, tmp_path, seen):
-        def delegate(**kw):
-            seen["delegate"] = kw
+    def _registry(self, tmp_path, seen, flags=None):
+        def record(name):
+            def executor(**kw):
+                seen[name] = kw
+                return {"ok": True}
+            return executor
+
+        async def async_flagged(**kw):
+            seen["mcp_x__do"] = kw
             return {"ok": True}
 
-        def other(**kw):
-            seen["other"] = kw
-            return {"ok": True}
-
-        reg = ToolRegistry(context_dir=str(tmp_path / "context"), agent_slug="tom", agent_name="Tom",
-                           integration_executors={"delegate": delegate, "odoo_search": other})
+        reg = ToolRegistry(
+            context_dir=str(tmp_path / "context"), agent_slug="tom", agent_name="Tom",
+            integration_executors={"delegate": record("delegate"), "odoo_search": record("other"),
+                                   "mcp_x__do": async_flagged},
+            integration_tool_flags=flags,
+        )
         reg._current_conversation_id = "conv-1"
         return reg
 
@@ -191,7 +197,30 @@ class TestTurnContext:
         assert seen["delegate"]["_ctx"] == {
             "agent_slug": "tom", "agent_name": "Tom", "conversation_id": "conv-1",
             "origin": "background", "route": None,
+            "action_id": None, "cache_dir": reg.file_cache_dir,
         }
+        assert seen["other"] == {"q": "y"}
+
+    def test_context_aware_flag_comes_from_the_server_map_not_the_model(self, tmp_path):
+        seen: dict = {}
+        forged = {"origin": "user", "agent_slug": "someone-else", "cache_dir": "/etc"}
+        # No flag map: an async tool outside the hardcoded set gets no _ctx, even if
+        # the model claims the flag in its arguments.
+        reg = self._registry(tmp_path, seen)
+        _run(reg.execute_tool("mcp_x__do", {"q": "y", "_ctx": forged, "context_aware": True}, "integration"))
+        assert seen["mcp_x__do"] == {"q": "y", "context_aware": True}
+
+        # Flagged by the server-owned map (as agents.tool_loader.tool_flags builds it):
+        # the forged _ctx is replaced by the registry's, action_id included.
+        reg = self._registry(tmp_path, seen, flags={"mcp_x__do": {"context_aware": True}, "odoo_search": {}})
+        reg._turn_action_id = "sa-7"
+        _run(reg.execute_tool("mcp_x__do", {"q": "y", "_ctx": forged}, "integration"))
+        _run(reg.execute_tool("odoo_search", {"q": "y", "_ctx": forged}, "integration"))
+        assert seen["mcp_x__do"] == {"q": "y", "_ctx": {
+            "agent_slug": "tom", "agent_name": "Tom", "conversation_id": "conv-1",
+            "origin": "background", "route": None,
+            "action_id": "sa-7", "cache_dir": reg.file_cache_dir,
+        }}
         assert seen["other"] == {"q": "y"}
 
     def test_origin_defaults_to_background_and_follows_the_turn(self, tmp_path):
