@@ -48,6 +48,9 @@ def bootstrap():
     from integrations.claude_code.db import init_db as init_claude_code_db
     _safe_init("claude_code", init_claude_code_db)
 
+    from integrations.computer.db import init_db as init_computer_db
+    _safe_init("computer", init_computer_db)  # the store only; the runner never starts in the CLI
+
     from core.agents.shared_context.db import init_db as init_shared_context_db
     _safe_init("shared_context", init_shared_context_db)
 

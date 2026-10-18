@@ -23,7 +23,7 @@ from typing import Literal
 
 import websockets
 from fastapi import APIRouter, Depends, HTTPException, WebSocket
-from fastapi.responses import HTMLResponse
+from fastapi.responses import FileResponse, HTMLResponse
 from pydantic import BaseModel, Field
 
 from core.auth import get_current_user
@@ -208,6 +208,95 @@ async def vnc(ws: WebSocket, ticket: str = ""):
         await _safe_close(ws, 4000 if state["reason"] else 1000, state["reason"])
     finally:
         await client.aclose()
+
+
+# ── tasks (dashboard) ────────────────────────────────────────────────────────
+
+@router.get("/api/computer/tasks")
+def list_tasks(limit: int = 20, agent: str | None = None, user=Depends(get_current_user)):
+    from . import db
+    limit = max(1, min(limit, 100))
+    sql, params = "SELECT * FROM tasks", []
+    if agent:
+        sql, params = sql + " WHERE agent_slug = ?", [agent]
+    rows = db.query(sql + " ORDER BY created_at DESC, rowid DESC LIMIT ?", (*params, limit))
+    return {"tasks": [db.task_view(dict(r), result_chars=300) for r in rows]}
+
+
+@router.get("/api/computer/tasks/{task_id}")
+def get_task(task_id: str, user=Depends(get_current_user)):
+    from . import db
+    task = db.get_task(task_id)
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+    out = db.task_view(task, result_chars=20000)
+    gate = db.get_gate(task["gate_id"]) if task["gate_id"] else None
+    out["gate"] = db.gate_view(gate) if gate else None
+    return out
+
+
+@router.get("/api/computer/tasks/{task_id}/steps")
+def get_task_steps(task_id: str, user=Depends(get_current_user)):
+    from . import db
+    if not db.get_task(task_id):
+        raise HTTPException(status_code=404, detail="Task not found")
+    return {"steps": db.list_steps(task_id)}
+
+
+@router.get("/api/computer/tasks/{task_id}/steps/{n}/screenshot")
+def step_screenshot(task_id: str, n: int, user=Depends(get_current_user)):
+    """The screen as the helper saw it at step `n` (screenshot mode), kept 14 days after the task ends."""
+    from . import approvals, db
+    rows = db.query("SELECT screenshot FROM steps WHERE task_id = ? AND n = ?", (task_id, n))
+    path = approvals.screenshot_path(dict(rows[0])) if rows else None
+    if not path:
+        raise HTTPException(status_code=404, detail="No screenshot for this step")
+    return FileResponse(path, media_type="image/png", headers={"Cache-Control": "private, max-age=3600"})
+
+
+@router.post("/api/computer/tasks/{task_id}/cancel")
+def cancel_task(task_id: str, user=Depends(get_current_user)):
+    from . import db
+    if not db.get_task(task_id):
+        raise HTTPException(status_code=404, detail="Task not found")
+    cancelled = db.finish_task(task_id, "cancelled", "cancelled by owner", notify=False, cancel_requested=1)
+    return {"ok": True, "cancelled": cancelled}
+
+
+# ── gates (approvals) ────────────────────────────────────────────────────────
+
+class GateDecideRequest(BaseModel):
+    decision: Literal["approve", "deny"]
+
+
+@router.get("/api/computer/gates")
+def list_gates(status: str = "pending", limit: int = 20, user=Depends(get_current_user)):
+    from . import db
+    limit = max(1, min(limit, 100))
+    sql, params = "SELECT * FROM gates", []
+    if status != "all":
+        sql, params = sql + " WHERE status = ?", [status]
+    rows = db.query(sql + " ORDER BY created_at DESC, rowid DESC LIMIT ?", (*params, limit))
+    return {"gates": [db.gate_view(dict(r)) for r in rows]}
+
+
+@router.get("/api/computer/gates/{gate_id}/screenshot")
+def gate_screenshot(gate_id: str, user=Depends(get_current_user)):
+    from . import approvals, db
+    gate = db.get_gate(gate_id)
+    path = approvals.screenshot_path(gate) if gate else None
+    if not path:
+        raise HTTPException(status_code=404, detail="No screenshot for this gate")
+    return FileResponse(path, media_type="image/png", headers={"Cache-Control": "private, max-age=3600"})
+
+
+@router.post("/api/computer/gates/{gate_id}/decide")
+def decide_gate(gate_id: str, body: GateDecideRequest, user=Depends(get_current_user)):
+    from . import approvals
+    result = approvals.decide(gate_id, body.decision, "card", str(user.get("sub") or "owner"))
+    if result.get("error"):
+        raise HTTPException(status_code=404 if result.get("not_found") else 409, detail=result["error"])
+    return result
 
 
 _UNBUILT_HTML = ("<!doctype html><meta charset='utf-8'><title>Computer</title>"

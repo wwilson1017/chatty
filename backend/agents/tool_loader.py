@@ -43,11 +43,25 @@ INTEGRATION_MODULES = {
     "paperclip": ("integrations.paperclip.tools", "PAPERCLIP_TOOL_DEFS"),
     "todoist": ("integrations.todoist.tools", "TODOIST_TOOL_DEFS"),
     "claude_code": ("integrations.claude_code.tools", "CLAUDE_CODE_TOOL_DEFS"),
+    "computer": ("integrations.computer.tools", "COMPUTER_TOOL_DEFS"),
+    "mcp": ("integrations.mcp.tools", "MCP_TOOL_DEFS"),
 }
 
 
+# Definition keys the server reads at execution time. tool_flags() collects them
+# into the {tool_name: flags} map every ToolRegistry gets, so a flag can only
+# come from a definition the server loaded, never from the model's arguments.
+TOOL_FLAG_KEYS = ("context_aware",)
+
+
 def load_integration_tools() -> tuple[list[dict], dict]:
-    """Load tool definitions and executors from all enabled integrations."""
+    """Load tool definitions and executors from all enabled integrations.
+
+    A module exposes its definitions under the attribute named in
+    INTEGRATION_MODULES and its executors as TOOL_EXECUTORS. Either may be the
+    data itself or a zero-argument callable returning it, for integrations
+    whose tool list is only known at load time. Executors may be async.
+    """
     from integrations.registry import is_enabled
 
     tool_defs: list[dict] = []
@@ -70,12 +84,21 @@ def load_integration_tools() -> tuple[list[dict], dict]:
             mod = importlib.import_module(module_path)
             defs = getattr(mod, defs_attr, [])
             execs = getattr(mod, "TOOL_EXECUTORS", {})
+            if callable(defs):
+                defs = defs()
+            if callable(execs):
+                execs = execs()
             tool_defs.extend({**d, "integration": name} for d in defs)
             executors.update(execs)
         except Exception as e:
             logger.warning("Failed to load integration %s: %s", name, e)
 
     return tool_defs, executors
+
+
+def tool_flags(tool_defs: list[dict]) -> dict[str, dict]:
+    """Server-owned {tool_name: flags} map for ToolRegistry(integration_tool_flags=...)."""
+    return {d["name"]: {k: d[k] for k in TOOL_FLAG_KEYS if k in d} for d in tool_defs}
 
 
 def build_agent_handlers(agent_slug: str) -> tuple[dict, dict]:

@@ -64,6 +64,7 @@ INTEGRATION_LABELS: dict[str, str] = {
     "qb_csv": "QuickBooks CSV",
     "paperclip": "Paperclip",
     "todoist": "Todoist",
+    "mcp": "MCP servers",
 }
 
 # Maps common search terms → (kind values, integration names, name prefixes)
@@ -107,6 +108,7 @@ SEARCH_ALIASES: dict[str, tuple[list[str], list[str], list[str]]] = {
     "attachment": ([], ["paperclip"], ["paperclip_"]),
     "clip": ([], ["paperclip"], ["paperclip_"]),
     "paperclip": ([], ["paperclip"], ["paperclip_"]),
+    "mcp": ([], ["mcp"], ["mcp_"]),
     "web": (["web"], [], []),
     "search": (["web"], [], ["web_"]),
     "fetch": (["web"], [], ["web_"]),
@@ -358,7 +360,7 @@ def load_deferred_tools(
     return loaded_names
 
 
-_INTERNAL_FIELDS = {"kind", "writes", "context_memory", "integration"}
+_INTERNAL_FIELDS = {"kind", "writes", "context_memory", "integration", "context_aware"}
 
 
 def build_provider_tools(tool_defs: list[dict]) -> list[dict]:

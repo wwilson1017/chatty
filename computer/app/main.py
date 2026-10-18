@@ -21,6 +21,7 @@ import httpx
 import uvicorn
 from fastapi import APIRouter, Depends, FastAPI, Request, Response, WebSocket
 from fastapi.responses import JSONResponse, StreamingResponse
+from playwright.async_api import Error as PlaywrightError
 from pydantic import BaseModel, Field
 
 from .browser import SNAPSHOT_MAX_CHARS, BrowserError, BrowserSession
@@ -675,7 +676,12 @@ async def put_file(request: Request, agent: str, path: str):
 @router.get("/profiles/{agent}/sites")
 async def list_sites(agent: str):
     check_agent(agent)
-    return {"agent": agent, "sites": await asyncio.to_thread(BrowserSession.list_sites, agent)}
+    if state.desktop.active_agent == agent and state.browser.connected:
+        try:
+            return {"agent": agent, "sites": await state.browser.list_sites_live(), "live": True}
+        except (BrowserError, PlaywrightError):
+            pass  # fall back to the database
+    return {"agent": agent, "sites": await asyncio.to_thread(BrowserSession.list_sites, agent), "live": False}
 
 
 @router.delete("/profiles/{agent}/sites/{domain}")

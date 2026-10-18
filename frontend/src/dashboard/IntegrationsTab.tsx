@@ -6,6 +6,7 @@ import { useOAuthFlow } from '../core/hooks/useOAuthFlow';
 import { GoogleIntegrationCard } from './GoogleIntegrationCard';
 import { AppCredentialsForm } from './AppCredentialsForm';
 import { ClaudeCodePanel } from './ClaudeCodePanel';
+import { McpPanel } from './McpPanel';
 import { ComputerPanel } from './ComputerPanel';
 import { toast } from '../shared/toast';
 import type { Integration, Agent } from '../core/types';
@@ -27,6 +28,7 @@ const INTEGRATION_ICONS: Record<string, React.ComponentType<{ size?: number; cla
   todoist: IconBook,
   brain: IconZap,
   claude_code: IconZap,
+  mcp: IconGlobe,
   computer: IconMonitor,
 };
 
@@ -461,8 +463,8 @@ export function IntegrationsTab() {
                         </>
                       )}
 
-                      {/* Setup button — only when not configured (Claude Code and the computer set up from their own panels) */}
-                      {!isConfigured && integration.id !== 'claude_code' && integration.id !== 'computer' && (
+                      {/* Setup button — only when not configured (Claude Code pairs, MCP adds servers and the computer is set up from their own panels) */}
+                      {!isConfigured && integration.id !== 'claude_code' && integration.id !== 'mcp' && integration.id !== 'computer' && (
                         <button onClick={() => {
                           if (integration.id === 'quickbooks') {
                             if (hasAppCreds) setupQuickBooks();
@@ -547,8 +549,8 @@ export function IntegrationsTab() {
               </div>
             </div>
 
-            {/* Permission level selector for Odoo and QuickBooks */}
-            {(integration.id === 'odoo' || integration.id === 'quickbooks' || integration.id === 'paperclip') && integration.enabled && integration.configured && integration.connection_status !== 'broken' && (
+            {/* Permission level selector for Odoo, QuickBooks, Paperclip and MCP */}
+            {(integration.id === 'odoo' || integration.id === 'quickbooks' || integration.id === 'paperclip' || integration.id === 'mcp') && integration.enabled && integration.configured && integration.connection_status !== 'broken' && (
               <div style={{ marginTop: 10, display: 'flex', alignItems: 'center', gap: 10 }}>
                 <span style={{ ...mono(9), whiteSpace: 'nowrap' }}>Permissions</span>
                 <div style={{
@@ -613,6 +615,7 @@ export function IntegrationsTab() {
             )}
 
             {integration.id === 'claude_code' && <ClaudeCodePanel onChanged={loadIntegrations} />}
+            {integration.id === 'mcp' && <McpPanel onChanged={loadIntegrations} />}
             {integration.id === 'computer' && <ComputerPanel onChanged={loadIntegrations} />}
 
             {/* Paperclip agent mapping */}

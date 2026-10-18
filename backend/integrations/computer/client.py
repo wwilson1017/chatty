@@ -19,11 +19,12 @@ class ComputerError(Exception):
     """A control-API call failed. `status` is the HTTP status (0: unreachable), `detail` the
     computer's sentence, `code` its machine-readable error (`busy`, `human_in_control`, …) if any."""
 
-    def __init__(self, status: int, detail: str, code: str = ""):
+    def __init__(self, status: int, detail: str, code: str = "", body: dict | None = None):
         super().__init__(detail)
         self.status = status
         self.detail = detail
         self.code = code
+        self.body = body or {}  # the computer's full error object: `holder`, `epoch`, `mismatches`, a log tail, …
 
 
 def api_version_error(health: dict) -> str | None:
@@ -46,8 +47,8 @@ class ComputerClient:
     async def aclose(self) -> None:
         await self._http.aclose()
 
-    async def request(self, method: str, path: str, **kw) -> dict | list:
-        """One control-API call; JSON body or {} back. Later PRs add their own wrappers on top of this."""
+    async def raw(self, method: str, path: str, **kw) -> httpx.Response:
+        """One control-API call, errors raised, response returned (for non-JSON bodies)."""
         try:
             r = await self._http.request(method, path, **kw)
         except httpx.HTTPError as e:
@@ -60,10 +61,26 @@ class ComputerClient:
             # The computer answers {"error": "<code>", "detail": "<sentence>"}; FastAPI's own 422 has only `detail`.
             code = str(body.get("error") or "") if isinstance(body, dict) else ""
             detail = (body.get("detail") if isinstance(body, dict) else None) or code or r.text or f"HTTP {r.status_code}"
-            raise ComputerError(r.status_code, str(detail)[:500], code)
+            raise ComputerError(r.status_code, str(detail)[:500], code, body if isinstance(body, dict) else None)
+        return r
+
+    async def request(self, method: str, path: str, **kw) -> dict | list:
+        """One control-API call; JSON body or {} back. Later PRs add their own wrappers on top of this."""
+        r = await self.raw(method, path, **kw)
         if not r.content:
             return {}
         return r.json()
+
+    # ── files (no lease needed) ──────────────────────────────────────────────
+
+    async def get_file(self, agent: str, path: str) -> tuple[bytes, str]:
+        """(bytes, file name) of a file under /workspace/<agent> or /workspace/shared."""
+        r = await self.raw("GET", "/files/content", params={"agent": agent, "path": path}, timeout=60.0)
+        return r.content, r.headers.get("X-File-Name") or path.rsplit("/", 1)[-1]
+
+    async def put_file(self, agent: str, path: str, data: bytes) -> dict:
+        return await self.request("PUT", "/files/content", params={"agent": agent, "path": path}, content=data,
+                                  timeout=60.0)
 
     # ── PR 2 surface ─────────────────────────────────────────────────────────
 
@@ -78,6 +95,11 @@ class ComputerClient:
 
     async def control_end(self, control_session_id: str) -> dict:
         return await self.request("POST", "/control/end", json={"control_session_id": control_session_id})
+
+    async def control_status(self) -> dict:
+        """{human_in_control, control, control_ended, epoch, lease}; exempt from human_in_control, so the
+        runner polls it while a person has the screen."""
+        return await self.request("GET", "/control/status")
 
     async def list_sites(self, agent: str) -> list[dict]:
         data = await self.request("GET", f"/profiles/{agent}/sites")

@@ -8,6 +8,7 @@ import { TodoSettingsTab } from './TodoSettingsTab';
 import { DataTab } from './DataTab';
 import { LogsTab } from './LogsTab';
 import { SecurityTab } from './SecurityTab';
+import { TerminalTab } from './TerminalTab';
 import { NotificationSettings } from './NotificationSettings';
 import { DeleteAgentModal } from './DeleteAgentModal';
 import { AgentMark } from '../shared/AgentMark';
@@ -16,12 +17,14 @@ interface Props {
   branding: BrandingConfig | null;
   onBrandingUpdate: (b: BrandingConfig) => void;
   onClose: () => void;
+  initialTab?: Tab;
+  pairCode?: string;  // from a `chatty login` QR (/?pair=<code>)
 }
 
-type Tab = 'providers' | 'branding' | 'integrations' | 'todos' | 'chat' | 'data' | 'logs' | 'security' | 'danger';
+type Tab = 'providers' | 'branding' | 'integrations' | 'terminal' | 'todos' | 'chat' | 'data' | 'logs' | 'security' | 'danger';
 
-export function SettingsPanel({ branding, onBrandingUpdate, onClose }: Props) {
-  const [tab, setTab] = useState<Tab>('providers');
+export function SettingsPanel({ branding, onBrandingUpdate, onClose, initialTab, pairCode }: Props) {
+  const [tab, setTab] = useState<Tab>(initialTab ?? 'providers');
   const [deleteAgent, setDeleteAgent] = useState<Agent | null>(null);
   const [dangerAgents, setDangerAgents] = useState<Agent[]>([]);
   const [crmConfirm, setCrmConfirm] = useState('');
@@ -120,6 +123,7 @@ export function SettingsPanel({ branding, onBrandingUpdate, onClose }: Props) {
     { id: 'providers', label: 'Providers' },
     { id: 'branding', label: 'Branding' },
     { id: 'integrations', label: 'Integrations' },
+    { id: 'terminal', label: 'Terminal' },
     { id: 'todos', label: 'Todos' },
     { id: 'chat', label: 'Chat' },
     { id: 'data', label: 'Data' },
@@ -156,7 +160,7 @@ export function SettingsPanel({ branding, onBrandingUpdate, onClose }: Props) {
           }}>×</button>
         </div>
 
-        {/* Tabs — 9 of them in 520px: allow horizontal scroll instead of clipping */}
+        {/* Tabs — 10 of them in 520px: allow horizontal scroll instead of clipping */}
         <div style={{ display: 'flex', gap: 0, overflowX: 'auto' }}>
           {tabs.map(t => {
             const active = tab === t.id;
@@ -750,6 +754,8 @@ export function SettingsPanel({ branding, onBrandingUpdate, onClose }: Props) {
           {tab === 'logs' && <LogsTab />}
 
           {tab === 'security' && <SecurityTab />}
+
+          {tab === 'terminal' && <TerminalTab pairCode={pairCode} />}
 
           {tab === 'danger' && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>

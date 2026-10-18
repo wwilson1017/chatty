@@ -154,7 +154,7 @@ class AnthropicProvider(AIProvider):
         try:
             async with client.messages.stream(
                 model=self.model,
-                max_tokens=16384,
+                max_tokens=self.max_tokens,
                 system=system,
                 messages=api_messages,
                 tools=cached_tools if cached_tools else anthropic.NOT_GIVEN,

@@ -220,7 +220,7 @@ def _build_tools(agent_slug: str, agent: dict, *, background_mode: bool = False,
     is not the place to file structural proposals against the owner's second
     brain, nor to decide what enters its long-term memory (chat, cron and coach only).
     """
-    from agents.tool_loader import load_integration_tools, build_agent_handlers, INTEGRATION_MODULES
+    from agents.tool_loader import load_integration_tools, build_agent_handlers, INTEGRATION_MODULES, tool_flags
     from agents.engine import build_agent_config
     from integrations.registry import get_tool_mode, list_google_accounts as _list_ga
     from integrations.google.policy import google_capabilities_union
@@ -279,6 +279,7 @@ def _build_tools(agent_slug: str, agent: dict, *, background_mode: bool = False,
         gcs_prefix=config.gcs_prefix,
         google_connected=google_connected,
         integration_executors=integration_executors,
+        integration_tool_flags=tool_flags(integration_tool_defs),
         agent_slug=agent_slug,
         agent_name=config.agent_name,
         reminder_handlers=reminder_handlers,
@@ -460,6 +461,7 @@ def _process_heartbeat(action: dict) -> None:
     context_snippet = context[:30000] if context else "(no context files)"
 
     tool_defs, registry, account_info_map = _build_tools(agent_slug, agent, background_mode=True, heartbeat=True)
+    registry._turn_action_id = action["id"]
     on_iteration = _make_lease_renewer(action["id"], lease_id)
 
     from core.agents.ai_service import _google_accounts_context
@@ -745,12 +747,14 @@ def run_agent_background_turn(
     tz_name: str = "America/Chicago",
     conversation_id: str | None = None,
     route: dict | None = None,
+    action_id: str | None = None,
 ):
     """Run one background agent turn with the full tool set (cron, Claude Code completions).
 
     Returns (BackgroundResult, registry). The origin stays "background";
-    conversation_id / route are stamped on the registry so any job the turn
-    delegates keeps the original conversation and destination.
+    conversation_id / route / action_id are stamped on the registry so any job
+    the turn delegates keeps the original conversation, destination and
+    scheduled action.
     """
     agent_slug = agent["slug"]
     from agents.engine import get_context_manager
@@ -764,6 +768,7 @@ def run_agent_background_turn(
     tool_defs, registry, _aim = _build_tools(agent_slug, agent, background_mode=True)
     registry._current_conversation_id = conversation_id
     registry._turn_route = route
+    registry._turn_action_id = action_id
 
     from core.agents.ai_service import _google_accounts_context
     from agents.engine import build_agent_config as _bac2
@@ -896,6 +901,7 @@ def _process_cron(action: dict) -> None:
             model_override=action.get("model_override") or None,
             on_iteration=_make_lease_renewer(action["id"], lease_id),
             tz_name=action.get("active_hours_tz") or "America/Chicago",
+            action_id=action["id"],
         )
         duration_ms = int((time.monotonic() - start_time) * 1000)
 

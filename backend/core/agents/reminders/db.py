@@ -166,6 +166,11 @@ def _setup_connection() -> None:
         _connection.execute("ALTER TABLE scheduled_actions ADD COLUMN leased_until TEXT")
     if "last_failure_alert_at" not in cols:
         _connection.execute("ALTER TABLE scheduled_actions ADD COLUMN last_failure_alert_at TEXT")
+    # Computer pre-approvals (written only by scheduled_actions.service.set_preapproved).
+    if "preapproved_json" not in cols:
+        _connection.execute("ALTER TABLE scheduled_actions ADD COLUMN preapproved_json TEXT")
+    if "preapproved_prompt_sha256" not in cols:
+        _connection.execute("ALTER TABLE scheduled_actions ADD COLUMN preapproved_prompt_sha256 TEXT")
     _connection.execute("CREATE INDEX IF NOT EXISTS idx_sa_lease ON scheduled_actions(lease_id, leased_until)")
 
     # Migration: add recurring reminder columns if missing

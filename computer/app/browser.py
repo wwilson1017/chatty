@@ -487,6 +487,13 @@ class BrowserSession:
         newer = os.path.join(PROFILES_DIR, agent, "Default", "Network", "Cookies")
         return newer if os.path.exists(newer) else os.path.join(PROFILES_DIR, agent, "Default", "Cookies")
 
+    async def list_sites_live(self) -> list[dict]:
+        """The running browser's cookies, grouped by domain (the on-disk database lags by ~30 s)."""
+        counts: dict[str, int] = {}
+        for c in await self.context.cookies():
+            counts[c["domain"]] = counts.get(c["domain"], 0) + 1
+        return [{"domain": d, "cookies": n} for d, n in sorted(counts.items())]
+
     @classmethod
     def list_sites(cls, agent: str) -> list[dict]:
         path = cls.cookie_db_path(agent)
