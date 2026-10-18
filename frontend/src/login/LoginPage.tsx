@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, type FormEvent } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../core/auth/AuthContext';
 import { IconWordmark } from '../shared/icons';
 import { WarmHalo } from '../shared/WarmHalo';
@@ -15,6 +15,9 @@ const mono = (size: number, color = 'rgba(237,240,244,0.38)') => ({
 export function LoginPage() {
   const { login, verify2fa } = useAuth();
   const navigate = useNavigate();
+  // ProtectedRoute passes the page we were sent away from; go back there after login.
+  const from = (useLocation().state as { from?: { pathname: string; search: string } } | null)?.from;
+  const next = from ? from.pathname + from.search : '/';
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
@@ -41,7 +44,7 @@ export function LoginPage() {
         setPendingToken(result.pendingToken);
         setStep('2fa');
       } else {
-        navigate('/');
+        navigate(next);
       }
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Login failed');
@@ -56,7 +59,7 @@ export function LoginPage() {
     setLoading(true);
     try {
       await verify2fa(pendingToken, code, trustDevice);
-      navigate('/');
+      navigate(next);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Verification failed');
       setCode('');

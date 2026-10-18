@@ -3,11 +3,12 @@
  * Redirects unauthenticated users to /login.
  */
 
-import { Navigate } from 'react-router-dom';
+import { Navigate, useLocation } from 'react-router-dom';
 import { useAuth } from './AuthContext';
 
 export function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { isLoggedIn, loading } = useAuth();
+  const location = useLocation();
 
   if (loading) {
     return (
@@ -18,7 +19,8 @@ export function ProtectedRoute({ children }: { children: React.ReactNode }) {
   }
 
   if (!isLoggedIn) {
-    return <Navigate to="/login" replace />;
+    // Remember where we were going (e.g. a `chatty login` QR's /?pair=<code>) for after login.
+    return <Navigate to="/login" replace state={{ from: location }} />;
   }
 
   return <>{children}</>;
