@@ -658,7 +658,8 @@ class _Run:
                 if err:
                     return {"error": err}
                 # ── pre-approved (scheduled actions): a named host + button crosses without asking ──
-                pre = preapprovals.match(self.task.get("action_id"), verdict.kind, label, element)
+                kind = "buy" if (self.declared or {}).get("kind") == "buy" else verdict.kind  # a declared purchase is one
+                pre = preapprovals.match(self.task.get("action_id"), kind, label, element)
                 if pre:
                     verdict_out[-1] = gates.Verdict(True, verdict.kind, "preapproved", f"{verdict.kind}: {name!r} pre-approved ({verdict.rule})")
                     d, self.declared = self.declared or {}, None

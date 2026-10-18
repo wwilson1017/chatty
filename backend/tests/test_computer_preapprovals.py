@@ -79,14 +79,39 @@ class TestPreapprovedRun:
         assert note.startswith("Chatty performed this submit ('Submit timesheet' on time.example) ONCE")
         assert "<untrusted_tool_result" in note and "Do not repeat it" in note.split("<untrusted_tool_result")[0]
 
-    def test_an_edited_prompt_voids_the_pre_approval(self, fc, monkeypatch):
+    def test_an_edited_prompt_clears_the_pre_approval(self, fc, monkeypatch):
         aid = _cron()
+        original = service.get_action(aid)["prompt"]
         _allow(aid)
         assert service.update_action(aid, prompt="Submit the timesheet AND approve the team's expenses.")["ok"]
+        row = service.get_action(aid)
+        assert row["preapproved_json"] is None and row["preapproved_prompt_sha256"] is None
+        assert service.update_action(aid, prompt=original)["ok"]  # editing it back doesn't revive the list
         assert service.preapproved_for(service.get_action(aid)) == []
         t, asked, _ = _submit_run(fc, monkeypatch, aid)
         assert t["status"] == "needs_approval" and asked == [t["gate_id"]] and fc.performed == []
         assert db.get_gate(t["gate_id"])["status"] == "pending"
+        # the sha256 still guards any other write path: a list bound to a different prompt is dead
+        _allow(aid)
+        from core.agents.reminders import db as rdb
+        rdb.get_db().execute("UPDATE scheduled_actions SET prompt = 'edited behind the service''s back' WHERE id = ?", (aid,))
+        rdb.get_db().commit()
+        assert service.preapproved_for(service.get_action(aid)) == []
+
+    def test_a_declared_purchase_is_never_pre_approved_even_when_the_classifier_says_submit(self, fc, monkeypatch):
+        aid = _cron()
+        _allow(aid, text="Confirm")
+        confirm = {**SUBMIT, "name": "Confirm"}  # rule 5: a generic confirmation, gated as `submit`
+        assert preapprovals.match(aid, "submit", "act:click", confirm)  # the list alone would let it through
+        fc.elements["e10"] = confirm
+        asked: list[str] = []
+        monkeypatch.setattr(approvals, "request", lambda gid: asked.append(gid) or "card")
+        _queue("pay the invoice", action_id=aid, origin="background")
+        declare = ("request_approval", {"kind": "buy", "reason": "paying the invoice"})
+        prov = FakeProvider([{"tool_calls": [SNAP, declare]}, {"tool_calls": [CLICK_ORDER]}, FINAL])
+        _, t = _run(fc, prov, monkeypatch)
+        assert t["status"] == "needs_approval" and asked == [t["gate_id"]] and fc.performed == []
+        assert db.get_gate(t["gate_id"])["reason"] == "paying the invoice"
 
     def test_a_purchase_is_never_pre_approved(self, fc, monkeypatch):
         aid = _cron()
@@ -181,8 +206,8 @@ class TestOnlyTheDashboardWrites:
         assert a["preapproved"] == [ALLOWED] and a["preapproved_prompt_sha256"]
         assert service.update_action(aid, prompt="changed")["ok"]
         [a] = [a for a in c.get("/api/scheduled-actions/tom").json()["actions"] if a["id"] == aid]
-        assert a["preapproved"] == [] and json.loads(a["preapproved_json"]) == [ALLOWED]  # voided, kept for the record
-        assert c.put(url, json={"items": [ALLOWED]}).json()["preapproved"] == [ALLOWED]  # re-saving binds to the new prompt
+        assert a["preapproved"] == [] and a["preapproved_json"] is None  # cleared by the prompt edit
+        assert c.put(url, json={"items": [ALLOWED]}).json()["preapproved"] == [ALLOWED]  # saving again binds to the new prompt
         assert service.preapproved_for(service.get_action(aid)) == [ALLOWED]
         assert c.put(url, json={"items": []}).status_code == 200  # clears both columns
         row = service.get_action(aid)

@@ -274,6 +274,11 @@ def update_action(action_id: str, **fields) -> dict:
             updates["active_hours_start"] = _normalize_hour(updates["active_hours_start"], "00:00")
         if "active_hours_end" in updates:
             updates["active_hours_end"] = _normalize_hour(updates["active_hours_end"], "23:59")
+        if "prompt" in updates and updates["prompt"] != action.get("prompt"):
+            # A changed prompt clears the computer pre-approvals for good (so editing it back
+            # doesn't revive them); set_preapproved is the only path that grants any.
+            updates["preapproved_json"] = None
+            updates["preapproved_prompt_sha256"] = None
 
         for bool_field in ("enabled", "triage_enabled", "always_on"):
             if bool_field in updates:
