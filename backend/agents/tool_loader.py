@@ -44,6 +44,7 @@ INTEGRATION_MODULES = {
     "todoist": ("integrations.todoist.tools", "TODOIST_TOOL_DEFS"),
     "claude_code": ("integrations.claude_code.tools", "CLAUDE_CODE_TOOL_DEFS"),
     "computer": ("integrations.computer.tools", "COMPUTER_TOOL_DEFS"),
+    "mcp": ("integrations.mcp.tools", "MCP_TOOL_DEFS"),
 }
 
 

@@ -31,6 +31,7 @@ from branding.router import router as branding_router
 from integrations.router import router as integrations_router
 from integrations.claude_code.connector_api import router as connector_router
 from integrations.computer.viewer import router as computer_viewer_router
+from core.terminal.router import router as terminal_router
 from integrations.crm_lite.router import router as crm_router
 from integrations.qb_csv.router import router as qb_csv_router
 from integrations.whatsapp.router import router as whatsapp_router
@@ -146,6 +147,8 @@ async def lifespan(app: FastAPI):
 
     from integrations.computer.db import init_db as init_computer_db
     _safe_init("computer", init_computer_db)
+    from core.terminal.db import init_db as init_terminal_db
+    _safe_init("terminal", init_terminal_db)
 
     from core.agents.shared_context.db import init_db as init_shared_context_db
     _safe_init("shared_context", init_shared_context_db)
@@ -220,6 +223,9 @@ async def lifespan(app: FastAPI):
     _computer_runner.start()
     _scheduler.add_job(_computer_sweep, "interval", seconds=60, id="computer_sweep",
                        next_run_time=datetime.now(timezone.utc))
+    # MCP servers: re-fetch tool lists older than 6 h (agents load from the cache only).
+    from integrations.mcp.service import refresh_stale as _mcp_refresh
+    _scheduler.add_job(_mcp_refresh, "interval", hours=1, id="mcp_tool_refresh")
 
     _scheduler.start()
     logger.info("APScheduler started (reminder heartbeat + scheduled actions + sweeper + nightly jobs)")
@@ -332,6 +338,7 @@ app.include_router(import_router, tags=["import"])
 app.include_router(branding_router, prefix="/api/branding", tags=["branding"])
 app.include_router(integrations_router, prefix="/api/integrations", tags=["integrations"])
 app.include_router(connector_router, prefix="/api/connector", tags=["connector"])
+app.include_router(terminal_router, prefix="/api/terminal", tags=["terminal"])
 app.include_router(whatsapp_router, prefix="/api/messaging", tags=["messaging"])
 app.include_router(crm_router, prefix="/api/crm", tags=["crm"])
 app.include_router(qb_csv_router, prefix="/api/qb-csv", tags=["qb-csv"])

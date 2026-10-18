@@ -1,5 +1,5 @@
 """
-Chatty — OAuth flow for Google, OpenAI, and QuickBooks.
+Chatty — OAuth flow for Google, OpenAI, QuickBooks and remote MCP servers.
 
 All OAuth flows route through the auth.mechatty.com proxy by default.
 The proxy receives the callback from the OAuth provider (Google, Intuit,
@@ -14,13 +14,19 @@ Two-step pattern:
        authorizes with the provider.
     2. The provider redirects to auth.mechatty.com/callback, which decodes
        the instance callback URL from the state parameter and 302-redirects
-       to `{backend_url}/api/oauth/callback?code=...&state=<flow_id>`.
+       to `{backend_url}/api/oauth/callback?code=...&state=<flow_id>` (every
+       other callback parameter — realmId, iss — is forwarded as is).
        That FastAPI route calls `complete_oauth_flow(...)` which exchanges
        the code for tokens and stashes them on the OAuthFlow object.
     3. The frontend polls `/api/oauth/flows/{flow_id}/status`; once it
        reports `status: "ok"`, the frontend calls the integration-specific
        `/setup/complete` endpoint (e.g. `/api/integrations/quickbooks/setup/complete`)
        which reads the tokens via `consume_flow(flow_id)` and persists them.
+
+Every flow carries a FlowConfig fixed when it starts: endpoints, client,
+scopes, redirect URI, resource and issuer. Nothing read later can change
+where the code is exchanged. The built-in providers build theirs from
+OAUTH_CONFIG; MCP servers build theirs from discovery (integrations.mcp.oauth).
 
 Set OAUTH_REDIRECT_URI to bypass the proxy (direct mode) or use a
 different proxy.
@@ -32,6 +38,7 @@ import logging
 import os
 import secrets
 import time
+from dataclasses import dataclass
 from urllib.parse import urlencode
 
 import httpx
@@ -86,6 +93,52 @@ OAUTH_CONFIG = {
 
 CALLBACK_PATH = "/api/oauth/callback"
 
+
+@dataclass(frozen=True)
+class FlowConfig:
+    """Everything one flow needs, fixed when it starts."""
+    provider: str
+    auth_url: str
+    token_url: str
+    client_id: str
+    client_secret: str = ""
+    scopes: tuple[str, ...] = ()
+    redirect_uri: str = ""
+    use_pkce: bool = True
+    use_basic_auth: bool = False
+    extra_auth_params: tuple[tuple[str, str], ...] = ()  # Google: access_type, prompt
+    extra_callback_params: tuple[str, ...] = ()  # QuickBooks: realmId
+    # MCP (RFC 8707 / MCP authorization spec)
+    resource: str = ""  # sent on the authorization request and every token request
+    issuer: str = ""  # the authorization server its metadata was found at
+    check_iss: bool = False  # the server advertises authorization_response_iss_parameter_supported
+    server_id: str = ""
+    generation: int = 0  # the server's config generation when the flow started
+    pinned: bool = False  # token requests go over the SSRF-pinned client (redirects off)
+
+
+def provider_config(provider: str, scopes: list[str] | None = None, prompt: str | None = None) -> FlowConfig:
+    """The FlowConfig for a built-in provider, read from OAUTH_CONFIG right now."""
+    cfg = OAUTH_CONFIG[provider]
+    if scopes is None:
+        scopes_spec = cfg["scopes"]
+        scopes = scopes_spec() if callable(scopes_spec) else scopes_spec
+    extra = (("access_type", "offline"), ("prompt", prompt or "consent")) if provider == "google" else ()
+    return FlowConfig(
+        provider=provider,
+        auth_url=cfg["auth_url"],
+        token_url=cfg["token_url"],
+        client_id=cfg["client_id"](),
+        client_secret=cfg["client_secret"](),
+        scopes=tuple(scopes),
+        redirect_uri=redirect_uri(),
+        use_pkce=cfg.get("use_pkce", True),
+        use_basic_auth=cfg.get("use_basic_auth", False),
+        extra_auth_params=extra,
+        extra_callback_params=tuple(cfg.get("extra_callback_params", [])),
+    )
+
+
 # ── Flow state ────────────────────────────────────────────────────────────────
 
 _OAUTH_FLOWS: dict[str, "OAuthFlow"] = {}
@@ -98,12 +151,13 @@ class OAuthFlow:
     def __init__(
         self,
         flow_id: str,
-        provider: str,
+        config: FlowConfig,
         code_verifier: str | None,
         metadata: dict | None = None,
     ):
         self.flow_id = flow_id
-        self.provider = provider
+        self.config = config
+        self.provider = config.provider
         self.code_verifier = code_verifier
         self.metadata = metadata or {}
         self.created_at = time.time()
@@ -143,36 +197,24 @@ def _generate_pkce() -> tuple[str, str]:
     return verifier, challenge
 
 
-def _build_auth_url(
-    provider: str,
-    code_challenge: str | None,
-    state: str,
-    scopes: list[str] | None = None,
-    prompt: str | None = None,
-) -> str:
+def _build_auth_url(cfg: FlowConfig, code_challenge: str | None, state: str) -> str:
     """Build the OAuth authorization URL, with optional PKCE parameters."""
-    cfg = OAUTH_CONFIG[provider]
-    client_id = cfg["client_id"]()
-
-    use_scopes = scopes
-    if use_scopes is None:
-        scopes_spec = cfg["scopes"]
-        use_scopes = scopes_spec() if callable(scopes_spec) else scopes_spec
-
     params = {
-        "client_id": client_id,
-        "redirect_uri": redirect_uri(),
+        "client_id": cfg.client_id,
+        "redirect_uri": cfg.redirect_uri,
         "response_type": "code",
-        "scope": " ".join(use_scopes),
-        "state": state,
     }
+    if cfg.scopes:
+        params["scope"] = " ".join(cfg.scopes)
+    params["state"] = state
     if code_challenge:
         params["code_challenge"] = code_challenge
         params["code_challenge_method"] = "S256"
-    if provider == "google":
-        params["access_type"] = "offline"
-        params["prompt"] = prompt or "consent"
-    return f"{cfg['auth_url']}?{urlencode(params)}"
+    params.update(cfg.extra_auth_params)
+    if cfg.resource:
+        params["resource"] = cfg.resource
+    # A discovered endpoint may already carry a query (?tenant=x); the built-in ones never do.
+    return f"{cfg.auth_url}{'&' if '?' in cfg.auth_url else '?'}{urlencode(params)}"
 
 
 # ── Public API ────────────────────────────────────────────────────────────────
@@ -184,7 +226,7 @@ def start_oauth_flow(
     prompt: str | None = None,
 ) -> dict:
     """
-    Start an OAuth flow.
+    Start an OAuth flow for a built-in provider.
 
     Args:
         provider: "google" | "openai" | "quickbooks"
@@ -197,19 +239,21 @@ def start_oauth_flow(
     Returns:
         {"flow_id": str, "auth_url": str}
     """
-    _cleanup_expired_flows()
-
     if provider not in OAUTH_CONFIG:
         raise ValueError(f"Unknown provider: {provider}")
-
-    cfg = OAUTH_CONFIG[provider]
-    if not cfg["client_id"]():
+    cfg = provider_config(provider, scopes, prompt)
+    if not cfg.client_id:
         raise ValueError(
             f"OAuth not configured for {provider}: missing {provider.upper()}_CLIENT_ID"
         )
+    return start_flow(cfg, metadata)
 
-    use_pkce = cfg.get("use_pkce", True)
-    verifier, challenge = _generate_pkce() if use_pkce else (None, None)
+
+def start_flow(cfg: FlowConfig, metadata: dict | None = None) -> dict:
+    """Start a flow from a ready FlowConfig. Returns {"flow_id", "auth_url"}."""
+    _cleanup_expired_flows()
+
+    verifier, challenge = _generate_pkce() if cfg.use_pkce else (None, None)
     flow_id = secrets.token_urlsafe(32)
 
     if not os.getenv("OAUTH_REDIRECT_URI", ""):
@@ -221,16 +265,16 @@ def start_oauth_flow(
     else:
         state = flow_id
 
-    auth_url = _build_auth_url(provider, challenge, state=state, scopes=scopes, prompt=prompt)
+    auth_url = _build_auth_url(cfg, challenge, state=state)
 
     _OAUTH_FLOWS[flow_id] = OAuthFlow(
         flow_id=flow_id,
-        provider=provider,
+        config=cfg,
         code_verifier=verifier,
         metadata=metadata,
     )
 
-    logger.info("Started OAuth flow: provider=%s flow_id=%s...", provider, flow_id[:8])
+    logger.info("Started OAuth flow: provider=%s flow_id=%s...", cfg.provider, flow_id[:8])
     return {"flow_id": flow_id, "auth_url": auth_url}
 
 
@@ -242,16 +286,19 @@ async def complete_oauth_flow(code: str, state: str, callback_params: dict) -> O
     if not flow:
         raise ValueError("Unknown or expired OAuth state")
 
+    cfg = flow.config
     try:
-        tokens = await _exchange_code(flow.provider, code, flow.code_verifier)
-        cfg = OAUTH_CONFIG[flow.provider]
+        # RFC 9207: a server that says it sends `iss` must send ours (the proxy forwards it).
+        if cfg.check_iss and callback_params.get("iss") != cfg.issuer:
+            raise ValueError("Authorization response came from the wrong issuer")
+        tokens = await _exchange_code(cfg, code, flow.code_verifier)
         response = {
             "access_token": tokens.get("access_token", ""),
             "refresh_token": tokens.get("refresh_token", ""),
             "expires_in": tokens.get("expires_in", 3600),
             "token_type": tokens.get("token_type", "Bearer"),
         }
-        for param in cfg.get("extra_callback_params", []):
+        for param in cfg.extra_callback_params:
             if param in callback_params:
                 response[param] = callback_params[param]
 
@@ -259,32 +306,57 @@ async def complete_oauth_flow(code: str, state: str, callback_params: dict) -> O
         flow.status = "ok"
         return flow
     except Exception as e:
-        logger.error("OAuth token exchange failed for %s: %s", flow.provider, e)
+        logger.error("OAuth token exchange failed for %s: %s", cfg.provider, e)
         flow.error = str(e)
         flow.status = "error"
         raise
 
 
-async def _exchange_code(provider: str, code: str, code_verifier: str | None) -> dict:
+def _client_auth(cfg: FlowConfig, data: dict) -> tuple[str, str] | None:
+    """Put the client credentials where the server wants them: Basic auth, or the body."""
+    if cfg.use_basic_auth:
+        return (cfg.client_id, cfg.client_secret)
+    data["client_id"] = cfg.client_id
+    # Built-in providers always got the field (OpenAI's is empty); a public MCP client must not send one.
+    if cfg.client_secret or cfg.provider in OAUTH_CONFIG:
+        data["client_secret"] = cfg.client_secret
+    return None
+
+
+async def _exchange_code(cfg: FlowConfig, code: str, code_verifier: str | None) -> dict:
     """Exchange authorization code for access + refresh tokens."""
-    cfg = OAUTH_CONFIG[provider]
     data = {
         "grant_type": "authorization_code",
-        "redirect_uri": redirect_uri(),
+        "redirect_uri": cfg.redirect_uri,
         "code": code,
     }
-    auth = None
-    if cfg.get("use_basic_auth", False):
-        auth = (cfg["client_id"](), cfg["client_secret"]())
-    else:
-        data["client_id"] = cfg["client_id"]()
-        data["client_secret"] = cfg["client_secret"]()
-
+    auth = _client_auth(cfg, data)
     if code_verifier:
         data["code_verifier"] = code_verifier
+    if cfg.resource:
+        data["resource"] = cfg.resource
+    return await _token_request(cfg, data, auth)
 
-    async with httpx.AsyncClient(timeout=15) as client:
-        resp = await client.post(cfg["token_url"], data=data, auth=auth)
+
+async def refresh_tokens(cfg: FlowConfig, refresh_token: str) -> dict:
+    """Use a refresh token to get a new access token (and maybe a rotated refresh token)."""
+    data = {"grant_type": "refresh_token", "refresh_token": refresh_token}
+    auth = _client_auth(cfg, data)
+    if cfg.resource:
+        data["resource"] = cfg.resource
+    return await _token_request(cfg, data, auth)
+
+
+def _http(cfg: FlowConfig) -> httpx.AsyncClient:
+    if cfg.pinned:
+        from core.security.ssrf import pinned_client
+        return pinned_client(timeout=15)
+    return httpx.AsyncClient(timeout=15)
+
+
+async def _token_request(cfg: FlowConfig, data: dict, auth) -> dict:
+    async with _http(cfg) as client:
+        resp = await client.post(cfg.token_url, data=data, auth=auth)
         resp.raise_for_status()
         return resp.json()
 
@@ -315,16 +387,4 @@ def consume_flow(flow_id: str) -> OAuthFlow | None:
 
 async def refresh_google_token(refresh_token: str) -> dict:
     """Use a Google refresh token to get a new access token."""
-    cfg = OAUTH_CONFIG["google"]
-    async with httpx.AsyncClient(timeout=15) as client:
-        resp = await client.post(
-            cfg["token_url"],
-            data={
-                "grant_type": "refresh_token",
-                "client_id": cfg["client_id"](),
-                "client_secret": cfg["client_secret"](),
-                "refresh_token": refresh_token,
-            },
-        )
-        resp.raise_for_status()
-        return resp.json()
+    return await refresh_tokens(provider_config("google"), refresh_token)

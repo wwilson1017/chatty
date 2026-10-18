@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Outlet, useLocation, useNavigate } from 'react-router-dom';
+import { Outlet, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { api } from '../core/api/client';
 import { NavRail } from './NavRail';
 import { ErrorBoundary, RouteErrorFallback } from './ErrorBoundary';
@@ -9,8 +9,11 @@ import { IconBot, IconFunnel, IconChart, IconBook, IconSettings, IconListCheck }
 import type { BrandingConfig } from '../core/types';
 
 export function AppShell() {
+  const [searchParams, setSearchParams] = useSearchParams();
+  // `chatty login` shows a QR for /?pair=<code>: open Settings → Terminal with it filled in.
+  const [pairCode, setPairCode] = useState<string | null>(() => searchParams.get('pair'));
   const [branding, setBranding] = useState<BrandingConfig | null>(null);
-  const [showSettings, setShowSettings] = useState(false);
+  const [showSettings, setShowSettings] = useState(() => searchParams.has('pair'));
   const [activeNavKey, setActiveNavKey] = useState<string | null>(null);
   // null = unknown (loading). CRM nav stays hidden until confirmed enabled —
   // the right default now that new installs ship with CRM off. Seeded from
@@ -23,6 +26,14 @@ export function AppShell() {
   const isMobile = useIsMobile();
   const location = useLocation();
   const navigate = useNavigate();
+
+  // The code is in state now; drop it from the URL.
+  useEffect(() => {
+    if (!searchParams.has('pair')) return;
+    const next = new URLSearchParams(searchParams);
+    next.delete('pair');
+    setSearchParams(next, { replace: true });
+  }, [searchParams, setSearchParams]);
 
   useEffect(() => {
     const handler = () => setShowSettings(true);
@@ -142,7 +153,9 @@ export function AppShell() {
         <SettingsPanel
           branding={branding}
           onBrandingUpdate={setBranding}
-          onClose={() => setShowSettings(false)}
+          onClose={() => { setShowSettings(false); setPairCode(null); }}
+          initialTab={pairCode ? 'terminal' : undefined}
+          pairCode={pairCode ?? undefined}
         />
       )}
     </div>
