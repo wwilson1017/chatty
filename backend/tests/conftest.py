@@ -149,6 +149,13 @@ def http_env(agent_db, encryption_env, monkeypatch, tmp_path):
     (tmp_path / "claude_code").mkdir(exist_ok=True)
     cc_db_mod.close_db()
     cc_db_mod._setup_connection()
+    # Paired terminals (`chatty login`).
+    import core.terminal.db as terminal_db_mod
+    monkeypatch.setattr(terminal_db_mod, "DATA_DIR", tmp_path / "terminal")
+    monkeypatch.setattr(terminal_db_mod, "DB_PATH", tmp_path / "terminal" / "terminal.db")
+    (tmp_path / "terminal").mkdir(exist_ok=True)
+    terminal_db_mod.close_db()
+    terminal_db_mod._setup_connection()
     # Per-slug caches would hand a previous test's DB to a same-named agent.
     engine_mod._get_initialized_db.cache_clear()
     engine_mod._get_initialized_memory_db.cache_clear()
@@ -172,6 +179,7 @@ def http_env(agent_db, encryption_env, monkeypatch, tmp_path):
         import core.todo.db as todo_db_mod
         todo_db_mod.close_db()
         cc_db_mod.close_db()
+        terminal_db_mod.close_db()
 
 
 @pytest.fixture
