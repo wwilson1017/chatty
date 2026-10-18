@@ -11,9 +11,10 @@ Normally every consequential action the helper reaches on the computer — send,
 **What never pre-approves.**
 
 - **Purchases.** A `buy` gate always asks, whatever the list says.
+- **A send or post whose composer can't be read.** When the page offers no form or message composer to fingerprint, the recipients and text can't be pinned to the click, so it isn't pre-approved: it asks, as a "take over to do this yourself" card, exactly as an owner approval would.
 - **Anything but a single plain click or Enter/Space.** Double clicks, held keys, typed newlines and selects still ask.
 - **Heartbeats and reminders.** Only cron scheduled actions can carry a list; a heartbeat's or a reminder's tasks never match.
 - **Near misses.** `Submit timesheets`, `Submit`, `sub.time.example` and `time.example.com` are not `Submit timesheet` on `time.example`.
 - **A changed prompt.** The list is bound to the action's prompt (its sha256) when you save it. Editing the prompt — from the dashboard or by the agent — clears the list, and changing the prompt back doesn't restore it; save the list again if you still want it.
 
-**Scope.** The pre-approval covers the task the scheduled action started and its follow-ups (approvals, report-back turns) — the whole routine — but not tasks the agent starts from chat. It covers whatever that button submits at that moment: for a send or post, the message's recipients and text are whatever the helper put there, and unlike an owner-approved card there is no "take over to do this yourself" fallback when the composer can't be read. Use it for routines whose button does one well-understood thing; the computer still refuses a click whose page facts differ from what was read, but it cannot know what a submission means to the site.
+**Scope.** The pre-approval covers the task the scheduled action started and its follow-ups (approvals, report-back turns) — the whole routine — but not tasks the agent starts from chat. It covers whatever that button submits at that moment: for a send or post, the message as the helper wrote it, pinned to the click by the composer's fingerprint. Use it for routines whose button does one well-understood thing; the computer still refuses a click whose page facts differ from what was read, but it cannot know what a submission means to the site.
