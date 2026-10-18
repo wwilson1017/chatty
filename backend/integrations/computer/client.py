@@ -96,6 +96,11 @@ class ComputerClient:
     async def control_end(self, control_session_id: str) -> dict:
         return await self.request("POST", "/control/end", json={"control_session_id": control_session_id})
 
+    async def control_status(self) -> dict:
+        """{human_in_control, control, control_ended, epoch, lease}; exempt from human_in_control, so the
+        runner polls it while a person has the screen."""
+        return await self.request("GET", "/control/status")
+
     async def list_sites(self, agent: str) -> list[dict]:
         data = await self.request("GET", f"/profiles/{agent}/sites")
         return data.get("sites", []) if isinstance(data, dict) else data

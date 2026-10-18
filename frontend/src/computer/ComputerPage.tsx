@@ -7,6 +7,8 @@
  * never holds the computer's secret: it asks Chatty for a single-use ticket and
  * Chatty relays the VNC bytes. The control session id lives in sessionStorage
  * so a phone that drops off can reattach within the computer's grace period.
+ * Opened with ?task= (the helper's takeover link), the page shows why the helper
+ * is waiting and "I'm done" is the handback that lets it continue.
  */
 
 import { useEffect, useRef, useState } from 'react';
@@ -18,6 +20,9 @@ import { useIsMobile } from '../shared/useIsMobile';
 import { SESSION_KEY, initialMode, parseStoredControl, type Mode } from './session';
 
 type Conn = 'connecting' | 'connected' | 'disconnected';
+interface Task { status: string; takeover_state: string | null; takeover_reason: string | null }
+
+const RUNNING = ['queued', 'running'];
 
 const KEYS: Record<string, number> = { Enter: 0xff0d, Backspace: 0xff08, Tab: 0xff09, Escape: 0xff1b };
 
@@ -44,11 +49,22 @@ export function ComputerPage() {
   const [controlId, setControlId] = useState<string | null>(() => storedControl(agent));
   const [text, setText] = useState('');
   const [attempt, setAttempt] = useState(0); // bump to reconnect
+  const [task, setTask] = useState<Task | null>(null);
   const screenRef = useRef<HTMLDivElement>(null);
   const rfbRef = useRef<RFB | null>(null);
   const isMobile = useIsMobile();
 
   useEffect(() => { document.title = `${agent || 'Computer'} · screen`; }, [agent]);
+
+  // The task the link came from: its takeover state tells the person what the helper is waiting for.
+  useEffect(() => {
+    if (!taskId) return;
+    let stop = false;
+    const load = () => api<Task>(`/api/computer/tasks/${taskId}`).then(t => { if (!stop) setTask(t); }).catch(() => {});
+    load();
+    const iv = setInterval(load, 5000);
+    return () => { stop = true; clearInterval(iv); };
+  }, [taskId]);
 
   useEffect(() => {
     if (!agent) return;
@@ -144,6 +160,13 @@ export function ComputerPage() {
     : conn === 'disconnected' ? 'Disconnected'
     : inControl ? 'You have control — the helper is paused until you press I’m done'
     : 'Watching — view only';
+  // Why the helper is waiting (from its request_takeover), or that the task is over.
+  const reason = task?.takeover_reason || 'the page needs you in person';
+  const taskLine = !task ? ''
+    : !RUNNING.includes(task.status) ? `This task has finished (${task.status}).`
+    : task.takeover_state === 'waiting' ? `${agent} needs you: ${reason}. Press Take control, do it on the screen, then I’m done — the helper sees nothing you type.`
+    : task.takeover_state === 'active' ? `You have the screen: ${reason}. Press I’m done when finished and the helper continues.`
+    : '';
 
   return (
     <div style={{ height: '100dvh', display: 'flex', flexDirection: 'column', background: BG_ELEV, color: INK_MUTE, fontSize: 12 }}>
@@ -156,8 +179,9 @@ export function ComputerPage() {
         <span style={{ flex: 1 }} />
         {conn === 'disconnected' && <button onClick={reconnect} style={btn}>{inControl && controlId ? 'Reconnect (keep control)' : 'Reconnect'}</button>}
         {!inControl && <button onClick={() => setMode('control')} style={{ ...btn, borderColor: GOLD, color: GOLD }}>Take control</button>}
-        {inControl && <button onClick={done} style={{ ...btn, borderColor: SAGE, color: SAGE }}>I’m done</button>}
+        {inControl && <button onClick={done} style={{ ...btn, borderColor: SAGE, color: SAGE }}>{taskId ? 'I’m done — hand back to the helper' : 'I’m done'}</button>}
       </header>
+      {taskLine && <p role="status" style={{ margin: 0, padding: '6px 12px', color: GOLD, borderBottom: `1px solid ${LINE}` }}>{taskLine}</p>}
       {error && <p role="alert" style={{ margin: 0, padding: '6px 12px', color: CORAL, borderBottom: `1px solid ${LINE}` }}>{error}</p>}
 
       {/* noVNC draws its canvas into this box and scales the 1280×800 desktop to fit. */}
