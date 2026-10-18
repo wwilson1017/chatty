@@ -14,6 +14,7 @@
 - **Todos (GTD)** — core always-on feature (NOT an integration): global store in `core/todo/`, 11 `todo_*` agent tools, multi-page UI at `/todos`, GTD coaching block injected into every agent's system prompt (admin setting `gtd_coaching_text`), public no-login `/capture` page (optional secret token), no-login `/todo[/{token}]` web app serving the whole todo UI outside the dashboard (`core/todo/web.py`, off by default), deterministic Telegram "capture" intercept
 - Agent features: memory system, dreaming/context archival, shared context across agents, scheduled actions (heartbeat), reminders (one-time and recurring), notifications (web push, Telegram, WhatsApp), knowledge import (OpenClaw, paste, folder, ZIP)
 - File uploads: PDF, DOCX, and text files via drag-and-drop in chat
+- Terminal client: `chatty` (`cli/`, separate pip package, HTTP only) — logs in by QR pairing approved in Settings → Terminal (or `--password`), keeps only a revocable device token, streams replies, y/N write approvals, `/attach` `/resume` `/model`. User guide: `docs/cli.md`
 - BYO OAuth: users can bring their own Google and QuickBooks OAuth app credentials
 - One-click cloud deployment via Railway
 
@@ -59,7 +60,7 @@ For dev mode with hot reload, run backend and frontend separately:
 
 ### CLI Test Harness
 
-Chat with agents from the terminal — no web server required:
+Chat with agents from the terminal — no web server required. This is the in-process dev harness; the user-facing terminal client is `cli/` (`chatty`, see `docs/cli.md`).
 
 ```bash
 cd backend && ../.venv/bin/python -m cli
@@ -94,7 +95,7 @@ Slash commands inside the REPL: `/help`, `/search`, `/facts`, `/memory`, `/conte
 ```
 backend/
 ├── main.py                          # FastAPI entry point
-├── cli/                             # CLI test harness (terminal REPL, no web server needed)
+├── cli/                             # In-process dev harness (terminal REPL, no web server needed); not the user's `chatty`
 │   ├── __main__.py                  # Entry point, agent selection, arg parsing
 │   ├── app.py                       # REPL loop, message sending, tool confirmation flow
 │   ├── bootstrap.py                 # Lightweight backend init (DB, encryption, seed data)
@@ -116,6 +117,7 @@ backend/
 └── whatsapp-bridge/                 # Node.js Baileys sidecar
 
 connector/                           # chatty-connector: separate pip package the user runs next to their Claude Code
+cli/                                 # chatty: the terminal client, separate pip package talking to a running Chatty over HTTP
 
 frontend/src/
 ├── agent/                           # Agent chat page + components (includes heartbeat panel, reminders panel)
