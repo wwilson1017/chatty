@@ -69,6 +69,7 @@ CONTEXT_BETA = "context-management-2025-06-27"
 CONTEXT_EDITS = [{"type": "clear_tool_uses_20250919", "trigger": {"type": "input_tokens", "value": 40000},
                   "keep": {"type": "tool_uses", "value": 5}, "clear_at_least": {"type": "input_tokens", "value": 8000}}]
 SKIPPED = "skipped: an earlier action needs approval or failed"
+CUT_OFF = "the model's reply was cut off at max_tokens"
 SHOT_TTL_DAYS = 14  # a task's screenshots (step and gate) are deleted this long after it finished
 
 _pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="computer-runner")
@@ -1277,6 +1278,9 @@ class _Run:
                 self.finish("failed", "model refused the task")
                 return
             calls = [b for b in blocks if b.get("type") == "tool_use"]
+            if response.stop_reason == "max_tokens" and not calls:  # cut off mid-thought (a budget-trimmed max_tokens): not finished
+                self.finish("failed", CUT_OFF, result_text=self.cap_report(CUT_OFF))
+                return
             if not calls:
                 self.finish("done", "finished", result_text=self.last_text or "(no report)")
                 return
@@ -1351,6 +1355,9 @@ class _Run:
                 self.last_text = turn["text"].strip()
             if turn["stop"] == "error" or turn["error"]:
                 self.finish("failed", f"model error: {turn['error'] or 'provider error'}"[:200])
+                return
+            if turn["stop"] == "max_tokens" and not turn["tool_calls"]:  # cut off mid-thought: not finished
+                self.finish("failed", CUT_OFF, result_text=self.cap_report(CUT_OFF))
                 return
             if turn["stop"] != "tool_use" or not turn["tool_calls"]:
                 self.finish("done", "finished", result_text=self.last_text or "(no report)")

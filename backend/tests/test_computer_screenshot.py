@@ -69,11 +69,14 @@ class FakeAnthropic:
         if self.status != 200:
             return httpx.Response(self.status, json={"type": "error", "error": {"type": "api_error", "message": "boom"}})
         blocks = self.turns[min(len(self.requests) - 1, len(self.turns) - 1)]
-        refused = blocks == "refusal"
-        stop = "refusal" if refused else "tool_use" if any(b["type"] == "tool_use" for b in blocks) else "end_turn"
+        if blocks == "refusal":
+            blocks, stop = [], "refusal"
+        elif blocks == "max_tokens":  # cut off mid-thought: a partial text, no tool calls
+            blocks, stop = [THINK, text("I was about to")], "max_tokens"
+        else:
+            stop = "tool_use" if any(b["type"] == "tool_use" for b in blocks) else "end_turn"
         return httpx.Response(200, json={"id": f"msg_{len(self.requests)}", "type": "message", "role": "assistant", "model": SHOT_MODEL,
-                                         "content": [] if refused else blocks, "stop_reason": stop, "stop_sequence": None,
-                                         "usage": self.usage})
+                                         "content": blocks, "stop_reason": stop, "stop_sequence": None, "usage": self.usage})
 
     def client(self):
         if self._client is None:
@@ -309,6 +312,10 @@ class TestScreenshotLoop:
         _queue()
         fa, t = _run(shot, monkeypatch, ["refusal"])
         assert (t["status"], t["finish_reason"]) == ("failed", "model refused the task") and t["cost_reserved_usd"] == 0
+        _queue()
+        fa, t = _run(shot, monkeypatch, [[SHOT], "max_tokens"])  # a reply cut off with no tool calls is not a finished task
+        assert (t["status"], t["finish_reason"]) == ("failed", runner.CUT_OFF) and len(fa.requests) == 2
+        assert t["result_text"].startswith("I was about to") and "[Stopped: the model's reply was cut off" in t["result_text"]
 
     def test_screenshots_are_deleted_14_days_after_the_task_finishes(self, shot, monkeypatch):
         tid = _queue()

@@ -251,7 +251,8 @@ class FakeProvider:
             yield {"type": "text", "text": t["text"]}
         calls = [{"id": f"tu{self.calls}-{i}", "name": c[0], "args": c[1]} for i, c in enumerate(t.get("tool_calls", []))]
         usage = dict(self.usage) if callable(getattr(self.usage, "get", None)) else self.usage(self)
-        yield {"type": "_turn_complete", "tool_calls": calls, "stop_reason": "tool_use" if calls else "end_turn", "usage": usage}
+        yield {"type": "_turn_complete", "tool_calls": calls, "stop_reason": t.get("stop") or ("tool_use" if calls else "end_turn"),
+               "usage": usage}
 
     def add_tool_results(self, messages, tool_calls, results):
         return messages + [{"role": "assistant", "content": [{"type": "tool_use", "id": tc["id"], "name": tc["name"], "input": tc["args"]} for tc in tool_calls]},
@@ -427,6 +428,13 @@ class TestHelperLoop:
         assert all("<untrusted_tool_result" in r["content"] for r in last_user)
         assert [s["verdict"] for s in db.list_steps(tid)] == [None, "free:3.legwork", None, None]
         assert t["cost_actual_usd"] > 0 and t["cost_reserved_usd"] == 0 and t["input_tokens"] == 3000
+
+    def test_a_reply_cut_off_at_max_tokens_is_not_a_finished_task(self, fake, monkeypatch):
+        _queue()
+        prov = FakeProvider([{"tool_calls": [SNAP]}, {"text": "I was about to", "stop": "max_tokens"}, FINAL])
+        _, t = _run(fake, prov, monkeypatch)
+        assert (t["status"], t["finish_reason"]) == ("failed", runner.CUT_OFF) and prov.calls == 2
+        assert t["result_text"].startswith("I was about to") and "[Stopped: the model's reply was cut off" in t["result_text"]
 
     def test_request_approval_declares_and_the_next_action_is_gated_with_the_details(self, fake, monkeypatch):
         """The helper's declaration doesn't stop the task; the click it precedes does, and the gate carries the
