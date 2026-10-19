@@ -136,10 +136,10 @@ journaled.
   included, numbered top to bottom then left to right, at most 150.
 - Each candidate is hit-tested at `point`, a screen pixel at the centre of its visible part (of its
   first line that hits it, for a link that wraps), the way `/browser/element {x, y}` reads it. The mark
-  is what that read finds there: `role`, `name` (its first 80 characters) and `box` (its `screen_box`).
-  That can be a child of the control: a `<span>` inside a `<button>` is `generic`, an icon is often
-  `generic` with no name. A candidate covered by something else, or in an iframe covered in its parent,
-  gets no mark; a frame that can't be read within 5 s is left out.
+  is the control that read finds there: `role`, `name` (its first 80 characters) and `box` (its
+  `screen_box`), so a mark on a `<button>` whose text is in a `<span>` is that button. A candidate
+  covered by something else, or in an iframe covered in its parent, gets no mark; a frame that can't be
+  read within 5 s is left out.
 - To press a mark, click its `point` with `expect.box` set to its `box`.
 - A plain screenshot with `marks: []` when no browser is attached, another program's window (a
   terminal, a desktop app or its dialog) is in front of Chromium, or the page can't be read within 15 s.
@@ -186,6 +186,15 @@ lowercased, ≤ 1000 chars: headings, legends and button labels, never input val
 shape of every non-button control (`name`, `type` — `password`, `hidden`, `select`, `textarea`, … —
 `autocomplete`, `visible`), which is what Chatty's login/search exemptions count. No field value appears
 in any of these.
+
+A pixel read describes the **control a click there activates**: from the element under the pixel it
+walks up the click's path (slots and shadow hosts followed) to the nearest link, button, input, select,
+textarea, `summary`, `option`, `[role=button|link|checkbox|radio|switch|menuitem|menuitemcheckbox|
+menuitemradio|tab|option|treeitem]`, `[onclick]` or editor (`contenteditable`); a `<label>` reads as the
+control it activates. With none above it (plain text, a canvas) it is the element under the pixel. So a
+`<span>` or an icon inside `<button type=submit>` reads as that button with its box. `is_submit` is true
+for a form's `<input type=submit|image>` and for a `<button>` whose type is `submit`, missing or unknown,
+and for anything inside such a button (an `[onclick]` span, say: its click still submits).
 
 - **Context fingerprint**: for an element inside a form, sha256 of the sorted `[name, normalised value]`
   pairs of the form's visible fields (hidden, password, file and button inputs excluded; checkbox/radio

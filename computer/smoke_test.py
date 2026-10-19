@@ -209,6 +209,18 @@ PAGE = """<title>Demo shop</title><h1>Demo shop</h1>
 <button type="submit" id="b">Place order</button></form>
 <div id="c">Orders placed: 0</div>"""
 DATA_URL = "data:text/html," + urllib.parse.quote(PAGE)
+# Controls whose label is in a child (span, svg) and plain text: a pixel read names the control (or the text).
+NESTED_PAGE = """<title>Nested</title><style>button,a{padding:2px} span{display:inline-block;padding:10px 30px}</style>
+<form action="/go" method="post" onsubmit="return false"><input name="who" value="x">
+<button type="submit"><span>Submit</span></button>
+<button aria-label="Continue"><svg width="40" height="24"><rect width="40" height="24"/></svg></button>
+<button type="button"><span>Preview</span></button><button type="bogus"><span>Go</span></button>
+<button><span onclick="">Proceed</span></button>
+<input type="submit" value="Save"><input type="image" alt="Upload" style="width:80px;height:30px"></form>
+<a href="/somewhere" style="display:inline-block"><span>Read more</span></a> <input type="checkbox" id="cb">
+<label for="cb" style="position:absolute;left:600px;top:360px">Remember me</label>
+<label onclick="" style="position:absolute;left:600px;top:420px"><b>Tap here</b></label>
+<p style="position:absolute;left:600px;top:300px;margin:0;font:16px monospace">Just some paragraph text</p>"""
 TOP_PAGE = """<title>Top</title><a href="/elsewhere">A link</a>
 <iframe src="http://localhost:8001/inner.html" style="position:absolute;left:300px;top:200px;width:400px;height:200px;border:7px solid"></iframe>
 <p style="position:absolute;top:450px;width:300px;font:16px monospace">aaaaaaaaaaaaaaaaaaaaaaa <a href="/w">wrapped link</a> bbbbbbbbbbbbbbbbbbbbbbb</p>"""
@@ -329,6 +341,51 @@ def part1():
         t.join()
     check(all(s == 200 for s, _ in results) and orders_placed(lease, epoch) == 2,
           f"six concurrent requests with one id produce a single click ({[s for s, _ in results]})")
+
+    # --- a pixel read (and a mark) names the control a click activates, not the span or icon inside it ---
+    api("POST", "/desktop/lease/renew", {"lease": lease})
+    api("POST", "/browser/act", {"action_id": ulid(), "lease": lease, "epoch": epoch, "kind": "navigate",
+                                 "url": "data:text/html," + urllib.parse.quote(NESTED_PAGE)})
+    st, snap = api("POST", "/browser/snapshot", {"lease": lease, "epoch": epoch})
+    st, mk = api("POST", "/screen/marked", {"lease": lease, "epoch": epoch})
+    marks = {m["name"]: m for m in mk.get("marks") or []}
+    boxes, views = {}, {}
+    for role, name, submit in (("button", "Submit", True), ("button", "Continue", True), ("button", "Preview", False),
+                               ("button", "Go", True), ("button", "Save", True), ("button", "Upload", True),
+                               ("link", "Read more", False), ("checkbox", "Remember me", False)):
+        m = re.search(rf'{role} "{name}" \[ref=([a-z0-9]+)\]', snap.get("snapshot") or "")
+        st, ctl = api("POST", "/browser/element", {"lease": lease, "epoch": epoch, "ref": m.group(1)}) if m else (0, {})
+        b = boxes[name] = ctl.get("screen_box") or {"x": 0, "y": 0, "w": 0, "h": 0}
+        views[name] = ctl.get("box") or {"x": 0, "y": 0}
+        st, at = api("POST", "/browser/element", {"lease": lease, "epoch": epoch, "x": b["x"] + b["w"] // 2, "y": b["y"] + b["h"] // 2})
+        check(st == 200 and b["w"] and at.get("tag") == ctl.get("tag") and at.get("role") == role and at.get("name") == name
+              and at.get("is_submit") is submit and at.get("screen_box") == b,
+              f"a pixel read inside {role} {name!r} returns that {role}, is_submit {submit}, its box ({at})")
+        mark = marks.get(name)
+        check(mark is not None and mark["role"] == role and mark["box"] == b, f"the mark for {name!r} is the {role} itself ({mark})")
+    m = re.search(r'button "Proceed" \[ref=([a-z0-9]+)\]', snap.get("snapshot") or "")
+    st, ctl = api("POST", "/browser/element", {"lease": lease, "epoch": epoch, "ref": m.group(1)}) if m else (0, {})
+    b = ctl.get("screen_box") or {"x": 0, "y": 0, "w": 0, "h": 0}
+    st, at = api("POST", "/browser/element", {"lease": lease, "epoch": epoch, "x": b["x"] + b["w"] // 2, "y": b["y"] + b["h"] // 2})
+    check(at.get("tag") == "span" and at.get("name") == "Proceed" and at.get("is_submit") is True,
+          f"an [onclick] span inside a typeless button reads as itself but still is_submit ({at})")
+    readback = []
+    for m in mk.get("marks") or []:
+        st, at = api("POST", "/browser/element", {"lease": lease, "epoch": epoch, "x": m["point"][0], "y": m["point"][1]})
+        readback.append(at.get("role") == m["role"] and (at.get("name") or "")[:80] == m["name"] and at.get("screen_box") == m["box"])
+    check(len(readback) >= 10 and all(readback), f"every mark reads back at its point as the same control ({readback})")
+    vb = views["Remember me"]  # the checkbox's viewport box: screen = viewport + the page's offset
+    ox, oy = boxes["Remember me"]["x"] - round(vb["x"]), boxes["Remember me"]["y"] - round(vb["y"])
+    st, at = api("POST", "/browser/element", {"lease": lease, "epoch": epoch, "x": ox + 610, "y": oy + 368})
+    check(at.get("role") == "checkbox" and at.get("name") == "Remember me" and at.get("screen_box") == boxes["Remember me"],
+          f"a pixel read on a <label> returns the checkbox it activates ({at})")
+    st, at = api("POST", "/browser/element", {"lease": lease, "epoch": epoch, "x": ox + 610, "y": oy + 428})
+    check(at.get("tag") == "label" and at.get("name") == "Tap here",
+          f"a pixel read inside a <label onclick> with no control returns that label ({at})")
+    st, at = api("POST", "/browser/element", {"lease": lease, "epoch": epoch, "x": ox + 610, "y": oy + 308})
+    check(at.get("tag") == "p" and at.get("role") == "generic" and at.get("name") == "Just some paragraph text"
+          and at.get("is_submit") is False and (at.get("box") or {}).get("x") == 600 and at["box"].get("y") == 300,
+          f"a pixel read on plain paragraph text still returns the paragraph ({at})")
 
     # --- marks in a cross-origin iframe (127.0.0.1 embeds localhost); none behind another window ---
     api("PUT", "/files/content?agent=tom&path=site/top.html", data=TOP_PAGE.encode())

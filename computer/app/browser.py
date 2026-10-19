@@ -1,10 +1,10 @@
 """Playwright attached over CDP to the Chromium the desktop launched.
 
 Snapshots are `aria_snapshot(mode="ai")` with `[ref=eN]` markers; acting uses `aria-ref=` locators.
-`describe()` explains the element behind a ref, a screen pixel or the focus, and `check_expect()`
-re-reads that description right before an action. `marks()` numbers the visible interactive elements
-for a marked screenshot. Password-field values are never read, and the snapshot drops them before it
-leaves this module.
+`describe()` explains the element behind a ref, the focus or a screen pixel (the control a click there
+activates), and `check_expect()` re-reads that description right before an action. `marks()` numbers
+the visible interactive elements for a marked screenshot. Password-field values are never read, and
+the snapshot drops them before it leaves this module.
 """
 import asyncio
 import hashlib
@@ -47,6 +47,28 @@ DEEP_ACTIVE_JS = """() => {
   let e = document.activeElement;
   while (e && e.shadowRoot && e.shadowRoot.activeElement) e = e.shadowRoot.activeElement;
   return e && e !== document.body && e !== document.documentElement ? e : null;
+}"""
+# The control a click on an element activates, which is what a pixel read describes: the nearest
+# element on the click's composed path (slots and shadow hosts followed, stopping below <body>) that
+# acts on a click — a native control (a <label> stands for the control it activates) or a page-made
+# one (the widget roles the gate counts as activatable, [onclick], an editor). The hit element itself
+# when nothing encloses it (plain text, a canvas). So a span or an icon inside <button type=submit>
+# reads as that button, is_submit included.
+# simplification: listeners added in script (React's) are invisible here, so a bare <div> with one
+# reads as the element under the pixel; upgrade: CDP DOMDebugger.getEventListeners on the ancestors.
+CONTROL_SELECTOR = ("a[href],button,input,select,textarea,summary,option,[role=button],[role=link],[role=checkbox],"
+                    "[role=radio],[role=switch],[role=menuitem],[role=menuitemcheckbox],[role=menuitemradio],[role=tab],"
+                    '[role=option],[role=treeitem],[onclick],[contenteditable=""],[contenteditable=true],'
+                    "[contenteditable=plaintext-only]")
+CONTROL_JS = """(e) => {
+  const doc = e.ownerDocument;
+  for (let c = e; c && c !== doc.body && c !== doc.documentElement;
+       c = c.assignedSlot || c.parentNode || (c instanceof ShadowRoot ? c.host : null)) {
+    if (c.nodeType !== 1) continue;
+    if (c.localName === 'label' && c.control) return c.control;
+    if (c.matches(""" + json.dumps(CONTROL_SELECTOR) + """)) return c;
+  }
+  return e;
 }"""
 FRAME_OFFSET_JS = "e => { const r = e.getBoundingClientRect(); return [r.x + e.clientLeft, r.y + e.clientTop]; }"
 IS_PASSWORD_JS = "e => (e.type || '').toLowerCase() === 'password'"
@@ -99,9 +121,12 @@ DESCRIBE_JS = """(el) => {
   const text = n => n.innerText || n.textContent || '';
   const tag = el.tagName.toLowerCase();
   const type = (el.getAttribute('type') || '').toLowerCase();
-  const form = el.form || el.closest('form');
-  const isSubmit = !!form && ((tag === 'button' && (type === '' || type === 'submit'))
-    || (tag === 'input' && (type === 'submit' || type === 'image')));
+  // A control nested in a <button> ([onclick], a role) doesn't stop that button's own submit.
+  // .type, not the attribute: a <button> with no type, or one the browser doesn't know, submits.
+  const btn = el.closest('button') || el;
+  const form = btn.form || el.closest('form');
+  const isSubmit = !!form && ((btn.localName === 'button' && btn.type === 'submit')
+    || (btn.localName === 'input' && (btn.type === 'submit' || btn.type === 'image')));
   const anchor = el.closest('a[href]');
   const r = el.getBoundingClientRect();
   const SKIP = ['password', 'hidden', 'submit', 'button', 'reset', 'image', 'file'];
@@ -157,13 +182,14 @@ MARK_SELECTOR = ("a[href],button,input:not([type=hidden]),select,textarea,"
                  "[role=button],[role=link],[role=tab],[role=menuitem],[role=checkbox],[onclick]")
 # One frame's marks (open shadow roots included). Each candidate is hit-tested at a whole screen
 # pixel near the centre of its visible part, with the same walk /browser/element uses, so a mark
-# is the element a press-time read finds there (a span inside a button, say); a covered candidate
-# gets none. `sx, sy` is the frame's screen offset; points come back in screen pixels.
+# is the control a press-time read finds there; a covered candidate gets none. `sx, sy` is the
+# frame's screen offset; points come back in screen pixels.
 MARKS_JS = """([sel, sx, sy]) => {
   const hit = """ + DEEP_POINT_JS + """;
+  const control = """ + CONTROL_JS + """;
   const roleName = """ + ROLE_NAME_JS + """;
   const within = (outer, e) => {
-    for (let c = e; c; c = c.parentNode || (c instanceof ShadowRoot ? c.host : null)) if (c === outer) return true;
+    for (let c = e; c; c = c.assignedSlot || c.parentNode || (c instanceof ShadowRoot ? c.host : null)) if (c === outer) return true;
     return false;
   };
   const out = [], seen = new Set();
@@ -177,10 +203,11 @@ MARKS_JS = """([sel, sx, sy]) => {
         const px = Math.round(sx + (x0 + x1) / 2), py = Math.round(sy + (y0 + y1) / 2);
         const h = hit([px - sx, py - sy]);
         if (!h || h.tagName === 'IFRAME' || !within(el, h)) continue;
-        if (!seen.has(h)) {
-          seen.add(h);
-          const b = h.getBoundingClientRect();
-          const [role, name] = roleName(h);
+        const c = control(h);
+        if (!seen.has(c)) {
+          seen.add(c);
+          const b = c.getBoundingClientRect();
+          const [role, name] = roleName(c);
           out.push({role, name, point: [px, py], box: {x: b.x, y: b.y, w: b.width, h: b.height}});
         }
         break;
@@ -373,7 +400,7 @@ class BrowserSession:
             return None, None
         handle = await page.main_frame.evaluate_handle(DEEP_POINT_JS, [x, y])
         frame, el, _, _ = await self._descend(page.main_frame, handle, x, y)
-        return frame, el
+        return frame, (await el.evaluate_handle(CONTROL_JS)).as_element() if el else None
 
     async def focused_element(self, page):
         frame = page.main_frame

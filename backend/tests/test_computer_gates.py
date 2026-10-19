@@ -126,6 +126,18 @@ class TestAdversarialFixtures:
         f2 = form(text="sign up email password sign up", fields=[field("email", "email"), field("password", "password")])
         assert classify("act:click", el("Sign up", is_submit=True, form=f2, path="/signup")).gated
 
+    def test_pixel_click_inside_a_submit_button_is_a_form_submission(self):
+        """A screenshot-mode click on the <span> inside <button type=submit>, or on the icon of a typeless
+        <button>: the computer's pixel read names the enclosing button, so a label with no gate word is rule 6."""
+        f = form(text="your details name submit", fields=[field("text", "name")])
+        for name, type_ in (("Submit", "submit"), ("Continue", "submit"), ("", None)):
+            v = classify("left_click", el(name, type=type_, is_submit=True, form=f, path="/profile"))
+            assert (v.gated, v.kind, v.rule) == (True, "submit", "6.form"), name
+        # the innermost element (what a pixel read used to return) slipped through: a generic span isn't a submission
+        span = lambda name: el(name, tag="span", role="generic", form=f, path="/profile")  # noqa: E731
+        assert classify("left_click", span("Submit")).rule == "free"
+        assert classify("left_click", span("Continue")).rule == "3.legwork"
+
     def test_account_settings_update_is_gated(self):
         f = form(text="your details name email update", fields=[field("text", "name"), field("email", "email")])
         v = classify("act:click", el("Update", is_submit=True, form=f, path="/account"))
