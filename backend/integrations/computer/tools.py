@@ -1,7 +1,8 @@
 """Chatty — the computer's agent tools.
 
 computer_task / computer_task_get / computer_task_list / computer_task_cancel /
-computer_file_get / computer_info. All `writes: False`: the tools gate themselves
+computer_file_get / computer_info, plus the direct tools the agent drives the
+computer with in its own turn (direct.py). All `writes: False`: the tools gate themselves
 (policy, priced helper model, chain caps, own-task ownership) and every
 consequential action on the computer stops for the owner's approval anyway —
 with writes: True they would vanish from Telegram and route through the
@@ -9,7 +10,7 @@ browser-held web confirmation.
 
 Every executor takes the server-built `_ctx` ToolRegistry injects for
 `context_aware` tools: {agent_slug, agent_name, conversation_id, origin, route,
-action_id, cache_dir}. Nothing in it comes from the model.
+action_id, cache_dir, turn_id, group_owner}. Nothing in it comes from the model.
 """
 
 import logging
@@ -17,7 +18,7 @@ import mimetypes
 
 from core.agents.tools.file_cache import cache_file, load_cached_file
 
-from . import card, db, runner
+from . import card, db, direct, runner
 from .client import ComputerError, get_client
 
 logger = logging.getLogger(__name__)
@@ -51,7 +52,7 @@ async def computer_task(task: str, follow_up_of: str | None = None, file_refs: l
         return {"error": "task is required"}
     if len(task) > TASK_MAX_CHARS:
         return {"error": f"task is too long ({len(task)} chars, max {TASK_MAX_CHARS})"}
-    err = card.policy_error(slug)
+    err = direct.refusal(_ctx)
     if err:
         return {"error": err}
     model = card.helper_model()
@@ -94,6 +95,7 @@ async def computer_task(task: str, follow_up_of: str | None = None, file_refs: l
     if inbox:
         task += "\n\nFiles for this task are in: " + ", ".join(inbox)
 
+    await direct.hand_off(_ctx.get("turn_id"))  # the helper takes the screen next, in the same browser
     task_id = db.insert_task(
         agent_slug=slug, origin=origin, task=task, helper_provider=card.provider_for_model(model), helper_model=model,
         conversation_id=_ctx.get("conversation_id"), route=_ctx.get("route"), action_id=_ctx.get("action_id"),
@@ -111,6 +113,9 @@ async def computer_task(task: str, follow_up_of: str | None = None, file_refs: l
 
 
 def computer_task_get(task_id: str, *, _ctx: dict) -> dict:
+    err = direct.refusal(_ctx, policy=False)  # a group member who isn't the owner sees and touches nothing
+    if err:
+        return {"error": err}
     task = _own_task(task_id, _ctx["agent_slug"])
     if not task:
         return {"error": f"No task {task_id} for this agent."}
@@ -122,6 +127,9 @@ def computer_task_get(task_id: str, *, _ctx: dict) -> dict:
 
 
 def computer_task_list(status: str | None = None, limit: int = 10, *, _ctx: dict) -> dict:
+    err = direct.refusal(_ctx, policy=False)  # a group member who isn't the owner sees and touches nothing
+    if err:
+        return {"error": err}
     limit = max(1, min(int(limit or 10), 50))
     sql = "SELECT * FROM tasks WHERE agent_slug = ?"
     params: list = [_ctx["agent_slug"]]
@@ -133,6 +141,9 @@ def computer_task_list(status: str | None = None, limit: int = 10, *, _ctx: dict
 
 
 def computer_task_cancel(task_id: str, *, _ctx: dict) -> dict:
+    err = direct.refusal(_ctx, policy=False)  # a group member who isn't the owner sees and touches nothing
+    if err:
+        return {"error": err}
     task = _own_task(task_id, _ctx["agent_slug"])
     if not task:
         return {"error": f"No task {task_id} for this agent."}
@@ -145,7 +156,7 @@ async def computer_file_get(path: str, *, _ctx: dict) -> dict:
     """Fetch a file the helper left under /workspace/<agent> into the chat file cache and return a
     file_ref, so Drive/Gmail tools can send it on."""
     slug = _ctx["agent_slug"]
-    err = card.policy_error(slug)
+    err = direct.refusal(_ctx)
     if err:
         return {"error": err}
     path = (path or "").strip()
@@ -164,6 +175,9 @@ async def computer_file_get(path: str, *, _ctx: dict) -> dict:
 
 
 def computer_info(*, _ctx: dict) -> dict:
+    err = direct.refusal(_ctx, policy=False)  # a group member who isn't the owner sees and touches nothing
+    if err:
+        return {"error": err}
     c = card.creds()
     counts = {r["status"]: r["n"] for r in db.query("SELECT status, COUNT(*) AS n FROM tasks WHERE status IN ('queued','running') GROUP BY status")}
     return {
@@ -174,6 +188,7 @@ def computer_info(*, _ctx: dict) -> dict:
         "queued": counts.get("queued", 0),
         "running": counts.get("running", 0),
         "caps_per_task_chain": {"steps": db.MAX_STEPS, "seconds": db.MAX_SECONDS, "budget_usd": db.BUDGET_USD},
+        "direct_calls_per_turn": direct.MAX_ACTIONS,
         "workspace": f"/workspace/{_ctx['agent_slug']}",
     }
 
@@ -184,13 +199,15 @@ COMPUTER_TOOL_DEFS = [
     {
         "name": "computer_task",
         "description": (
-            "Hand a task to the helper that operates the owner's virtual computer (Chromium, a shell, files). "
-            "Use it for anything that needs a real browser or desktop: looking something up on a site, filling a "
-            "cart, downloading a report, running a program. Brief it like a capable colleague with none of your "
-            "context: the goal, the facts it needs, what done looks like. It runs asynchronously — you'll get a "
-            "follow-up turn with the result; don't poll. The helper never buys, sends, posts, deletes or submits "
-            "without the owner's approval: it stops at that point and reports. To continue a finished task, pass "
-            "follow_up_of=<task_id>. Chat attachments go along as file_refs (copied to /workspace/<agent>/inbox)."
+            "Hand a chore on your computer to the helper ({helper_model}), which works in the background in the same "
+            "browser (your Chromium profile stays on screen) with its own caps. Use it for long chores (more than "
+            "about 20 steps) or anything that needn't finish in this conversation; for quick or interactive work, "
+            "drive the computer yourself with computer_browser, computer_shell and computer_files. Calling it frees "
+            "the screen for the helper. Brief it like a capable colleague with none of your context: the goal, the "
+            "facts it needs, what done looks like. It runs asynchronously — you'll get a follow-up turn with the "
+            "result; don't poll. The helper never buys, sends, posts, deletes or submits without the owner's "
+            "approval: it stops at that point and reports. To continue a finished task, pass follow_up_of=<task_id>. "
+            "Chat attachments go along as file_refs (copied to /workspace/<agent>/inbox)."
         ),
         "input_schema": {
             "type": "object",
@@ -205,6 +222,7 @@ COMPUTER_TOOL_DEFS = [
         "kind": "integration",
         "writes": False,
         "context_aware": True,
+        "always_loaded": True,
     },
     {
         "name": "computer_task_get",
@@ -259,7 +277,16 @@ COMPUTER_TOOL_DEFS = [
     },
 ]
 
+
+def computer_tool_defs() -> list[dict]:
+    """Every computer tool, with the helper model (a card setting) named in the hand-off advice."""
+    model = card.helper_model()
+    return [{**d, "description": d["description"].replace("{helper_model}", model)}
+            for d in direct.TOOL_DEFS + COMPUTER_TOOL_DEFS]
+
+
 TOOL_EXECUTORS = {
+    **direct.TOOL_EXECUTORS,
     "computer_task": computer_task,
     "computer_task_get": computer_task_get,
     "computer_task_list": computer_task_list,

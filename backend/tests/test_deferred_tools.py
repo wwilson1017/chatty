@@ -328,6 +328,25 @@ class TestLoadDeferredTools:
         for name in all_loaded:
             assert name in kind_map
 
+    def test_kind_map_built_from_all_tools(self):
+        """The turn loops build kind_map from every tool before the split (ai_service.chat,
+        run_sync, background_runner). find_tools must still load the tool so it dispatches and
+        the model gets its schema exactly once — even after a second find_tools for it."""
+        tools = _large_tool_set() + [_make_tool("computer_task", "integration", integration="computer")]
+        kind_map = {t["name"]: t.get("kind", "context") for t in tools}
+        active, deferred, deferred_names, _ = build_tool_catalog(tools)
+        tool_defs = list(active)
+
+        for _ in range(2):
+            result, _ = handle_deferred_tool_call(
+                "find_tools", {"query": "computer_task"}, deferred, deferred_names, tool_defs, kind_map)
+            assert "error" not in result
+
+        assert "computer_task" not in deferred_names
+        assert [t["name"] for t in build_provider_tools(tool_defs)].count("computer_task") == 1
+        assert handle_deferred_tool_call(
+            "computer_task", {}, deferred, deferred_names, tool_defs, kind_map) == (None, False)
+
 
 # ── SEARCH_ALIASES validation ────────────────────────────────────────────────
 

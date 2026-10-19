@@ -8,6 +8,8 @@ and access token.
 """
 
 import logging
+import uuid
+from collections.abc import Awaitable, Callable
 from pathlib import Path
 
 from core.agents.tools.context_tools import (
@@ -64,6 +66,13 @@ from core.agents.tools.real_tools import (
 from core.agents.tools.report_tools import generate_report
 
 logger = logging.getLogger(__name__)
+
+# Run with the turn's id when a turn ends (ToolRegistry.aclose): integrations that hold something for
+# the length of a turn register here, e.g. the computer's direct session (integrations/computer/direct.py).
+TURN_END_HOOKS: list[Callable[[str], Awaitable[None]]] = []
+
+# A turn's model-iteration limit once it has run a tool flagged `extends_turn` (driving the computer).
+EXTENDED_TURN_ITERATIONS = 100
 
 
 class ToolRegistry:
@@ -124,6 +133,11 @@ class ToolRegistry:
         # The scheduled action driving this turn (set by the heartbeat and cron
         # processors); context_aware tools read it from _ctx.
         self._turn_action_id: str | None = None
+        # A group turn whose sender is the owner's linked account (set by the
+        # Telegram group path); the computer refuses every other group sender.
+        self._turn_group_owner: bool = False
+        # Keys turn-scoped state (the computer's direct session); new after aclose().
+        self.turn_id = uuid.uuid4().hex
 
         # Derived paths
         agent_data_dir = str(Path(context_dir).parent)
@@ -141,6 +155,19 @@ class ToolRegistry:
 
         # Cache for loaded real tool code (name -> code string)
         self._real_tool_code: dict[str, str] = {}
+
+    async def aclose(self) -> None:
+        """The turn is over: run the TURN_END_HOOKS for it (never raises), then start a new turn id."""
+        for hook in TURN_END_HOOKS:
+            try:
+                await hook(self.turn_id)
+            except Exception:
+                logger.warning("Turn-end hook %s failed", getattr(hook, "__qualname__", hook), exc_info=True)
+        self.turn_id = uuid.uuid4().hex
+
+    def extends_turn(self, tool_name: str) -> bool:
+        """Whether running this tool raises the turn's iteration limit (server-owned flag, never the model's)."""
+        return bool(self.integration_tool_flags.get(tool_name, {}).get("extends_turn"))
 
     async def execute_tool(self, tool_name: str, tool_args: dict, kind: str) -> dict:
         """Execute a tool by name and return its result."""
@@ -876,6 +903,8 @@ class ToolRegistry:
                     "route": self._turn_route,
                     "action_id": self._turn_action_id,
                     "cache_dir": self.file_cache_dir,
+                    "turn_id": self.turn_id,
+                    "group_owner": self._turn_group_owner,
                 }
             import asyncio
             if asyncio.iscoroutinefunction(executor):

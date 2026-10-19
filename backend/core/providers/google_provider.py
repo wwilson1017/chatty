@@ -5,11 +5,12 @@ Streaming via google.generativeai with function calling.
 Uses the user's OAuth access token (same token covers Gemini + Gmail + Calendar).
 """
 
+import base64
 import json
 import logging
 from typing import AsyncGenerator
 
-from core.providers.base import AIProvider
+from core.providers.base import IMAGE_LABEL, AIProvider
 
 logger = logging.getLogger(__name__)
 
@@ -29,6 +30,30 @@ def _clean_schema(schema: dict) -> dict:
     if "items" in result and isinstance(result["items"], dict):
         result["items"] = _clean_schema(result["items"])
     return result
+
+
+def _to_parts(content: list, protos) -> list:
+    """Structured message parts → protos.Part: function calls/responses, tool-result images,
+    plus any text blocks the provider-neutral assembler coalesced in (e.g. a compaction gist
+    or approval ack folded onto a tool_result turn). Text blocks carry no `_type` and would
+    otherwise be silently dropped."""
+    parts = []
+    for p in content:
+        if not isinstance(p, dict):
+            continue
+        if p.get("_type") == "function_call":
+            parts.append(protos.Part(function_call=protos.FunctionCall(
+                name=p["name"], args=p.get("args", {}))))
+        elif p.get("_type") == "function_response":
+            parts.append(protos.Part(function_response=protos.FunctionResponse(
+                name=p["name"], response=p.get("response", {}))))
+        elif p.get("_type") == "inline_data":
+            parts.append(protos.Part(inline_data=protos.Blob(
+                mime_type=p["mime_type"], data=base64.b64decode(p["data"]))))
+        elif p.get("type") == "text" and p.get("text"):
+            parts.append(protos.Part(text=p["text"]))
+    return parts
+
 
 # Fallback list only — list_models() fetches live from the Gemini API and this
 # is used when that call fails. Kept current by the price-check skill.
@@ -104,30 +129,7 @@ class GoogleProvider(AIProvider):
             content = m.get("content", "")
 
             if isinstance(content, list):
-                # Structured parts: function calls/responses, plus any text blocks
-                # the provider-neutral assembler coalesced in (e.g. a compaction
-                # gist folded onto a tool_result user turn). Text blocks carry no
-                # `_type` and would otherwise be silently dropped here.
-                parts = []
-                for part_data in content:
-                    if not isinstance(part_data, dict):
-                        continue
-                    if part_data.get("_type") == "function_call":
-                        parts.append(protos.Part(
-                            function_call=protos.FunctionCall(
-                                name=part_data["name"],
-                                args=part_data.get("args", {}),
-                            )
-                        ))
-                    elif part_data.get("_type") == "function_response":
-                        parts.append(protos.Part(
-                            function_response=protos.FunctionResponse(
-                                name=part_data["name"],
-                                response=part_data.get("response", {}),
-                            )
-                        ))
-                    elif part_data.get("type") == "text" and part_data.get("text"):
-                        parts.append(protos.Part(text=part_data["text"]))
+                parts = _to_parts(content, protos)
                 if parts:
                     gemini_role = "model" if role == "assistant" else "user"
                     history.append(protos.Content(role=gemini_role, parts=parts))
@@ -152,22 +154,8 @@ class GoogleProvider(AIProvider):
         # Last user message — may be plain text or structured function responses
         last_content = messages[-1].get("content", "") if messages else ""
         if isinstance(last_content, list):
-            # Structured parts (function responses after tool execution), plus any
-            # coalesced text blocks (e.g. an approval ack or gist folded onto a
-            # tool_result turn) so they aren't dropped from the sent message.
-            parts = []
-            for part_data in last_content:
-                if not isinstance(part_data, dict):
-                    continue
-                if part_data.get("_type") == "function_response":
-                    parts.append(protos.Part(
-                        function_response=protos.FunctionResponse(
-                            name=part_data["name"],
-                            response=part_data.get("response", {}),
-                        )
-                    ))
-                elif part_data.get("type") == "text" and part_data.get("text"):
-                    parts.append(protos.Part(text=part_data["text"]))
+            # Structured parts (function responses after tool execution)
+            parts = _to_parts(last_content, protos)
             send_msg = protos.Content(role="user", parts=parts) if parts else ""
         else:
             send_msg = last_content
@@ -260,6 +248,12 @@ class GoogleProvider(AIProvider):
                 "name": r.get("tool_name", ""),
                 "response": {"result": str(r["content"])},
             })
+        # Images: inline-data parts in the same user turn, after the function responses
+        for r in results:
+            if r.get("images"):
+                fr_parts.append({"type": "text", "text": IMAGE_LABEL.format(r.get("tool_name", ""))})
+                fr_parts += [{"_type": "inline_data", "mime_type": i["media_type"], "data": i["data"]}
+                             for i in r["images"]]
         user_msg = {"role": "user", "content": fr_parts}
 
         return messages + [assistant_msg, user_msg]

@@ -12,6 +12,8 @@ from typing import AsyncGenerator
 
 import openai
 
+from core.providers.base import IMAGE_LABEL
+
 logger = logging.getLogger(__name__)
 
 
@@ -201,5 +203,15 @@ def build_openai_tool_results(
         }
         for r in results
     ]
+
+    # Tool messages are text-only, so any images go in ONE user message after them.
+    image_parts: list[dict] = []
+    for r in results:
+        if r.get("images"):
+            image_parts.append({"type": "text", "text": IMAGE_LABEL.format(r["tool_name"])})
+            image_parts += [{"type": "image_url", "image_url": {"url": f"data:{i['media_type']};base64,{i['data']}"}}
+                            for i in r["images"]]
+    if image_parts:
+        result_msgs.append({"role": "user", "content": image_parts})
 
     return messages + [assistant_msg] + result_msgs

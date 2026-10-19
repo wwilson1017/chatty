@@ -371,8 +371,9 @@ def takeover_url(task_id: str, slug: str) -> str:
 def notify_takeover(task: dict, reason: str) -> None:
     """Tell the owner the helper needs them: the reason, the agent and the viewer link — to the chat the
     task came from (Telegram gets a URL button only when the link is https; Telegram refuses the rest),
-    otherwise every notification channel. A failed send is logged, not fatal: the card and the viewer
-    are always there. The reason is the helper's words about an untrusted page, so it never renders."""
+    otherwise every notification channel. A Telegram group is never told: the link goes to the owner's
+    private chat instead. A failed send is logged, not fatal: the card and the viewer are always there.
+    The reason is the helper's words about an untrusted page, so it never renders."""
     from agents.db import get_agent_by_slug
     slug = task["agent_slug"]
     agent = get_agent_by_slug(slug) or {}
@@ -382,10 +383,11 @@ def notify_takeover(task: dict, reason: str) -> None:
             f"The helper sees nothing you type.\n{url}")
     route = json.loads(task["route"]) if task["route"] else {}
     try:
-        if route.get("channel") == "telegram" and agent.get("telegram_bot_token"):
+        chat = approvals.owner_telegram_chat(task, agent) if route.get("channel") == "telegram" else None
+        if chat and agent.get("telegram_bot_token"):
             from integrations.telegram.client import send_message
             markup = {"inline_keyboard": [[{"text": "Open the screen", "url": url}]]} if url.startswith("https://") else None
-            send_message(route["chat_id"], f"{title}\n\n{text}", agent["telegram_bot_token"], reply_markup=markup, plain=True)
+            send_message(chat, f"{title}\n\n{text}", agent["telegram_bot_token"], reply_markup=markup, plain=True)
         elif route.get("channel") == "whatsapp":
             from integrations.whatsapp.client import send_message
             send_message(route["chat_id"], f"*{title}*\n\n{text}")
@@ -406,6 +408,16 @@ class _Fenced(_Stop):
 
 class _Paused(Exception):
     """A desktop call was refused because a person had control; control has since ended."""
+
+
+class _EpochChanged(Exception):
+    """A run that never resends (a direct session) was refused `stale_epoch`: the screen changed hands, the
+    new epoch is adopted, and the whole operation stops there. Not a ComputerError, so no handler that
+    swallows those (pixel_action's preliminary snapshot) carries on under the new epoch."""
+
+
+EPOCH_CHANGED = {"error": "not performed: the screen changed hands (a person used it, or it was taken over) since "
+                          "your last look; take a fresh snapshot before acting again", "code": "stale_epoch"}
 
 
 class _Run:
@@ -430,6 +442,16 @@ class _Run:
         self.declared: dict | None = None    # the helper's request_approval declaration, attached to the next gate
         self.last_result: dict = {}          # execute()'s last raw result (batch() reads error/stopped from it)
         self.shots = 0                       # screenshots saved for the record: shots/<task>/<n>.png
+        # Defaults are the helper's; a direct session (direct.py) sets all three False.
+        self.notify = True                   # finish() queues the agent's report turn
+        self.retry_epoch = True              # computer() resends once after stale_epoch (False: _EpochChanged)
+        self.renew_adopts_epoch = True       # renew_loop() overwrites `epoch` (False: it only sets latest_epoch)
+        self.latest_epoch: str | None = None  # the newest epoch renew_loop saw, adopted between operations
+        self.op_lock = asyncio.Lock()        # one direct operation at a time; renewals never take it
+        # The latest observation of each kind ("snapshot"; later marked screenshots): (epoch it was sent
+        # under, its number). A ref is only good while that epoch is the run's epoch (direct.py checks).
+        self.observed: dict[str, tuple[str | None, int]] = {}
+        self.observations = 0
         # Counted time: wall time minus takeover waits. `segment_start` is None while paused.
         self.counted = float(task["running_seconds"] or 0)
         self.segment_start: float | None = time.monotonic()
@@ -493,7 +515,7 @@ class _Run:
             self.finished = True
             fields.setdefault("result_text", self.last_text or None)
             fields.setdefault("gate_id", self.gate_id)
-            db.finish_task(self.id, status, reason, notify=True, running_seconds=self.seconds(), **fields)
+            db.finish_task(self.id, status, reason, notify=self.notify, running_seconds=self.seconds(), **fields)
 
     def cap_report(self, reason: str) -> str:
         """No extra model call at a cap: the helper's last message plus a step-log summary."""
@@ -510,10 +532,13 @@ class _Run:
     def _desktop(self, body: dict | None = None) -> dict:
         return {**(body or {}), "lease": self.lease, "epoch": self.epoch}
 
-    async def computer(self, method: str, path: str, *, body: dict | None = None, retry_epoch: bool = True, **kw) -> dict:
+    async def computer(self, method: str, path: str, *, body: dict | None = None, retry_epoch: bool | None = None,
+                       **kw) -> dict:
         """One desktop call under the lease. human_in_control → wait for control to end, then
-        raise _Paused so the tool reports "not performed"; lease_lost → fenced; stale_epoch →
-        refresh the epoch and retry once with a fresh action id."""
+        raise _Paused so the tool reports "not performed"; lease_lost → fenced; stale_epoch (refused
+        before anything ran) → always adopt the refusal's epoch, then retry once with a fresh action id
+        (`retry_epoch`, default self.retry_epoch) or re-raise. A run that never resends raises
+        _EpochChanged instead, which ends the whole operation."""
         if self.fenced:
             raise _Fenced()
         try:
@@ -525,11 +550,15 @@ class _Run:
             if e.code == "human_in_control":
                 await self.wait_for_control_end()
                 raise _Paused() from e
-            if e.code == "stale_epoch" and retry_epoch:
+            if e.code == "stale_epoch":
                 self.epoch = e.body.get("epoch") or (await self.client.control_status()).get("epoch") or self.epoch
-                if body and "action_id" in body:
-                    body = {**body, "action_id": db.ulid()}  # refused before journaling: a fresh id, nothing ran
-                return await self.computer(method, path, body=body, retry_epoch=False, **kw)
+                self.latest_epoch = None  # whatever renew_loop stored is no newer than this refusal's epoch
+                if not self.retry_epoch:
+                    raise _EpochChanged() from e
+                if retry_epoch is not False:
+                    if body and "action_id" in body:
+                        body = {**body, "action_id": db.ulid()}  # refused before journaling: a fresh id, nothing ran
+                    return await self.computer(method, path, body=body, retry_epoch=False, **kw)
             raise
 
     async def activate(self) -> str | None:
@@ -556,7 +585,8 @@ class _Run:
 
     async def renew_loop(self) -> None:
         """Every 30 s for the whole task: renew the lease (exempt from human_in_control) and mark the
-        worker alive. Any failed renewal fences the worker: no further action is ever sent."""
+        worker alive. Any failed renewal fences the worker: no further action is ever sent. A newer
+        epoch is adopted at once, or (renew_adopts_epoch False) kept for the next operation's start."""
         while True:
             await asyncio.sleep(RENEW_EVERY_S)
             try:
@@ -565,7 +595,10 @@ class _Run:
                 self.fenced = True
                 return
             if r.get("epoch"):
-                self.epoch = r["epoch"]
+                if self.renew_adopts_epoch:
+                    self.epoch = r["epoch"]
+                else:
+                    self.latest_epoch = r["epoch"]
             try:
                 self.heartbeat()
             except _Stop:
@@ -678,10 +711,18 @@ class _Run:
     # ── tools ────────────────────────────────────────────────────────────────
 
     async def snapshot(self, max_chars: int = SNAPSHOT_CHARS) -> dict:
+        sent = self.epoch
         r = await self.computer("POST", "/browser/snapshot", body={"max_chars": max_chars})
         self.snapshot_text = r.get("snapshot") or ""
         self.url = r.get("url") or self.url
+        self.observe("snapshot", sent)
         return {k: r.get(k) for k in ("url", "title", "snapshot", "truncated", "tabs")}
+
+    def observe(self, kind: str, epoch: str | None) -> int:
+        """Record an observation (its refs, later its marks) taken under `epoch`; returns its number."""
+        self.observations += 1
+        self.observed[kind] = (epoch, self.observations)
+        return self.observations
 
     async def act(self, kind: str, params: dict, *, label: str, text: str | None = None, verdict_out: list) -> dict:
         """Classify (when checked, via gate_or_expect), then send the act with an action id and `expect`.
@@ -741,7 +782,14 @@ class _Run:
         res = await self.act(kind, params, label=label, text=text, verdict_out=verdicts)
         if "stopped" in res or not changes_page:
             return res
-        return {**res, **await self.snapshot()}
+        try:
+            return {**res, **await self.snapshot()}
+        except (_Paused, _Fenced, _EpochChanged, ComputerError) as e:  # the action itself was performed: say so
+            self.observed.pop("snapshot", None)
+            why = e.detail if isinstance(e, ComputerError) else {
+                _Paused: "a person took the screen", _Fenced: "lost the screen", _EpochChanged: "the screen changed hands"}[type(e)]
+            return {**res, "performed": True, "snapshot_error": why,
+                    "hint": "the action was performed; take a fresh snapshot before acting again"}
 
     async def tool_shell(self, a: dict) -> dict:
         t = max(1, min(int(a.get("timeout") or SHELL_DEFAULT_S), SHELL_MAX_S, int(self.remaining_seconds()) or 1))
@@ -821,7 +869,7 @@ class _Run:
             r = await self.computer("POST", "/actions", body={"action_id": db.ulid(), "name": "screenshot", "input": {}})
             image = (r.get("result") or {}).get("image")
             return self.save_png(rel, image) if image else None
-        except (_Paused, _Fenced, ComputerError):
+        except (_Paused, _Fenced, _EpochChanged, ComputerError):
             return None
 
     async def open_gate(self, kind: str, note: str, rule: str, label: str, element: dict | None, *,
@@ -950,7 +998,7 @@ class _Run:
                         try:  # by ref when one was located; a pre-approved pixel click by its pixel, a pre-approved key by focus
                             fresh = await self.computer("POST", "/browser/element",
                                                         body=params or ({"x": coord[0], "y": coord[1]} if coord else {"focused": True}))
-                        except (_Paused, ComputerError):
+                        except (_Paused, _EpochChanged, ComputerError):
                             fresh = None
                         await self.regate(gate, "changed under the click: " + ", ".join(e.body.get("mismatches") or ["page"]),
                                           fresh if fresh and fresh.get("found") else None)
@@ -962,9 +1010,10 @@ class _Run:
                 except _Fenced:
                     await self.reconcile(gate, element)  # the lease is gone but the action may have run
                     raise
-                except _Stop:  # the task ended (cancel, policy) while we waited for a person to hand the screen back:
+                except (_Stop, _EpochChanged):  # the task ended (cancel, policy) while we waited for a person to hand the
+                    # screen back, or a direct session's screen changed hands: refused before journaling, nothing was sent
                     db.execute("UPDATE gates SET status = 'cancelled' WHERE id = ? AND status = 'dispatching'", (gate["id"],))
-                    raise  # human_in_control is refused before journaling, so nothing was sent
+                    raise
                 db.execute("UPDATE gates SET status = 'done' WHERE id = ? AND status = 'dispatching'", (gate["id"],))
                 db.add_step(self.id, "approved_action", {"gate": gate["id"], "kind": kind, **params, **({"coordinate": coord} if coord else {})},
                             '{"performed": true}', url=self.url, action_id=self.pending_action_id,
@@ -1079,8 +1128,10 @@ class _Run:
                                "the page may have changed"}
             try:
                 result.update(await self.snapshot())
-            except (_Paused, ComputerError):
+            except (_Paused, _EpochChanged, ComputerError):
                 result["hint"] = "take a new snapshot"
+        except _EpochChanged:
+            result = dict(EPOCH_CHANGED)
         except ComputerError as e:
             result = {"error": e.detail, "code": e.code}
             if e.code == "element_changed":
@@ -1093,10 +1144,11 @@ class _Run:
         self.last_result = result
         if "stopped" in result or name == "request_approval":
             return s
-        if name == "request_takeover" and "handback" in result:  # our own words stay outside the untrusted wrapper
-            return result.pop("handback") + "\n" + wrap_result("browser", json.dumps(result))
-        if name == "browser" and "preapproved" in result:  # likewise Chatty's note about a pre-approved action
-            return result.pop("preapproved") + "\n" + wrap_result("browser", json.dumps(result))
+        # Our own words stay outside the untrusted wrapper (last_result keeps them: a direct call returns it whole)
+        for tool, ours in (("request_takeover", "handback"), ("browser", "preapproved")):
+            if name == tool and ours in result:
+                rest = {k: v for k, v in result.items() if k != ours}
+                return result[ours] + "\n" + wrap_result("browser", json.dumps(rest))
         return wrap_result(name, s)
 
     @staticmethod
@@ -1200,6 +1252,8 @@ class _Run:
         except _Paused:
             result = {"error": "not performed: a person took control of the screen and has handed it back; "
                                "the screen may have changed — take a screenshot"}
+        except _EpochChanged:
+            result = dict(EPOCH_CHANGED)
         except ComputerError as e:
             result = {"error": e.detail, "code": e.code}
             if e.code == "element_changed":
@@ -1402,16 +1456,19 @@ async def run_task(task: dict, worker_id: str, client: ComputerClient | None = N
     else (the task is queued again), "done" otherwise."""
     run = _Run(task, worker_id, client or get_client())
     renew = None
+    # A direct session's approval follow-up: no helper model and no helper caps — it makes the approved
+    # click, and the agent carries on itself in the completion turn.
+    agent_driven = task.get("driver") == "agent"
     try:
         err = card.policy_error(run.slug)
         if err:
             run.finish("cancelled", "disabled", error=err)
             return "done"
-        err = card.helper_model_error(task["helper_model"])
+        err = None if agent_driven else card.helper_model_error(task["helper_model"])
         if err:
             run.finish("failed", "helper model refused", error=err)
             return "done"
-        reason = run.cap_reason()
+        reason = None if agent_driven else run.cap_reason()
         if reason:
             run.finish("failed", reason, result_text=run.cap_report(reason))
             return "done"
@@ -1426,9 +1483,12 @@ async def run_task(task: dict, worker_id: str, client: ComputerClient | None = N
         if gate and gates.unbindable_reason(gate):
             await run.takeover(gate)
         else:
-            note = await run.consume(gate) if gate else None
+            note = await run.consume(gate) if gate else None  # None: consume() already ended the task
             if not run.finished:
-                await run.loop(note)
+                if agent_driven:
+                    run.finish("done", "approved action performed", result_text=note)
+                else:
+                    await run.loop(note)
     except _Fenced:
         run.finish("failed", "lost the screen", error="the computer's screen lease was lost; nothing was retried")
     except _Stop:

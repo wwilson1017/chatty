@@ -1,6 +1,6 @@
 # The virtual computer
 
-Give your agents a computer of their own: a Linux desktop (Chromium, a terminal, a file manager, LibreOffice Writer and Calc) that runs as a container next to Chatty. Agents don't drive it themselves. They hand a task to a **helper**, a loop in Chatty's backend that runs a cheaper model (Claude Sonnet 5.5 by default) to click, type, run commands and read pages, and they get back a summary and any files. You can watch the screen live, take it over to sign in to a site, and nothing that spends money or leaves the computer for good happens without your approval.
+Give your agents a computer of their own: a Linux desktop (Chromium, a terminal, a file manager, LibreOffice Writer and Calc) that runs as a container next to Chatty. An agent drives it itself, in the conversation: it reads pages, clicks, types, runs commands and handles files. For long chores it hands a task to a **helper**, a loop in Chatty's backend that runs a cheaper model (Claude Sonnet 5.5 by default) in the background and reports back with a summary and any files. You can watch the screen live, take it over to sign in to a site, and nothing that spends money or leaves the computer for good happens without your approval.
 
 It is optional and off until you add one and turn it on.
 
@@ -46,7 +46,7 @@ Run the container where Chatty can reach it, with your own secret of at least 32
 ```bash
 docker run -d --name chatty-computer --restart unless-stopped \
   -p 127.0.0.1:8765:8080 -v chatty-computer:/data \
-  -e COMPUTER_SECRET=<your secret> -e HOST=0.0.0.0 --shm-size=1g \
+  -e COMPUTER_SECRET=<your secret> --shm-size=1g \
   ghcr.io/wwilson1017/chatty-computer:latest
 ```
 
@@ -60,19 +60,29 @@ The control API is plain HTTP protected by the secret. Keep it on the same host,
 - **Keep the computer running.** *Close when idle (after 30 min)*, the default, stops the desktop and Chromium after 30 minutes without activity; the container stays up and the next task brings everything back in a few seconds. *Always on* keeps the desktop up for instant starts.
 - **Agents that can use it.** Untick an agent to keep it off the computer. Each listed agent has **Open the screen** and **Signed-in sites**.
 
-## How agents use it
+## How agents use the computer
 
-An agent calls `computer_task("…")` with what it wants done. The helper takes the screen, works through the task with a browser, a shell and files, and the agent gets at most one turn to tell you the result in the same conversation (and on Telegram or WhatsApp if that's where you asked). An agent can check or cancel its own tasks (`computer_task_get`, `computer_task_list`, `computer_task_cancel`), fetch a file the helper produced (`computer_file_get`, which lets Gmail and Drive tools send it on) and ask about the computer (`computer_info`). A follow-up is always a new task that continues the chain.
+**Directly, first.** An agent drives the computer itself with `computer_browser` (read a page as text, click, type, navigate, switch tabs), `computer_shell` (run a command) and `computer_files` (list, read or write files in its folder). Its own model does the work, in the conversation you're having with it. The first call in a turn takes the screen and the end of the turn gives it back. Each such session shows on the card as a **Direct** row with its step log.
 
-- **One screen.** Tasks run one at a time; the rest queue. Your own requests go before background work.
+- **The ceiling.** Once an agent has used the computer, its turn may take up to 100 model steps (instead of 20 in chat, or 5 to 10 in the background), and it can make up to 100 computer calls in that turn. Direct work has no money cap of its own: it's part of the agent's turn.
+- **Approvals.** The same checks as for the helper stop every consequential click (see [Approvals and purchases](#approvals-and-purchases)). Nothing is clicked; the agent tells you it's waiting for your approval and can't use the computer again in that turn. When you approve, Chatty makes that one click and the agent gets a new turn to check the outcome, carry on, and tell you how it went.
+- **A busy screen.** If the helper or another agent has the screen, the agent waits up to 30 seconds, then hands the work to the helper, which queues.
+- **Handing off.** For chores of more than about 20 steps, or anything that needn't finish while you wait, the agent calls `computer_task("…")`. That frees the screen, and the helper carries on in the same browser, with the agent's own profile and logins.
+- **Signing in.** The agent never types passwords. It asks you to sign in on the screen yourself (**Open the screen**, then **Take control**).
+
+**Through the helper.** `computer_task("…")` queues a task. The helper takes the screen, works through it with a browser, a shell and files, and the agent gets at most one turn to tell you the result in the same conversation (and on Telegram or WhatsApp if that's where you asked). An agent can check or cancel its own tasks (`computer_task_get`, `computer_task_list`, `computer_task_cancel`), fetch a file from its folder (`computer_file_get`, which lets Gmail and Drive tools send it on) and ask about the computer (`computer_info`). A follow-up is always a new task that continues the chain.
+
+- **One screen.** Tasks run one at a time; the rest queue. Your own requests go before background work. An agent driving directly holds the screen only during its turn.
 - **Per agent.** Each agent has its own Chrome profile (its logins) and its own folder, `/workspace/<agent>`, with `downloads/` and an `inbox/` for files you attached in chat. `/workspace/shared` is common to all.
-- **Caps per task chain:** 500 steps, 2 hours of running time and a $10 budget. At a cap the task stops and the agent reports what it has, with no extra model call. The dollar figure is a budget enforced on conservative estimates, not a hard guarantee (see [Known limits](#known-limits)).
+- **Caps per helper task chain:** 500 steps, 2 hours of running time and a $10 budget. At a cap the task stops and the agent reports what it has, with no extra model call. The dollar figure is a budget enforced on conservative estimates, not a hard guarantee (see [Known limits](#known-limits)).
 - **Models.** The helper's model needs a known price in Chatty's pricing table or it is refused. Screenshot-and-click needs a Claude model; with other providers the helper gets a text browser, the shell and files.
 - **Background work.** Scheduled actions and heartbeats can use the computer too. A scheduled action can carry a short **Allowed without asking** list of site + button pairs so routine submissions go through unattended; editing the action's prompt clears that list, and purchases always ask.
 
+**In groups, only you.** In a Telegram group, the computer works only for messages from your own Telegram account, the one paired with the agent in the dashboard. Anyone else's request is refused, whether it would drive the computer or hand it a task. Approval cards and takeover links never go to a group: they come to your private chat with the agent (and the Computer card). The group sees only the agent's replies.
+
 ## Approvals and purchases
 
-Before every click, key press or submission that could leave the computer, the helper's target is checked. These stop and ask you:
+Before every click, key press or submission that could leave the computer, its target is checked, whether the agent or the helper is driving. These stop and ask you:
 
 - **Buy:** place order, buy, pay, purchase, subscribe, donate, transfer; any button on a cart, checkout, payment or billing page.
 - **Delete:** delete, remove or close an account, erase, empty trash, cancel a subscription or order.
@@ -80,19 +90,19 @@ Before every click, key press or submission that could leave the computer, the h
 - **Send:** send, reply all, forward, and Ctrl/Cmd+Enter anywhere.
 - **Any other form submission** not positively identified as a login, a search, or cart legwork (add to cart, quantities, coupons, a shipping step), and generic confirmations such as Confirm, Yes, OK, Agree, Save, Update, Create or Register.
 
-When something is stopped, the task ends as *waiting for your approval* and you get a message with a screenshot on Telegram (if the agent has a bot) and an approval box on the card. It shows the **checked facts** (site, button text, the order total the page shows) separately from the helper's own reason, which is not verified. **Approve** runs a follow-up that re-opens the page and performs exactly that one action, bound to the site, page, form, recipients and, for a purchase, the total; if any of them changed in the meantime, you get a new request instead of the click. **Deny** ends it. Approvals expire after 24 hours.
+When something is stopped, the task (or the agent's direct session) ends as *waiting for your approval* and you get a message with a screenshot on Telegram (if the agent has a bot) and an approval box on the card. It shows the **checked facts** (site, button text, the order total the page shows) separately from the helper's own reason, if it gave one, which is not verified. **Approve** runs a follow-up that re-opens the page and performs exactly that one action, bound to the site, page, form, recipients and, for a purchase, the total; if any of them changed in the meantime, you get a new request instead of the click. **Deny** ends it. Approvals expire after 24 hours.
 
 - **Each purchase is approved on its own**, and the total is checked again at the moment of the click.
 - **"Take over to do this yourself"** appears when the details can't be pinned down, for instance no single order total on the page or a message composer with no readable recipients. Approving it brings the agent's page up for you to finish by hand.
 - **Outcome unknown.** If the connection drops right as an approved click goes out, the task ends with "I clicked X and couldn't confirm what happened" and a screenshot. Nothing consequential is ever retried on its own; check the site.
 
-These checks catch mistakes and hostile pages, not a determined attacker: the helper has a shell with sudo and could in principle drive Chrome around them. The helper's rules forbid that, every step is logged, and clicks in desktop apps outside the browser rely on those rules rather than on page inspection.
+These checks catch mistakes and hostile pages, not a determined attacker: whoever drives (the agent or the helper) has a shell with sudo and could in principle drive Chrome around them. Their instructions forbid that, every step is logged, and clicks in desktop apps outside the browser rely on those rules rather than on page inspection.
 
 ## Watching and logins
 
 **Open the screen** (from the card, or the link an agent sends you) shows the live desktop. Watching is view-only: nothing you do reaches the screen.
 
-**Take control** pauses the helper: while you hold the screen, every agent request is refused, including screenshots and page reads. Type, click, sign in; on a phone there is a Type box with Enter, Backspace, Tab and Esc. **I'm done** hands the screen back and the helper continues from a fresh look at the page. Control also ends 60 seconds after your connection drops without coming back, or after 15 minutes.
+**Take control** pauses whoever is driving: while you hold the screen, every request from the agent or the helper is refused, including screenshots and page reads. Type, click, sign in; on a phone there is a Type box with Enter, Backspace, Tab and Esc. **I'm done** hands the screen back and the helper continues from a fresh look at the page. Control also ends 60 seconds after your connection drops without coming back, or after 15 minutes.
 
 **Signing in.** When the helper reaches a login page it stops and sends you a link to take over. You type the password; the helper never sees it. Password fields are never read, and screenshots stop during your turn. The cookies stay in that agent's Chrome profile on the computer, so the next task is already signed in. If nobody takes over within 15 minutes the task ends with "sign-in needed".
 
@@ -106,11 +116,11 @@ Everything under `/data` survives restarts, image updates and Railway redeploys:
 
 - **The secret.** Every call carries it as a bearer token; Chatty stores it encrypted like every other credential, and the computer refuses to start with a secret under 32 characters. The API has no TLS of its own, which is why it lives on a private network.
 - **No wall between agents.** All agents share one Linux user with sudo on the computer. Separate Chrome profiles stop them signing each other out, but a program one agent runs can read another agent's files and logins. Treat every agent allowed on the computer as one trust level, or exclude the ones you don't want there.
-- **What the helper sees:** the task text, page contents with password values removed, screenshots (a masked password field shows as dots), and the files in the agent's folder. Chatty never knowingly passes a password or an API key to the helper.
-- **Pages are untrusted.** Everything the helper reads from a website is wrapped as untrusted data, but instructions hidden in a page are a real risk. The approval gates exist for exactly that case.
+- **What the agent and the helper see:** the task text, page contents with password values removed, screenshots (a masked password field shows as dots), and the files in the agent's folder. Chatty never knowingly passes a password or an API key to either.
+- **Pages are untrusted.** Everything read from a website is wrapped as untrusted data, but instructions hidden in a page are a real risk. The approval gates exist for exactly that case.
 - **Command MCP servers** that run on the computer receive their key as an environment variable, only when the process starts, held in memory. Any process on the computer could still read it, and the server itself can print it. Prefer hosted servers; give command servers narrow, read-only, revocable keys.
 - **Every step is logged** on the card (tool, result excerpt, screenshot), kept 14 days.
-- **Turning the integration off** stops a running task at its next step, closes open viewers and makes pending approvals impossible to approve.
+- **Turning the integration off** stops a running task (or a direct session) at its next step, closes open viewers and makes pending approvals impossible to approve.
 
 ## Known limits
 

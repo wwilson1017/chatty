@@ -978,5 +978,15 @@ if __name__ == "__main__":
         sys.exit(1)
     # plain asyncio, not uvloop: uvloop leaks the subprocess pipe fds into grandchildren, so a server
     # a shell command left running in the background would keep /shell waiting until its timeout
-    uvicorn.run(app, host=os.environ.get("HOST", "::"), port=int(os.environ.get("PORT", "8080")),
-                log_level="info", loop="asyncio", ws_max_size=16 * 1024 * 1024)
+    host, port = os.environ.get("HOST", "::"), int(os.environ.get("PORT", "8080"))
+    config = uvicorn.Config(app, host=host, port=port, log_level="info", loop="asyncio", ws_max_size=16 * 1024 * 1024)
+    sockets = None
+    if host == "::":
+        # asyncio makes a "::" listener IPv6-only, but Railway's healthcheck (and IPv4 private networks) connect
+        # over IPv4: bind one dual-stack socket ourselves
+        sock = socket.socket(socket.AF_INET6, socket.SOCK_STREAM)
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        sock.setsockopt(socket.IPPROTO_IPV6, socket.IPV6_V6ONLY, 0)
+        sock.bind(("::", port))
+        sockets = [sock]
+    uvicorn.Server(config).run(sockets=sockets)

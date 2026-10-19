@@ -189,8 +189,9 @@ async def process_group_message(
     sender_is_bot: bool,
     group_name: str,
     message_text: str,
+    sender_id: str = "",
 ) -> str:
-    """Process a group chat message for a specific agent."""
+    """Process a group chat message for a specific agent. `sender_id` is the Telegram user who wrote it."""
 
     agent = agent_db.get_agent(agent_id)
     if not agent:
@@ -250,8 +251,13 @@ async def process_group_message(
     )
     # A group member asked, not the owner: never user-originated (no full access,
     # no approvals), but anything the turn delegates reports back to the group.
+    # The route says it's a group so approval cards and takeover links go to the
+    # owner's private chat instead. Only the owner's linked account (the dashboard
+    # pairing, the same check that decides who may approve) may use the computer.
     registry._turn_origin = "group"
-    registry._turn_route = {"channel": "telegram", "chat_id": str(chat_id)}
+    registry._turn_route = {"channel": "telegram", "chat_id": str(chat_id), "group": True}
+    registry._turn_group_owner = bool(
+        sender_id and not sender_is_bot and state.get_mapping_by_sender("telegram", sender_id, agent_id))
 
     group_sender_id = f"group:{chat_id}"
     conv = state.get_or_create_conversation(group_sender_id, agent_id)

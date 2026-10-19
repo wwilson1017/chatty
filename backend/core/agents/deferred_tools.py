@@ -160,7 +160,7 @@ def build_tool_catalog(
 
     for t in tool_defs:
         kind = t.get("kind", "")
-        if kind in ALWAYS_LOADED_KINDS:
+        if kind in ALWAYS_LOADED_KINDS or t.get("always_loaded"):  # e.g. the computer: never behind find_tools
             active.append(t)
         else:
             deferred.append(t)
@@ -335,8 +335,9 @@ def load_deferred_tools(
 
     for t in matched_tools:
         name = t["name"]
-        if name in kind_map:
-            # Already loaded (e.g., from a previous find_tools call in this loop)
+        if name not in deferred_names:
+            # Already loaded (e.g., from a previous find_tools call in this loop). Not `name in
+            # kind_map`: the turn loops build kind_map from every tool, deferred ones included.
             continue
 
         tool_defs.append(t)
@@ -360,7 +361,7 @@ def load_deferred_tools(
     return loaded_names
 
 
-_INTERNAL_FIELDS = {"kind", "writes", "context_memory", "integration", "context_aware"}
+_INTERNAL_FIELDS = {"kind", "writes", "context_memory", "integration", "context_aware", "extends_turn", "always_loaded"}
 
 
 def build_provider_tools(tool_defs: list[dict]) -> list[dict]:
