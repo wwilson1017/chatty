@@ -126,6 +126,18 @@ cd backend && ../.venv/bin/python -m cli
 
 Useful flags: `--agent <slug>` to pick an agent, `--list` to see them all, `--ephemeral` to skip saving the conversation, `--readonly` to disable write tools, `--power` to skip write confirmations, `-v` for full tool args and results. Inside the REPL, `/help` lists the slash commands (`/search`, `/memory`, `/context`, `/usage`, `/agents`, `/switch`, and more).
 
+## Terminal
+
+Prefer a terminal? `chatty` is a small command-line client for the Chatty you already run, on macOS and Linux. It talks to your server over HTTPS, so agents and conversations stay in one place and show up in the web app too.
+
+```bash
+uv tool install "git+https://github.com/WWilson1017/chatty#subdirectory=cli"
+chatty login https://your-chatty.example.com   # scan the QR with your phone and approve
+chatty                                         # or: chatty -c to continue, --power for power mode
+```
+
+It streams replies, shows tool calls, asks before write tools (unless you're in power mode), and has `/attach`, `/resume` and `/model`. See [docs/cli.md](docs/cli.md). (Not the same thing as the CLI test harness above, which runs agents in-process for development.)
+
 ## Import from OpenClaw
 
 If you're already using [OpenClaw](https://github.com/claw-project/openclaw), you can import your agent's knowledge directly into Chatty — no copy-pasting, no re-training. Chatty detects your local OpenClaw installation, lists your agents, and imports their workspace files automatically. Your new Chatty agent starts with everything your OpenClaw agent already knows.
