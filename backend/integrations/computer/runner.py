@@ -418,6 +418,25 @@ class _EpochChanged(Exception):
 
 EPOCH_CHANGED = {"error": "not performed: the screen changed hands (a person used it, or it was taken over) since "
                           "your last look; take a fresh snapshot before acting again", "code": "stale_epoch"}
+MARK_NAME_CHARS = 80  # the computer cuts a mark's name to this many characters
+BOX_TOLERANCE_PX = 4  # and checks `expect.box` against the live control within this
+
+
+def mark_moved(want: dict, element: dict) -> bool:
+    """Whether the control under a mark's pixel is no longer the marked one: role, name (a prefix when the
+    mark's name was cut) and a screen box within BOX_TOLERANCE_PX. Two identical look-alikes in the same
+    place can't be told apart."""
+    def norm(s) -> str:
+        return " ".join(str(s or "").split()).lower()
+    name, have = norm(want.get("name")), norm(element.get("name"))
+    if not element.get("found") or element.get("role") != want.get("role") or not (
+            have == name or (len(want.get("name") or "") >= MARK_NAME_CHARS and have.startswith(name))):
+        return True
+    box, live = want.get("box") or {}, element.get("screen_box") or {}
+    try:
+        return not all(abs(float(box[k]) - float(live[k])) <= BOX_TOLERANCE_PX for k in ("x", "y", "w", "h"))
+    except (KeyError, TypeError, ValueError):
+        return True
 
 
 class _Run:
@@ -448,10 +467,11 @@ class _Run:
         self.renew_adopts_epoch = True       # renew_loop() overwrites `epoch` (False: it only sets latest_epoch)
         self.latest_epoch: str | None = None  # the newest epoch renew_loop saw, adopted between operations
         self.op_lock = asyncio.Lock()        # one direct operation at a time; renewals never take it
-        # The latest observation of each kind ("snapshot"; later marked screenshots): (epoch it was sent
+        # The latest observation of each kind ("snapshot", "screen"): (epoch it was sent
         # under, its number). A ref is only good while that epoch is the run's epoch (direct.py checks).
         self.observed: dict[str, tuple[str | None, int]] = {}
         self.observations = 0
+        self.marks: tuple[str, list[dict]] | None = None  # the latest marked screenshot: (observation id, its marks)
         # Counted time: wall time minus takeover waits. `segment_start` is None while paused.
         self.counted = float(task["running_seconds"] or 0)
         self.segment_start: float | None = time.monotonic()
@@ -1200,12 +1220,14 @@ class _Run:
         await self.open_gate(verdict.kind, verdict.reason, verdict.rule, label, element)
         return {"stopped": f"needs approval ({verdict.kind}): {name}"}, None
 
-    async def pixel_action(self, member: str, inp: dict, label: str, verdicts: list) -> dict:
-        """One toolset member. Checked members — every click, mouse-down and drag start, Enter/Space/
+    async def pixel_action(self, member: str, inp: dict, label: str, verdicts: list, want: dict | None = None) -> dict:
+        """One toolset member. Checked members — every click, mouse-down, drag start and drop, Enter/Space/
         Ctrl+Enter/Ctrl+S keys, typed newlines — are classified first from the element under the pixel
         (the focused element for keys), with a fresh snapshot for the page-level facts; a target the
         page can't identify is a gate (fail closed), so a click on a desktop app ends up as a takeover
-        card. Allowed actions go through /actions with an action id and `expect`."""
+        card. Allowed actions go through /actions with an action id and `expect`. `want` is a direct
+        session's mark ({role, name, box}): the element under the pixel must still be that control
+        before it is classified, and `expect` carries its box so the computer re-checks the position too."""
         expect = None
         if gates.needs_check(label, inp.get("text") if member == "type" else None):
             if member in gates.CLICK_MEMBERS:
@@ -1222,9 +1244,20 @@ class _Run:
             except ComputerError:  # no browser attached: the classifier works from the element alone
                 self.snapshot_text = ""
             element = await self.computer("POST", "/browser/element", body=target)
+            if want and mark_moved(want, element):
+                return {"error": "not performed: the screen changed under that mark; take a new screenshot",
+                        "code": "mark_changed"}
             refusal, expect = await self.gate_or_expect(label, element, verdicts, repeat=int(inp.get("repeat") or 1))
             if refusal:
                 return refusal
+            if member == "left_click_drag" and inp.get("coordinate"):  # where it drops can be the consequential
+                end = inp["coordinate"]                                 # part (a card dropped on Delete): classify it too
+                drop = await self.computer("POST", "/browser/element", body={"x": int(end[0]), "y": int(end[1])})
+                refusal, _ = await self.gate_or_expect(label, drop, verdicts)
+                if refusal:
+                    return refusal
+            if want and expect:
+                expect["box"] = want["box"]
         action_id = db.ulid()
         body = {"action_id": action_id, "name": member, "input": inp}
         if expect:
@@ -1237,14 +1270,11 @@ class _Run:
             self.phase, self.pending_action_id = "", None
         return dict(r.get("result") or {})
 
-    async def pixel(self, member: str, inp: dict) -> dict:
-        """A toolset call → the fields of its tool_result (`content`, `is_error`), logged as a step.
-        screenshot/zoom images are saved under shots/<task>/<n>.png for the record and returned as an
-        image block; everything else answers "OK" (cursor_position its coordinates)."""
-        label = f"{member}:{inp.get('text') or ''}" if member in ("key", "hold_key") else member
-        verdicts: list = []
+    async def recorded(self, member: str, inp: dict, act, verdicts: list) -> tuple[dict, str | None]:
+        """One screen call `act()` logged as a step: errors become results, and an image is saved under
+        shots/<task>/<n>.png for the record (result["screenshot"]). (result, the image's base64)."""
         try:
-            result = await self.pixel_action(member, inp, label, verdicts)
+            result = await act()
             if member in ("screenshot", "zoom") and not result.get("image"):
                 result = {"error": "the computer returned no image"}
         except _Stop:
@@ -1258,7 +1288,7 @@ class _Run:
             result = {"error": e.detail, "code": e.code}
             if e.code == "element_changed":
                 result["hint"] = "the page changed under the action; take a screenshot"
-        except Exception as e:  # bad arguments and the like: the helper's mistake, not the task's end
+        except Exception as e:  # bad arguments and the like: the caller's mistake, not the task's end
             result = {"error": f"{e.__class__.__name__}: {e}"[:300]}
         image, shot = result.pop("image", None), None
         if image:
@@ -1266,7 +1296,18 @@ class _Run:
             shot = self.save_png(f"shots/{self.id}/{self.shots}.png", image)
             result["screenshot"] = shot
         db.add_step(self.id, member, inp, json.dumps(result), url=self.url, screenshot=shot,
-                    verdict=self._verdict_tag(verdicts[0] if verdicts else None))
+                    verdict=self._verdict_tag(verdicts[-1] if verdicts else None))  # a drag's drop, if checked
+        self.last_result = result
+        return result, image
+
+    async def pixel(self, member: str, inp: dict, *, want: dict | None = None) -> dict:
+        """A toolset call → the fields of its tool_result (`content`, `is_error`), logged as a step.
+        screenshot/zoom images are saved under shots/<task>/<n>.png for the record and returned as an
+        image block; everything else answers "OK" (cursor_position its coordinates). `want`: see pixel_action."""
+        label = f"{member}:{inp.get('text') or ''}" if member in ("key", "hold_key") else member
+        verdicts: list = []
+        result, image = await self.recorded(member, inp, lambda: self.pixel_action(member, inp, label, verdicts, want),
+                                            verdicts)
         if "error" in result:
             return {"content": " — ".join(filter(None, (result["error"], result.get("hint")))), "is_error": True}
         if "stopped" in result:
@@ -1279,6 +1320,19 @@ class _Run:
         if member == "cursor_position":
             return {"content": f"({result.get('x')}, {result.get('y')})", "is_error": False}
         return {"content": "OK", "is_error": False}
+
+    async def marked_screenshot(self) -> tuple[dict, str | None]:
+        """A screenshot with the browser's visible controls numbered (POST /screen/marked), recorded like
+        pixel(). Its marks become the latest "screen" observation, under the epoch the request was sent
+        with (direct.py presses a mark only while that is still the run's epoch). (result, image)."""
+        async def take() -> dict:
+            sent = self.epoch
+            r = await self.computer("POST", "/screen/marked")
+            if r.get("image"):
+                self.observe("screen", sent)
+                self.marks = (r.get("observation_id"), r.get("marks") or [])
+            return {"image": r.get("image"), "observation": r.get("observation_id"), "marks": r.get("marks") or []}
+        return await self.recorded("screenshot", {"marked": True}, take, [])
 
     async def batch(self, calls: list[dict]) -> list[dict]:
         """A response's tool_use blocks, run ONE AT A TIME in order and dispatched by (toolset_name,

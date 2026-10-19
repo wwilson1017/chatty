@@ -4,6 +4,7 @@ hand-off, owner-only groups, the per-turn ceilings, refs pinned to the session's
 cards and takeover links that never go to a group. Same fakes as test_computer_tasks: no network."""
 
 import asyncio
+import base64
 import json
 
 import pytest
@@ -16,7 +17,7 @@ from integrations.computer import approvals, client as client_mod, completion, d
 from integrations.registry import save_credentials
 
 from tests.test_computer_approvals import _stop_at_gate, ap  # noqa: F401 (ap is a fixture)
-from tests.test_computer_tasks import FINAL, MODEL, FakeProvider, _ctx, _queue, _run, element, fake  # noqa: F401
+from tests.test_computer_tasks import FINAL, MODEL, PNG, FakeProvider, _ctx, _queue, _run, element, fake  # noqa: F401
 
 
 @pytest.fixture(autouse=True)
@@ -297,6 +298,7 @@ class TestGroups:
 
         async def go():
             outs = [await call(member, action="snapshot"), await call(member, "computer_shell", command="id"),
+                    await call(member, "computer_screen", action="screenshot"),
                     await tools.computer_task("x", _ctx=member), await tools.computer_file_get("a.txt", _ctx=member),
                     tools.computer_task_get(helper_task, _ctx=member), tools.computer_task_list(_ctx=member),
                     tools.computer_task_cancel(helper_task, _ctx=member), tools.computer_info(_ctx=member)]
@@ -444,7 +446,7 @@ class TestDefinitions:
                    "integration": "odoo"} for i in range(120)]
         active, deferred, names, _ = build_tool_catalog(filler + defs)
         loaded = {d["name"] for d in active}
-        assert {"computer_browser", "computer_shell", "computer_files", "computer_task"} <= loaded
+        assert {"computer_browser", "computer_shell", "computer_files", "computer_screen", "computer_task"} <= loaded
         assert "computer_task_get" in names  # the rest still waits behind find_tools
         assert all(set(t) <= {"name", "description", "input_schema"} for t in build_provider_tools(defs))
 
@@ -458,6 +460,254 @@ class TestDefinitions:
     def test_helper_model_change_shows_in_the_descriptions(self, dfake):
         save_credentials("computer", {"enabled": True, "helper_model": "claude-opus-4-8"})
         assert "claude-opus-4-8" in next(d for d in tools.computer_tool_defs() if d["name"] == "computer_task")["description"]
+
+
+BUY_BOX = {"x": 300, "y": 287, "w": 200, "h": 60}   # mark 1; its point is (400, 317)
+CART_BOX = {"x": 40, "y": 700, "w": 120, "h": 40}   # mark 2; its point is (100, 720)
+
+
+@pytest.fixture
+def scr(dfake):
+    dfake.elements["e10"] = element("Buy now", box=dict(BUY_BOX))
+    dfake.elements["e5"] = element("Add to cart", "e5", is_submit=False, box=dict(CART_BOX))
+    return dfake
+
+
+def screen(ctx, **args):
+    return call(ctx, "computer_screen", **args)
+
+
+def presses(fc, name="left_click") -> list[dict]:
+    return [a for a in fc.actions if a["name"] == name]
+
+
+class TestScreen:
+    """computer_screen: marked screenshots are observations; a mark is pressed only from the latest one of
+    this session and epoch, re-checked against the control under its pixel before it is classified and
+    by the computer (expect.box) at the press; every action comes back with a fresh screenshot."""
+
+    def test_a_screenshot_is_an_observation_with_numbered_marks_the_image_and_a_step(self, scr):
+        async def go():
+            out = await screen(_dctx(), action="screenshot")
+            await direct.close_turn("turn-1")
+            return out
+        out = asyncio.run(go())
+        assert out["observation"] == "o1" and out["marks"] == ["1 button: Buy now", "2 button: Add to cart"]
+        assert out["images"] == [{"media_type": "image/png", "data": base64.b64encode(PNG).decode()}]
+        [step] = db.list_steps(sessions()[0]["id"])
+        assert step["tool"] == "screenshot" and (db.DATA_DIR / step["screenshot"]).read_bytes() == PNG
+
+    def test_no_marks_when_another_window_is_in_front(self, scr):
+        scr.window_in_front = True
+        out = asyncio.run(screen(_dctx(), action="screenshot"))
+        asyncio.run(direct.close_turn("turn-1"))
+        assert out["marks"] == direct.NO_MARKS and out["images"]
+
+    def test_a_marked_click_presses_the_marks_point_with_its_box_and_returns_a_new_observation(self, scr):
+        ctx = _dctx()
+
+        async def go():
+            first = await screen(ctx, action="screenshot")
+            out = await screen(ctx, action="click", observation=first["observation"], mark=2)
+            again = await screen(ctx, action="click", observation=first["observation"], mark=2)
+            await direct.close_turn("turn-1")
+            return out, again
+        out, again = asyncio.run(go())
+        [click] = presses(scr)
+        assert click["input"] == {"coordinate": [100, 720]}
+        assert click["expect"]["box"] == CART_BOX and click["expect"]["name"] == "Add to cart"
+        assert out["performed"] is True and out["observation"] == "o2" and out["images"]
+        assert again["code"] == "stale_mark" and len(presses(scr)) == 1  # o1 isn't the latest any more
+        steps = db.list_steps(sessions()[0]["id"])
+        assert [s["tool"] for s in steps] == ["screenshot", "left_click", "screenshot"]
+        assert steps[1]["verdict"] == "free:3.legwork"
+
+    def test_a_marked_click_on_buy_now_is_gated_at_press_with_no_screenshot_after(self, scr):
+        ctx = _dctx()
+
+        async def go():
+            first = await screen(ctx, action="screenshot")
+            gated = await screen(ctx, action="click", observation=first["observation"], mark=1)
+            after = await screen(ctx, action="screenshot")
+            await direct.close_turn("turn-1")
+            return gated, after
+        gated, after = asyncio.run(go())
+        assert gated["stopped"].startswith("Needs your approval (buy: Buy now).")
+        assert [a["name"] for a in scr.actions] == ["screenshot"]  # the gate's own picture; nothing was clicked
+        assert scr.observations == 1 and "approval of gate" in after["error"]
+        row = sessions()[0]
+        assert row["status"] == "needs_approval" and db.get_gate(row["gate_id"])["action"] == "left_click"
+
+    def test_a_different_control_under_the_mark_is_refused_before_it_is_classified(self, scr):
+        ctx = _dctx()
+
+        async def go():
+            outs = []
+            for changed in (element("Remove item", "e5", is_submit=False, box=dict(CART_BOX)),        # re-rendered
+                            element("Add to cart", "e5", is_submit=False, box={**CART_BOX, "x": 50})):  # 10 px off
+                scr.elements["e5"] = element("Add to cart", "e5", is_submit=False, box=dict(CART_BOX))
+                first = await screen(ctx, action="screenshot")
+                scr.elements["e5"] = changed  # still under the mark's point
+                outs.append(await screen(ctx, action="click", observation=first["observation"], mark=2))
+            await direct.close_turn("turn-1")
+            return outs
+        outs = asyncio.run(go())
+        assert all(o["code"] == "mark_changed" and "changed under that mark" in o["error"] for o in outs)
+        assert presses(scr) == [] and scr.observations == 2  # nothing pressed, no screenshot after a refusal
+        assert [s["verdict"] for s in db.list_steps(sessions()[0]["id"]) if s["tool"] == "left_click"] == [None, None]
+
+    def test_the_target_moving_between_the_check_and_the_press_is_refused_by_the_computer(self, scr):
+        ctx = _dctx()
+
+        def move(path, body):
+            if path == "/actions" and body.get("name") == "left_click":
+                scr.elements["e5"]["screen_box"] = {**CART_BOX, "x": 50}  # still under the point, 10 px off
+
+        async def go():
+            first = await screen(ctx, action="screenshot")
+            scr.before_call = move
+            out = await screen(ctx, action="click", observation=first["observation"], mark=2)
+            await direct.close_turn("turn-1")
+            return out
+        out = asyncio.run(go())
+        [click] = presses(scr)
+        assert out["code"] == "element_changed" and scr.journal[click["action_id"]]["status"] == "failed"
+        assert scr.observations == 1
+
+    def test_marks_need_the_latest_screenshot_of_this_session_and_epoch(self, scr, monkeypatch):
+        monkeypatch.setattr(runner, "RENEW_EVERY_S", 0.01)
+        ctx = _dctx()
+
+        async def go():
+            a = await screen(ctx, action="screenshot")
+            b = await screen(ctx, action="screenshot")
+            outs = [await screen(ctx, action="click", observation=a["observation"], mark=2),  # not the latest
+                    await screen(ctx, action="click", mark=2)]                                  # no observation
+            bump(scr)  # control ended after b was taken; renew_loop sees the new epoch
+            await asyncio.sleep(0.05)
+            n = len(scr.calls)
+            outs.append(await screen(ctx, action="click", observation=b["observation"], mark=2))
+            sent = [p for p in calls_after(scr, n) if not p.startswith("/desktop/lease")]
+            await direct.close_turn("turn-1")
+            return outs, sent
+        outs, sent = asyncio.run(go())
+        assert all(o["code"] == "stale_mark" for o in outs) and sent == [] and presses(scr) == []
+
+    def test_the_epoch_advancing_before_the_preliminary_snapshot_aborts_the_marked_click(self, scr):
+        ctx = _dctx()
+
+        async def go():
+            first = await screen(ctx, action="screenshot")
+            scr.before_call = lambda path, body: path == "/browser/snapshot" and bump(scr)
+            n = len(scr.calls)
+            out = await screen(ctx, action="click", observation=first["observation"], mark=2)
+            scr.before_call = None
+            paths = calls_after(scr, n)
+            await direct.close_turn("turn-1")
+            return out, paths
+        out, paths = asyncio.run(go())
+        assert out == runner.EPOCH_CHANGED
+        assert not {"/browser/element", "/actions", "/screen/marked"} & set(paths)
+
+    def test_a_failed_screenshot_after_the_click_still_says_it_was_performed(self, scr):
+        ctx = _dctx()
+
+        def fail_after_click(path, body):
+            if path == "/actions" and body.get("name") == "left_click":
+                scr.marked_error = "browser_failed"
+
+        async def go():
+            first = await screen(ctx, action="screenshot")
+            scr.before_call = fail_after_click
+            out = await screen(ctx, action="click", observation=first["observation"], mark=2)
+            scr.before_call = scr.marked_error = None
+            again = await screen(ctx, action="click", observation=first["observation"], mark=2)
+            await direct.close_turn("turn-1")
+            return out, again
+        out, again = asyncio.run(go())
+        assert out["performed"] is True and out["screenshot_error"] == "browser failed" and "images" not in out
+        assert "take a screenshot before acting again" in out["hint"]
+        assert again["code"] == "stale_mark" and len(presses(scr)) == 1
+
+    def test_pixels_text_scroll_and_drag(self, scr):
+        scr.elements["list"] = {**element("Wish list", "e7", is_submit=False), "tag": "div", "role": "generic",
+                                "screen_box": {"x": 560, "y": 760, "w": 200, "h": 30}}  # mark 3: where the drag drops
+        ctx = _dctx()
+
+        async def go():
+            outs = [await screen(ctx, action="click", x=100, y=720), await screen(ctx, action="type", text="blue mug"),
+                    await screen(ctx, action="scroll", dy=-3)]
+            outs.append(await screen(ctx, action="drag", observation=outs[-1]["observation"], mark=2, to_x=600, to_y=770))
+            outs += [await screen(ctx, action="type", text="x", x=1, y=1), await screen(ctx, action="click"),
+                     await screen(ctx, action="drag", x=1, y=1)]
+            await direct.close_turn("turn-1")
+            return outs
+        outs = asyncio.run(go())
+        assert all(o["performed"] for o in outs[:4])
+        [click], [typed], [scroll], [drag] = (presses(scr, n) for n in ("left_click", "type", "scroll", "left_click_drag"))
+        assert click["input"] == {"coordinate": [100, 720]} and "box" not in click["expect"]  # no mark, no box
+        assert typed["input"] == {"text": "blue mug"} and "expect" not in typed
+        assert scroll["input"] == {"scroll_direction": "up", "scroll_amount": 3}
+        assert drag["input"] == {"start_coordinate": [100, 720], "coordinate": [600, 770]} and drag["expect"]["box"] == CART_BOX
+        assert [o["error"] for o in outs[4:]] == ["type and key go to the focused element; click the field first",
+                                                  "click needs a mark (with its observation) or x and y",
+                                                  "drag needs to_x and to_y"]
+
+    @pytest.mark.parametrize("drop", [{**element("Delete", "e8", is_submit=False), "tag": "div", "role": "generic"},
+                                      None])  # a delete zone, or off the page (unidentified)
+    def test_a_drag_that_drops_on_something_consequential_is_gated_before_it_starts(self, scr, drop):
+        if drop:
+            scr.elements["bin"] = {**drop, "screen_box": {"x": 560, "y": 380, "w": 200, "h": 100}}
+
+        async def go():
+            out = await screen(_dctx(), action="drag", x=100, y=720, to_x=600, to_y=400)
+            await direct.close_turn("turn-1")
+            return out
+        out = asyncio.run(go())
+        assert out["stopped"].startswith("Needs your approval") and presses(scr, "left_click_drag") == []
+        row = sessions()[0]
+        assert row["status"] == "needs_approval" and db.list_steps(row["id"])[-1]["verdict"] == (
+            "gated:delete" if drop else "gated:submit")
+
+
+class TestVision:
+    def test_the_screen_tool_goes_only_to_models_that_take_images(self):
+        from types import SimpleNamespace
+
+        from core.providers.anthropic_provider import ANTHROPIC_MODELS
+        from core.providers.base import drop_image_tools, takes_images
+        from core.providers.google_provider import GOOGLE_MODELS
+        from core.providers.openai_provider import OPENAI_MODELS
+        from core.providers.together_provider import TOGETHER_MODELS
+
+        def sees(provider, model):
+            return takes_images(SimpleNamespace(provider_name=provider, model=model))
+        assert all(sees("anthropic", m) for m in ANTHROPIC_MODELS) and all(sees("google", m) for m in GOOGLE_MODELS)
+        assert all(sees("openai", m) for m in [*OPENAI_MODELS, "gpt-4o", "gpt-4o-mini", "gpt-4.1-mini", "gpt-6"])
+        assert not any(sees("openai", m) for m in ("o3-mini", "o4-mini", "o1", "gpt-3.5-turbo", "gpt-4-turbo"))
+        assert not any(sees("together", m) for m in TOGETHER_MODELS)
+        assert not any(sees("ollama", m) for m in ("llava", "gemma3", "claude-sonnet-4-6", "gpt-5"))
+        names = {d["name"] for d in tools.computer_tool_defs()}
+        kept = {d["name"] for d in drop_image_tools(tools.computer_tool_defs(), SimpleNamespace(provider_name="ollama", model="llava"))}
+        assert "computer_screen" in names and kept == names - {"computer_screen"}
+
+    def test_a_turn_on_a_text_only_model_never_offers_it(self, dfake, monkeypatch):
+        from core.agents import background_runner
+
+        class Seer:
+            def __init__(self, provider_name, model):
+                self.provider_name, self.model, self.tools = provider_name, model, None
+
+            async def stream_turn(self, messages, tools_, system_prompt):
+                self.tools = [t["name"] for t in tools_]
+                yield {"type": "text", "text": "ok"}
+                yield {"type": "_turn_complete", "tool_calls": [], "stop_reason": "end_turn", "usage": {}}
+
+        for seer, offered in ((Seer("together", "Qwen/Qwen3.5-9B"), False), (Seer("google", "gemini-2.5-pro"), True)):
+            monkeypatch.setattr(background_runner, "get_ai_provider", lambda **kw: seer)
+            reg = ToolRegistry(context_dir="/tmp/ctx", agent_slug="tom", integration_executors=tools.TOOL_EXECUTORS)
+            asyncio.run(background_runner._run_turn("sys", "hi", tools.computer_tool_defs(), reg))
+            assert ("computer_screen" in seer.tools) is offered and "computer_browser" in seer.tools
 
 
 def test_an_orphaned_direct_session_is_swept_without_a_report_turn(dfake):
