@@ -29,6 +29,7 @@ OFFLINE_CDP_PORT = 9223
 SNAPSHOT_MAX_CHARS = 40000
 MARKS_MAX = 150
 MARK_NAME_CHARS = 80
+FRAME_MARKS_TIMEOUT_S = 5
 BOX_TOLERANCE_PX = 4
 
 METRICS_JS = ("() => ({sx: window.screenX, sy: window.screenY, ow: window.outerWidth, oh: window.outerHeight,"
@@ -170,16 +171,20 @@ MARKS_JS = """([sel, sx, sy]) => {
     for (const el of root.querySelectorAll('*')) {
       if (el.shadowRoot) visit(el.shadowRoot);
       if (!el.matches(sel)) continue;
-      const r = el.getBoundingClientRect();
-      const x0 = Math.max(r.left, 0), y0 = Math.max(r.top, 0), x1 = Math.min(r.right, innerWidth), y1 = Math.min(r.bottom, innerHeight);
-      if (x1 - x0 < 2 || y1 - y0 < 2) continue;
-      const px = Math.round(sx + (x0 + x1) / 2), py = Math.round(sy + (y0 + y1) / 2);
-      const h = hit([px - sx, py - sy]);
-      if (!h || seen.has(h) || h.tagName === 'IFRAME' || !within(el, h)) continue;
-      seen.add(h);
-      const b = h.getBoundingClientRect();
-      const [role, name] = roleName(h);
-      out.push({role, name, point: [px, py], box: {x: b.x, y: b.y, w: b.width, h: b.height}});
+      for (const r of el.getClientRects()) {  // one rect per line for a link that wraps; the first that hits it wins
+        const x0 = Math.max(r.left, 0), y0 = Math.max(r.top, 0), x1 = Math.min(r.right, innerWidth), y1 = Math.min(r.bottom, innerHeight);
+        if (x1 - x0 < 2 || y1 - y0 < 2) continue;
+        const px = Math.round(sx + (x0 + x1) / 2), py = Math.round(sy + (y0 + y1) / 2);
+        const h = hit([px - sx, py - sy]);
+        if (!h || h.tagName === 'IFRAME' || !within(el, h)) continue;
+        if (!seen.has(h)) {
+          seen.add(h);
+          const b = h.getBoundingClientRect();
+          const [role, name] = roleName(h);
+          out.push({role, name, point: [px, py], box: {x: b.x, y: b.y, w: b.width, h: b.height}});
+        }
+        break;
+      }
     }
   };
   visit(document);
@@ -474,35 +479,40 @@ class BrowserSession:
         """Numbered marks for the visible interactive elements of every frame, cross-origin ones
         included, in screen pixels: `{n, role, name, box, point}`, where role, name (cut to 80
         characters) and box are what describe(point=point) reports at that pixel when taken. A
-        candidate covered by something else, or in a frame covered in its parent, gets no mark.
-        Empty while another window is in front of Chromium."""
+        candidate covered by something else, or in a frame covered in its parent, gets no mark; a
+        frame that fails or takes over 5 s is left out. Empty while another window is in front of
+        Chromium."""
         if not await self.desktop.chromium_in_front():
             return []
         ox, oy, _ = await self.page_offset(page)
+
+        async def frame_marks(frame) -> list[dict]:
+            chain, fx, fy, f = [], 0.0, 0.0, frame  # each enclosing iframe element, with the offset so far
+            while f.parent_frame is not None:
+                fe = await f.frame_element()
+                dx, dy = await fe.evaluate(FRAME_OFFSET_JS)
+                fx, fy = fx + dx, fy + dy
+                chain.append((fe, fx, fy))
+                f = f.parent_frame
+            sx, sy = ox + fx, oy + fy
+            found = await frame.evaluate(MARKS_JS, [MARK_SELECTOR, sx, sy])
+            for fe, ax, ay in chain:  # the frame must be what's on top at each point in every parent
+                if not found:
+                    break
+                on_top = await fe.evaluate(ON_TOP_JS, [[x - sx + ax, y - sy + ay] for x, y in (m["point"] for m in found)])
+                found = [m for m, ok in zip(found, on_top) if ok]
+            return [{"role": m["role"], "name": m["name"][:MARK_NAME_CHARS],
+                     "box": {"x": round(sx + m["box"]["x"]), "y": round(sy + m["box"]["y"]),
+                             "w": round(m["box"]["w"]), "h": round(m["box"]["h"])},
+                     "point": m["point"]} for m in found]
+
         marks = []
-        for frame in page.frames:
-            try:
-                chain, fx, fy, f = [], 0.0, 0.0, frame  # each enclosing iframe element, with the offset so far
-                while f.parent_frame is not None:
-                    fe = await f.frame_element()
-                    dx, dy = await fe.evaluate(FRAME_OFFSET_JS)
-                    fx, fy = fx + dx, fy + dy
-                    chain.append((fe, fx, fy))
-                    f = f.parent_frame
-                sx, sy = ox + fx, oy + fy
-                found = await frame.evaluate(MARKS_JS, [MARK_SELECTOR, sx, sy])
-                for fe, ax, ay in chain:  # the frame must be what's on top at each point in every parent
-                    if not found:
-                        break
-                    on_top = await fe.evaluate(ON_TOP_JS, [[x - sx + ax, y - sy + ay] for x, y in (m["point"] for m in found)])
-                    found = [m for m, ok in zip(found, on_top) if ok]
-            except PlaywrightError:
-                continue  # the frame navigated or went away while we looked
-            for m in found:
-                b = m["box"]
-                marks.append({"role": m["role"], "name": m["name"][:MARK_NAME_CHARS],
-                              "box": {"x": round(sx + b["x"]), "y": round(sy + b["y"]), "w": round(b["w"]), "h": round(b["h"])},
-                              "point": m["point"]})
+        for r in await asyncio.gather(*(asyncio.wait_for(frame_marks(f), FRAME_MARKS_TIMEOUT_S) for f in page.frames),
+                                      return_exceptions=True):
+            if isinstance(r, list):
+                marks += r
+            elif not isinstance(r, (PlaywrightError, TimeoutError)):  # a frame that navigated, went away or hung
+                raise r
         marks.sort(key=lambda m: (m["box"]["y"], m["box"]["x"]))
         return [{"n": n, **m} for n, m in enumerate(marks[:MARKS_MAX], 1)]
 

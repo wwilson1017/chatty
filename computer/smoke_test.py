@@ -210,7 +210,8 @@ PAGE = """<title>Demo shop</title><h1>Demo shop</h1>
 <div id="c">Orders placed: 0</div>"""
 DATA_URL = "data:text/html," + urllib.parse.quote(PAGE)
 TOP_PAGE = """<title>Top</title><a href="/elsewhere">A link</a>
-<iframe src="http://localhost:8001/inner.html" style="position:absolute;left:300px;top:200px;width:400px;height:200px;border:7px solid"></iframe>"""
+<iframe src="http://localhost:8001/inner.html" style="position:absolute;left:300px;top:200px;width:400px;height:200px;border:7px solid"></iframe>
+<p style="position:absolute;top:450px;width:300px;font:16px monospace">aaaaaaaaaaaaaaaaaaaaaaa <a href="/w">wrapped link</a> bbbbbbbbbbbbbbbbbbbbbbb</p>"""
 
 
 def activate(agent="tom", task="t1"):
@@ -343,6 +344,8 @@ def part1():
     st, at = api("POST", "/browser/element", {"lease": lease, "epoch": epoch, "x": inner["point"][0], "y": inner["point"][1]}) if inner else (0, {})
     check(st == 200 and at.get("frame_url") == "http://localhost:8001/inner.html" and at.get("name") == "Inner pay"
           and at.get("screen_box") == inner["box"], f"a button in a cross-origin iframe gets a mark that reads back at its point ({inner})")
+    check(any(m["name"] == "wrapped link" and m["role"] == "link" for m in mk.get("marks") or []),
+          "a link that wraps onto a second line gets a mark")
     api("POST", "/shell", {"lease": lease, "epoch": epoch, "command": "(xterm >/dev/null 2>&1 &); sleep 2"})
     st, mk = api("POST", "/screen/marked", {"lease": lease, "epoch": epoch})
     st2, at = api("POST", "/browser/element", {"lease": lease, "epoch": epoch, "x": 640, "y": 400})

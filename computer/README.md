@@ -135,14 +135,17 @@ journaled.
 - Marks are the visible interactive elements — links, buttons, inputs, selects, textareas,
   `[role=button|link|tab|menuitem|checkbox]`, `[onclick]` — of every frame, cross-origin iframes
   included, numbered top to bottom then left to right, at most 150.
-- Each candidate is hit-tested at `point`, a screen pixel at the centre of its visible part, the way
-  `/browser/element {x, y}` reads it. The mark is what that read finds there: `role`, `name` (its first
-  80 characters) and `box` (its `screen_box`). That can be a child of the control: a `<span>` inside a
-  `<button>` is `generic`, an icon is often `generic` with no name. A candidate covered by something
-  else, or in an iframe covered in its parent, gets no mark.
+- Each candidate is hit-tested at `point`, a screen pixel at the centre of its visible part (of its
+  first line that hits it, for a link that wraps), the way `/browser/element {x, y}` reads it. The mark
+  is what that read finds there: `role`, `name` (its first 80 characters) and `box` (its `screen_box`).
+  That can be a child of the control: a `<span>` inside a `<button>` is `generic`, an icon is often
+  `generic` with no name. A candidate covered by something else, or in an iframe covered in its parent,
+  gets no mark; a frame that can't be read within 5 s is left out.
 - To press a mark, click its `point` with `expect.box` set to its `box`.
-- A plain screenshot with `marks: []` when no browser is attached, another window (a terminal, a
-  desktop app, a dialog) is in front of Chromium, or the page can't be read within 15 s.
+- A plain screenshot with `marks: []` when no browser is attached, another program's window (a
+  terminal, a desktop app or its dialog) is in front of Chromium, or the page can't be read within 15 s.
+  Chromium's own windows (a `window.open` popup, a file chooser) count as Chromium: marks and pixel
+  reads then describe the foreground tab underneath, not the popup on top.
 
 ## Browser (DOM)
 
@@ -176,8 +179,8 @@ cross-origin ones included) | `{focused: true}` →
  "box": {"x": 300, "y": 200, "w": 200, "h": 60}, "screen_box": {"x": 300, "y": 287, "w": 200, "h": 60}}
 ```
 
-`{"found": false, "page": {…}}` when nothing is there, and for any pixel while another window (a
-terminal, a desktop app, a dialog) is in front of Chromium. `box` is in the element's frame viewport;
+`{"found": false, "page": {…}}` when nothing is there, and for any pixel while another program's
+window (a terminal, a desktop app or its dialog) is in front of Chromium. `box` is in the element's frame viewport;
 `screen_box` is in screen pixels (what `/actions` coordinates use). `form` is `null` outside a form;
 inside one it also carries the form's `role` attribute, its own visible `text` (innerText, normalised,
 lowercased, ≤ 1000 chars: headings, legends and button labels, never input values) and `fields`, the
