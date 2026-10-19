@@ -42,6 +42,7 @@ interface Task {
   id: string;
   agent_slug: string;
   origin: string;
+  driver: 'helper' | 'agent'; // agent: the agent drove the computer itself in its own turn (or that session's approved click)
   helper_model: string;
   mode: string;
   status: string;
@@ -161,7 +162,7 @@ function ApprovalBox({ gate, agentName, onDecide }: { gate: Gate; agentName: str
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 6, padding: 8, borderRadius: 4, border: `1px solid ${LINE_STRONG}` }}>
       <p style={{ margin: 0 }}>
-        <span style={{ color: INK }}>{agentName}</span>’s helper stopped before a <span style={{ color: INK }}>{gate.kind}</span> on{' '}
+        <span style={{ color: INK }}>{agentName}</span>’s computer stopped before a <span style={{ color: INK }}>{gate.kind}</span> on{' '}
         <span style={{ fontFamily: FONT_MONO, color: INK }}>{gate.host || gate.url || 'the page'}</span> · expires {fmtTime(gate.expires_at)}
       </p>
       {gate.note && <p style={{ margin: 0, color: INK_MUTE }}>Why Chatty stopped it: {gate.note}</p>}
@@ -460,6 +461,7 @@ export function ComputerPanel({ onChanged }: { onChanged?: () => void }) {
               <summary style={{ cursor: 'pointer', display: 'flex', flexWrap: 'wrap', gap: '2px 10px', alignItems: 'center' }}>
                 <span>{fmtTime(t.created_at)}</span>
                 <span style={{ color: INK }}>{agentName(t.agent_slug)}</span>
+                <span>{t.driver === 'agent' ? 'Direct' : 'Helper'}</span>
                 <span>{t.origin}</span>
                 <span style={{ color: statusColor(t.status) }}>{t.status.replace('_', ' ')}</span>
                 <span>{t.steps} steps</span>
@@ -474,7 +476,7 @@ export function ComputerPanel({ onChanged }: { onChanged?: () => void }) {
                 )}
                 {t.result_text && <pre style={pre}>{t.result_text}{t.result_truncated ? '\n…' : ''}</pre>}
                 <span style={{ fontFamily: FONT_MONO, fontSize: 10, color: INK_DIM }}>
-                  {t.id} · {t.helper_model} · {t.mode}{t.parent_task_id ? ` · follow-up of ${t.parent_task_id}` : ''}{t.approved_gate_id ? ` · approved gate ${t.approved_gate_id}` : ''}
+                  {t.id}{t.driver === 'agent' ? '' : ` · ${t.helper_model} · ${t.mode}`}{t.parent_task_id ? ` · follow-up of ${t.parent_task_id}` : ''}{t.approved_gate_id ? ` · approved gate ${t.approved_gate_id}` : ''}
                 </span>
                 <StepLog taskId={t.id} />
                 {(t.status === 'queued' || t.status === 'running') && (

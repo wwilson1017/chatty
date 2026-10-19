@@ -51,6 +51,7 @@ class FakeComputer:
         self.journal_hidden = False       # GET /actions/{id} answers 404 (a restart lost the row)
         self.on_act = None                # hook(body) run right before a successful act's response
         self.before_call = None           # hook(path, body) run before the lease/epoch check of every lease-guarded call
+        self.snapshot_error = None        # an error code every /browser/snapshot answers with (500) while set
         self.shots = 0
         self.actions: list[dict] = []     # /actions bodies (toolset members: screenshots, pixel clicks, keys)
 
@@ -128,6 +129,8 @@ class FakeComputer:
         if refused:
             return refused
         if path == "/browser/snapshot":
+            if self.snapshot_error:
+                return self._err(500, self.snapshot_error)
             return httpx.Response(200, json={"url": self.url, "title": "Checkout", "snapshot": self.snapshot, "truncated": False,
                                              "total": None, "tabs": [{"index": 0, "url": self.url, "title": "Checkout", "active": True}]})
         if path == "/browser/element":
@@ -286,7 +289,7 @@ def fake(client, monkeypatch):
 def _ctx(slug="tom", origin="user", **kw):
     return {"agent_slug": slug, "agent_name": slug.title(), "conversation_id": kw.get("conversation_id", "conv-1"),
             "origin": origin, "route": kw.get("route", {"channel": "web"}), "action_id": kw.get("action_id"),
-            "cache_dir": kw.get("cache_dir", "")}
+            "cache_dir": kw.get("cache_dir", ""), "turn_id": kw.get("turn_id"), "group_owner": kw.get("group_owner", False)}
 
 
 def _queue(task="buy the blue mug", slug="tom", **kw):
@@ -327,7 +330,7 @@ class TestTools:
 
     def test_group_and_other_origins_queue_as_background_with_their_route(self, fake):
         route = {"channel": "telegram", "chat_id": -1001}
-        tid = _queue(origin="group", route=route)
+        tid = _queue(origin="group", route=route, group_owner=True)  # the owner's own account, writing in a group
         t = db.get_task(tid)
         assert t["origin"] == "background" and json.loads(t["route"]) == route
         assert db.get_task(_queue(origin="system"))["origin"] == "background"
@@ -385,13 +388,18 @@ class TestTools:
         assert load_cached_file(cache, got["file_ref"])["raw"] == b"a,b\n1,2\n"
         assert "not found" in asyncio.run(tools.computer_file_get("nope.txt", _ctx=_ctx(cache_dir=cache)))["error"]
 
-    def test_definitions_are_context_aware_and_registered(self):
+    def test_definitions_are_context_aware_and_registered(self, fake):
         from agents.tool_loader import INTEGRATION_MODULES, tool_flags
-        assert INTEGRATION_MODULES["computer"] == ("integrations.computer.tools", "COMPUTER_TOOL_DEFS")
-        flags = tool_flags(tools.COMPUTER_TOOL_DEFS)
-        assert all(flags[d["name"]] == {"context_aware": True} for d in tools.COMPUTER_TOOL_DEFS)
-        assert all(d["writes"] is False and d["kind"] == "integration" for d in tools.COMPUTER_TOOL_DEFS)
-        assert set(tools.TOOL_EXECUTORS) == {d["name"] for d in tools.COMPUTER_TOOL_DEFS}
+        assert INTEGRATION_MODULES["computer"] == ("integrations.computer.tools", "computer_tool_defs")
+        defs = tools.computer_tool_defs()
+        flags = tool_flags(defs)
+        direct = {"computer_browser", "computer_shell", "computer_files"}
+        assert all(flags[d["name"]] == ({"context_aware": True, "extends_turn": True} if d["name"] in direct
+                                        else {"context_aware": True}) for d in defs)
+        assert all(d["writes"] is False and d["kind"] == "integration" for d in defs)
+        assert set(tools.TOOL_EXECUTORS) == {d["name"] for d in defs}
+        assert all("{helper_model}" not in d["description"] for d in defs)
+        assert MODEL in next(d for d in defs if d["name"] == "computer_task")["description"]
 
 
 # ── the helper loop ──────────────────────────────────────────────────────────

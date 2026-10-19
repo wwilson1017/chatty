@@ -48,11 +48,18 @@ def _route(task: dict | None) -> dict | None:
     return json.loads(task["route"]) if task and task.get("route") else None
 
 
-def _approval_chat(task: dict | None, agent: dict) -> str | None:
-    """The Telegram chat to ask in: the request's own chat, else the agent's first Telegram
-    user. A WhatsApp chat id is never used as a Telegram destination."""
+def is_group_route(route: dict | None) -> bool:
+    """A Telegram group chat: marked by the group path, or (routes saved before the mark) a negative chat id."""
+    route = route or {}
+    return route.get("channel") == "telegram" and (bool(route.get("group")) or str(route.get("chat_id", "")).startswith("-"))
+
+
+def owner_telegram_chat(task: dict | None, agent: dict) -> str | None:
+    """The Telegram chat to reach the owner in (approval cards, takeover links): the request's own
+    chat when it is a private one, else the agent's first Telegram user. Never a group, whose members
+    aren't the owner. A WhatsApp chat id is never used as a Telegram destination."""
     route = _route(task) or {}
-    if route.get("channel") == "telegram" and route.get("chat_id"):
+    if route.get("channel") == "telegram" and route.get("chat_id") and not is_group_route(route):
         return str(route["chat_id"])
     from integrations.telegram.state import first_telegram_user
     user = first_telegram_user(agent["id"])
@@ -77,7 +84,7 @@ def _message(gate: dict, agent: dict) -> str:
     b = gates.ApprovalBinding.from_gate(gate)
     who = agent.get("agent_name") or gate["agent_slug"]
     where = b.host or gate.get("url") or "the page"
-    lines = [f"{who}'s computer helper stopped before a {gate['kind']} on {where}.",
+    lines = [f"{who}'s computer stopped before a {gate['kind']} on {where}.",
              f"Why Chatty stopped it: {gate['note']}" if gate.get("note") else "", ""]
     takeover = gates.unbindable_reason(gate)
     if takeover:
@@ -113,7 +120,7 @@ def request(gate_id: str) -> str:
     try:
         agent = _agent(gate["agent_slug"])
         token = _bot_token(agent)
-        chat_id = _approval_chat(db.get_task(gate["task_id"]), agent) if token else None
+        chat_id = owner_telegram_chat(db.get_task(gate["task_id"]), agent) if token else None
         if not chat_id:
             return CARD
         from integrations.telegram import client as tg
@@ -209,7 +216,7 @@ def decide(gate_id: str, decision: str, via: str, decided_by: str, *,
                 agent_slug=gate["agent_slug"], origin="user", task=_follow_up_text(gate, takeover),
                 helper_provider=parent["helper_provider"], helper_model=parent["helper_model"],
                 conversation_id=parent["conversation_id"], route=_route(parent), action_id=parent["action_id"],
-                parent=parent, approved_gate_id=gate_id, mode=parent["mode"], commit=False,
+                parent=parent, approved_gate_id=gate_id, mode=parent["mode"], driver=parent["driver"], commit=False,
             )
         conn.commit()
     if not n:

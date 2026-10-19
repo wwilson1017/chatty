@@ -3,7 +3,8 @@ Chatty — computer task store (SQLite): tasks, gates and the step log.
 
 A task is one `computer_task(...)` call: the helper loop (runner.py) drives the
 computer for the agent, and the agent gets at most one report-back turn
-(completion.py). Caps (steps, time, money) cover the whole follow-up chain,
+(completion.py). A `driver='agent'` row is the agent driving the computer itself
+in its own turn (direct.py), or the approval follow-up of such a session. Caps (steps, time, money) cover the whole follow-up chain,
 keyed by `root_task_id`, which is always derived here, never taken from a tool.
 
 finish_task() is the ONLY code path that makes a task terminal — the runner,
@@ -70,6 +71,7 @@ _SCHEMA = f"""
         root_task_id          TEXT NOT NULL,
         approved_gate_id      TEXT,
         mode                  TEXT NOT NULL DEFAULT 'text' CHECK(mode IN ('text','screenshot')),
+        driver                TEXT NOT NULL DEFAULT 'helper',
         helper_provider       TEXT NOT NULL,
         helper_model          TEXT NOT NULL,
         task                  TEXT NOT NULL,
@@ -175,8 +177,11 @@ def _setup_connection() -> None:
     # Migrations for dev stores created before these columns existed.
     if "note" not in {r[1] for r in _connection.execute("PRAGMA table_info(gates)")}:
         _connection.execute("ALTER TABLE gates ADD COLUMN note TEXT")
-    if "takeover_reason" not in {r[1] for r in _connection.execute("PRAGMA table_info(tasks)")}:
+    task_cols = {r[1] for r in _connection.execute("PRAGMA table_info(tasks)")}
+    if "takeover_reason" not in task_cols:
         _connection.execute("ALTER TABLE tasks ADD COLUMN takeover_reason TEXT")
+    if "driver" not in task_cols:
+        _connection.execute("ALTER TABLE tasks ADD COLUMN driver TEXT NOT NULL DEFAULT 'helper'")
     _connection.commit()
     logger.info("Computer tasks DB initialized at %s", DB_PATH)
 
@@ -230,18 +235,23 @@ def get_task(task_id: str) -> dict | None:
 def insert_task(*, agent_slug: str, origin: str, task: str, helper_provider: str, helper_model: str,
                 conversation_id: str | None = None, route: dict | None = None, action_id: str | None = None,
                 parent: dict | None = None, approved_gate_id: str | None = None, mode: str = "text",
-                commit: bool = True) -> str:
-    """Queue a task. `parent` (a task row of the same agent) makes this a follow-up sharing its root."""
+                driver: str = "helper", worker_id: str | None = None, commit: bool = True) -> str:
+    """Queue a task. `parent` (a task row of the same agent) makes this a follow-up sharing its root.
+    A `worker_id` inserts it already running for that worker (a direct session), so the runner never claims it."""
     task_id = uuid.uuid4().hex[:12]
     db = get_db()
     with _write_lock:
         db.execute(
             """INSERT INTO tasks (id, agent_slug, conversation_id, route, origin, action_id, parent_task_id,
-                                  root_task_id, approved_gate_id, mode, helper_provider, helper_model, task, status)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'queued')""",
+                                  root_task_id, approved_gate_id, mode, driver, helper_provider, helper_model, task,
+                                  status, worker_id, started_at, heartbeat_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                       CASE WHEN ? IS NULL THEN NULL ELSE datetime('now') END,
+                       CASE WHEN ? IS NULL THEN NULL ELSE datetime('now') END)""",
             (task_id, agent_slug, conversation_id, json.dumps(route) if route else None, origin, action_id,
              parent["id"] if parent else None, parent["root_task_id"] if parent else task_id,
-             approved_gate_id, mode, helper_provider, helper_model, task),
+             approved_gate_id, mode, driver, helper_provider, helper_model, task,
+             "running" if worker_id else "queued", worker_id, worker_id, worker_id),
         )
         if commit:
             db.commit()
@@ -408,7 +418,7 @@ def finish_task(task_id: str, status: str, reason: str, *, notify: bool, commit:
 def task_view(task: dict, *, result_chars: int = 2000) -> dict:
     """Public shape of a task row (card + tools)."""
     out = {k: task[k] for k in (
-        "id", "agent_slug", "origin", "mode", "helper_model", "status", "task", "finish_reason", "error",
+        "id", "agent_slug", "origin", "mode", "driver", "helper_model", "status", "task", "finish_reason", "error",
         "takeover_state", "takeover_reason", "parent_task_id", "root_task_id", "approved_gate_id", "gate_id", "conversation_id",
         "steps", "input_tokens", "output_tokens",
     )}
@@ -476,6 +486,9 @@ def gate_view(gate: dict) -> dict:
     for k in ("created_at", "expires_at", "decided_at"):
         out[k] = iso_z(gate[k])
     return out
+
+
+DIRECT_WORKER_PREFIX = "direct:"  # worker ids of direct sessions (direct.py): the agent's own turn holds the row
 
 
 def worker_id() -> str:

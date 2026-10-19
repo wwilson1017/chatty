@@ -285,6 +285,7 @@ def _safe_process_telegram(
                             sender_is_bot=is_bot,
                             group_name=group_name,
                             message_text=message,
+                            sender_id=user_id,
                         )
                     )
                 finally:

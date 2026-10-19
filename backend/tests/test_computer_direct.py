@@ -1,0 +1,467 @@
+"""The agent drives its computer directly (direct.py): sessions as driver='agent' task rows, gates in a
+direct turn and their dispatch-only follow-up, the busy screen, release at turn end / when idle / on
+hand-off, owner-only groups, the per-turn ceilings, refs pinned to the session's epoch, and approval
+cards and takeover links that never go to a group. Same fakes as test_computer_tasks: no network."""
+
+import asyncio
+import json
+
+import pytest
+
+from core.agents.background_runner import BackgroundResult
+from core.agents.deferred_tools import build_provider_tools, build_tool_catalog
+from core.agents.scheduled_actions import processor
+from core.agents.tool_registry import ToolRegistry
+from integrations.computer import approvals, client as client_mod, completion, db, direct, runner, tools
+from integrations.registry import save_credentials
+
+from tests.test_computer_approvals import _stop_at_gate, ap  # noqa: F401 (ap is a fixture)
+from tests.test_computer_tasks import FINAL, MODEL, FakeProvider, _ctx, _queue, _run, element, fake  # noqa: F401
+
+
+@pytest.fixture(autouse=True)
+def fresh_turns(monkeypatch):
+    monkeypatch.setattr(direct, "BUSY_POLL_S", 0.01)
+    direct._turns.clear()
+    yield
+    direct._turns.clear()
+
+
+@pytest.fixture
+def dfake(fake, monkeypatch):  # noqa: F811 (fake is the imported fixture)
+    monkeypatch.setattr(direct, "get_client", client_mod.get_client)  # the fake's, as patched by `fake`
+    return fake
+
+
+def _dctx(turn="turn-1", **kw):
+    return _ctx(turn_id=turn, **kw)
+
+
+async def call(ctx, tool="computer_browser", **args):
+    return await tools.TOOL_EXECUTORS[tool](_ctx=ctx, **args)
+
+
+def sessions() -> list[dict]:
+    return [dict(r) for r in db.query("SELECT * FROM tasks WHERE driver = 'agent' ORDER BY rowid")]
+
+
+def calls_after(fc, n) -> list[str]:
+    return [p for _, p, _ in fc.calls[n:]]
+
+
+def bump(fc):
+    fc.epoch_n += 1  # control ended / the screen changed hands on the computer
+
+
+class TestSession:
+    def test_a_direct_snapshot_is_a_running_agent_row_with_a_step_and_releases_at_turn_end(self, dfake):
+        reg = ToolRegistry(context_dir="/tmp/ctx", agent_slug="tom", integration_executors=tools.TOOL_EXECUTORS,
+                           integration_tool_flags={"computer_browser": {"context_aware": True, "extends_turn": True}})
+        reg._turn_origin, reg._turn_route = "user", {"channel": "web"}
+        turn_id = reg.turn_id
+
+        async def go():
+            out = await reg.execute_tool("computer_browser", {"action": "snapshot"}, "integration")
+            row = sessions()[0]
+            assert row["status"] == "running" and row["worker_id"].startswith("direct:") and row["worker_id"].endswith(turn_id)
+            assert dfake.lease is not None
+            await reg.aclose()
+            return out
+        out = asyncio.run(go())
+        assert "Place order" in out["snapshot"]
+        row = sessions()[0]
+        assert (row["driver"], row["origin"], row["status"], row["finish_reason"]) == ("agent", "user", "done", "direct session ended")
+        assert [s["tool"] for s in db.list_steps(row["id"])] == ["browser"]
+        assert dfake.lease is None and dfake.submitted == []  # released, and no report turn: the agent was there
+        assert reg.turn_id != turn_id and direct._turns == {}
+
+    def test_one_session_per_turn_across_calls_and_tools(self, dfake):
+        ctx = _dctx()
+
+        async def go():
+            await call(ctx, action="snapshot")
+            sh = await call(ctx, "computer_shell", command="ls")
+            fl = await call(ctx, "computer_files", action="list", path=".")
+            await direct.close_turn("turn-1")
+            return sh, fl
+        sh, fl = asyncio.run(go())
+        assert sh["stdout"] == "ran: ls" and "entries" in fl
+        assert len(sessions()) == 1 and [s["tool"] for s in db.list_steps(sessions()[0]["id"])] == ["browser", "shell", "files"]
+        assert [p for _, p, _ in dfake.calls].count("/desktop/activate") == 1
+
+    def test_a_busy_screen_hands_off_and_finishes_the_row(self, dfake, monkeypatch):
+        monkeypatch.setattr(direct, "BUSY_WAIT_S", 0.05)
+        dfake.lease = ("lease-x", "dana", "other-task")
+        out = asyncio.run(call(_dctx(), action="snapshot"))
+        assert "in use by another task" in out["error"] and "computer_task" in out["error"]
+        row = sessions()[0]
+        assert (row["status"], row["finish_reason"]) == ("failed", "screen busy") and dfake.submitted == []
+        assert "/browser/snapshot" not in [p for _, p, _ in dfake.calls]
+
+    def test_a_turn_cancelled_while_waiting_for_the_screen_leaves_no_running_row(self, dfake):
+        dfake.lease = ("lease-x", "dana", "other-task")
+
+        async def go():
+            t = asyncio.create_task(call(_dctx(), action="snapshot"))
+            await asyncio.sleep(0.05)
+            t.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await t
+        asyncio.run(go())
+        assert sessions()[0]["status"] == "cancelled" and dfake.submitted == []
+
+    def test_an_idle_session_releases_itself_and_the_next_call_opens_a_new_one(self, dfake, monkeypatch):
+        monkeypatch.setattr(direct, "IDLE_S", 0.05)
+        ctx = _dctx()
+
+        async def go():
+            await call(ctx, action="snapshot")
+            s = direct._turns["turn-1"].session
+            s.inflight = True  # a long shell command: never idle while in flight
+            await asyncio.sleep(0.15)
+            assert not s.closed and dfake.lease is not None
+            s.inflight = False
+            await asyncio.sleep(0.15)
+            assert s.closed and dfake.lease is None
+            await call(ctx, action="snapshot")
+            await direct.close_turn("turn-1")
+        asyncio.run(go())
+        first, second = sessions()
+        assert (first["status"], first["finish_reason"]) == ("done", "idle for 0.05 s")
+        assert second["status"] == "done"
+
+    def test_computer_task_frees_the_screen_first(self, dfake):
+        ctx = _dctx()
+
+        async def go():
+            await call(ctx, action="snapshot")
+            assert dfake.lease is not None
+            out = await tools.computer_task("compare 40 suppliers' prices", _ctx=ctx)
+            held = dfake.lease
+            await direct.close_turn("turn-1")
+            return out, held
+        out, held = asyncio.run(go())
+        assert out["status"] == "queued" and held is None
+        assert (sessions()[0]["status"], sessions()[0]["finish_reason"]) == ("done", "handed to the helper")
+        assert db.get_task(out["task_id"])["driver"] == "helper"
+
+    def test_a_lost_lease_ends_the_session_and_the_next_call_starts_fresh(self, dfake):
+        dfake.elements["e5"] = element("Add to cart", "e5", is_submit=False)
+        ctx = _dctx()
+
+        async def go():
+            await call(ctx, action="snapshot")
+            dfake.lease = None  # the computer no longer knows this lease
+            lost = await call(ctx, action="snapshot")
+            stale = await call(ctx, action="click", ref="e5")  # a new session: the old snapshot's refs are gone
+            await direct.close_turn("turn-1")
+            return lost, stale
+        lost, stale = asyncio.run(go())
+        assert "Lost the screen" in lost["error"] and stale["code"] == "stale_ref"
+        first, second = sessions()
+        assert (first["status"], first["finish_reason"]) == ("failed", "lost the screen") and second["status"] == "done"
+        assert dfake.performed == []
+
+    def test_the_turn_ceiling_counts_every_direct_call(self, dfake, monkeypatch):
+        monkeypatch.setattr(direct, "MAX_ACTIONS", 2)
+        ctx = _dctx()
+
+        async def go():
+            outs = [await call(ctx, action="snapshot") for _ in range(3)]
+            await direct.close_turn("turn-1")
+            return outs
+        outs = asyncio.run(go())
+        assert "error" not in outs[1] and outs[2]["error"] == "This turn has used 2 computer actions; hand the rest to computer_task."
+
+    def test_cancelled_on_the_card_stops_the_turn(self, dfake):
+        ctx = _dctx()
+
+        async def go():
+            await call(ctx, action="snapshot")
+            db.finish_task(sessions()[0]["id"], "cancelled", "cancelled by user", notify=False)
+            stopped = await call(ctx, action="snapshot")
+            again = await call(ctx, action="snapshot")
+            await direct.close_turn("turn-1")
+            return stopped, again
+        stopped, again = asyncio.run(go())
+        assert "session ended (cancelled" in stopped["error"] and again["error"] == stopped["error"]
+        assert len(sessions()) == 1 and dfake.lease is None
+
+    def test_turning_the_computer_off_for_the_agent_ends_its_open_session(self, dfake):
+        ctx = _dctx()
+
+        async def go():
+            await call(ctx, action="snapshot")
+            save_credentials("computer", {"enabled": True, "helper_model": MODEL, "disabled_agents": ["tom"]})
+            off = await call(ctx, action="snapshot")
+            await direct.close_turn("turn-1")
+            return off
+        off = asyncio.run(go())
+        row = sessions()[0]
+        assert (row["status"], row["finish_reason"]) == ("cancelled", "disabled") and "(cancelled: disabled)" in off["error"]
+        assert dfake.lease is None and [p for _, p, _ in dfake.calls].count("/browser/snapshot") == 1
+
+
+class TestGates:
+    def test_place_order_opens_a_gate_nothing_is_clicked_and_the_turn_stops(self, dfake):
+        dfake.elements["e10"] = element("Place order")
+        ctx = _dctx()
+
+        async def go():
+            await call(ctx, action="snapshot")
+            gated = await call(ctx, action="click", ref="e10")
+            after = await call(ctx, action="snapshot")
+            task = await tools.computer_task("buy it", _ctx=ctx)
+            await direct.close_turn("turn-1")
+            return gated, after, task
+        gated, after, task = asyncio.run(go())
+        assert gated["stopped"] == ("Needs your approval (buy: Place order). I've sent the card. When it's approved, "
+                                    "the click is made and you'll get the outcome as a new message.")
+        assert dfake.acts() == []  # the click never reached the computer
+        assert f"approval of gate {gated['gate_id']}" in after["error"] and after["error"] == task["error"]
+        row = sessions()[0]
+        assert (row["status"], row["finish_reason"], row["gate_id"]) == ("needs_approval", "stopped before buy: Place order", gated["gate_id"])
+        assert [s["verdict"] for s in db.list_steps(row["id"])] == [None, "gated:buy"]
+        assert dfake.submitted == [] and dfake.lease is None  # no report turn; the screen is free
+        assert len(db.query("SELECT 1 FROM tasks")) == 1  # computer_task was refused too
+
+    def test_approving_makes_the_one_click_and_gives_the_agent_one_turn(self, ap, monkeypatch):  # noqa: F811
+        monkeypatch.setattr(direct, "get_client", client_mod.get_client)
+        ap.fake.elements["e10"] = element("Place order")
+        ctx = _dctx(conversation_id="conv-9", action_id="sa-3")
+
+        async def go():
+            await call(ctx, action="snapshot")
+            await call(ctx, action="click", ref="e10")
+            await direct.close_turn("turn-1")
+        asyncio.run(go())
+        session = sessions()[0]
+        gate = db.get_gate(session["gate_id"])
+        assert ap.sent[-1]["chat_id"] == "555"  # the approval card went to the owner on Telegram
+
+        assert approvals.decide(gate["id"], "approve", "card", "user")["ok"]
+        f = dict(db.query("SELECT * FROM tasks WHERE approved_gate_id = ?", (gate["id"],))[0])
+        assert (f["driver"], f["origin"], f["conversation_id"], f["action_id"], f["parent_task_id"], f["root_task_id"]) == (
+            "agent", "user", "conv-9", "sa-3", session["id"], session["id"])
+        assert json.loads(f["route"]) == {"channel": "web"}
+
+        # Helper caps don't apply to direct work, and no helper model runs: only the approved click.
+        db.execute("UPDATE tasks SET steps = ? WHERE id = ?", (db.MAX_STEPS, session["id"]))
+        monkeypatch.setattr(runner, "get_ai_provider", lambda **kw: pytest.fail("no helper model for a direct follow-up"))
+        t = db.claim_next("w1")
+        assert asyncio.run(runner.run_task(t, "w1")) == "done"
+        f = db.get_task(f["id"])
+        assert (f["status"], f["finish_reason"]) == ("done", "approved action performed")
+        assert f["result_text"].startswith("## Approved action performed") and "untrusted_tool_result" in f["result_text"]
+        assert len(ap.fake.performed) == 1 and ap.fake.performed[0]["ref"] == "e10" and ap.fake.performed[0]["expect"]
+        assert db.get_gate(gate["id"])["status"] == "done"
+        assert ap.fake.submitted == [f["id"]]
+
+        turns: list = []
+        monkeypatch.setattr(processor, "run_agent_background_turn",
+                            lambda *a, **kw: turns.append(a) or (BackgroundResult(text="Ordered."), None))
+        monkeypatch.setattr(processor, "_resolve_agent", lambda slug: {"slug": slug, "agent_name": "Tom"})
+        monkeypatch.setattr(processor, "deliver_background_result", lambda *a, **kw: None)
+        completion.complete_task(f["id"])
+        completion.complete_task(f["id"])
+        assert len(turns) == 1 and turns[0][2] == completion._INSTRUCTIONS["agent"]
+        assert "Approved action performed" in turns[0][3]
+
+
+    def test_a_scheduled_actions_preapproval_crosses_its_gate_in_a_direct_session(self, dfake, monkeypatch):
+        from tests.test_computer_preapprovals import SUBMIT, _allow, _cron
+        aid = _cron()
+        _allow(aid)
+        dfake.elements["e10"] = SUBMIT
+        dfake.url = "https://time.example/week"
+        asked: list = []
+        monkeypatch.setattr(approvals, "request", lambda gid: asked.append(gid) or "card")
+        ctx = _dctx(origin="background", action_id=aid)
+
+        async def go():
+            await call(ctx, action="snapshot")
+            out = await call(ctx, action="click", ref="e10")
+            await direct.close_turn("turn-1")
+            return out
+        out = asyncio.run(go())
+        assert out["preapproved"].startswith("Chatty performed this submit") and "Do not repeat it" in out["preapproved"]
+        assert asked == [] and len(dfake.performed) == 1
+        assert (sessions()[0]["status"], sessions()[0]["action_id"]) == ("done", aid)
+
+
+class TestGroups:
+    def test_only_the_owner_uses_the_computer_from_a_group(self, dfake):
+        route = {"channel": "telegram", "chat_id": "-100123", "group": True}
+        member = _dctx(origin="group", route=route)
+
+        async def go():
+            outs = [await call(member, action="snapshot"), await call(member, "computer_shell", command="id"),
+                    await tools.computer_task("x", _ctx=member), await tools.computer_file_get("a.txt", _ctx=member)]
+            owner = await call(_dctx("turn-2", origin="group", route=route, group_owner=True), action="snapshot")
+            await direct.close_turn("turn-2")
+            return outs, owner
+        outs, owner = asyncio.run(go())
+        assert all(o["error"] == "Only the owner can use the computer from a group." for o in outs)
+        assert "snapshot" in owner
+        row = sessions()[0]
+        assert len(db.query("SELECT 1 FROM tasks")) == 1 and row["origin"] == "background" and json.loads(row["route"]) == route
+
+    def test_a_delegated_group_task_its_follow_up_and_takeover_reach_the_owner_privately(self, ap, monkeypatch):  # noqa: F811
+        route = {"channel": "telegram", "chat_id": "-100123", "group": True}
+        t, gate = _stop_at_gate(ap, monkeypatch, origin="group", group_owner=True, route=route)
+        assert [m["chat_id"] for m in ap.sent] == ["555"] and [p["chat_id"] for p in ap.photos] == ["555"]
+
+        # Approved, but the total changed: the follow-up opens a new gate, asked privately too.
+        assert approvals.decide(gate["id"], "approve", "card", "user")["ok"]
+        ap.fake.elements["e10"] = element("Place order", total="99.00")
+        _, f = _run(ap.fake, FakeProvider([FINAL]), monkeypatch)
+        assert f["status"] == "needs_approval" and json.loads(f["route"]) == route
+        assert [m["chat_id"] for m in ap.sent if m["markup"]] == ["555", "555"]
+
+        # A takeover link, for the new route and for one saved before routes said "group".
+        monkeypatch.setattr(runner, "takeover_url", lambda task_id, slug: "https://chatty.example/computer")
+        for r in (route, {"channel": "telegram", "chat_id": -100123}):
+            runner.notify_takeover({**f, "route": json.dumps(r)}, "sign in to shop.example")
+        assert all(m["chat_id"] == "555" for m in ap.sent) and "needs you on the computer" in ap.sent[-1]["text"]
+
+
+class TestEpochs:
+    """A direct session never resends: a refused stale_epoch ends the operation, and refs need the
+    latest snapshot of this session under the epoch the session holds now."""
+
+    def test_the_epoch_advancing_before_the_act_refuses_it_once(self, dfake):
+        dfake.elements["e5"] = element("Add to cart", "e5", is_submit=False)
+        ctx = _dctx()
+
+        async def go():
+            await call(ctx, action="snapshot")
+            dfake.before_call = lambda path, body: path == "/browser/act" and bump(dfake)
+            n = len(dfake.calls)
+            out = await call(ctx, action="click", ref="e5")
+            dfake.before_call = None
+            stale = await call(ctx, action="click", ref="e5")
+            await direct.close_turn("turn-1")
+            return out, calls_after(dfake, n), stale
+        out, paths, stale = asyncio.run(go())
+        assert out == runner.EPOCH_CHANGED
+        assert paths.count("/browser/act") == 1 and dfake.performed == []  # refused, never sent again
+        assert stale["code"] == "stale_ref"  # the snapshot from before the change is unusable
+        assert db.list_steps(sessions()[0]["id"])[-1]["result_excerpt"].startswith('{"error": "not performed: the screen changed hands')
+
+    def test_an_epoch_renew_saw_invalidates_the_snapshot_taken_before_it(self, dfake, monkeypatch):
+        monkeypatch.setattr(runner, "RENEW_EVERY_S", 0.01)
+        dfake.elements["e5"] = element("Add to cart", "e5", is_submit=False)
+        ctx = _dctx()
+
+        async def go():
+            await call(ctx, action="snapshot")
+            bump(dfake)  # control ended right after the snapshot was read
+            await asyncio.sleep(0.05)  # renew_loop sees the new epoch, keeps it for the next call
+            run = direct._turns["turn-1"].session.run
+            assert run.latest_epoch == dfake.epoch and run.epoch != dfake.epoch
+            n = len(dfake.calls)
+            stale = await call(ctx, action="click", ref="e5")
+            sent = [p for p in calls_after(dfake, n) if not p.startswith("/desktop/lease")]
+            await call(ctx, action="snapshot")
+            ok = await call(ctx, action="click", ref="e5")
+            await direct.close_turn("turn-1")
+            return stale, sent, ok
+        stale, sent, ok = asyncio.run(go())
+        assert stale["code"] == "stale_ref" and sent == []
+        assert "error" not in ok and len(dfake.performed) == 1
+
+    def test_a_snapshot_refused_for_a_new_epoch_leaves_no_usable_refs(self, dfake):
+        dfake.elements["e5"] = element("Add to cart", "e5", is_submit=False)
+        ctx = _dctx()
+
+        async def go():
+            await call(ctx, action="snapshot")
+            dfake.before_call = lambda path, body: path == "/browser/snapshot" and bump(dfake)
+            refused = await call(ctx, action="snapshot")
+            dfake.before_call = None
+            stale = await call(ctx, action="click", ref="e5")
+            await direct.close_turn("turn-1")
+            return refused, stale
+        refused, stale = asyncio.run(go())
+        assert refused == runner.EPOCH_CHANGED and stale["code"] == "stale_ref" and dfake.performed == []
+
+    def test_pixel_action_stops_at_a_refused_preliminary_snapshot(self, dfake):
+        tid = db.insert_task(agent_slug="tom", origin="user", task="direct session", helper_provider="", helper_model="",
+                             driver="agent", worker_id="direct:1:t")
+        run = runner._Run(db.get_task(tid), "direct:1:t", client_mod.get_client())
+        run.retry_epoch = False
+
+        async def go():
+            await run.activate()
+            dfake.before_call = lambda path, body: path == "/browser/snapshot" and bump(dfake)
+            n = len(dfake.calls)
+            out = await run.pixel("left_click", {"coordinate": [100, 100]})
+            await run.release()
+            return out, calls_after(dfake, n)
+        out, paths = asyncio.run(go())
+        assert out["is_error"] and "screen changed hands" in out["content"]
+        assert "/browser/element" not in paths and "/actions" not in paths and run.epoch == dfake.epoch
+
+
+class TestPerformedNeverFailed:
+    def test_helper_click_then_a_failed_snapshot_still_says_performed(self, dfake, monkeypatch):
+        dfake.elements["e5"] = element("Add to cart", "e5", is_submit=False)
+        dfake.on_act = lambda body: setattr(dfake, "snapshot_error", "browser_failed")
+        tid = _queue()
+        prov = FakeProvider([{"tool_calls": [("browser", {"action": "click", "ref": "e5"})]}, FINAL])
+        _, t = _run(dfake, prov, monkeypatch)
+        assert t["status"] == "done" and len(dfake.performed) == 1
+        seen = json.dumps(prov.seen[-1][-1])  # the tool result the helper got back
+        assert '\\"performed\\": true' in seen and "snapshot_error" in seen and "take a fresh snapshot" in seen
+        step = db.list_steps(tid)[0]
+        assert '"performed": true' in step["result_excerpt"] and '"error"' not in step["result_excerpt"]
+
+    def test_direct_click_then_a_failed_snapshot_keeps_the_result_and_drops_the_refs(self, dfake):
+        dfake.elements["e5"] = element("Add to cart", "e5", is_submit=False)
+        ctx = _dctx()
+
+        async def go():
+            await call(ctx, action="snapshot")
+            dfake.on_act = lambda body: setattr(dfake, "snapshot_error", "browser_failed")
+            out = await call(ctx, action="click", ref="e5")
+            dfake.snapshot_error = None
+            again = await call(ctx, action="click", ref="e5")
+            await direct.close_turn("turn-1")
+            return out, again
+        out, again = asyncio.run(go())
+        assert out["performed"] is True and out["snapshot_error"] == "browser failed" and "url" in out
+        assert again["code"] == "stale_ref" and len(dfake.performed) == 1
+
+
+class TestDefinitions:
+    def test_direct_tools_and_computer_task_are_never_deferred_and_flags_stay_server_side(self, dfake):
+        defs = tools.computer_tool_defs()
+        filler = [{"name": f"odoo_t{i}", "description": "x", "input_schema": {"type": "object"}, "kind": "integration",
+                   "integration": "odoo"} for i in range(120)]
+        active, deferred, names, _ = build_tool_catalog(filler + defs)
+        loaded = {d["name"] for d in active}
+        assert {"computer_browser", "computer_shell", "computer_files", "computer_task"} <= loaded
+        assert "computer_task_get" in names  # the rest still waits behind find_tools
+        assert all(set(t) <= {"name", "description", "input_schema"} for t in build_provider_tools(defs))
+
+    def test_schemas_are_the_helpers_and_the_hand_off_names_the_helper_model(self, dfake):
+        defs = {d["name"]: d for d in tools.computer_tool_defs()}
+        helper = {d["name"]: d for d in runner.TOOL_DEFS}
+        for name, h in (("computer_browser", "browser"), ("computer_shell", "shell"), ("computer_files", "files")):
+            assert defs[name]["input_schema"] == helper[h]["input_schema"]
+            assert defs[name]["extends_turn"] and defs[name]["always_loaded"] and MODEL in defs[name]["description"]
+
+    def test_helper_model_change_shows_in_the_descriptions(self, dfake):
+        save_credentials("computer", {"enabled": True, "helper_model": "claude-opus-4-8"})
+        assert "claude-opus-4-8" in next(d for d in tools.computer_tool_defs() if d["name"] == "computer_task")["description"]
+
+
+def test_an_orphaned_direct_session_is_swept_without_a_report_turn(dfake):
+    tid = db.insert_task(agent_slug="tom", origin="user", task="direct session", helper_provider="", helper_model="",
+                         driver="agent", worker_id="direct:1:t")
+    hid = _queue()
+    db.execute("UPDATE tasks SET status = 'running', worker_id = 'w1' WHERE id = ?", (hid,))
+    db.execute("UPDATE tasks SET heartbeat_at = datetime('now', '-10 minutes')")
+    completion.sweep()
+    assert db.get_task(tid)["status"] == "failed" and db.get_task(hid)["status"] == "failed"
+    assert set(dfake.submitted) == {hid}  # the helper task reports (the sweep re-submits pending ones); the session never
