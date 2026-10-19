@@ -808,6 +808,20 @@ class TestTakeover:
         [(instructions, message)] = turns
         assert instructions == completion._INSTRUCTIONS["takeover"] and "nobody took over" in message
 
+    def test_an_unrelated_control_session_that_ends_doesnt_finish_it(self, dfake, monkeypatch, notices):
+        monkeypatch.setattr(runner, "TAKEOVER_WAIT_S", 0.2)
+        _hand_over(dfake)
+
+        def hook(n):
+            if n == 1:
+                dfake.human = True
+            if n == 2:
+                dfake.human = False
+                dfake.control_ended["task_id"] = "another-task"  # not this takeover's session
+        t, _ = _run_takeover(dfake, monkeypatch, hook)
+        assert (t["status"], t["finish_reason"]) == ("failed", "nobody took over within 0 min")
+        assert sum(1 for _, p, _ in dfake.calls if p == "/control/status") > 3  # it went back to waiting
+
     def test_definition_is_always_loaded_and_never_extends_the_turn(self, dfake):
         d = next(d for d in tools.computer_tool_defs() if d["name"] == "computer_takeover")
         assert d["always_loaded"] and not d.get("extends_turn") and d["writes"] is False

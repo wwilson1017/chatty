@@ -1126,20 +1126,24 @@ class _Run:
         or None when nobody took it in time. control_ended is one global record, so a session that started
         AND ended between two polls counts only if the record is this agent's, for this task (or for none:
         the card's own Take control), and newer than the wait; an older or unrelated hand-back never does."""
-        since = time.time()
+        since, deadline = time.time(), time.monotonic() + TAKEOVER_WAIT_S
 
         def ours(st: dict) -> bool:
             ce = st.get("control_ended") or {}
             return ce.get("agent") == self.slug and ce.get("task_id") in (self.id, None) and (ce.get("at") or 0) > since
 
-        st = await self.wait_control(human=True, timeout=TAKEOVER_WAIT_S, until=ours)
-        if st is None:
-            return None
-        if st.get("human_in_control"):  # control is on: wait for it to end (the computer ends it at 15 min)
-            db.set_takeover(self.id, "active")
-            st = await self.wait_control(human=False)
-        self.epoch = st.get("epoch") or self.epoch
-        return (st.get("control_ended") or {}).get("reason") or "ended"
+        while (left := deadline - time.monotonic()) > 0:
+            st = await self.wait_control(human=True, timeout=left, until=ours)
+            if st is None:
+                break
+            if st.get("human_in_control"):  # control is on: wait for it to end (the computer ends it at 15 min)
+                db.set_takeover(self.id, "active")
+                st = await self.wait_control(human=False)
+            if ours(st):
+                self.epoch = st.get("epoch") or self.epoch
+                return st["control_ended"].get("reason") or "ended"
+            db.set_takeover(self.id, "waiting")  # someone else's control session ended: keep waiting for ours
+        return None
 
     async def tool_request_takeover(self, a: dict) -> dict:
         """Ask the owner to take the screen, hold it until they do (≤ 15 min, the clock stopped), wait
