@@ -777,12 +777,14 @@ class TestTakeover:
         assert text.startswith("sign in to shop.example\n\nThe screen shows Checkout (https://shop.example/); Chatty reopened it")
         assert f"/computer?task={t['id']}&agent=tom" in text
 
-    def test_control_that_started_and_ended_between_two_polls_still_counts(self, dfake, monkeypatch, notices):
+    @pytest.mark.parametrize("for_task", [True, False])  # through the link (task id), or the card's own Take control
+    def test_control_that_started_and_ended_between_two_polls_still_counts(self, dfake, monkeypatch, notices, for_task):
         _, task = _hand_over(dfake)
 
         def hook(n):
             if n == 2:
-                dfake.control_ended = {"at": time.time(), "reason": "done", "agent": "tom", "task_id": dfake.lease[2]}
+                dfake.control_ended = {"at": time.time(), "reason": "done", "agent": "tom",
+                                       "task_id": dfake.lease[2] if for_task else None}
         t, turns = _run_takeover(dfake, monkeypatch, hook)
         assert (t["status"], t["finish_reason"]) == ("done", "handed back after takeover") and len(turns) == 1
         assert sum(1 for _, p, _ in dfake.calls if p == "/control/status") == 2
