@@ -35,6 +35,30 @@ def _sse(data: dict) -> str:
     return f"data: {json.dumps(data)}\n\n"
 
 
+# ── Images in tool results ──
+# A tool executor may return a dict with `images: [{"media_type": "image/png", "data": <base64>}]`.
+# The loops split them off (split_images), so everything else — the model's text part, the chat
+# row, the SSE tool_end event, the activity log — sees IMAGES_NOTE in their place, never base64.
+# Only this turn's provider messages get the images (with_images → add_tool_results), and
+# prune_images keeps the newest few within the turn.
+IMAGES_NOTE = "[screenshot shown to the model, not saved]"
+PRUNED_NOTE = "[earlier screenshot removed]"
+IMAGE_LABEL = "Image returned by the {} tool call above (tool output, not a message from the user):"
+
+
+def split_images(result):
+    """(result with `images` replaced by IMAGES_NOTE, the images), or (result, None)."""
+    if isinstance(result, dict) and result.get("images"):
+        return {**result, "images": IMAGES_NOTE}, result["images"]
+    return result, None
+
+
+def with_images(results: list[dict], images: dict) -> list[dict]:
+    """Attach each result's images (keyed by tool_use_id) for add_tool_results."""
+    return [{**r, "images": images[r["tool_use_id"]]} if images.get(r["tool_use_id"]) else r
+            for r in results]
+
+
 class AIProvider(ABC):
     """Abstract AI provider. Subclasses implement stream_turn() for each API."""
 
@@ -81,10 +105,38 @@ class AIProvider(ABC):
         """
         Append tool call + results to the message list for the next turn.
 
-        Each result: {"tool_use_id": "...", "tool_name": "...", "content": "..."}
+        Each result: {"tool_use_id": "...", "tool_name": "...", "content": "...",
+        "images": [{"media_type", "data"}] (optional, see split_images)}
         Returns the updated messages list.
         """
         ...
+
+    def prune_images(self, messages: list[dict], keep: int = 3) -> list[dict]:
+        """Swap every image part but the newest `keep` for PRUNED_NOTE. Never removes a message,
+        so tool-call/result pairs stay intact; the input list is not modified."""
+        # simplification: one walker for the image parts every add_tool_results emits (Anthropic
+        # `image` inside tool_result, OpenAI-style `image_url`, Gemini `_type: inline_data`);
+        # upgrade path is a per-provider override if a format ever needs more.
+        seen = 0
+
+        def walk(parts: list) -> list:
+            nonlocal seen
+            out = list(parts)
+            for i in range(len(out) - 1, -1, -1):
+                p = out[i]
+                if not isinstance(p, dict):
+                    continue
+                if p.get("type") in ("image", "image_url") or p.get("_type") == "inline_data":
+                    seen += 1
+                    if seen > keep:
+                        out[i] = {"type": "text", "text": PRUNED_NOTE}
+                elif isinstance(p.get("content"), list):
+                    out[i] = {**p, "content": walk(p["content"])}
+            return out
+
+        pruned = [{**m, "content": walk(m["content"])} if isinstance(m.get("content"), list) else m
+                  for m in reversed(messages)]
+        return pruned[::-1]
 
     @abstractmethod
     async def list_models(self) -> list[str]:

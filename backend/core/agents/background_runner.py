@@ -13,6 +13,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 
 from core.providers import get_ai_provider
+from core.providers.base import split_images, with_images
 from .tool_registry import ToolRegistry
 from .deferred_tools import (
     should_defer_tools, build_tool_catalog, handle_deferred_tool_call,
@@ -166,6 +167,7 @@ async def _run_turn(
 
         # Execute tools
         results = []
+        images: dict = {}  # tool_use_id → images; only the provider messages get them
         for tc in tool_calls_this_turn:
             tool_name = tc.get("name", "")
             tool_args = tc.get("args", {})
@@ -235,6 +237,7 @@ async def _run_turn(
             result = await registry.execute_tool(tool_name, tool_args, kind)
             duration_ms = int((time.monotonic() - t0) * 1000)
 
+            result, images[tc.get("id", "")] = split_images(result)
             result_str = json.dumps(result)
             if should_wrap(tool_name, kind):
                 result_str = wrap_result(tool_name, result_str)
@@ -251,7 +254,8 @@ async def _run_turn(
                 "content": result_str,
             })
 
-        messages = provider.add_tool_results(messages, tool_calls_this_turn, results)
+        messages = provider.add_tool_results(messages, tool_calls_this_turn, with_images(results, images))
+        messages = provider.prune_images(messages)
 
     return BackgroundResult(
         text=accumulated_text or "(max iterations reached)",

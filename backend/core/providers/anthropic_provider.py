@@ -256,10 +256,16 @@ class AnthropicProvider(AIProvider):
         # Build user content block with tool_result entries
         user_content = []
         for r in results:
+            content = str(r["content"])
+            if r.get("images"):  # text plus image blocks inside the same tool_result
+                content = [{"type": "text", "text": content}] + [
+                    {"type": "image", "source": {"type": "base64", "media_type": i["media_type"], "data": i["data"]}}
+                    for i in r["images"]
+                ]
             user_content.append({
                 "type": "tool_result",
                 "tool_use_id": r["tool_use_id"],
-                "content": str(r["content"]),
+                "content": content,
             })
 
         return messages + [
