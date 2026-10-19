@@ -348,13 +348,14 @@ def part1():
     st, snap = api("POST", "/browser/snapshot", {"lease": lease, "epoch": epoch})
     st, mk = api("POST", "/screen/marked", {"lease": lease, "epoch": epoch})
     marks = {m["name"]: m for m in mk.get("marks") or []}
-    boxes = {}
+    boxes, views = {}, {}
     for role, name, submit in (("button", "Submit", True), ("button", "Continue", True), ("button", "Preview", False),
                                ("button", "Go", True), ("button", "Save", True), ("button", "Upload", True),
                                ("link", "Read more", False), ("checkbox", "Remember me", False)):
         m = re.search(rf'{role} "{name}" \[ref=([a-z0-9]+)\]', snap.get("snapshot") or "")
         st, ctl = api("POST", "/browser/element", {"lease": lease, "epoch": epoch, "ref": m.group(1)}) if m else (0, {})
         b = boxes[name] = ctl.get("screen_box") or {"x": 0, "y": 0, "w": 0, "h": 0}
+        views[name] = ctl.get("box") or {"x": 0, "y": 0}
         st, at = api("POST", "/browser/element", {"lease": lease, "epoch": epoch, "x": b["x"] + b["w"] // 2, "y": b["y"] + b["h"] // 2})
         check(st == 200 and b["w"] and at.get("tag") == ctl.get("tag") and at.get("role") == role and at.get("name") == name
               and at.get("is_submit") is submit and at.get("screen_box") == b,
@@ -372,7 +373,7 @@ def part1():
         st, at = api("POST", "/browser/element", {"lease": lease, "epoch": epoch, "x": m["point"][0], "y": m["point"][1]})
         readback.append(at.get("role") == m["role"] and (at.get("name") or "")[:80] == m["name"] and at.get("screen_box") == m["box"])
     check(len(readback) >= 10 and all(readback), f"every mark reads back at its point as the same control ({readback})")
-    vb = ctl.get("box") or {"x": 0, "y": 0}  # the checkbox's viewport box: screen = viewport + the page's offset
+    vb = views["Remember me"]  # the checkbox's viewport box: screen = viewport + the page's offset
     ox, oy = boxes["Remember me"]["x"] - round(vb["x"]), boxes["Remember me"]["y"] - round(vb["y"])
     st, at = api("POST", "/browser/element", {"lease": lease, "epoch": epoch, "x": ox + 610, "y": oy + 368})
     check(at.get("role") == "checkbox" and at.get("name") == "Remember me" and at.get("screen_box") == boxes["Remember me"],
