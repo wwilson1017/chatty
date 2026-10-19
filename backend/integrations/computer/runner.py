@@ -1221,7 +1221,7 @@ class _Run:
         return {"stopped": f"needs approval ({verdict.kind}): {name}"}, None
 
     async def pixel_action(self, member: str, inp: dict, label: str, verdicts: list, want: dict | None = None) -> dict:
-        """One toolset member. Checked members — every click, mouse-down and drag start, Enter/Space/
+        """One toolset member. Checked members — every click, mouse-down, drag start and drop, Enter/Space/
         Ctrl+Enter/Ctrl+S keys, typed newlines — are classified first from the element under the pixel
         (the focused element for keys), with a fresh snapshot for the page-level facts; a target the
         page can't identify is a gate (fail closed), so a click on a desktop app ends up as a takeover
@@ -1250,6 +1250,12 @@ class _Run:
             refusal, expect = await self.gate_or_expect(label, element, verdicts, repeat=int(inp.get("repeat") or 1))
             if refusal:
                 return refusal
+            if member == "left_click_drag" and inp.get("coordinate"):  # where it drops can be the consequential
+                end = inp["coordinate"]                                 # part (a card dropped on Delete): classify it too
+                drop = await self.computer("POST", "/browser/element", body={"x": int(end[0]), "y": int(end[1])})
+                refusal, _ = await self.gate_or_expect(label, drop, verdicts)
+                if refusal:
+                    return refusal
             if want and expect:
                 expect["box"] = want["box"]
         action_id = db.ulid()
@@ -1290,7 +1296,7 @@ class _Run:
             shot = self.save_png(f"shots/{self.id}/{self.shots}.png", image)
             result["screenshot"] = shot
         db.add_step(self.id, member, inp, json.dumps(result), url=self.url, screenshot=shot,
-                    verdict=self._verdict_tag(verdicts[0] if verdicts else None))
+                    verdict=self._verdict_tag(verdicts[-1] if verdicts else None))  # a drag's drop, if checked
         self.last_result = result
         return result, image
 

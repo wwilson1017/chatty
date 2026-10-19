@@ -630,12 +630,14 @@ class TestScreen:
         assert again["code"] == "stale_mark" and len(presses(scr)) == 1
 
     def test_pixels_text_scroll_and_drag(self, scr):
+        scr.elements["list"] = {**element("Wish list", "e7", is_submit=False), "tag": "div", "role": "generic",
+                                "screen_box": {"x": 560, "y": 760, "w": 200, "h": 30}}  # mark 3: where the drag drops
         ctx = _dctx()
 
         async def go():
             outs = [await screen(ctx, action="click", x=100, y=720), await screen(ctx, action="type", text="blue mug"),
                     await screen(ctx, action="scroll", dy=-3)]
-            outs.append(await screen(ctx, action="drag", observation=outs[-1]["observation"], mark=2, to_x=600, to_y=400))
+            outs.append(await screen(ctx, action="drag", observation=outs[-1]["observation"], mark=2, to_x=600, to_y=770))
             outs += [await screen(ctx, action="type", text="x", x=1, y=1), await screen(ctx, action="click"),
                      await screen(ctx, action="drag", x=1, y=1)]
             await direct.close_turn("turn-1")
@@ -646,10 +648,26 @@ class TestScreen:
         assert click["input"] == {"coordinate": [100, 720]} and "box" not in click["expect"]  # no mark, no box
         assert typed["input"] == {"text": "blue mug"} and "expect" not in typed
         assert scroll["input"] == {"scroll_direction": "up", "scroll_amount": 3}
-        assert drag["input"] == {"start_coordinate": [100, 720], "coordinate": [600, 400]} and drag["expect"]["box"] == CART_BOX
+        assert drag["input"] == {"start_coordinate": [100, 720], "coordinate": [600, 770]} and drag["expect"]["box"] == CART_BOX
         assert [o["error"] for o in outs[4:]] == ["type and key go to the focused element; click the field first",
                                                   "click needs a mark (with its observation) or x and y",
                                                   "drag needs to_x and to_y"]
+
+    @pytest.mark.parametrize("drop", [{**element("Delete", "e8", is_submit=False), "tag": "div", "role": "generic"},
+                                      None])  # a delete zone, or off the page (unidentified)
+    def test_a_drag_that_drops_on_something_consequential_is_gated_before_it_starts(self, scr, drop):
+        if drop:
+            scr.elements["bin"] = {**drop, "screen_box": {"x": 560, "y": 380, "w": 200, "h": 100}}
+
+        async def go():
+            out = await screen(_dctx(), action="drag", x=100, y=720, to_x=600, to_y=400)
+            await direct.close_turn("turn-1")
+            return out
+        out = asyncio.run(go())
+        assert out["stopped"].startswith("Needs your approval") and presses(scr, "left_click_drag") == []
+        row = sessions()[0]
+        assert row["status"] == "needs_approval" and db.list_steps(row["id"])[-1]["verdict"] == (
+            "gated:delete" if drop else "gated:submit")
 
 
 class TestVision:
