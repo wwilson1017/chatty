@@ -22,6 +22,8 @@ import json
 import logging
 from pathlib import Path
 
+from integrations.telegram.group import owner_telegram_chat
+
 from . import card, db, gates
 
 logger = logging.getLogger(__name__)
@@ -46,24 +48,6 @@ def _bot_token(agent: dict | None) -> str | None:
 
 def _route(task: dict | None) -> dict | None:
     return json.loads(task["route"]) if task and task.get("route") else None
-
-
-def is_group_route(route: dict | None) -> bool:
-    """A Telegram group chat: marked by the group path, or (routes saved before the mark) a negative chat id."""
-    route = route or {}
-    return route.get("channel") == "telegram" and (bool(route.get("group")) or str(route.get("chat_id", "")).startswith("-"))
-
-
-def owner_telegram_chat(task: dict | None, agent: dict) -> str | None:
-    """The Telegram chat to reach the owner in (approval cards, takeover links): the request's own
-    chat when it is a private one, else the agent's first Telegram user. Never a group, whose members
-    aren't the owner. A WhatsApp chat id is never used as a Telegram destination."""
-    route = _route(task) or {}
-    if route.get("channel") == "telegram" and route.get("chat_id") and not is_group_route(route):
-        return str(route["chat_id"])
-    from integrations.telegram.state import first_telegram_user
-    user = first_telegram_user(agent["id"])
-    return str(user) if user else None
 
 
 def screenshot_path(row: dict) -> Path | None:

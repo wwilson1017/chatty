@@ -90,7 +90,7 @@ Lowering it takes effect straight away: agents can't queue above it, and a queue
 
 When an agent asks for a Full job, Chatty doesn't queue it. It holds it as **waiting for approval** for **24 hours** and asks you:
 
-- **On Telegram**, if the agent has a Telegram bot: a message in the chat the request came from (or, for a web or WhatsApp request, to the first Telegram user linked to that agent) with the exact task and three buttons: **Run full**, **Run sandbox**, **Cancel**. Only a Telegram user linked to that agent can press them.
+- **On Telegram**, if the agent has a Telegram bot: a message in the private chat the request came from (or, for a web or WhatsApp request, to the first Telegram user linked to that agent; a group chat is never sent one) with the exact task and three buttons: **Run full**, **Run sandbox**, **Cancel**. Only a Telegram user linked to that agent can press them.
 - **On the card**, always: a "Waiting for your approval" box with the agent, the exact task, the job it continues (for follow-ups), when it expires, and the same three buttons.
 
 **Run full** queues it at Full. **Run sandbox** runs the same task at Sandbox instead. **Cancel** drops it. Each approval works once; pressing a second button, or one on the other surface, does nothing. Full is re-checked when you approve and again when the job starts, so lowering the ceiling or the access level in the meantime still stops it. If nobody decides in 24 hours, the job expires and the agent's chat gets one line saying so.

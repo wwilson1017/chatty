@@ -4,6 +4,7 @@ Handles group-specific routing decisions, loop prevention for bot-to-bot
 conversations, and message formatting for group context.
 """
 
+import json
 import logging
 import threading
 import time
@@ -31,6 +32,25 @@ def _get_state(chat_id: int) -> _GroupState:
 
 def is_group_chat(chat_type: str) -> bool:
     return chat_type in ("group", "supergroup")
+
+
+def is_group_route(route: dict | None) -> bool:
+    """A Telegram group chat: marked by the group path, or (routes saved before the mark) a negative chat id."""
+    route = route or {}
+    return route.get("channel") == "telegram" and (bool(route.get("group")) or str(route.get("chat_id", "")).startswith("-"))
+
+
+def owner_telegram_chat(record: dict | None, agent: dict) -> str | None:
+    """The Telegram chat to reach the owner in (approval cards, takeover links) about a computer task or
+    Claude Code job (`record`, whose `route` is JSON): the request's own chat when it is a private one,
+    else the agent's first Telegram user. Never a group, whose members aren't the owner. A WhatsApp chat
+    id is never used as a Telegram destination."""
+    route = json.loads(record["route"]) if record and record.get("route") else {}
+    if route.get("channel") == "telegram" and route.get("chat_id") and not is_group_route(route):
+        return str(route["chat_id"])
+    from .state import first_telegram_user
+    user = first_telegram_user(agent["id"])
+    return str(user) if user else None
 
 
 def is_addressed_to_bot(

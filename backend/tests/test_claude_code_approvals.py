@@ -87,6 +87,24 @@ class TestRequest:
         _full(route=route)
         assert [m["chat_id"] for m in ap.sent] == ["555"]
 
+    @pytest.mark.parametrize("route, chat", [
+        ({"channel": "telegram", "chat_id": "-100123", "group": True}, "555"),  # a group: the owner's private chat
+        ({"channel": "telegram", "chat_id": "-100123"}, "555"),  # a group route saved before the mark
+        ({"channel": "telegram", "chat_id": "777"}, "777"),  # a private chat: asked right there, as before
+    ])
+    def test_a_group_is_never_sent_the_approval(self, ap, route, chat):
+        jid = _full(route=route)["job_id"]
+        assert [m["chat_id"] for m in ap.sent] == [chat]
+        approvals.handle_telegram_callback("tom", _cb(jid, chat=chat), "bot-tok")
+        assert db.get_job(jid)["status"] == "queued" and [e[0] for e in ap.edits] == [chat]
+
+    def test_group_route_without_a_linked_owner_is_card_only(self, ap):
+        import integrations.telegram.state as tg_state
+        tg_state.get_db().execute("DELETE FROM user_mappings")
+        tg_state.get_db().commit()
+        out = _full(route={"channel": "telegram", "chat_id": "-100123", "group": True})
+        assert ap.sent == [] and "Telegram" not in out["where"]
+
     def test_no_mapping_means_card_only(self, ap):
         import integrations.telegram.state as tg_state
         tg_state.get_db().execute("DELETE FROM user_mappings")
