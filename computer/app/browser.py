@@ -468,7 +468,7 @@ class BrowserSession:
         if "box" in expect and expect["box"] is not None:
             want, have = expect["box"], actual.get("screen_box") or {}
             try:
-                moved = any(abs(float(want[k]) - have[k]) > BOX_TOLERANCE_PX for k in ("x", "y", "w", "h"))
+                moved = not all(abs(float(want[k]) - have[k]) <= BOX_TOLERANCE_PX for k in ("x", "y", "w", "h"))  # NaN too
             except (KeyError, TypeError, ValueError):
                 moved = True  # a malformed box can't be matched: refuse
             if moved:
