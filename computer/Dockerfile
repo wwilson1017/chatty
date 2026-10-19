@@ -11,7 +11,7 @@ ENV DEBIAN_FRONTEND=noninteractive \
 RUN apt-get update && apt-get install -y --no-install-recommends \
       chromium xvfb openbox x11vnc xdotool x11-utils tini sudo \
       ca-certificates curl xz-utils procps \
-      fonts-liberation fonts-dejavu-core fonts-noto-color-emoji \
+      fonts-liberation fonts-dejavu-core fonts-noto-color-emoji fonts-noto-cjk \
       xterm pcmanfm libreoffice-writer libreoffice-calc \
     && rm -rf /var/lib/apt/lists/*
 

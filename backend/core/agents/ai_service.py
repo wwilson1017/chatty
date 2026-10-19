@@ -34,7 +34,7 @@ from typing import AsyncGenerator
 from zoneinfo import ZoneInfo
 
 from core.storage import upload_config, delete_config
-from core.providers.base import AIProvider, _sse
+from core.providers.base import AIProvider, _sse, split_images, with_images
 from core.providers.windows import context_usage_event
 from .context_assembly import assemble_messages, _coalesce_consecutive
 from .compaction import maybe_compact
@@ -1439,6 +1439,7 @@ async def _chat(
             return
 
         results = []
+        images: dict = {}  # tool_use_id → images; only the provider messages get them
         has_pending_confirmation = False
 
         for tc in tool_calls_this_turn:
@@ -1504,7 +1505,9 @@ async def _chat(
                     except Exception as e:
                         logger.warning("Chat history attach (exit_plan_mode) failed: %s", e)
                 # Let the AI do one more turn to narrate, then stop
-                current_messages = provider.add_tool_results(current_messages, tool_calls_this_turn, results)
+                current_messages = provider.add_tool_results(current_messages, tool_calls_this_turn,
+                                                             with_images(results, images))
+                current_messages = provider.prune_images(current_messages)
                 wrapup_text = ""
                 async for event in provider.stream_turn(current_messages, provider_tools, system_prompt):
                     etype = event.get("type")
@@ -1623,6 +1626,7 @@ async def _chat(
             # Sync context files to GCS
             _sync_context_after_tool(tool_name, result, ctx_manager)
 
+            result, images[tool_use_id] = split_images(result)
             result_str = json.dumps(result)
             if should_wrap(tool_name, kind):
                 result_str = wrap_result(tool_name, result_str)
@@ -1651,7 +1655,9 @@ async def _chat(
             })
 
         # Append tool results to messages for next turn
-        current_messages = provider.add_tool_results(current_messages, tool_calls_this_turn, results)
+        current_messages = provider.add_tool_results(current_messages, tool_calls_this_turn,
+                                                     with_images(results, images))
+        current_messages = provider.prune_images(current_messages)
 
         # Attach this iteration's FULL tool results to its saved assistant row
         # (true UPDATE — keeps seq/created_at/FTS intact). We persist even when a
@@ -2000,6 +2006,7 @@ async def _run_sync(
 
         # Execute tool calls (power mode — no confirmation flow for messaging)
         results = []
+        images: dict = {}  # tool_use_id → images; only the provider messages get them
         for tc in tool_calls_this_turn:
             tool_name = tc.get("name", "")
             tool_args = tc.get("args", {})
@@ -2082,6 +2089,7 @@ async def _run_sync(
                 max_iterations = max(max_iterations, EXTENDED_TURN_ITERATIONS)
             elapsed_ms = int((time.time() - t_start) * 1000)
 
+            result, images[tool_use_id] = split_images(result)
             result_str = json.dumps(result)
             if should_wrap(tool_name, kind):
                 result_str = wrap_result(tool_name, result_str)
@@ -2101,7 +2109,9 @@ async def _run_sync(
             })
 
         # Append tool results for next turn
-        current_messages = provider.add_tool_results(current_messages, tool_calls_this_turn, results)
+        current_messages = provider.add_tool_results(current_messages, tool_calls_this_turn,
+                                                     with_images(results, images))
+        current_messages = provider.prune_images(current_messages)
 
         # Attach this iteration's FULL tool results to its saved assistant row
         # (true UPDATE — keeps seq/created_at/FTS intact) so the next turn

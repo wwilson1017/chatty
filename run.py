@@ -210,7 +210,7 @@ def setup_computer():
         created = subprocess.run([
             docker, "run", "-d", "--name", COMPUTER_CONTAINER, "--restart", "unless-stopped",
             "-p", f"127.0.0.1:{COMPUTER_PORT}:8080", "-v", f"{COMPUTER_CONTAINER}:/data",
-            "-e", f"COMPUTER_SECRET={secret}", "-e", "HOST=0.0.0.0", "--shm-size=1g", COMPUTER_IMAGE,
+            "-e", f"COMPUTER_SECRET={secret}", "--shm-size=1g", COMPUTER_IMAGE,
         ])
         if created.returncode != 0:
             print("  Couldn't start the virtual computer; Chatty runs without it. See docs/computer.md.")

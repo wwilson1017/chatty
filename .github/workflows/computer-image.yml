@@ -45,7 +45,7 @@ jobs:
           docker network create computer-net
           docker volume create computer-data
           docker run -d --name chatty-computer-test --network computer-net --shm-size=1g \
-            -e COMPUTER_SECRET="$SMOKE_SECRET" -e HOST=0.0.0.0 \
+            -e COMPUTER_SECRET="$SMOKE_SECRET" \
             -p 127.0.0.1:8765:8080 -v computer-data:/data chatty-computer:test
           for i in $(seq 1 60); do curl -fsS http://127.0.0.1:8765/health && break; sleep 1; done
       - name: Smoke test

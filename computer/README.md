@@ -10,12 +10,11 @@ from `backend/`.
 - Volume: `/data` is the only persistent path. `/workspace` → `/data/workspace`, `HOME=/data/home`,
   browser profiles in `/data/profiles/<agent>`, the action journal in `/data/actions.db`.
 - Environment: `COMPUTER_SECRET` (required, at least 32 characters, or the server refuses to start),
-  `PORT` (default 8080), `HOST` (default `::` for Railway's IPv6 private network; use `0.0.0.0` with
-  local Docker).
+  `PORT` (default 8080), `HOST` (default `::`, which listens on IPv6 and IPv4).
 - Network exposure: only the control API port. Both VNC servers (`:5900` view-only, `:5901` control,
   present only during a takeover) and Chromium's CDP (`127.0.0.1:9222`) are bound to localhost.
 - Run locally: `docker run -d --name chatty-computer --shm-size=1g -e COMPUTER_SECRET=<48 chars>
-  -e HOST=0.0.0.0 -p 127.0.0.1:8765:8080 -v chatty-computer-data:/data ghcr.io/wwilson1017/chatty-computer`
+  -p 127.0.0.1:8765:8080 -v chatty-computer-data:/data ghcr.io/wwilson1017/chatty-computer`
 
 Spike notes (aria-ref over CDP, mcp-proxy paths, pixel offset) are in `NOTES.md`.
 
@@ -265,7 +264,7 @@ needs the `docker` CLI for the restart and cross-container checks:
 ```bash
 docker network create computer-net && docker volume create computer-data
 docker run -d --name chatty-computer-test --network computer-net --shm-size=1g \
-  -e COMPUTER_SECRET=smoke-test-secret-0123456789abcdef0123456789abcdef -e HOST=0.0.0.0 \
+  -e COMPUTER_SECRET=smoke-test-secret-0123456789abcdef0123456789abcdef \
   -p 127.0.0.1:8765:8080 -v computer-data:/data chatty-computer:test
 COMPUTER_URL=http://127.0.0.1:8765 COMPUTER_SECRET=smoke-test-secret-0123456789abcdef0123456789abcdef \
   CONTAINER=chatty-computer-test IMAGE=chatty-computer:test python3 computer/smoke_test.py

@@ -13,6 +13,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 
 from core.providers import get_ai_provider
+from core.providers.base import split_images, with_images
 from .tool_registry import EXTENDED_TURN_ITERATIONS, ToolRegistry
 from .deferred_tools import (
     should_defer_tools, build_tool_catalog, handle_deferred_tool_call,
@@ -176,6 +177,7 @@ async def _run_turn_loop(
 
         # Execute tools
         results = []
+        images: dict = {}  # tool_use_id → images; only the provider messages get them
         for tc in tool_calls_this_turn:
             tool_name = tc.get("name", "")
             tool_args = tc.get("args", {})
@@ -247,6 +249,7 @@ async def _run_turn_loop(
             if registry.extends_turn(tool_name):
                 max_iterations = max(max_iterations, EXTENDED_TURN_ITERATIONS)
 
+            result, images[tc.get("id", "")] = split_images(result)
             result_str = json.dumps(result)
             if should_wrap(tool_name, kind):
                 result_str = wrap_result(tool_name, result_str)
@@ -263,7 +266,8 @@ async def _run_turn_loop(
                 "content": result_str,
             })
 
-        messages = provider.add_tool_results(messages, tool_calls_this_turn, results)
+        messages = provider.add_tool_results(messages, tool_calls_this_turn, with_images(results, images))
+        messages = provider.prune_images(messages)
         iteration += 1
 
     return BackgroundResult(
