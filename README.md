@@ -193,7 +193,7 @@ Chatty connects to your existing business tools so your agents can answer questi
 
 ### Virtual computer
 
-Agents can hand real work to a [virtual computer](docs/computer.md): a Linux desktop container running next to Chatty, driven by a helper model so agents never click blindly. You can watch the screen live, take it over to sign in (the helper never sees your password), and every purchase, send, post or delete stops for your approval first. See the [guide](docs/computer.md) for the trust model and known limits.
+Agents can hand real work to a [virtual computer](docs/computer.md): a Linux desktop container running next to Chatty. An agent drives it itself, reading pages as text or, on models that take images, looking at the screen, and hands long chores to a cheaper helper model. You can watch the screen live, take it over to sign in (the helper never sees your password), and every purchase, send, post or delete stops for your approval first. See the [guide](docs/computer.md) for the trust model and known limits.
 
 The computer is set up from Chatty itself, in **Settings → Integrations → Computer** (not Railway's settings):
 

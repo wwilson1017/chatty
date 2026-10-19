@@ -62,8 +62,11 @@ The control API is plain HTTP protected by the secret. Keep it on the same host,
 
 ## How agents use the computer
 
-**Directly, first.** An agent drives the computer itself with `computer_browser` (read a page as text, click, type, navigate, switch tabs), `computer_shell` (run a command) and `computer_files` (list, read or write files in its folder). Its own model does the work, in the conversation you're having with it. The first call in a turn takes the screen and the end of the turn gives it back. Each such session shows on the card as a **Direct** row with its step log.
+**Directly, first.** An agent drives the computer itself with `computer_browser` (read a page as text, click, type, navigate, switch tabs), `computer_shell` (run a command), `computer_files` (list, read or write files in its folder) and `computer_screen` (look at the screen; click, type, scroll or drag). Its own model does the work, in the conversation you're having with it. The first call in a turn takes the screen and the end of the turn gives it back. Each such session shows on the card as a **Direct** row with its step log.
 
+- **The screen.** `computer_screen` is for what the text browser can't do: canvas apps, dragging, checking how a page looks, other windows. Each screenshot numbers the browser page's clickable controls; the agent clicks by number (or by pixel), and every action comes back with a fresh screenshot. A number is good for one click from the latest screenshot only, and at the moment of the click Chatty and the computer check that the same control (role, name and position within 4 pixels) is still under it; otherwise nothing is clicked. A click Chatty can't identify in the browser page, in a desktop app say, stops for your approval like a purchase.
+  - Only agents on models that take images get it: model ids starting `claude-`, `gemini-`, `gpt-4o`, `gpt-4.1`, `gpt-5` or `gpt-6`. Ollama and Together models, and OpenAI's text-only reasoning models, work from the text browser, the shell and files.
+  - Screenshots are shown to the model but not saved in the chat history, and only the last three stay in the conversation during a turn. Each one is kept in the session's step log on the card for 14 days.
 - **The ceiling.** Once an agent has used the computer, its turn may take up to 100 model steps (instead of 20 in chat, or 5 to 10 in the background), and it can make up to 100 computer calls in that turn. Direct work has no money cap of its own: it's part of the agent's turn.
 - **Approvals.** The same checks as for the helper stop every consequential click (see [Approvals and purchases](#approvals-and-purchases)). Nothing is clicked; the agent tells you it's waiting for your approval and can't use the computer again in that turn. When you approve, Chatty makes that one click and the agent gets a new turn to check the outcome, carry on, and tell you how it went.
 - **A busy screen.** If the helper or another agent has the screen, the agent waits up to 30 seconds, then hands the work to the helper, which queues.
@@ -96,7 +99,7 @@ When something is stopped, the task (or the agent's direct session) ends as *wai
 - **"Take over to do this yourself"** appears when the details can't be pinned down, for instance no single order total on the page or a message composer with no readable recipients. Approving it brings the agent's page up for you to finish by hand.
 - **Outcome unknown.** If the connection drops right as an approved click goes out, the task ends with "I clicked X and couldn't confirm what happened" and a screenshot. Nothing consequential is ever retried on its own; check the site.
 
-These checks catch mistakes and hostile pages, not a determined attacker: whoever drives (the agent or the helper) has a shell with sudo and could in principle drive Chrome around them. Their instructions forbid that, every step is logged, and clicks in desktop apps outside the browser rely on those rules rather than on page inspection.
+These checks catch mistakes and hostile pages, not a determined attacker: whoever drives (the agent or the helper) has a shell with sudo and could in principle drive Chrome around them. Their instructions forbid that, and every step is logged. A click by pixel that Chatty can't identify in the browser page (a desktop app, a system dialog) stops for approval too, or becomes a take-over card. A page's own scripts can still change it between Chatty's last check and the click; the checks narrow that window rather than close it.
 
 ## Watching and logins
 
@@ -127,7 +130,7 @@ Everything under `/data` survives restarts, image updates and Railway redeploys:
 - **Datacenter IP.** Expect more CAPTCHAs and blocks than from your own connection. Take over and solve them yourself; routing the browser through your own connection comes later.
 - **One screen.** Tasks queue, and a takeover can hold the queue for up to 15 minutes.
 - **The $10 limit is a budget, not a guarantee.** It is enforced on conservative estimates before each model call and holds as long as your provider bills at or below the rates in Chatty's pricing table. Steps and time are hard limits.
-- **Screenshot-and-click only on Claude models.** Other providers get the text browser, the shell and files.
+- **Screenshots need a model that takes images.** The helper's screenshot-and-click needs a Claude model, and an agent's own `computer_screen` one of the models listed above; the rest get the text browser, the shell and files. Two identical controls in the same place on screen can't be told apart.
 - **No wall between agents** (above), and gates that stop mistakes rather than a determined attacker.
 - **Out of scope:** native apps, payment infrastructure, Windows or macOS, a computer per agent.
 

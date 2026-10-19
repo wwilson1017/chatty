@@ -26,6 +26,7 @@ execute tools and loop. It is never forwarded to the frontend.
 """
 
 import json
+import re
 from abc import ABC, abstractmethod
 from typing import AsyncGenerator
 
@@ -62,6 +63,23 @@ def with_images(results: list[dict], images: dict) -> list[dict]:
     """Attach each result's images (keyed by tool_use_id) for add_tool_results."""
     return [{**r, "images": images[r["tool_use_id"]]} if images.get(r["tool_use_id"]) else r
             for r in results]
+
+
+# Model ids known to take images in a tool result or a user message. Ollama and Together models
+# never count, whatever their names, and neither do OpenAI's text-only o*-mini models.
+# simplification: an id allowlist, not a capability registry; upgrade path is a vision flag in model-tiers.json.
+_IMAGE_MODELS = re.compile(r"^(?:claude-|gemini-|gpt-4o|gpt-4\.1|gpt-5|gpt-6)")
+
+
+def takes_images(provider: "AIProvider") -> bool:
+    return (getattr(provider, "provider_name", "") in ("anthropic", "google", "openai")
+            and bool(_IMAGE_MODELS.match(getattr(provider, "model", "") or "")))
+
+
+def drop_image_tools(tool_defs: list[dict], provider: "AIProvider") -> list[dict]:
+    """The turn's tools without those whose results are images (`returns_images`, the computer's
+    screen tool) when the turn's model can't see them."""
+    return tool_defs if takes_images(provider) else [t for t in tool_defs if not t.get("returns_images")]
 
 
 class AIProvider(ABC):
