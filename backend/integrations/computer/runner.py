@@ -1101,8 +1101,9 @@ class _Run:
                      + ("; Chatty reopened it, so anything typed there before may be gone." if reopened else "."))
         db.set_takeover(self.id, "waiting", reason)
         try:
+            since = time.time()  # before the link goes out: the owner may be done before the notice returns
             await asyncio.to_thread(notify_takeover, self.task, f"{reason}\n\n{on_screen} It's held for you for {mins} minutes.")
-            ended = await self.handback()
+            ended = await self.handback(since)
         finally:
             db.set_takeover(self.id, "")
         if ended is None:
@@ -1120,13 +1121,14 @@ class _Run:
                                 f"The screen now shows {page.get('title') or ''} ({page.get('url') or self.url}).\n\n"
                                 + (page.get("snapshot") or "")[:3000])
 
-    async def handback(self) -> str | None:
+    async def handback(self, since: float) -> str | None:
         """Wait (≤ TAKEOVER_WAIT_S for it to start; the clock stops) for a person to take this agent's screen
         and give it back. Returns how control ended on the computer (done, disconnected, timeout, shutdown),
         or None when nobody took it in time. control_ended is one global record, so a session that started
         AND ended between two polls counts only if the record is this agent's, for this task (or for none:
-        the card's own Take control), and newer than the wait; an older or unrelated hand-back never does."""
-        since, deadline = time.time(), time.monotonic() + TAKEOVER_WAIT_S
+        the card's own Take control), and newer than `since` (just before the link went out); an older or
+        unrelated hand-back never does."""
+        deadline = time.monotonic() + TAKEOVER_WAIT_S
 
         def ours(st: dict) -> bool:
             ce = st.get("control_ended") or {}

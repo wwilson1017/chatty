@@ -808,6 +808,19 @@ class TestTakeover:
         [(instructions, message)] = turns
         assert instructions == completion._INSTRUCTIONS["takeover"] and "nobody took over" in message
 
+    def test_a_handback_done_while_the_link_was_still_being_sent_counts(self, dfake, monkeypatch):
+        import core.agents.notifications.delivery as delivery
+        monkeypatch.setattr(runner, "TAKEOVER_WAIT_S", 0.3)
+
+        def quick(slug, title, text):  # the owner used the first channel's link before the rest were sent
+            dfake.human = True
+            dfake.human = False
+            return {"ok": True}
+        monkeypatch.setattr(delivery, "deliver_notification", quick)
+        _hand_over(dfake)
+        t, turns = _run_takeover(dfake, monkeypatch)
+        assert (t["status"], t["finish_reason"]) == ("done", "handed back after takeover") and len(turns) == 1
+
     def test_an_unrelated_control_session_that_ends_doesnt_finish_it(self, dfake, monkeypatch, notices):
         monkeypatch.setattr(runner, "TAKEOVER_WAIT_S", 0.2)
         _hand_over(dfake)
