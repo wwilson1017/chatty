@@ -202,7 +202,7 @@ class TestNotice:
         monkeypatch.setattr(settings, "frontend_url", "https://chatty.example/")
         runner.notify_takeover(task, "sign in to shop.example")
         m = sent[0]
-        assert m["chat_id"] == 42 and m["token"] == "tok" and m["plain"] is True  # the reason is the helper's words about a page: never rendered
+        assert m["chat_id"] == "42" and m["token"] == "tok" and m["plain"] is True  # the reason is the helper's words about a page: never rendered
         assert m["markup"] == {"inline_keyboard": [[{"text": "Open the screen", "url": "https://chatty.example/computer?task=t1&agent=tom"}]]}
         assert m["text"].startswith("Tom needs you on the computer\n\nsign in to shop.example")
         assert "https://chatty.example/computer?task=t1&agent=tom" in m["text"]

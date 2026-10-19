@@ -197,7 +197,7 @@ class TestTurnContext:
         assert seen["delegate"]["_ctx"] == {
             "agent_slug": "tom", "agent_name": "Tom", "conversation_id": "conv-1",
             "origin": "background", "route": None,
-            "action_id": None, "cache_dir": reg.file_cache_dir,
+            "action_id": None, "cache_dir": reg.file_cache_dir, "turn_id": reg.turn_id, "group_owner": False,
         }
         assert seen["other"] == {"q": "y"}
 
@@ -219,9 +219,25 @@ class TestTurnContext:
         assert seen["mcp_x__do"] == {"q": "y", "_ctx": {
             "agent_slug": "tom", "agent_name": "Tom", "conversation_id": "conv-1",
             "origin": "background", "route": None,
-            "action_id": "sa-7", "cache_dir": reg.file_cache_dir,
+            "action_id": "sa-7", "cache_dir": reg.file_cache_dir, "turn_id": reg.turn_id, "group_owner": False,
         }}
         assert seen["other"] == {"q": "y"}
+
+    def test_aclose_runs_every_hook_with_the_turn_id_survives_failures_and_starts_a_new_turn(self, tmp_path, monkeypatch):
+        from core.agents import tool_registry
+        seen: list = []
+
+        async def broken(turn_id):
+            raise RuntimeError("hook failed")
+
+        async def record(turn_id):
+            seen.append(turn_id)
+
+        monkeypatch.setattr(tool_registry, "TURN_END_HOOKS", [broken, record])
+        reg = self._registry(tmp_path, {})
+        first = reg.turn_id
+        _run(reg.aclose())
+        assert seen == [first] and reg.turn_id != first
 
     def test_origin_defaults_to_background_and_follows_the_turn(self, tmp_path):
         seen: dict = {}

@@ -43,7 +43,7 @@ INTEGRATION_MODULES = {
     "paperclip": ("integrations.paperclip.tools", "PAPERCLIP_TOOL_DEFS"),
     "todoist": ("integrations.todoist.tools", "TODOIST_TOOL_DEFS"),
     "claude_code": ("integrations.claude_code.tools", "CLAUDE_CODE_TOOL_DEFS"),
-    "computer": ("integrations.computer.tools", "COMPUTER_TOOL_DEFS"),
+    "computer": ("integrations.computer.tools", "computer_tool_defs"),
     "mcp": ("integrations.mcp.tools", "MCP_TOOL_DEFS"),
 }
 
@@ -51,7 +51,7 @@ INTEGRATION_MODULES = {
 # Definition keys the server reads at execution time. tool_flags() collects them
 # into the {tool_name: flags} map every ToolRegistry gets, so a flag can only
 # come from a definition the server loaded, never from the model's arguments.
-TOOL_FLAG_KEYS = ("context_aware",)
+TOOL_FLAG_KEYS = ("context_aware", "extends_turn")
 
 
 def load_integration_tools() -> tuple[list[dict], dict]:

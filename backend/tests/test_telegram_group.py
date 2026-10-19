@@ -115,6 +115,23 @@ class TestTurnContext:
     def test_group_turn_is_group_origin_routed_to_the_group(self, monkeypatch, tmp_path):
         tg_service, turn = self._drive(monkeypatch, tmp_path)
         assert turn(tg_service.process_group_message(-100123, "a1", "Ann", False, "Ops", "hi")) == (
-            "group", {"channel": "telegram", "chat_id": "-100123"})
+            "group", {"channel": "telegram", "chat_id": "-100123", "group": True})
         assert turn(tg_service.process_message("42", "Will", "hi", "a1")) == (
             "user", {"channel": "telegram", "chat_id": "42"})
+
+    def test_group_owner_is_only_the_owners_linked_account(self, monkeypatch, tmp_path):
+        """The computer works in a group only for the account the owner paired in the dashboard."""
+        import asyncio
+        tg_service, _ = self._drive(monkeypatch, tmp_path)
+        monkeypatch.setattr(tg_service.state, "get_mapping_by_sender",
+                            lambda platform, sender, agent_id: {"id": 1} if (sender, agent_id) == ("555", "a1") else None)
+        owners: list = []
+
+        async def run_sync(**kw):
+            owners.append(kw["registry"]._turn_group_owner)
+            return "ok"
+
+        monkeypatch.setattr(tg_service.ai_service, "run_sync", run_sync)
+        for sender, is_bot in (("555", False), ("777", False), ("555", True), ("", False)):
+            asyncio.run(tg_service.process_group_message(-100123, "a1", "Ann", is_bot, "Ops", "hi", sender_id=sender))
+        assert owners == [True, False, False, False]

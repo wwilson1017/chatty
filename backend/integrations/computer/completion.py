@@ -37,6 +37,13 @@ _INSTRUCTIONS = {
         "A computer task you started on your own (from a scheduled or background task) has finished. "
         "Report it to the user only if the result is worth surfacing; otherwise respond with exactly [SILENT]."
     ),
+    # driver='agent': the approval follow-up of the agent's own computer session
+    "agent": (
+        "You were driving your computer yourself and stopped at a step that needed the owner's approval; that "
+        "approval has now been dealt with (status and result below). If the action was performed, never repeat "
+        "it: confirm the outcome from the page and carry on with your computer tools if the work isn't finished. "
+        "Then tell the user how it went. Always report — never answer [SILENT]."
+    ),
 }
 
 # Keyed by status, or by finish_reason for a reason that needs its own wording.
@@ -155,8 +162,10 @@ def complete_task(task_id: str) -> None:
             + " A follow-up is a new task: computer_task(task=..., follow_up_of='" + task["id"] + "')."
             + "\n\n" + wrap_result("computer_task", payload)
         )
+        instructions = _INSTRUCTIONS["agent"] if task["driver"] == "agent" else \
+            _INSTRUCTIONS.get(task["origin"], _INSTRUCTIONS["background"])
         result, _registry = run_agent_background_turn(
-            agent, "Computer task finished", _INSTRUCTIONS.get(task["origin"], _INSTRUCTIONS["background"]),
+            agent, "Computer task finished", instructions,
             user_message, source="computer",
             conversation_id=task["conversation_id"],
             route=json.loads(task["route"]) if task["route"] else None,
@@ -221,7 +230,10 @@ def sweep() -> None:
     for r in db.query("SELECT * FROM tasks WHERE status = 'running' AND heartbeat_at < datetime('now', ?)",
                       (f"-{ORPHAN_MINUTES} minutes",)):
         status, reason = orphan_outcome(dict(r))
-        if db.finish_task(r["id"], status, reason, notify=True) and status != "outcome_unknown":
+        # A direct session's turn is long over: no report turn, unless a consequential action's outcome is unknown.
+        direct = (r["worker_id"] or "").startswith(db.DIRECT_WORKER_PREFIX)
+        if db.finish_task(r["id"], status, reason, notify=status == "outcome_unknown" or not direct) \
+                and status != "outcome_unknown":
             # The worker died outside a send (e.g. waiting for a person to hand the screen back, which the
             # computer refuses before journaling): a gate it had marked dispatching never went out.
             db.execute("UPDATE gates SET status = 'cancelled' WHERE status = 'dispatching' AND (id = ? OR task_id = ?)",
