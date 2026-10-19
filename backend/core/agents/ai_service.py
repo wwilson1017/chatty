@@ -34,7 +34,7 @@ from typing import AsyncGenerator
 from zoneinfo import ZoneInfo
 
 from core.storage import upload_config, delete_config
-from core.providers.base import AIProvider, _sse, split_images, with_images
+from core.providers.base import AIProvider, _sse, drop_image_tools, split_images, with_images
 from core.providers.windows import context_usage_event
 from .context_assembly import assemble_messages, _coalesce_consecutive
 from .compaction import maybe_compact
@@ -922,6 +922,7 @@ async def _chat(
         multi_drive=len(drive_ids) > 1,
         memory_backend=memory_backend_for(config.slug),
     )
+    tool_defs = drop_image_tools(tool_defs, provider)
     kind_map = _build_kind_map(tool_defs)
     writes_map = build_writes_map(tool_defs)
     cm_map = build_context_memory_map(tool_defs)
@@ -1779,6 +1780,7 @@ async def _run_sync(
         multi_drive=len(drive_ids) > 1,
         memory_backend=memory_backend_for(config.slug),
     )
+    tool_defs = drop_image_tools(tool_defs, provider)
 
     # Apply integration permission ceilings — messaging channels have no approval UI,
     # so both "read-only" and "normal" ceilings must strip write tools here.

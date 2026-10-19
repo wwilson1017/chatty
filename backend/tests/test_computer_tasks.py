@@ -33,6 +33,7 @@ class FakeComputer:
         self.calls: list[tuple[str, str, dict | None]] = []
         self.lease = None          # (token, agent, task_id)
         self.epoch_n = 1
+        self.control_ended = None  # the computer's last control_ended record (see `human`)
         self.human = False         # a person has control
         self.lose_lease = False    # the next renew answers lease_lost
         self.element_changed = False
@@ -54,10 +55,27 @@ class FakeComputer:
         self.snapshot_error = None        # an error code every /browser/snapshot answers with (500) while set
         self.shots = 0
         self.actions: list[dict] = []     # /actions bodies (toolset members: screenshots, pixel clicks, keys)
+        self.observations = 0             # /screen/marked calls answered
+        self.window_in_front = False      # another window covers Chromium: marked screenshots carry no marks
+        self.marked_error = None          # an error code every /screen/marked answers with (500) while set
 
     @property
     def epoch(self):
         return f"boot:{self.epoch_n}"
+
+    @property
+    def human(self):
+        return getattr(self, "_human", False)
+
+    @human.setter
+    def human(self, on):
+        """A person has control. Ending it records control_ended as the computer does: when, how
+        (`end_reason`), and the lease holder's agent and task."""
+        if self.human and not on:
+            holder = self.lease or (None, "tom", None)
+            self.control_ended = {"at": time.time(), "reason": getattr(self, "end_reason", "done"), "agent": holder[1],
+                                  "task_id": holder[2], "epoch": self.epoch}
+        self._human = on
 
     def handle(self, request: httpx.Request) -> httpx.Response:
         body = json.loads(request.content) if request.content and request.headers.get("content-type", "").startswith("application/json") else None
@@ -103,7 +121,8 @@ class FakeComputer:
                 self.lease = None
             return httpx.Response(200, json={"released": released})
         if path == "/control/status":
-            return httpx.Response(200, json={"human_in_control": self.human, "epoch": self.epoch, "control": None})
+            return httpx.Response(200, json={"human_in_control": self.human, "epoch": self.epoch, "control": None,
+                                             "control_ended": self.control_ended})
         if path.startswith("/actions/") and request.method == "GET":
             j = None if self.journal_hidden else self.journal.get(path.rsplit("/", 1)[-1])
             if not j:
@@ -133,6 +152,17 @@ class FakeComputer:
                 return self._err(500, self.snapshot_error)
             return httpx.Response(200, json={"url": self.url, "title": "Checkout", "snapshot": self.snapshot, "truncated": False,
                                              "total": None, "tabs": [{"index": 0, "url": self.url, "title": "Checkout", "active": True}]})
+        if path == "/screen/marked":
+            if self.marked_error:
+                return self._err(500, self.marked_error)
+            self.observations += 1
+            boxed = [] if self.window_in_front else sorted(
+                (e for e in self.elements.values() if e.get("screen_box")), key=lambda e: (e["screen_box"]["y"], e["screen_box"]["x"]))
+            marks = [{"n": n, "role": e["role"], "name": e["name"][:80], "box": dict(e["screen_box"]),
+                      "point": [e["screen_box"]["x"] + e["screen_box"]["w"] // 2, e["screen_box"]["y"] + e["screen_box"]["h"] // 2]}
+                     for n, e in enumerate(boxed, 1)]
+            return httpx.Response(200, json={"observation_id": f"o{self.observations}", "epoch": body["epoch"],
+                                             "image": base64.b64encode(PNG).decode(), "marks": marks})
         if path == "/browser/element":
             el = self.elements.get(body["ref"]) if body.get("ref") else self.at((body["x"], body["y"])) if "x" in body else self.focused
             return httpx.Response(200, json=el or {"found": False, "page": {"host": "shop.example", "path": "/checkout", "title": "Checkout"}})
@@ -207,7 +237,12 @@ class FakeComputer:
                   "role": el.get("role"), "name": (el.get("name") or "").strip().lower(),
                   "form_action": (el.get("form") or {}).get("action"), "context_fp": el.get("context_fp"),
                   "total": {"amount": total["amount"], "currency": total["currency"]} if isinstance(total, dict) else None}
-        return [k for k, v in exp.items() if actual.get(k) != (str(v).strip().lower() if k == "name" else v)]
+        bad = [k for k, v in exp.items() if k != "box" and actual.get(k) != (str(v).strip().lower() if k == "name" else v)]
+        if "box" in exp:  # a marked press: the control must still be where the mark was, within 4 px
+            have = el.get("screen_box") or {}
+            if not have or any(abs(exp["box"][k] - have[k]) > 4 for k in ("x", "y", "w", "h")):
+                bad.append("box")
+        return bad
 
     def acts(self):
         return [b for m, p, b in self.calls if p == "/browser/act"]
@@ -393,7 +428,7 @@ class TestTools:
         assert INTEGRATION_MODULES["computer"] == ("integrations.computer.tools", "computer_tool_defs")
         defs = tools.computer_tool_defs()
         flags = tool_flags(defs)
-        direct = {"computer_browser", "computer_shell", "computer_files"}
+        direct = {"computer_browser", "computer_shell", "computer_files", "computer_screen"}
         assert all(flags[d["name"]] == ({"context_aware": True, "extends_turn": True} if d["name"] in direct
                                         else {"context_aware": True}) for d in defs)
         assert all(d["writes"] is False and d["kind"] == "integration" for d in defs)

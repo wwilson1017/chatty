@@ -380,7 +380,7 @@ def notify_takeover(task: dict, reason: str) -> None:
     url = takeover_url(task["id"], slug)
     title = f"{agent.get('agent_name') or slug} needs you on the computer"
     text = (f"{reason}\n\nOpen the screen, press Take control, do it there, then press I'm done. "
-            f"The helper sees nothing you type.\n{url}")
+            f"Your agent sees nothing you type.\n{url}")
     route = json.loads(task["route"]) if task["route"] else {}
     try:
         chat = approvals.owner_telegram_chat(task, agent) if route.get("channel") == "telegram" else None
@@ -418,6 +418,25 @@ class _EpochChanged(Exception):
 
 EPOCH_CHANGED = {"error": "not performed: the screen changed hands (a person used it, or it was taken over) since "
                           "your last look; take a fresh snapshot before acting again", "code": "stale_epoch"}
+MARK_NAME_CHARS = 80  # the computer cuts a mark's name to this many characters
+BOX_TOLERANCE_PX = 4  # and checks `expect.box` against the live control within this
+
+
+def mark_moved(want: dict, element: dict) -> bool:
+    """Whether the control under a mark's pixel is no longer the marked one: role, name (a prefix when the
+    mark's name was cut) and a screen box within BOX_TOLERANCE_PX. Two identical look-alikes in the same
+    place can't be told apart."""
+    def norm(s) -> str:
+        return " ".join(str(s or "").split()).lower()
+    name, have = norm(want.get("name")), norm(element.get("name"))
+    if not element.get("found") or element.get("role") != want.get("role") or not (
+            have == name or (len(want.get("name") or "") >= MARK_NAME_CHARS and have.startswith(name))):
+        return True
+    box, live = want.get("box") or {}, element.get("screen_box") or {}
+    try:
+        return not all(abs(float(box[k]) - float(live[k])) <= BOX_TOLERANCE_PX for k in ("x", "y", "w", "h"))
+    except (KeyError, TypeError, ValueError):
+        return True
 
 
 class _Run:
@@ -448,10 +467,11 @@ class _Run:
         self.renew_adopts_epoch = True       # renew_loop() overwrites `epoch` (False: it only sets latest_epoch)
         self.latest_epoch: str | None = None  # the newest epoch renew_loop saw, adopted between operations
         self.op_lock = asyncio.Lock()        # one direct operation at a time; renewals never take it
-        # The latest observation of each kind ("snapshot"; later marked screenshots): (epoch it was sent
+        # The latest observation of each kind ("snapshot", "screen"): (epoch it was sent
         # under, its number). A ref is only good while that epoch is the run's epoch (direct.py checks).
         self.observed: dict[str, tuple[str | None, int]] = {}
         self.observations = 0
+        self.marks: tuple[str, list[dict]] | None = None  # the latest marked screenshot: (observation id, its marks)
         # Counted time: wall time minus takeover waits. `segment_start` is None while paused.
         self.counted = float(task["running_seconds"] or 0)
         self.segment_start: float | None = time.monotonic()
@@ -604,10 +624,11 @@ class _Run:
             except _Stop:
                 return
 
-    async def wait_control(self, *, human: bool, timeout: float | None = None) -> dict | None:
-        """Poll /control/status every 2 s (the clock stops) until human_in_control == `human`; that
-        status, or None once `timeout` passes. Cancels, policy changes and a lost lease still end
-        the task (check_alive). The lease keeps renewing meanwhile: renew is exempt from control."""
+    async def wait_control(self, *, human: bool, timeout: float | None = None, until=None) -> dict | None:
+        """Poll /control/status every 2 s (the clock stops) until human_in_control == `human` (or
+        `until(status)` holds); that status, or None once `timeout` passes. Cancels, policy changes and a
+        lost lease still end the task (check_alive). The lease keeps renewing meanwhile: renew is exempt
+        from control."""
         self._pause_clock()
         prev, self.phase = self.phase, "wait"
         deadline = time.monotonic() + timeout if timeout is not None else None
@@ -616,7 +637,7 @@ class _Run:
                 await asyncio.sleep(CONTROL_POLL_S)
                 self.check_alive()
                 st = await self.client.control_status()
-                if bool(st.get("human_in_control")) == human:
+                if bool(st.get("human_in_control")) == human or (until and until(st)):
                     return st
             return None
         finally:
@@ -1053,38 +1074,78 @@ class _Run:
                           "check the site before anything is repeated — nothing is retried automatically")
         return "unknown"
 
-    async def takeover(self, gate: dict) -> None:
-        """An unbindable gate the owner approved: open the gate's page on this agent's screen, send
-        the viewer link, wait (≤ 15 min) for a person to take control and then hand it back, and
-        finish WITHOUT acting. The owner does the pressing; the report says what they left on screen."""
-        self.gate_id = gate["id"]
-        b = gates.ApprovalBinding.from_gate(gate)
-        what = f"{gate['kind']} ({b.role or 'control'} \"{b.name}\") on {b.host or gate['url'] or 'the page'}"
+    async def takeover(self, gate: dict | None = None, *, url: str | None = None, reason: str = "") -> None:
+        """Hand the screen to the owner and finish WITHOUT acting: for an unbindable gate the owner approved
+        (its page), or for the agent's own computer_takeover (`url`, the page it was on, and its `reason`).
+        Open that page on this agent's screen (navigating back when the full URL differs), send the viewer
+        link naming the page actually on screen, and wait (≤ 15 min) for a person to take control and end
+        it. The report says how it ended — handed back, ended without I'm done, never opened — and what they
+        left on screen; the owner does any pressing."""
+        if gate:
+            self.gate_id = gate["id"]
+            b = gates.ApprovalBinding.from_gate(gate)
+            what = f"the {gate['kind']} ({b.role or 'control'} \"{b.name}\") on {b.host or gate['url'] or 'the page'}"
+            url, reason = gate["url"], f"you approved doing {what} yourself"
+        else:
+            what = f'"{reason}"'
+        page, reopened = {}, False
         try:
-            if gate["url"] and (await self.snapshot()).get("url") != gate["url"]:
-                await self.act("navigate", {"url": gate["url"]}, label="act:navigate", verdict_out=[])
+            page = await self.snapshot(2000)
+            if url and page.get("url") != url:
+                await self.act("navigate", {"url": url}, label="act:navigate", verdict_out=[])
+                page, reopened = await self.snapshot(2000), True
         except (_Paused, ComputerError):  # best effort: the owner can navigate themselves
             pass
-        reason = f"you approved doing the {what} yourself; the page is open and held for {TAKEOVER_WAIT_S // 60:.0f} minutes"
+        mins = f"{TAKEOVER_WAIT_S // 60:.0f}"
+        on_screen = (f"The screen shows {page.get('title') or 'a page'} ({page.get('url') or self.url or 'address unknown'})"
+                     + ("; Chatty reopened it, so anything typed there before may be gone." if reopened else "."))
         db.set_takeover(self.id, "waiting", reason)
         try:
-            await asyncio.to_thread(notify_takeover, self.task, reason)
-            if await self.wait_control(human=True, timeout=TAKEOVER_WAIT_S) is None:
-                self.finish("failed", f"nobody took over within {TAKEOVER_WAIT_S // 60:.0f} min",
-                            result_text=f"The page for the {what} was opened and the owner was sent the screen link, "
-                                        "but nobody took control. Nothing was done.")
-                return
-            await self.wait_for_control_end()
+            since = time.time()  # before the link goes out: the owner may be done before the notice returns
+            await asyncio.to_thread(notify_takeover, self.task, f"{reason}\n\n{on_screen} It's held for you for {mins} minutes.")
+            ended = await self.handback(since)
         finally:
             db.set_takeover(self.id, "")
+        if ended is None:
+            self.finish("failed", f"nobody took over within {mins} min",
+                        result_text=f"The owner was sent the screen link for {what}, but nobody took control within "
+                                    f"{mins} minutes. Nothing was done on the screen.")
+            return
         try:
             page = await self.snapshot()
         except (_Paused, ComputerError):
             page = {}
-        self.finish("done", "handed back after takeover",
-                    result_text=f"The owner took over the screen for the {what}; Chatty performed nothing itself. "
+        how = "and handed it back (I'm done)" if ended == "done" else f"but control ended without I'm done ({ended})"
+        self.finish("done", "handed back after takeover" if ended == "done" else "control ended without I'm done",
+                    result_text=f"The owner took over the screen for {what} {how}; Chatty performed nothing itself. "
                                 f"The screen now shows {page.get('title') or ''} ({page.get('url') or self.url}).\n\n"
                                 + (page.get("snapshot") or "")[:3000])
+
+    async def handback(self, since: float) -> str | None:
+        """Wait (≤ TAKEOVER_WAIT_S for it to start; the clock stops) for a person to take this agent's screen
+        and give it back. Returns how control ended on the computer (done, disconnected, timeout, shutdown),
+        or None when nobody took it in time. control_ended is one global record, so a session that started
+        AND ended between two polls counts only if the record is this agent's, for this task (or for none:
+        the card's own Take control), and newer than `since` (just before the link went out); an older or
+        unrelated hand-back never does."""
+        deadline = time.monotonic() + TAKEOVER_WAIT_S
+
+        def ours(st: dict) -> bool:
+            ce = st.get("control_ended") or {}
+            return ce.get("agent") == self.slug and ce.get("task_id") in (self.id, None) and (ce.get("at") or 0) > since
+
+        while (left := deadline - time.monotonic()) > 0:
+            st = await self.wait_control(human=True, timeout=left, until=ours)
+            if st is None:
+                break
+            if st.get("human_in_control"):  # control is on: wait for it to end (the computer ends it at 15 min)
+                db.set_takeover(self.id, "active")
+                st = await self.wait_control(human=False)
+            if ours(st):
+                self.epoch = st.get("epoch") or self.epoch
+                return st["control_ended"].get("reason") or "ended"
+            db.set_takeover(self.id, "waiting")  # someone else's control session ended: keep waiting for ours
+        return None
 
     async def tool_request_takeover(self, a: dict) -> dict:
         """Ask the owner to take the screen, hold it until they do (≤ 15 min, the clock stopped), wait
@@ -1200,12 +1261,14 @@ class _Run:
         await self.open_gate(verdict.kind, verdict.reason, verdict.rule, label, element)
         return {"stopped": f"needs approval ({verdict.kind}): {name}"}, None
 
-    async def pixel_action(self, member: str, inp: dict, label: str, verdicts: list) -> dict:
-        """One toolset member. Checked members — every click, mouse-down and drag start, Enter/Space/
+    async def pixel_action(self, member: str, inp: dict, label: str, verdicts: list, want: dict | None = None) -> dict:
+        """One toolset member. Checked members — every click, mouse-down, drag start and drop, Enter/Space/
         Ctrl+Enter/Ctrl+S keys, typed newlines — are classified first from the element under the pixel
         (the focused element for keys), with a fresh snapshot for the page-level facts; a target the
         page can't identify is a gate (fail closed), so a click on a desktop app ends up as a takeover
-        card. Allowed actions go through /actions with an action id and `expect`."""
+        card. Allowed actions go through /actions with an action id and `expect`. `want` is a direct
+        session's mark ({role, name, box}): the element under the pixel must still be that control
+        before it is classified, and `expect` carries its box so the computer re-checks the position too."""
         expect = None
         if gates.needs_check(label, inp.get("text") if member == "type" else None):
             if member in gates.CLICK_MEMBERS:
@@ -1222,9 +1285,20 @@ class _Run:
             except ComputerError:  # no browser attached: the classifier works from the element alone
                 self.snapshot_text = ""
             element = await self.computer("POST", "/browser/element", body=target)
+            if want and mark_moved(want, element):
+                return {"error": "not performed: the screen changed under that mark; take a new screenshot",
+                        "code": "mark_changed"}
             refusal, expect = await self.gate_or_expect(label, element, verdicts, repeat=int(inp.get("repeat") or 1))
             if refusal:
                 return refusal
+            if member == "left_click_drag" and inp.get("coordinate"):  # where it drops can be the consequential
+                end = inp["coordinate"]                                 # part (a card dropped on Delete): classify it too
+                drop = await self.computer("POST", "/browser/element", body={"x": int(end[0]), "y": int(end[1])})
+                refusal, _ = await self.gate_or_expect(label, drop, verdicts)
+                if refusal:
+                    return refusal
+            if want and expect:
+                expect["box"] = want["box"]
         action_id = db.ulid()
         body = {"action_id": action_id, "name": member, "input": inp}
         if expect:
@@ -1237,14 +1311,11 @@ class _Run:
             self.phase, self.pending_action_id = "", None
         return dict(r.get("result") or {})
 
-    async def pixel(self, member: str, inp: dict) -> dict:
-        """A toolset call → the fields of its tool_result (`content`, `is_error`), logged as a step.
-        screenshot/zoom images are saved under shots/<task>/<n>.png for the record and returned as an
-        image block; everything else answers "OK" (cursor_position its coordinates)."""
-        label = f"{member}:{inp.get('text') or ''}" if member in ("key", "hold_key") else member
-        verdicts: list = []
+    async def recorded(self, member: str, inp: dict, act, verdicts: list) -> tuple[dict, str | None]:
+        """One screen call `act()` logged as a step: errors become results, and an image is saved under
+        shots/<task>/<n>.png for the record (result["screenshot"]). (result, the image's base64)."""
         try:
-            result = await self.pixel_action(member, inp, label, verdicts)
+            result = await act()
             if member in ("screenshot", "zoom") and not result.get("image"):
                 result = {"error": "the computer returned no image"}
         except _Stop:
@@ -1258,7 +1329,7 @@ class _Run:
             result = {"error": e.detail, "code": e.code}
             if e.code == "element_changed":
                 result["hint"] = "the page changed under the action; take a screenshot"
-        except Exception as e:  # bad arguments and the like: the helper's mistake, not the task's end
+        except Exception as e:  # bad arguments and the like: the caller's mistake, not the task's end
             result = {"error": f"{e.__class__.__name__}: {e}"[:300]}
         image, shot = result.pop("image", None), None
         if image:
@@ -1266,7 +1337,18 @@ class _Run:
             shot = self.save_png(f"shots/{self.id}/{self.shots}.png", image)
             result["screenshot"] = shot
         db.add_step(self.id, member, inp, json.dumps(result), url=self.url, screenshot=shot,
-                    verdict=self._verdict_tag(verdicts[0] if verdicts else None))
+                    verdict=self._verdict_tag(verdicts[-1] if verdicts else None))  # a drag's drop, if checked
+        self.last_result = result
+        return result, image
+
+    async def pixel(self, member: str, inp: dict, *, want: dict | None = None) -> dict:
+        """A toolset call → the fields of its tool_result (`content`, `is_error`), logged as a step.
+        screenshot/zoom images are saved under shots/<task>/<n>.png for the record and returned as an
+        image block; everything else answers "OK" (cursor_position its coordinates). `want`: see pixel_action."""
+        label = f"{member}:{inp.get('text') or ''}" if member in ("key", "hold_key") else member
+        verdicts: list = []
+        result, image = await self.recorded(member, inp, lambda: self.pixel_action(member, inp, label, verdicts, want),
+                                            verdicts)
         if "error" in result:
             return {"content": " — ".join(filter(None, (result["error"], result.get("hint")))), "is_error": True}
         if "stopped" in result:
@@ -1279,6 +1361,19 @@ class _Run:
         if member == "cursor_position":
             return {"content": f"({result.get('x')}, {result.get('y')})", "is_error": False}
         return {"content": "OK", "is_error": False}
+
+    async def marked_screenshot(self) -> tuple[dict, str | None]:
+        """A screenshot with the browser's visible controls numbered (POST /screen/marked), recorded like
+        pixel(). Its marks become the latest "screen" observation, under the epoch the request was sent
+        with (direct.py presses a mark only while that is still the run's epoch). (result, image)."""
+        async def take() -> dict:
+            sent = self.epoch
+            r = await self.computer("POST", "/screen/marked")
+            if r.get("image"):
+                self.observe("screen", sent)
+                self.marks = (r.get("observation_id"), r.get("marks") or [])
+            return {"image": r.get("image"), "observation": r.get("observation_id"), "marks": r.get("marks") or []}
+        return await self.recorded("screenshot", {"marked": True}, take, [])
 
     async def batch(self, calls: list[dict]) -> list[dict]:
         """A response's tool_use blocks, run ONE AT A TIME in order and dispatched by (toolset_name,
@@ -1456,8 +1551,9 @@ async def run_task(task: dict, worker_id: str, client: ComputerClient | None = N
     else (the task is queued again), "done" otherwise."""
     run = _Run(task, worker_id, client or get_client())
     renew = None
-    # A direct session's approval follow-up: no helper model and no helper caps — it makes the approved
-    # click, and the agent carries on itself in the completion turn.
+    # A direct session's approval follow-up, or its computer_takeover: no helper model and no helper caps —
+    # it makes the approved click (or holds the screen for the owner), and the agent carries on itself in
+    # the completion turn.
     agent_driven = task.get("driver") == "agent"
     try:
         err = card.policy_error(run.slug)
@@ -1482,6 +1578,8 @@ async def run_task(task: dict, worker_id: str, client: ComputerClient | None = N
         renew = asyncio.create_task(run.renew_loop())
         if gate and gates.unbindable_reason(gate):
             await run.takeover(gate)
+        elif agent_driven and not gate:  # the agent's computer_takeover: hand the owner its page
+            await run.takeover(url=task.get("takeover_url"), reason=task.get("takeover_reason") or "")
         else:
             note = await run.consume(gate) if gate else None  # None: consume() already ended the task
             if not run.finished:

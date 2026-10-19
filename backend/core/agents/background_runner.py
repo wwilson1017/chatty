@@ -13,7 +13,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 
 from core.providers import get_ai_provider
-from core.providers.base import split_images, with_images
+from core.providers.base import drop_image_tools, split_images, with_images
 from .tool_registry import EXTENDED_TURN_ITERATIONS, ToolRegistry
 from .deferred_tools import (
     should_defer_tools, build_tool_catalog, handle_deferred_tool_call,
@@ -71,6 +71,7 @@ async def _run_turn_loop(
 
     model_used = getattr(provider, "model", "") or ""
     provider_name = getattr(provider, "provider_name", "") or ""
+    tool_defs = drop_image_tools(tool_defs, provider)
 
     # Convert tool defs to provider format (strip 'kind')
     kind_map: dict[str, str] = {}

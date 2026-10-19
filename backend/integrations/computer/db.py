@@ -80,6 +80,7 @@ _SCHEMA = f"""
         finish_reason         TEXT,
         takeover_state        TEXT,
         takeover_reason       TEXT,
+        takeover_url          TEXT,
         cancel_requested      INTEGER NOT NULL DEFAULT 0,
         phase                 TEXT NOT NULL DEFAULT '',
         pending_action_id     TEXT,
@@ -182,6 +183,8 @@ def _setup_connection() -> None:
         _connection.execute("ALTER TABLE tasks ADD COLUMN takeover_reason TEXT")
     if "driver" not in task_cols:
         _connection.execute("ALTER TABLE tasks ADD COLUMN driver TEXT NOT NULL DEFAULT 'helper'")
+    if "takeover_url" not in task_cols:
+        _connection.execute("ALTER TABLE tasks ADD COLUMN takeover_url TEXT")
     _connection.commit()
     logger.info("Computer tasks DB initialized at %s", DB_PATH)
 
@@ -235,23 +238,26 @@ def get_task(task_id: str) -> dict | None:
 def insert_task(*, agent_slug: str, origin: str, task: str, helper_provider: str, helper_model: str,
                 conversation_id: str | None = None, route: dict | None = None, action_id: str | None = None,
                 parent: dict | None = None, approved_gate_id: str | None = None, mode: str = "text",
-                driver: str = "helper", worker_id: str | None = None, commit: bool = True) -> str:
+                driver: str = "helper", worker_id: str | None = None, takeover_reason: str | None = None,
+                takeover_url: str | None = None, commit: bool = True) -> str:
     """Queue a task. `parent` (a task row of the same agent) makes this a follow-up sharing its root.
-    A `worker_id` inserts it already running for that worker (a direct session), so the runner never claims it."""
+    A `worker_id` inserts it already running for that worker (a direct session), so the runner never claims it.
+    `takeover_reason` on a driver='agent' row without an approved gate makes it the agent's computer_takeover
+    (the page it was on: `takeover_url`)."""
     task_id = uuid.uuid4().hex[:12]
     db = get_db()
     with _write_lock:
         db.execute(
             """INSERT INTO tasks (id, agent_slug, conversation_id, route, origin, action_id, parent_task_id,
                                   root_task_id, approved_gate_id, mode, driver, helper_provider, helper_model, task,
-                                  status, worker_id, started_at, heartbeat_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                                  status, worker_id, takeover_reason, takeover_url, started_at, heartbeat_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
                        CASE WHEN ? IS NULL THEN NULL ELSE datetime('now') END,
                        CASE WHEN ? IS NULL THEN NULL ELSE datetime('now') END)""",
             (task_id, agent_slug, conversation_id, json.dumps(route) if route else None, origin, action_id,
              parent["id"] if parent else None, parent["root_task_id"] if parent else task_id,
              approved_gate_id, mode, driver, helper_provider, helper_model, task,
-             "running" if worker_id else "queued", worker_id, worker_id, worker_id),
+             "running" if worker_id else "queued", worker_id, takeover_reason, takeover_url, worker_id, worker_id),
         )
         if commit:
             db.commit()
