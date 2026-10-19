@@ -42,6 +42,7 @@ SHELL_DEFAULT_TIMEOUT = 120
 SHELL_MAX_TIMEOUT = 600
 FILE_CAP = 25 * 1024 * 1024
 REPLAY_WAIT_SECONDS = 60
+MARKS_TIMEOUT_SECONDS = 15
 AGENT_RE = re.compile(r"^[a-z0-9-]{1,64}$")
 MCP_NAME_RE = re.compile(r"^[a-z0-9_-]{1,64}$")
 # Children (Chromium, shells, mcp-proxy) inherit the environment; the secret stays in this process.
@@ -67,7 +68,7 @@ class State:
         self.boot_id = secrets.token_hex(4)
         self.epoch_n = 0
         self.desktop = Desktop()
-        self.browser = BrowserSession()
+        self.browser = BrowserSession(self.desktop)
         self.journal = Journal(str(DATA_DIR / "actions.db"))
         self.lease: dict | None = None
         self.control: dict | None = None
@@ -493,6 +494,25 @@ async def get_action(action_id: str):
         raise ApiError(404, "unknown_action", "no action with that id")
     return {"action_id": action_id, "status": row["status"], "http_status": row["http_status"],
             "response": row["response"]}
+
+
+@router.post("/screen/marked")
+async def screen_marked(body: Screened):
+    """A screenshot with the browser's visible interactive elements numbered; a plain one (no
+    marks) when no browser is attached, another window is in front, or the page can't be read."""
+    check_lease(body.lease, body.epoch)
+    async with operation():
+        shot = await state.desktop.grab()
+        marks = []
+        if state.browser.connected:
+            try:
+                page = await state.browser.current_page()
+                marks = await asyncio.wait_for(state.browser.marks(page), MARKS_TIMEOUT_SECONDS)
+            except (BrowserError, PlaywrightError, asyncio.TimeoutError) as e:
+                log.warning("marks skipped: %r", e)
+        png = state.desktop.draw_marks(shot, marks)
+    return {"observation_id": "o" + secrets.token_hex(4), "epoch": body.epoch,
+            "image": base64.b64encode(png).decode(), "marks": marks}
 
 
 # ----- browser ---------------------------------------------------------------------------------

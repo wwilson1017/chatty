@@ -209,6 +209,8 @@ PAGE = """<title>Demo shop</title><h1>Demo shop</h1>
 <button type="submit" id="b">Place order</button></form>
 <div id="c">Orders placed: 0</div>"""
 DATA_URL = "data:text/html," + urllib.parse.quote(PAGE)
+TOP_PAGE = """<title>Top</title><a href="/elsewhere">A link</a>
+<iframe src="http://localhost:8001/inner.html" style="position:absolute;left:300px;top:200px;width:400px;height:200px;border:7px solid"></iframe>"""
 
 
 def activate(agent="tom", task="t1"):
@@ -272,16 +274,35 @@ def part1():
     st, at = api("POST", "/browser/element", {"lease": lease, "epoch": epoch, "x": cx, "y": cy})
     check(st == 200 and at["found"] and at["name"] == "Place order" and at["tag"] == "button",
           "/browser/element at the button's pixel returns that button")
+    sb = el["screen_box"]
+
+    # --- marked screenshot ---
+    st, mk = api("POST", "/screen/marked", {"lease": lease, "epoch": epoch})
+    png = base64.b64decode(mk["image"]) if st == 200 else b""
+    mark = next((m for m in (mk.get("marks") or []) if m["role"] == "button" and m["name"] == "Place order"
+                 and m["box"]["x"] <= sb["x"] and m["box"]["y"] <= sb["y"] and m["box"]["x"] + m["box"]["w"] >= sb["x"] + sb["w"]
+                 and m["box"]["y"] + m["box"]["h"] >= sb["y"] + sb["h"]), None)
+    check(png[:8] == b"\x89PNG\r\n\x1a\n" and struct.unpack(">II", png[16:24]) == (1280, 800) and mk.get("epoch") == epoch
+          and mark is not None, f"/screen/marked is a 1280x800 PNG with a mark whose box contains Place order ({st} {mk.get('marks')})")
+    st, at = api("POST", "/browser/element", {"lease": lease, "epoch": epoch, "x": mark["point"][0], "y": mark["point"][1]}) if mark else (0, {})
+    check(st == 200 and at.get("name") == "Place order" and at.get("screen_box") == mark["box"],
+          "the element at a mark's point is the marked one, with the same box")
+
     expect = {"action": "left_click", "host": el["page"]["host"], "path": el["page"]["path"], "frame_url": el["frame_url"],
               "role": el["role"], "name": el["name"], "form_action": el["form"]["action"], "context_fp": el["context_fp"],
-              "total": {"amount": "45.00", "currency": "USD"}}
+              "total": {"amount": "45.00", "currency": "USD"}, "box": sb}
     click = {"name": "left_click", "input": {"coordinate": [cx, cy]}}
 
     # --- expect refusals ---
-    for field, bad in (("name", "Buy now"), ("context_fp", "0" * 64), ("total", {"amount": "40.00", "currency": "USD"})):
+    moved = {**sb, "y": sb["y"] + 20}
+    for field, bad in (("name", "Buy now"), ("context_fp", "0" * 64), ("total", {"amount": "40.00", "currency": "USD"}), ("box", moved)):
         st, r = api("POST", "/actions", {"action_id": ulid(), "lease": lease, "epoch": epoch, **click, "expect": {**expect, field: bad}})
         check(st == 409 and r.get("error") == "element_changed" and field in r.get("mismatches", []),
               f"a click with the wrong expect.{field} returns 409 element_changed")
+    st, r = api("POST", "/browser/act", {"action_id": ulid(), "lease": lease, "epoch": epoch, "kind": "click", "ref": ref,
+                                         "expect": {**expect, "action": "act:click", "box": moved}})
+    check(st == 409 and r.get("error") == "element_changed" and r.get("mismatches") == ["box"],
+          f"/browser/act with the wrong expect.box returns 409 element_changed ({st} {r.get('mismatches')})")
     check(orders_placed(lease, epoch) == 0, "refused clicks did not click")
 
     # --- journal: replay, conflict, concurrency ---
@@ -307,6 +328,29 @@ def part1():
         t.join()
     check(all(s == 200 for s, _ in results) and orders_placed(lease, epoch) == 2,
           f"six concurrent requests with one id produce a single click ({[s for s, _ in results]})")
+
+    # --- marks in a cross-origin iframe (127.0.0.1 embeds localhost); none behind another window ---
+    api("PUT", "/files/content?agent=tom&path=site/top.html", data=TOP_PAGE.encode())
+    api("PUT", "/files/content?agent=tom&path=site/inner.html", data=b"<title>Inner</title><button>Inner pay</button>")
+    api("POST", "/shell", {"lease": lease, "epoch": epoch, "command":
+                           "(python3 -m http.server 8001 --bind 127.0.0.1 --directory /workspace/tom/site >/dev/null 2>&1 &); sleep 1"})
+    api("POST", "/browser/act", {"action_id": ulid(), "lease": lease, "epoch": epoch, "kind": "navigate", "url": "http://127.0.0.1:8001/top.html"})
+    inner, deadline = None, time.time() + 10
+    while inner is None and time.time() < deadline:
+        st, mk = api("POST", "/screen/marked", {"lease": lease, "epoch": epoch})
+        inner = next((m for m in (mk.get("marks") or []) if m["name"] == "Inner pay"), None)
+        time.sleep(0.5)
+    st, at = api("POST", "/browser/element", {"lease": lease, "epoch": epoch, "x": inner["point"][0], "y": inner["point"][1]}) if inner else (0, {})
+    check(st == 200 and at.get("frame_url") == "http://localhost:8001/inner.html" and at.get("name") == "Inner pay"
+          and at.get("screen_box") == inner["box"], f"a button in a cross-origin iframe gets a mark that reads back at its point ({inner})")
+    api("POST", "/shell", {"lease": lease, "epoch": epoch, "command": "(xterm >/dev/null 2>&1 &); sleep 2"})
+    st, mk = api("POST", "/screen/marked", {"lease": lease, "epoch": epoch})
+    st2, at = api("POST", "/browser/element", {"lease": lease, "epoch": epoch, "x": 640, "y": 400})
+    check(st == 200 and mk["marks"] == [] and mk["image"] and st2 == 200 and at["found"] is False,
+          "with a terminal in front: a plain screenshot without marks, and no browser element at a pixel")
+    api("POST", "/shell", {"lease": lease, "epoch": epoch, "command": "pkill -x xterm; sleep 1"})
+    st, mk = api("POST", "/screen/marked", {"lease": lease, "epoch": epoch})
+    check(st == 200 and len(mk["marks"]) >= 2, "marks come back once the terminal is closed")
 
     # --- shell + files ---
     st, r = api("POST", "/shell", {"lease": lease, "epoch": epoch, "command": "echo hi; echo oops >&2; exit 3"})

@@ -13,7 +13,7 @@ import time
 import httpx
 import mss
 import mss.tools
-from PIL import Image
+from PIL import Image, ImageDraw, ImageFont
 
 DISPLAY = ":1"
 WIDTH, HEIGHT = 1280, 800
@@ -41,6 +41,7 @@ TYPING_DELAY_MS = 12
 TYPING_GROUP_SIZE = 50
 KEY_REPEAT_MAX = 100
 MAX_DURATION_S = 100
+MARK_RGB = (230, 0, 115)
 
 
 class ActionError(Exception):
@@ -193,6 +194,29 @@ class Desktop:
         with mss.MSS(display=DISPLAY) as sct:
             return sct.grab(sct.monitors[1])
 
+    async def grab(self):
+        return await asyncio.to_thread(self._grab)
+
+    @staticmethod
+    def draw_marks(shot, marks: list[dict]) -> bytes:
+        """`shot` (a grab) as PNG, each mark's box outlined and its number on a tab at its top-left."""
+        if not marks:
+            return mss.tools.to_png(shot.rgb, shot.size)
+        img = Image.frombytes("RGB", shot.size, shot.rgb)
+        draw = ImageDraw.Draw(img)
+        font = ImageFont.load_default(size=12)
+        for m in marks:
+            x, y, w, h = (m["box"][k] for k in ("x", "y", "w", "h"))
+            draw.rectangle((x, y, x + max(w, 1) - 1, y + max(h, 1) - 1), outline=MARK_RGB, width=2)
+            left, top, right, bottom = draw.textbbox((0, 0), str(m["n"]), font=font)
+            tw, th = right - left + 4, bottom - top + 4
+            tx, ty = min(max(x, 0), WIDTH - tw), (y - th if y >= th else max(y, 0))  # above the box, else inside it
+            draw.rectangle((tx, ty, tx + tw, ty + th), fill=MARK_RGB)
+            draw.text((tx + 2 - left, ty + 2 - top), str(m["n"]), fill="white", font=font)
+        buf = io.BytesIO()
+        img.save(buf, format="PNG")
+        return buf.getvalue()
+
     async def screenshot_png(self) -> bytes:
         img = await asyncio.to_thread(self._grab)
         return mss.tools.to_png(img.rgb, img.size)
@@ -222,6 +246,15 @@ class Desktop:
         out = await self._xdotool("getmouselocation", "--shell")
         vals = dict(line.split("=", 1) for line in out.split() if "=" in line)
         return int(vals["X"]), int(vals["Y"])
+
+    async def chromium_in_front(self) -> bool:
+        """Whether the focused window — the one openbox raises — is the screen's Chromium."""
+        if not self._alive("chromium"):
+            return False
+        try:
+            return int(await self._xdotool("getactivewindow", "getwindowpid")) == self.procs["chromium"].pid
+        except (RuntimeError, ValueError):
+            return False
 
     @staticmethod
     def _coord(value, what="coordinate") -> tuple[int, int]:

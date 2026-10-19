@@ -116,10 +116,33 @@ coordinate), the focused element for keys and typing, the ref for browser acts �
 | `form_action` | the enclosing form's resolved `action` URL, or `null` |
 | `context_fp` (optional) | the context fingerprint, when not `null` |
 | `total` (optional) | `{amount, currency}` must equal the page's single order total, as `/browser/element` returned it (`amount` is a string with two decimals, e.g. `"45.00"`; `currency` an ISO code) |
+| `box` (optional) | `{x, y, w, h}` in screen pixels, when not `null`: each of the four must be within 4 px of the element's `screen_box` (send a mark's `box` when pressing it) |
 
 All seven required fields must be present and equal; any difference, or no element at the target, is
 `409 element_changed` with `mismatches`. This narrows the race between reading the DOM and the OS-level
-click but can't make them atomic against page scripts: best effort.
+click but can't make them atomic against page scripts: best effort. Two controls with the same role,
+name and position can't be told apart.
+
+## Marked screenshot
+
+**`POST /screen/marked`** `{lease, epoch}` → `{observation_id, epoch, image, marks: [{n, role, name, box,
+point}]}`. A desktop call like the others (`409 lease_lost` / `stale_epoch` / `human_in_control`); not
+journaled.
+
+- `image` is the 1280×800 screen as a base64 PNG, each mark's box outlined with its number on a tab at
+  the top-left corner. `observation_id` (`o<hex>`) is new on every call; `epoch` is the one it was taken
+  under.
+- Marks are the visible interactive elements — links, buttons, inputs, selects, textareas,
+  `[role=button|link|tab|menuitem|checkbox]`, `[onclick]` — of every frame, cross-origin iframes
+  included, numbered top to bottom then left to right, at most 150.
+- Each candidate is hit-tested at `point`, a screen pixel at the centre of its visible part, the way
+  `/browser/element {x, y}` reads it. The mark is what that read finds there: `role`, `name` (its first
+  80 characters) and `box` (its `screen_box`). That can be a child of the control: a `<span>` inside a
+  `<button>` is `generic`, an icon is often `generic` with no name. A candidate covered by something
+  else, or in an iframe covered in its parent, gets no mark.
+- To press a mark, click its `point` with `expect.box` set to its `box`.
+- A plain screenshot with `marks: []` when no browser is attached, another window (a terminal, a
+  desktop app, a dialog) is in front of Chromium, or the page can't be read within 15 s.
 
 ## Browser (DOM)
 
@@ -138,8 +161,8 @@ attached.
 `switch_tab index`, `close_tab [index]`. Acting uses `aria-ref=` locators; a stale ref fails
 (`500 action_failed`) rather than hitting something else.
 
-**`POST /browser/element`** `{ref}` | `{x, y}` (screen pixel; walks shadow roots and same-process
-iframes) | `{focused: true}` →
+**`POST /browser/element`** `{ref}` | `{x, y}` (screen pixel; walks shadow roots and iframes,
+cross-origin ones included) | `{focused: true}` →
 
 ```json
 {"found": true, "ref": "e10", "tag": "button", "role": "button", "name": "Place order", "type": "submit",
@@ -153,7 +176,8 @@ iframes) | `{focused: true}` →
  "box": {"x": 300, "y": 200, "w": 200, "h": 60}, "screen_box": {"x": 300, "y": 287, "w": 200, "h": 60}}
 ```
 
-`{"found": false, "page": {…}}` when nothing is there. `box` is in the element's frame viewport;
+`{"found": false, "page": {…}}` when nothing is there, and for any pixel while another window (a
+terminal, a desktop app, a dialog) is in front of Chromium. `box` is in the element's frame viewport;
 `screen_box` is in screen pixels (what `/actions` coordinates use). `form` is `null` outside a form;
 inside one it also carries the form's `role` attribute, its own visible `text` (innerText, normalised,
 lowercased, ≤ 1000 chars: headings, legends and button labels, never input values) and `fields`, the
