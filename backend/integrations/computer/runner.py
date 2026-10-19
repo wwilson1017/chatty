@@ -380,7 +380,7 @@ def notify_takeover(task: dict, reason: str) -> None:
     url = takeover_url(task["id"], slug)
     title = f"{agent.get('agent_name') or slug} needs you on the computer"
     text = (f"{reason}\n\nOpen the screen, press Take control, do it there, then press I'm done. "
-            f"The helper sees nothing you type.\n{url}")
+            f"Your agent sees nothing you type.\n{url}")
     route = json.loads(task["route"]) if task["route"] else {}
     try:
         chat = approvals.owner_telegram_chat(task, agent) if route.get("channel") == "telegram" else None
@@ -624,10 +624,11 @@ class _Run:
             except _Stop:
                 return
 
-    async def wait_control(self, *, human: bool, timeout: float | None = None) -> dict | None:
-        """Poll /control/status every 2 s (the clock stops) until human_in_control == `human`; that
-        status, or None once `timeout` passes. Cancels, policy changes and a lost lease still end
-        the task (check_alive). The lease keeps renewing meanwhile: renew is exempt from control."""
+    async def wait_control(self, *, human: bool, timeout: float | None = None, until=None) -> dict | None:
+        """Poll /control/status every 2 s (the clock stops) until human_in_control == `human` (or
+        `until(status)` holds); that status, or None once `timeout` passes. Cancels, policy changes and a
+        lost lease still end the task (check_alive). The lease keeps renewing meanwhile: renew is exempt
+        from control."""
         self._pause_clock()
         prev, self.phase = self.phase, "wait"
         deadline = time.monotonic() + timeout if timeout is not None else None
@@ -636,7 +637,7 @@ class _Run:
                 await asyncio.sleep(CONTROL_POLL_S)
                 self.check_alive()
                 st = await self.client.control_status()
-                if bool(st.get("human_in_control")) == human:
+                if bool(st.get("human_in_control")) == human or (until and until(st)):
                     return st
             return None
         finally:
@@ -1073,38 +1074,72 @@ class _Run:
                           "check the site before anything is repeated — nothing is retried automatically")
         return "unknown"
 
-    async def takeover(self, gate: dict) -> None:
-        """An unbindable gate the owner approved: open the gate's page on this agent's screen, send
-        the viewer link, wait (≤ 15 min) for a person to take control and then hand it back, and
-        finish WITHOUT acting. The owner does the pressing; the report says what they left on screen."""
-        self.gate_id = gate["id"]
-        b = gates.ApprovalBinding.from_gate(gate)
-        what = f"{gate['kind']} ({b.role or 'control'} \"{b.name}\") on {b.host or gate['url'] or 'the page'}"
+    async def takeover(self, gate: dict | None = None, *, url: str | None = None, reason: str = "") -> None:
+        """Hand the screen to the owner and finish WITHOUT acting: for an unbindable gate the owner approved
+        (its page), or for the agent's own computer_takeover (`url`, the page it was on, and its `reason`).
+        Open that page on this agent's screen (navigating back when the full URL differs), send the viewer
+        link naming the page actually on screen, and wait (≤ 15 min) for a person to take control and end
+        it. The report says how it ended — handed back, ended without I'm done, never opened — and what they
+        left on screen; the owner does any pressing."""
+        if gate:
+            self.gate_id = gate["id"]
+            b = gates.ApprovalBinding.from_gate(gate)
+            what = f"the {gate['kind']} ({b.role or 'control'} \"{b.name}\") on {b.host or gate['url'] or 'the page'}"
+            url, reason = gate["url"], f"you approved doing {what} yourself"
+        else:
+            what = f'"{reason}"'
+        page, reopened = {}, False
         try:
-            if gate["url"] and (await self.snapshot()).get("url") != gate["url"]:
-                await self.act("navigate", {"url": gate["url"]}, label="act:navigate", verdict_out=[])
+            page = await self.snapshot(2000)
+            if url and page.get("url") != url:
+                await self.act("navigate", {"url": url}, label="act:navigate", verdict_out=[])
+                page, reopened = await self.snapshot(2000), True
         except (_Paused, ComputerError):  # best effort: the owner can navigate themselves
             pass
-        reason = f"you approved doing the {what} yourself; the page is open and held for {TAKEOVER_WAIT_S // 60:.0f} minutes"
+        mins = f"{TAKEOVER_WAIT_S // 60:.0f}"
+        on_screen = (f"The screen shows {page.get('title') or 'a page'} ({page.get('url') or self.url or 'address unknown'})"
+                     + ("; Chatty reopened it, so anything typed there before may be gone." if reopened else "."))
         db.set_takeover(self.id, "waiting", reason)
         try:
-            await asyncio.to_thread(notify_takeover, self.task, reason)
-            if await self.wait_control(human=True, timeout=TAKEOVER_WAIT_S) is None:
-                self.finish("failed", f"nobody took over within {TAKEOVER_WAIT_S // 60:.0f} min",
-                            result_text=f"The page for the {what} was opened and the owner was sent the screen link, "
-                                        "but nobody took control. Nothing was done.")
-                return
-            await self.wait_for_control_end()
+            await asyncio.to_thread(notify_takeover, self.task, f"{reason}\n\n{on_screen} It's held for you for {mins} minutes.")
+            ended = await self.handback()
         finally:
             db.set_takeover(self.id, "")
+        if ended is None:
+            self.finish("failed", f"nobody took over within {mins} min",
+                        result_text=f"The owner was sent the screen link for {what}, but nobody took control within "
+                                    f"{mins} minutes. Nothing was done on the screen.")
+            return
         try:
             page = await self.snapshot()
         except (_Paused, ComputerError):
             page = {}
-        self.finish("done", "handed back after takeover",
-                    result_text=f"The owner took over the screen for the {what}; Chatty performed nothing itself. "
+        how = "and handed it back (I'm done)" if ended == "done" else f"but control ended without I'm done ({ended})"
+        self.finish("done", "handed back after takeover" if ended == "done" else "control ended without I'm done",
+                    result_text=f"The owner took over the screen for {what} {how}; Chatty performed nothing itself. "
                                 f"The screen now shows {page.get('title') or ''} ({page.get('url') or self.url}).\n\n"
                                 + (page.get("snapshot") or "")[:3000])
+
+    async def handback(self) -> str | None:
+        """Wait (≤ TAKEOVER_WAIT_S for it to start; the clock stops) for a person to take this agent's screen
+        and give it back. Returns how control ended on the computer (done, disconnected, timeout, shutdown),
+        or None when nobody took it in time. control_ended is one global record, so a session that started
+        AND ended between two polls counts only if the record is this agent's, for this task (or for none:
+        the card's own Take control), and newer than the wait; an older or unrelated hand-back never does."""
+        since = time.time()
+
+        def ours(st: dict) -> bool:
+            ce = st.get("control_ended") or {}
+            return ce.get("agent") == self.slug and ce.get("task_id") in (self.id, None) and (ce.get("at") or 0) > since
+
+        st = await self.wait_control(human=True, timeout=TAKEOVER_WAIT_S, until=ours)
+        if st is None:
+            return None
+        if st.get("human_in_control"):  # control is on: wait for it to end (the computer ends it at 15 min)
+            db.set_takeover(self.id, "active")
+            st = await self.wait_control(human=False)
+        self.epoch = st.get("epoch") or self.epoch
+        return (st.get("control_ended") or {}).get("reason") or "ended"
 
     async def tool_request_takeover(self, a: dict) -> dict:
         """Ask the owner to take the screen, hold it until they do (≤ 15 min, the clock stopped), wait
@@ -1510,8 +1545,9 @@ async def run_task(task: dict, worker_id: str, client: ComputerClient | None = N
     else (the task is queued again), "done" otherwise."""
     run = _Run(task, worker_id, client or get_client())
     renew = None
-    # A direct session's approval follow-up: no helper model and no helper caps — it makes the approved
-    # click, and the agent carries on itself in the completion turn.
+    # A direct session's approval follow-up, or its computer_takeover: no helper model and no helper caps —
+    # it makes the approved click (or holds the screen for the owner), and the agent carries on itself in
+    # the completion turn.
     agent_driven = task.get("driver") == "agent"
     try:
         err = card.policy_error(run.slug)
@@ -1536,6 +1572,8 @@ async def run_task(task: dict, worker_id: str, client: ComputerClient | None = N
         renew = asyncio.create_task(run.renew_loop())
         if gate and gates.unbindable_reason(gate):
             await run.takeover(gate)
+        elif agent_driven and not gate:  # the agent's computer_takeover: hand the owner its page
+            await run.takeover(url=task.get("takeover_url"), reason=task.get("takeover_reason") or "")
         else:
             note = await run.consume(gate) if gate else None  # None: consume() already ended the task
             if not run.finished:

@@ -23,8 +23,9 @@ per operation (run.op_lock): adopted at an operation's start, or from a
 stale_epoch refusal that ends the operation.
 
 A session ends at the turn's end (ToolRegistry.aclose → close_turn), when the
-agent hands work to the helper (computer_task → hand_off), after IDLE_S without a
-call, or when the lease is lost (the next call opens a new one).
+agent hands work to the helper (computer_task → hand_off) or the screen to the
+owner (computer_takeover, which queues a takeover task for the page it was on),
+after IDLE_S without a call, or when the lease is lost (the next call opens a new one).
 """
 
 import asyncio
@@ -375,8 +376,8 @@ TOOL_DEFS = [
         "navigate/back/forward/reload move the tab; tabs lists, opens (url), switches or closes (index) tabs. Actions "
         "that change the page return a fresh snapshot. Anything that buys, pays, sends, posts, deletes or submits "
         "stops for the owner's approval: nothing is clicked, they get a card, and once they approve the click is made "
-        "and you get the outcome as a new message. Never type passwords or look for saved ones; the owner signs in on "
-        "the screen themselves."
+        "and you get the outcome as a new message. Never type passwords or look for saved ones; for a sign-in, a 2FA "
+        "code or a CAPTCHA, call computer_takeover so the owner does it on the screen."
     )),
     _tool("computer_shell", "shell", (
         "Run a bash command on your computer as the `computer` user (sudo available), in /workspace/<your slug>. "
@@ -387,6 +388,22 @@ TOOL_DEFS = [
         "paths are relative to your folder. To send a file on with Drive or Gmail, use computer_file_get."
     )),
     SCREEN_TOOL,
+    {
+        "name": "computer_takeover",
+        "description": (
+            "Hand your computer's screen to the owner when the page needs them in person: a sign-in, a 2FA code, a "
+            "CAPTCHA, or a step you mustn't do yourself. They get a link to the screen with your reason, and the page "
+            "you're on is held open for them for up to 15 minutes (reopened if it changed). You can't use the computer "
+            "for the rest of this turn; you get a new turn when they press I'm done, when their control ends without "
+            "it, or if nobody comes. Never ask for passwords or type them yourself."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {"reason": {"type": "string", "description": "what the owner should do, e.g. 'sign in to shop.example'"}},
+            "required": ["reason"],
+        },
+        "kind": "integration", "writes": False, "context_aware": True, "always_loaded": True,
+    },
 ]
 
 
@@ -400,7 +417,46 @@ async def computer_screen(*, _ctx: dict, **args) -> dict:
     return await _call(_ctx, _screen(args))
 
 
+async def computer_takeover(reason: str = "", *, _ctx: dict) -> dict:
+    """Hand the screen to the owner: note the page this turn's session is on, close the session, and queue
+    a driver='agent' takeover task (runner._Run.takeover) that reopens that page, sends the owner the link
+    with the agent's reason, and gives the agent one turn once control ends (or nobody came). The rest of
+    the turn may not use the computer: the screen is the owner's next."""
+    err = refusal(_ctx)
+    if err:
+        return {"error": err}
+    reason = " ".join((reason or "").split())[:300]
+    if not reason:
+        return {"error": "reason is required: what the owner should do on the screen, e.g. 'sign in to shop.example'"}
+    if not runner.is_active():
+        return {"error": "The computer runner isn't running (it lives in Chatty's web server, not the CLI harness)."}
+    turn = _turns.setdefault(_ctx["turn_id"], _Turn())
+    url, parent = None, None
+    async with turn.lock:
+        s = turn.session
+        if s:
+            async with s.run.op_lock:
+                try:
+                    url = (await s.run.snapshot(200)).get("url")
+                except (runner._Paused, runner._EpochChanged, runner._Stop, ComputerError):
+                    url = s.run.url or None  # the last page this session saw
+            parent = db.get_task(s.run.id)
+            await _close(turn, s, reason="handed to the owner")
+    task_id = db.insert_task(
+        agent_slug=_ctx["agent_slug"], origin="user" if _ctx["origin"] == "user" else "background",
+        task=f"Owner takeover: {reason}", helper_provider="", helper_model="", conversation_id=_ctx.get("conversation_id"),
+        route=_ctx.get("route"), action_id=_ctx.get("action_id"), parent=parent, driver="agent",
+        takeover_reason=reason, takeover_url=url,
+    )
+    turn.blocked = "The screen is waiting for the owner to take over; no more computer calls this turn."
+    runner.kick()
+    return {"stopped": "I've sent you a link to the screen; I'll continue when you press I'm done.", "task_id": task_id,
+            "note": ("Tell the user what to do there, in your own words. You'll get a new turn when they hand the "
+                     "screen back, or if nobody takes it within 15 minutes. The computer is off for the rest of this turn.")}
+
+
 TOOL_EXECUTORS = {"computer_browser": _executor("browser"), "computer_shell": _executor("shell"),
-                  "computer_files": _executor("files"), "computer_screen": computer_screen}
+                  "computer_files": _executor("files"), "computer_screen": computer_screen,
+                  "computer_takeover": computer_takeover}
 
 TURN_END_HOOKS.append(close_turn)

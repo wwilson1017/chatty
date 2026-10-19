@@ -6,6 +6,7 @@ cards and takeover links that never go to a group. Same fakes as test_computer_t
 import asyncio
 import base64
 import json
+import time
 
 import pytest
 
@@ -300,6 +301,7 @@ class TestGroups:
             outs = [await call(member, action="snapshot"), await call(member, "computer_shell", command="id"),
                     await call(member, "computer_screen", action="screenshot"),
                     await tools.computer_task("x", _ctx=member), await tools.computer_file_get("a.txt", _ctx=member),
+                    await call(member, "computer_takeover", reason="sign in"),
                     tools.computer_task_get(helper_task, _ctx=member), tools.computer_task_list(_ctx=member),
                     tools.computer_task_cancel(helper_task, _ctx=member), tools.computer_info(_ctx=member)]
             owner = await call(_dctx("turn-2", origin="group", route=route, group_owner=True), action="snapshot")
@@ -668,6 +670,146 @@ class TestScreen:
         row = sessions()[0]
         assert row["status"] == "needs_approval" and db.list_steps(row["id"])[-1]["verdict"] == (
             "gated:delete" if drop else "gated:submit")
+
+
+LOGIN = "https://shop.example/signin?next=%2Fcheckout"
+
+
+@pytest.fixture
+def notices(monkeypatch):
+    """A web-route takeover notice goes to every notification channel; capture it instead."""
+    import core.agents.notifications.delivery as delivery
+    sent: list = []
+    monkeypatch.setattr(delivery, "deliver_notification", lambda slug, title, text: sent.append(text) or {"ok": True})
+    return sent
+
+
+def _hand_over(fc, reason="sign in to shop.example") -> tuple[dict, dict]:
+    """A direct turn on the sign-in page that calls computer_takeover: (its result, the queued takeover task)."""
+    ctx = _dctx()
+    fc.url = LOGIN
+
+    async def go():
+        await call(ctx, action="snapshot")
+        out = await call(ctx, "computer_takeover", reason=reason)
+        await direct.close_turn("turn-1")
+        return out
+    out = asyncio.run(go())
+    return out, db.get_task(out["task_id"]) if "task_id" in out else {}
+
+
+def _run_takeover(fc, monkeypatch, hook=None) -> tuple[dict, list]:
+    """Claim and run the queued takeover task (`hook(n)` before the n-th /control/status poll), then its
+    completion: (the finished row, the completion turns' (instructions, message))."""
+    from tests.test_computer_takeover import on_status
+    if hook:
+        on_status(fc, hook)
+    t = db.claim_next("w1")
+    assert asyncio.run(runner.run_task(t, "w1")) == "done"
+    turns: list = []
+    monkeypatch.setattr(processor, "run_agent_background_turn",
+                        lambda *a, **kw: turns.append((a[2], a[3])) or (BackgroundResult(text="ok"), None))
+    monkeypatch.setattr(processor, "_resolve_agent", lambda slug: {"slug": slug, "agent_name": "Tom"})
+    monkeypatch.setattr(processor, "deliver_background_result", lambda *a, **kw: None)
+    assert fc.submitted == [t["id"]]  # finished with notify=True: one completion turn
+    completion.complete_task(t["id"])
+    completion.complete_task(t["id"])
+    return db.get_task(t["id"]), turns
+
+
+class TestTakeover:
+    """computer_takeover: the agent hands the screen to the owner; a driver='agent' takeover task holds its
+    page for them and gives the agent one turn, telling it how control ended."""
+
+    def test_it_notes_the_page_frees_the_screen_and_queues_the_owners_turn(self, dfake):
+        out, task = _hand_over(dfake)
+        assert out["stopped"] == "I've sent you a link to the screen; I'll continue when you press I'm done."
+        session = db.get_task(task["parent_task_id"])
+        assert (session["status"], session["finish_reason"], session["driver"]) == ("done", "handed to the owner", "agent")
+        assert (task["driver"], task["status"], task["takeover_url"], task["takeover_reason"], task["approved_gate_id"]) == (
+            "agent", "queued", LOGIN, "sign in to shop.example", None)
+        assert task["task"] == "Owner takeover: sign in to shop.example" and dfake.lease is None
+
+    def test_no_computer_calls_after_it_and_none_after_a_gate(self, dfake):
+        dfake.elements["e10"] = element("Place order")
+        ctx = _dctx()
+
+        async def go():
+            await call(ctx, action="snapshot")
+            await call(ctx, "computer_takeover", reason="sign in")
+            after = await call(ctx, "computer_screen", action="screenshot")
+            await direct.close_turn("turn-1")
+            await call(_dctx("turn-2"), action="snapshot")
+            await call(_dctx("turn-2"), action="click", ref="e10")  # a gate opens
+            refused = await call(_dctx("turn-2"), "computer_takeover", reason="place the order yourself")
+            await direct.close_turn("turn-2")
+            return after, refused
+        after, refused = asyncio.run(go())
+        assert "waiting for the owner to take over" in after["error"]
+        assert "approval of gate" in refused["error"]
+        assert len(db.query("SELECT 1 FROM tasks WHERE takeover_reason IS NOT NULL")) == 1
+
+    @pytest.mark.parametrize("ending, status, reason, says", [
+        ("done", "done", "handed back after takeover", "and handed it back (I'm done)"),
+        ("disconnected", "done", "control ended without I'm done", "but control ended without I'm done (disconnected)"),
+        ("timeout", "done", "control ended without I'm done", "but control ended without I'm done (timeout)"),
+    ])
+    def test_each_ending_gives_the_agent_one_turn_that_says_how_it_ended(
+            self, dfake, monkeypatch, notices, ending, status, reason, says):
+        _, task = _hand_over(dfake)
+        dfake.url = "https://shop.example/"  # the browser drifted before the takeover task got the screen
+        dfake.end_reason = ending
+
+        def hook(n):
+            if n == 2:
+                dfake.human = True   # the owner pressed Take control
+            if n == 4:
+                dfake.human = False  # and control ended
+        t, turns = _run_takeover(dfake, monkeypatch, hook)
+        assert (t["status"], t["finish_reason"], t["takeover_state"]) == (status, reason, "")
+        assert says in t["result_text"] and "performed nothing itself" in t["result_text"]
+        [(instructions, message)] = turns
+        assert instructions == completion._INSTRUCTIONS["takeover"] and reason in message
+        # the recorded page was reopened, and the notice names what's on screen and the agent's own reason
+        navs = [b for b in dfake.acts() if b["kind"] == "navigate"]
+        assert [n["url"] for n in navs] == [LOGIN] and dfake.performed == navs
+        [text] = notices
+        assert text.startswith("sign in to shop.example\n\nThe screen shows Checkout (https://shop.example/); Chatty reopened it")
+        assert f"/computer?task={t['id']}&agent=tom" in text
+
+    def test_control_that_started_and_ended_between_two_polls_still_counts(self, dfake, monkeypatch, notices):
+        _, task = _hand_over(dfake)
+
+        def hook(n):
+            if n == 2:
+                dfake.control_ended = {"at": time.time(), "reason": "done", "agent": "tom", "task_id": dfake.lease[2]}
+        t, turns = _run_takeover(dfake, monkeypatch, hook)
+        assert (t["status"], t["finish_reason"]) == ("done", "handed back after takeover") and len(turns) == 1
+        assert sum(1 for _, p, _ in dfake.calls if p == "/control/status") == 2
+
+    @pytest.mark.parametrize("record", [
+        {"reason": "done", "agent": "tom", "task_id": "another-task"},  # someone else's hand-back
+        {"reason": "done", "agent": "dana", "task_id": None},           # another agent's
+        {"reason": "done", "agent": "tom", "task_id": None, "old": True},  # before the wait started
+        None,                                                           # nobody came
+    ])
+    def test_nobody_taking_the_screen_in_time_is_its_own_ending(self, dfake, monkeypatch, notices, record):
+        monkeypatch.setattr(runner, "TAKEOVER_WAIT_S", 0.1)
+        _, task = _hand_over(dfake)
+
+        def hook(n):
+            if record and n == 1:
+                dfake.control_ended = {**record, "at": time.time() - (600 if record.get("old") else 0)}
+        t, turns = _run_takeover(dfake, monkeypatch, hook)
+        assert (t["status"], t["finish_reason"]) == ("failed", "nobody took over within 0 min")
+        assert "nobody took control within 0 minutes. Nothing was done" in t["result_text"]
+        [(instructions, message)] = turns
+        assert instructions == completion._INSTRUCTIONS["takeover"] and "nobody took over" in message
+
+    def test_definition_is_always_loaded_and_never_extends_the_turn(self, dfake):
+        d = next(d for d in tools.computer_tool_defs() if d["name"] == "computer_takeover")
+        assert d["always_loaded"] and not d.get("extends_turn") and d["writes"] is False
+        assert d["input_schema"]["required"] == ["reason"]
 
 
 class TestVision:

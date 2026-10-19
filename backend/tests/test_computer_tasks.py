@@ -33,6 +33,7 @@ class FakeComputer:
         self.calls: list[tuple[str, str, dict | None]] = []
         self.lease = None          # (token, agent, task_id)
         self.epoch_n = 1
+        self.control_ended = None  # the computer's last control_ended record (see `human`)
         self.human = False         # a person has control
         self.lose_lease = False    # the next renew answers lease_lost
         self.element_changed = False
@@ -61,6 +62,20 @@ class FakeComputer:
     @property
     def epoch(self):
         return f"boot:{self.epoch_n}"
+
+    @property
+    def human(self):
+        return getattr(self, "_human", False)
+
+    @human.setter
+    def human(self, on):
+        """A person has control. Ending it records control_ended as the computer does: when, how
+        (`end_reason`), and the lease holder's agent and task."""
+        if self.human and not on:
+            holder = self.lease or (None, "tom", None)
+            self.control_ended = {"at": time.time(), "reason": getattr(self, "end_reason", "done"), "agent": holder[1],
+                                  "task_id": holder[2], "epoch": self.epoch}
+        self._human = on
 
     def handle(self, request: httpx.Request) -> httpx.Response:
         body = json.loads(request.content) if request.content and request.headers.get("content-type", "").startswith("application/json") else None
@@ -106,7 +121,8 @@ class FakeComputer:
                 self.lease = None
             return httpx.Response(200, json={"released": released})
         if path == "/control/status":
-            return httpx.Response(200, json={"human_in_control": self.human, "epoch": self.epoch, "control": None})
+            return httpx.Response(200, json={"human_in_control": self.human, "epoch": self.epoch, "control": None,
+                                             "control_ended": self.control_ended})
         if path.startswith("/actions/") and request.method == "GET":
             j = None if self.journal_hidden else self.journal.get(path.rsplit("/", 1)[-1])
             if not j:

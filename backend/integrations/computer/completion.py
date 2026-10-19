@@ -44,6 +44,14 @@ _INSTRUCTIONS = {
         "it: confirm the outcome from the page and carry on with your computer tools if the work isn't finished. "
         "Then tell the user how it went. Always report — never answer [SILENT]."
     ),
+    # driver='agent' with no approved gate: the agent's own computer_takeover
+    "takeover": (
+        "You handed your computer's screen to the owner (computer_takeover) and that is over now: the status and "
+        "result below say whether they handed it back, their control ended without I'm done, or nobody took the "
+        "screen. If they handed it back, carry on with your computer tools from a fresh look at the page and finish "
+        "the work. Otherwise tell the user what is still needed; never ask for a password. Then tell the user how it "
+        "went. Always report — never answer [SILENT]."
+    ),
 }
 
 # Keyed by status, or by finish_reason for a reason that needs its own wording.
@@ -162,8 +170,10 @@ def complete_task(task_id: str) -> None:
             + " A follow-up is a new task: computer_task(task=..., follow_up_of='" + task["id"] + "')."
             + "\n\n" + wrap_result("computer_task", payload)
         )
-        instructions = _INSTRUCTIONS["agent"] if task["driver"] == "agent" else \
-            _INSTRUCTIONS.get(task["origin"], _INSTRUCTIONS["background"])
+        if task["driver"] == "agent":
+            instructions = _INSTRUCTIONS["agent" if task["approved_gate_id"] else "takeover"]
+        else:
+            instructions = _INSTRUCTIONS.get(task["origin"], _INSTRUCTIONS["background"])
         result, _registry = run_agent_background_turn(
             agent, "Computer task finished", instructions,
             user_message, source="computer",
