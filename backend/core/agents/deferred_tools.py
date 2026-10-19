@@ -335,8 +335,9 @@ def load_deferred_tools(
 
     for t in matched_tools:
         name = t["name"]
-        if name in kind_map:
-            # Already loaded (e.g., from a previous find_tools call in this loop)
+        if name not in deferred_names:
+            # Already loaded (e.g., from a previous find_tools call in this loop). Not `name in
+            # kind_map`: the turn loops build kind_map from every tool, deferred ones included.
             continue
 
         tool_defs.append(t)
