@@ -110,9 +110,11 @@ def test_gemini_inline_data_in_the_function_response_turn():
         "function_response", "function_response", "function_response",
         "text", "inline_data", "text", "inline_data"]
     assert parts[4] == {"_type": "inline_data", "mime_type": "image/png", "data": f"{B64}00"}
-    from google.generativeai import protos
-    blob = _to_parts(parts, protos)[4].inline_data
-    assert blob.mime_type == "image/png" and blob.data == base64.b64decode(f"{B64}00")
+    # Recording stand-in for google.generativeai.protos: importing the real SDK here would
+    # leave it bound on the `google` package and defeat test_transcription's sys.modules fake.
+    protos = SimpleNamespace(**{n: (lambda **k: k) for n in ("Part", "Blob", "FunctionCall", "FunctionResponse")})
+    assert _to_parts(parts, protos)[4] == {
+        "inline_data": {"mime_type": "image/png", "data": base64.b64decode(f"{B64}00")}}
 
 
 # ── prune_images ─────────────────────────────────────────────────────────────
