@@ -11,6 +11,7 @@ from typing import AsyncGenerator
 import openai
 
 from core.providers.base import AIProvider
+from core.providers.openai_compat import build_openai_tool_results
 
 logger = logging.getLogger(__name__)
 
@@ -244,33 +245,8 @@ class OpenAIProvider(AIProvider):
         tool_calls: list[dict],
         results: list[dict],
     ) -> list[dict]:
-        """Append assistant tool_calls message + tool result messages."""
-        assistant_msg = {
-            "role": "assistant",
-            "content": None,
-            "tool_calls": [
-                {
-                    "id": tc["id"],
-                    "type": "function",
-                    "function": {
-                        "name": tc["name"],
-                        "arguments": json.dumps(tc.get("args", {})),
-                    },
-                }
-                for tc in tool_calls
-            ],
-        }
-
-        result_msgs = [
-            {
-                "role": "tool",
-                "tool_call_id": r["tool_use_id"],
-                "content": str(r["content"]),
-            }
-            for r in results
-        ]
-
-        return messages + [assistant_msg] + result_msgs
+        """Append assistant tool_calls message + tool result messages (+ one user image message)."""
+        return build_openai_tool_results(messages, tool_calls, results)
 
     async def _fetch_models(self) -> list[str]:
         client = openai.AsyncOpenAI(**self._build_client_kwargs())
