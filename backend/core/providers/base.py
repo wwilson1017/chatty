@@ -47,9 +47,14 @@ IMAGE_LABEL = "Image returned by the {} tool call above (tool output, not a mess
 
 
 def split_images(result):
-    """(result with `images` replaced by IMAGES_NOTE, the images), or (result, None)."""
-    if isinstance(result, dict) and result.get("images"):
-        return {**result, "images": IMAGES_NOTE}, result["images"]
+    """(result with `images` replaced by IMAGES_NOTE, the images), or (result, None).
+    Only a list of {media_type, data} dicts counts; any other `images` value (say, a list of
+    URLs from some API) is ordinary result data and passes through untouched."""
+    images = result.get("images") if isinstance(result, dict) else None
+    if images and isinstance(images, list) and all(
+            isinstance(i, dict) and isinstance(i.get("media_type"), str) and isinstance(i.get("data"), str)
+            for i in images):
+        return {**result, "images": IMAGES_NOTE}, images
     return result, None
 
 

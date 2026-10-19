@@ -1495,7 +1495,9 @@ async def chat(
                     except Exception as e:
                         logger.warning("Chat history attach (exit_plan_mode) failed: %s", e)
                 # Let the AI do one more turn to narrate, then stop
-                current_messages = provider.add_tool_results(current_messages, tool_calls_this_turn, results)
+                current_messages = provider.add_tool_results(current_messages, tool_calls_this_turn,
+                                                             with_images(results, images))
+                current_messages = provider.prune_images(current_messages)
                 wrapup_text = ""
                 async for event in provider.stream_turn(current_messages, provider_tools, system_prompt):
                     etype = event.get("type")

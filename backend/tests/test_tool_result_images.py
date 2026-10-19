@@ -13,7 +13,7 @@ from unittest.mock import AsyncMock
 from core.agents import background_runner
 from core.agents.ai_service import chat, run_sync
 from core.providers.anthropic_provider import AnthropicProvider
-from core.providers.base import IMAGES_NOTE, PRUNED_NOTE
+from core.providers.base import IMAGES_NOTE, PRUNED_NOTE, split_images
 from core.providers.google_provider import GoogleProvider, _to_parts
 from core.providers.ollama_provider import OllamaProvider
 from core.providers.openai_provider import OpenAIProvider
@@ -64,6 +64,12 @@ def _image_data(messages) -> list[str]:
         if isinstance(m.get("content"), list):
             walk(m["content"])
     return out
+
+
+def test_split_images_takes_only_image_payloads():
+    assert split_images({"ok": 1, "images": [IMG]}) == ({"ok": 1, "images": IMAGES_NOTE}, [IMG])
+    for other in ({"images": ["https://x/a.png"]}, {"images": "a.png"}, {"images": []}, ["x"], "text"):
+        assert split_images(other) == (other, None)  # someone else's `images` field is plain data
 
 
 # ── add_tool_results shapes ──────────────────────────────────────────────────
@@ -207,6 +213,20 @@ async def test_chat_images_reach_the_model_only(env):
     assert end["result"] == {"ok": True, "images": IMAGES_NOTE}
     assert B64 not in "".join(raw)  # no SSE event carries the image
     _assert_nothing_stored(env, cid)
+
+
+async def test_plan_mode_wrapup_still_sees_the_image(env):
+    provider = _ImageProvider()
+    provider.set_responses([
+        [{"type": "_turn_complete", "stop_reason": "tool_use", "usage": {}, "tool_calls": [
+            {"name": "screen", "id": "tu1", "args": {}},
+            {"name": "exit_plan_mode", "id": "tu2", "args": {"plan": "p"}}]}],
+        MockAIProvider._default_response(),
+    ])
+    await collect_events(chat(
+        env.config, provider, env.registry, env.ctx, [{"role": "user", "content": "plan"}],
+        tool_mode="power", plan_mode=True, integration_tool_defs=_SCREEN_TOOL))
+    _assert_model_saw_image(provider)
 
 
 async def test_run_sync_images_reach_the_model_only(env):
