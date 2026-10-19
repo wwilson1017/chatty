@@ -476,6 +476,30 @@ class TestMultiTurn:
         assert mock_prov._call_index == (5 if limit == 20 else 100)
         assert mock_registry.aclose.await_count == 3  # every loop runs the turn-end hooks
 
+    @pytest.mark.parametrize("name, model, offered", [("mock", "mock-model", False), ("ollama", "claude-x", False),
+                                                      ("anthropic", "claude-sonnet-4-6", True)])
+    async def test_a_tool_that_returns_images_reaches_only_models_that_take_them(
+            self, fake_config, mock_registry, mock_ctx, name, model, offered):
+        seen: list[set] = []
+
+        class Seer(MockAIProvider):
+            provider_name = name
+
+            async def stream_turn(self, messages, tools, system_prompt):
+                seen.append({t["name"] for t in tools})
+                async for event in super().stream_turn(messages, tools, system_prompt):
+                    yield event
+        prov = Seer()
+        prov.model = model
+        defs = [{"name": "computer_screen", "description": "x", "input_schema": {"type": "object"}, "kind": "integration",
+                 "returns_images": True},
+                {"name": "computer_browser", "description": "x", "input_schema": {"type": "object"}, "kind": "integration"}]
+        await collect_events(chat(fake_config, prov, mock_registry, mock_ctx, [{"role": "user", "content": "hi"}],
+                                  tool_mode="power", integration_tool_defs=defs))
+        await run_sync(fake_config, prov, mock_registry, mock_ctx, [{"role": "user", "content": "hi"}],
+                       integration_tool_defs=defs)
+        assert [("computer_screen" in s, "computer_browser" in s) for s in seen] == [(offered, True)] * 2
+
 
 class TestErrorHandling:
     async def test_turn_end_hooks_run_when_the_turn_raises(self, fake_config, mock_registry, mock_ctx):
