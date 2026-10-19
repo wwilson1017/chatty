@@ -12,6 +12,8 @@ import hashlib
 import json
 import logging
 
+from integrations.telegram.group import owner_telegram_chat
+
 from . import db
 from .tools import build_prompt
 
@@ -41,17 +43,6 @@ def _agent(slug: str) -> dict | None:
     return get_agent_by_slug(slug)
 
 
-def _approval_chat(job: dict, agent: dict) -> str | None:
-    """The Telegram chat to ask in: the request's own chat, else the agent's first
-    Telegram user. A WhatsApp chat id is never used as a Telegram destination."""
-    route = json.loads(job["route"]) if job["route"] else {}
-    if route.get("channel") == "telegram" and route.get("chat_id"):
-        return str(route["chat_id"])
-    from integrations.telegram.state import first_telegram_user
-    user = first_telegram_user(agent["id"])
-    return str(user) if user else None
-
-
 def _message(job: dict, agent: dict) -> str:
     host = db.creds().get("host") or "your computer"
     lines = [f"{agent.get('agent_name') or job['agent_slug']} wants to run a Claude Code job "
@@ -71,7 +62,7 @@ def request_approval(job: dict) -> str:
     try:
         agent = _agent(job["agent_slug"])
         token = _bot_token(agent)
-        chat_id = _approval_chat(job, agent) if token else None
+        chat_id = owner_telegram_chat(job, agent) if token else None
         if not chat_id:
             return card
         from integrations.telegram import client as tg
