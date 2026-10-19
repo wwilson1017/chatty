@@ -219,6 +219,7 @@ NESTED_PAGE = """<title>Nested</title><style>button,a{padding:2px} span{display:
 <input type="submit" value="Save"><input type="image" alt="Upload" style="width:80px;height:30px"></form>
 <a href="/somewhere" style="display:inline-block"><span>Read more</span></a> <input type="checkbox" id="cb">
 <label for="cb" style="position:absolute;left:600px;top:360px">Remember me</label>
+<label onclick="" style="position:absolute;left:600px;top:420px"><b>Tap here</b></label>
 <p style="position:absolute;left:600px;top:300px;margin:0;font:16px monospace">Just some paragraph text</p>"""
 TOP_PAGE = """<title>Top</title><a href="/elsewhere">A link</a>
 <iframe src="http://localhost:8001/inner.html" style="position:absolute;left:300px;top:200px;width:400px;height:200px;border:7px solid"></iframe>
@@ -378,6 +379,9 @@ def part1():
     st, at = api("POST", "/browser/element", {"lease": lease, "epoch": epoch, "x": ox + 610, "y": oy + 368})
     check(at.get("role") == "checkbox" and at.get("name") == "Remember me" and at.get("screen_box") == boxes["Remember me"],
           f"a pixel read on a <label> returns the checkbox it activates ({at})")
+    st, at = api("POST", "/browser/element", {"lease": lease, "epoch": epoch, "x": ox + 610, "y": oy + 428})
+    check(at.get("tag") == "label" and at.get("name") == "Tap here",
+          f"a pixel read inside a <label onclick> with no control returns that label ({at})")
     st, at = api("POST", "/browser/element", {"lease": lease, "epoch": epoch, "x": ox + 610, "y": oy + 308})
     check(at.get("tag") == "p" and at.get("role") == "generic" and at.get("name") == "Just some paragraph text"
           and at.get("is_submit") is False and (at.get("box") or {}).get("x") == 600 and at["box"].get("y") == 300,

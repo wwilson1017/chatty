@@ -50,10 +50,10 @@ DEEP_ACTIVE_JS = """() => {
 }"""
 # The control a click on an element activates, which is what a pixel read describes: the nearest
 # element on the click's composed path (slots and shadow hosts followed, stopping below <body>) that
-# acts on a click — a native control (a <label> stands for the control it activates; one without is
-# passed over) or a page-made one (the widget roles the gate counts as activatable, [onclick], an
-# editor). The hit element itself when nothing encloses it (plain text, a canvas). So a span or an
-# icon inside <button type=submit> reads as that button, is_submit included.
+# acts on a click — a native control (a <label> stands for the control it activates) or a page-made
+# one (the widget roles the gate counts as activatable, [onclick], an editor). The hit element itself
+# when nothing encloses it (plain text, a canvas). So a span or an icon inside <button type=submit>
+# reads as that button, is_submit included.
 # simplification: listeners added in script (React's) are invisible here, so a bare <div> with one
 # reads as the element under the pixel; upgrade: CDP DOMDebugger.getEventListeners on the ancestors.
 CONTROL_SELECTOR = ("a[href],button,input,select,textarea,summary,option,[role=button],[role=link],[role=checkbox],"
@@ -65,7 +65,7 @@ CONTROL_JS = """(e) => {
   for (let c = e; c && c !== doc.body && c !== doc.documentElement;
        c = c.assignedSlot || c.parentNode || (c instanceof ShadowRoot ? c.host : null)) {
     if (c.nodeType !== 1) continue;
-    if (c.localName === 'label') { if (c.control) return c.control; continue; }
+    if (c.localName === 'label' && c.control) return c.control;
     if (c.matches(""" + json.dumps(CONTROL_SELECTOR) + """)) return c;
   }
   return e;
