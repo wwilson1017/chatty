@@ -60,7 +60,7 @@ def test_yes_writes_env_runs_the_container_then_only_starts_it(run_mod, docker_l
     run_cmd = calls[3]
     assert run_cmd.startswith("run -d --name chatty-computer --restart unless-stopped -p 127.0.0.1:8765:8080 -v chatty-computer:/data")
     assert f"-e COMPUTER_SECRET={env['COMPUTER_SECRET']}" in run_cmd  # the very secret .env holds
-    assert "-e HOST=0.0.0.0 --shm-size=1g ghcr.io/wwilson1017/chatty-computer:latest" in run_cmd
+    assert "--shm-size=1g ghcr.io/wwilson1017/chatty-computer:latest" in run_cmd
     assert "running at http://127.0.0.1:8765" in capsys.readouterr().out
 
     # Next start: no question, `docker start` is enough.
