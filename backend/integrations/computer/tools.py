@@ -113,6 +113,9 @@ async def computer_task(task: str, follow_up_of: str | None = None, file_refs: l
 
 
 def computer_task_get(task_id: str, *, _ctx: dict) -> dict:
+    err = direct.refusal(_ctx, policy=False)  # a group member who isn't the owner sees and touches nothing
+    if err:
+        return {"error": err}
     task = _own_task(task_id, _ctx["agent_slug"])
     if not task:
         return {"error": f"No task {task_id} for this agent."}
@@ -124,6 +127,9 @@ def computer_task_get(task_id: str, *, _ctx: dict) -> dict:
 
 
 def computer_task_list(status: str | None = None, limit: int = 10, *, _ctx: dict) -> dict:
+    err = direct.refusal(_ctx, policy=False)  # a group member who isn't the owner sees and touches nothing
+    if err:
+        return {"error": err}
     limit = max(1, min(int(limit or 10), 50))
     sql = "SELECT * FROM tasks WHERE agent_slug = ?"
     params: list = [_ctx["agent_slug"]]
@@ -135,6 +141,9 @@ def computer_task_list(status: str | None = None, limit: int = 10, *, _ctx: dict
 
 
 def computer_task_cancel(task_id: str, *, _ctx: dict) -> dict:
+    err = direct.refusal(_ctx, policy=False)  # a group member who isn't the owner sees and touches nothing
+    if err:
+        return {"error": err}
     task = _own_task(task_id, _ctx["agent_slug"])
     if not task:
         return {"error": f"No task {task_id} for this agent."}
@@ -166,6 +175,9 @@ async def computer_file_get(path: str, *, _ctx: dict) -> dict:
 
 
 def computer_info(*, _ctx: dict) -> dict:
+    err = direct.refusal(_ctx, policy=False)  # a group member who isn't the owner sees and touches nothing
+    if err:
+        return {"error": err}
     c = card.creds()
     counts = {r["status"]: r["n"] for r in db.query("SELECT status, COUNT(*) AS n FROM tasks WHERE status IN ('queued','running') GROUP BY status")}
     return {

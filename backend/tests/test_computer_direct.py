@@ -293,10 +293,13 @@ class TestGroups:
     def test_only_the_owner_uses_the_computer_from_a_group(self, dfake):
         route = {"channel": "telegram", "chat_id": "-100123", "group": True}
         member = _dctx(origin="group", route=route)
+        helper_task = _queue("the owner's own task")  # a non-owner can't read or cancel it either
 
         async def go():
             outs = [await call(member, action="snapshot"), await call(member, "computer_shell", command="id"),
-                    await tools.computer_task("x", _ctx=member), await tools.computer_file_get("a.txt", _ctx=member)]
+                    await tools.computer_task("x", _ctx=member), await tools.computer_file_get("a.txt", _ctx=member),
+                    tools.computer_task_get(helper_task, _ctx=member), tools.computer_task_list(_ctx=member),
+                    tools.computer_task_cancel(helper_task, _ctx=member), tools.computer_info(_ctx=member)]
             owner = await call(_dctx("turn-2", origin="group", route=route, group_owner=True), action="snapshot")
             await direct.close_turn("turn-2")
             return outs, owner
@@ -304,7 +307,8 @@ class TestGroups:
         assert all(o["error"] == "Only the owner can use the computer from a group." for o in outs)
         assert "snapshot" in owner
         row = sessions()[0]
-        assert len(db.query("SELECT 1 FROM tasks")) == 1 and row["origin"] == "background" and json.loads(row["route"]) == route
+        assert len(db.query("SELECT 1 FROM tasks")) == 2 and row["origin"] == "background" and json.loads(row["route"]) == route
+        assert db.get_task(helper_task)["status"] == "queued"
 
     def test_a_delegated_group_task_its_follow_up_and_takeover_reach_the_owner_privately(self, ap, monkeypatch):  # noqa: F811
         route = {"channel": "telegram", "chat_id": "-100123", "group": True}

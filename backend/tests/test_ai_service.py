@@ -478,6 +478,19 @@ class TestMultiTurn:
 
 
 class TestErrorHandling:
+    async def test_turn_end_hooks_run_when_the_turn_raises(self, fake_config, mock_registry, mock_ctx):
+        class Exploding(MockAIProvider):
+            async def stream_turn(self, messages, tools, system_prompt):
+                raise RuntimeError("provider blew up")
+                yield  # pragma: no cover — makes this an async generator
+
+        with pytest.raises(RuntimeError):
+            await collect_events(chat(fake_config, Exploding(), mock_registry, mock_ctx,
+                                      [{"role": "user", "content": "hi"}], tool_mode="power"))
+        with pytest.raises(RuntimeError):
+            await run_sync(fake_config, Exploding(), mock_registry, mock_ctx, [{"role": "user", "content": "hi"}])
+        assert mock_registry.aclose.await_count == 2
+
     async def test_provider_error_yields_error_event(self, fake_config, mock_prov, mock_registry, mock_ctx):
         mock_prov.set_responses([
             [{"type": "error", "error": "Rate limited"}],
