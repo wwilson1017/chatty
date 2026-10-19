@@ -13,7 +13,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 
 from core.providers import get_ai_provider
-from .tool_registry import ToolRegistry
+from .tool_registry import EXTENDED_TURN_ITERATIONS, ToolRegistry
 from .deferred_tools import (
     should_defer_tools, build_tool_catalog, handle_deferred_tool_call,
     build_provider_tools, FIND_TOOLS_DEF,
@@ -34,7 +34,16 @@ class BackgroundResult:
     error: bool = False
 
 
-async def _run_turn(
+async def _run_turn(system_prompt: "str | tuple[str, str]", user_message: str, tool_defs: list[dict],
+                    registry: ToolRegistry, *args, **kwargs) -> BackgroundResult:
+    """One background turn (_run_turn_loop), then the registry's turn-end hooks however it ends."""
+    try:
+        return await _run_turn_loop(system_prompt, user_message, tool_defs, registry, *args, **kwargs)
+    finally:
+        await registry.aclose()
+
+
+async def _run_turn_loop(
     system_prompt: "str | tuple[str, str]",
     user_message: str,
     tool_defs: list[dict],
@@ -105,7 +114,8 @@ async def _run_turn(
     total_input_tokens = 0
     total_output_tokens = 0
 
-    for iteration in range(max_iterations):
+    iteration = 0
+    while iteration < max_iterations:  # max_iterations rises once an extends_turn tool has run
         if on_iteration is not None and iteration > 0:
             if not on_iteration(iteration):
                 return BackgroundResult(
@@ -234,6 +244,8 @@ async def _run_turn(
             t0 = time.monotonic()
             result = await registry.execute_tool(tool_name, tool_args, kind)
             duration_ms = int((time.monotonic() - t0) * 1000)
+            if registry.extends_turn(tool_name):
+                max_iterations = max(max_iterations, EXTENDED_TURN_ITERATIONS)
 
             result_str = json.dumps(result)
             if should_wrap(tool_name, kind):
@@ -252,6 +264,7 @@ async def _run_turn(
             })
 
         messages = provider.add_tool_results(messages, tool_calls_this_turn, results)
+        iteration += 1
 
     return BackgroundResult(
         text=accumulated_text or "(max iterations reached)",

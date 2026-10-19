@@ -57,6 +57,8 @@ def mock_registry():
     reg = MagicMock()
     reg.execute_tool = AsyncMock(return_value={"result": "ok"})
     reg.account_info_map = None
+    reg.extends_turn.return_value = False
+    reg.aclose = AsyncMock()
     return reg
 
 

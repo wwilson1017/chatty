@@ -197,7 +197,7 @@ class TestTurnContext:
         assert seen["delegate"]["_ctx"] == {
             "agent_slug": "tom", "agent_name": "Tom", "conversation_id": "conv-1",
             "origin": "background", "route": None,
-            "action_id": None, "cache_dir": reg.file_cache_dir,
+            "action_id": None, "cache_dir": reg.file_cache_dir, "turn_id": reg.turn_id, "group_owner": False,
         }
         assert seen["other"] == {"q": "y"}
 
@@ -219,7 +219,7 @@ class TestTurnContext:
         assert seen["mcp_x__do"] == {"q": "y", "_ctx": {
             "agent_slug": "tom", "agent_name": "Tom", "conversation_id": "conv-1",
             "origin": "background", "route": None,
-            "action_id": "sa-7", "cache_dir": reg.file_cache_dir,
+            "action_id": "sa-7", "cache_dir": reg.file_cache_dir, "turn_id": reg.turn_id, "group_owner": False,
         }}
         assert seen["other"] == {"q": "y"}
 

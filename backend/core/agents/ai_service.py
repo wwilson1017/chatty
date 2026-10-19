@@ -40,7 +40,7 @@ from .context_assembly import assemble_messages, _coalesce_consecutive
 from .compaction import maybe_compact
 from .config import AgentConfig
 from .context_manager import ContextManager, is_social_closer, _tokenize
-from .tool_registry import ToolRegistry
+from .tool_registry import EXTENDED_TURN_ITERATIONS, ToolRegistry
 from .tool_definitions import get_tool_definitions, get_report_instructions, get_scheduling_instructions, get_qb_csv_instructions, build_writes_map, build_context_memory_map
 from .security.delimiters import should_wrap, wrap_result, DELIMITER_SYSTEM_INSTRUCTION
 from .security.scanner import sanitize_memory_content
@@ -818,7 +818,17 @@ def _log_chat_completion(
 
 # ── Main chat coroutine ────────────────────────────────────────────────────────
 
-async def chat(
+async def chat(config: AgentConfig, provider: AIProvider, registry: ToolRegistry, *args, **kwargs
+               ) -> AsyncGenerator[str, None]:
+    """Stream one chat turn (_chat), then run the registry's turn-end hooks however the stream ends."""
+    try:
+        async for event in _chat(config, provider, registry, *args, **kwargs):
+            yield event
+    finally:
+        await registry.aclose()
+
+
+async def _chat(
     config: AgentConfig,
     provider: AIProvider,
     registry: ToolRegistry,
@@ -1607,6 +1617,8 @@ async def chat(
             t_start = time.time()
             result = await registry.execute_tool(tool_name, tool_args, kind)
             elapsed_ms = int((time.time() - t_start) * 1000)
+            if registry.extends_turn(tool_name):  # driving the computer takes more steps than a chat turn's 20
+                max_iterations = max(max_iterations, EXTENDED_TURN_ITERATIONS)
 
             # Sync context files to GCS
             _sync_context_after_tool(tool_name, result, ctx_manager)
@@ -1701,7 +1713,15 @@ async def chat(
 
 # ── Non-streaming sync execution (for Telegram / messaging channels) ──────────
 
-async def run_sync(
+async def run_sync(config: AgentConfig, provider: AIProvider, registry: ToolRegistry, *args, **kwargs) -> str:
+    """One messaging turn (_run_sync), then the registry's turn-end hooks however it ends."""
+    try:
+        return await _run_sync(config, provider, registry, *args, **kwargs)
+    finally:
+        await registry.aclose()
+
+
+async def _run_sync(
     config: AgentConfig,
     provider: AIProvider,
     registry: ToolRegistry,
@@ -1902,9 +1922,11 @@ async def run_sync(
     total_input_tokens = 0
     total_output_tokens = 0
     _max_ctx_tokens = 0  # Max main-turn context fullness, persisted for compaction
-    max_iterations = 20
+    max_iterations = 20  # raised once an extends_turn tool has run, hence `while`
+    iteration = 0
 
-    for iteration in range(max_iterations):
+    while iteration < max_iterations:
+        iteration += 1
         tool_calls_this_turn: list[dict] = []
         turn_text = ""
         stop_reason = "stop"
@@ -2056,6 +2078,8 @@ async def run_sync(
             except Exception as e:
                 logger.error("run_sync: tool %s failed: %s", tool_name, e)
                 result = {"error": str(e)}
+            if registry.extends_turn(tool_name):
+                max_iterations = max(max_iterations, EXTENDED_TURN_ITERATIONS)
             elapsed_ms = int((time.time() - t_start) * 1000)
 
             result_str = json.dumps(result)

@@ -107,6 +107,8 @@ def mock_registry(tmp_path):
     reg = MagicMock()
     reg.execute_tool = AsyncMock(return_value={"result": "ok"})
     reg.account_info_map = None
+    reg.extends_turn.return_value = False
+    reg.aclose = AsyncMock()
     return reg
 
 
@@ -444,6 +446,35 @@ class TestMultiTurn:
         )
         types = [e["type"] for e in events]
         assert "error" in types
+
+    @pytest.mark.parametrize("first_tool, limit", [("list_context_files", 20), ("computer_browser", 100)])
+    async def test_the_limit_rises_only_once_an_extends_turn_tool_has_run(
+            self, fake_config, mock_prov, mock_registry, mock_ctx, monkeypatch, first_tool, limit):
+        """Driving the computer lifts a turn from 20 (chat, messaging) or 5 (background) model iterations to 100."""
+        from core.agents import background_runner
+
+        def calling(name):
+            return [{"type": "_turn_complete", "tool_calls": [{"name": name, "id": "tu1", "args": {}}],
+                     "stop_reason": "tool_use", "usage": {}}]
+        mock_registry.extends_turn.side_effect = lambda name: name == "computer_browser"
+        loop = [calling(first_tool), calling("list_context_files")]  # the last response repeats
+
+        mock_prov.set_responses(loop)
+        await collect_events(chat(fake_config, mock_prov, mock_registry, mock_ctx,
+                                  [{"role": "user", "content": "loop"}], tool_mode="power"))
+        assert mock_prov._call_index == limit
+
+        mock_prov.set_responses(loop)
+        await run_sync(fake_config, mock_prov, mock_registry, mock_ctx, [{"role": "user", "content": "loop"}])
+        assert mock_prov._call_index == limit
+
+        mock_prov.set_responses(loop)
+        monkeypatch.setattr(background_runner, "get_ai_provider", lambda **kw: mock_prov)
+        await background_runner._run_turn("sys", "loop", [{"name": "list_context_files", "kind": "context"},
+                                                          {"name": "computer_browser", "kind": "integration"}],
+                                          mock_registry, max_iterations=5)
+        assert mock_prov._call_index == (5 if limit == 20 else 100)
+        assert mock_registry.aclose.await_count == 3  # every loop runs the turn-end hooks
 
 
 class TestErrorHandling:
