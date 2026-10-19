@@ -2,8 +2,9 @@
 
 Snapshots are `aria_snapshot(mode="ai")` with `[ref=eN]` markers; acting uses `aria-ref=` locators.
 `describe()` explains the element behind a ref, a screen pixel or the focus, and `check_expect()`
-re-reads that description right before an action. Password-field values are never read, and the
-snapshot drops them before it leaves this module.
+re-reads that description right before an action. `marks()` numbers the visible interactive elements
+for a marked screenshot. Password-field values are never read, and the snapshot drops them before it
+leaves this module.
 """
 import asyncio
 import hashlib
@@ -26,6 +27,10 @@ from .desktop import CDP_URL, PROFILES_DIR
 ACT_TIMEOUT_MS = 5000
 OFFLINE_CDP_PORT = 9223
 SNAPSHOT_MAX_CHARS = 40000
+MARKS_MAX = 150
+MARK_NAME_CHARS = 80
+FRAME_MARKS_TIMEOUT_S = 5
+BOX_TOLERANCE_PX = 4
 
 METRICS_JS = ("() => ({sx: window.screenX, sy: window.screenY, ow: window.outerWidth, oh: window.outerHeight,"
               " iw: window.innerWidth, ih: window.innerHeight})")
@@ -45,11 +50,9 @@ DEEP_ACTIVE_JS = """() => {
 }"""
 FRAME_OFFSET_JS = "e => { const r = e.getBoundingClientRect(); return [r.x + e.clientLeft, r.y + e.clientTop]; }"
 IS_PASSWORD_JS = "e => (e.type || '').toLowerCase() === 'password'"
-# Describes an element: role/name/form facts plus the raw material for the context fingerprint.
-# Password fields are skipped everywhere; their values are never read.
-DESCRIBE_JS = """(el) => {
+# An element's role and accessible name, exactly as /browser/element reports them (marks use it too).
+ROLE_NAME_JS = """(el) => {
   const norm = s => (s || '').replace(/\\s+/g, ' ').trim();
-  const lower = s => norm(s).toLowerCase();
   const text = n => n.innerText || n.textContent || '';
   const tag = el.tagName.toLowerCase();
   const type = (el.getAttribute('type') || '').toLowerCase();
@@ -85,6 +88,17 @@ DESCRIBE_JS = """(el) => {
     const img = el.querySelector('img[alt]'); if (img) return img.alt;
     return el.title || '';
   };
+  return [roleOf(), norm(nameOf()).slice(0, 300)];
+}"""
+# Describes an element: role/name/form facts plus the raw material for the context fingerprint.
+# Password fields are skipped everywhere; their values are never read.
+DESCRIBE_JS = """(el) => {
+  const [role, name] = (""" + ROLE_NAME_JS + """)(el);
+  const norm = s => (s || '').replace(/\\s+/g, ' ').trim();
+  const lower = s => norm(s).toLowerCase();
+  const text = n => n.innerText || n.textContent || '';
+  const tag = el.tagName.toLowerCase();
+  const type = (el.getAttribute('type') || '').toLowerCase();
   const form = el.form || el.closest('form');
   const isSubmit = !!form && ((tag === 'button' && (type === '' || type === 'submit'))
     || (tag === 'input' && (type === 'submit' || type === 'image')));
@@ -135,10 +149,49 @@ DESCRIBE_JS = """(el) => {
       if (fields.length) context = {kind: 'composer', fields};
     }
   }
-  return {tag, role: roleOf(), name: norm(nameOf()).slice(0, 300), type: type || null,
+  return {tag, role, name, type: type || null,
           href: anchor ? anchor.href : null, is_submit: isSubmit, form: formInfo,
           box: {x: r.x, y: r.y, w: r.width, h: r.height}, context};
 }"""
+MARK_SELECTOR = ("a[href],button,input:not([type=hidden]),select,textarea,"
+                 "[role=button],[role=link],[role=tab],[role=menuitem],[role=checkbox],[onclick]")
+# One frame's marks (open shadow roots included). Each candidate is hit-tested at a whole screen
+# pixel near the centre of its visible part, with the same walk /browser/element uses, so a mark
+# is the element a press-time read finds there (a span inside a button, say); a covered candidate
+# gets none. `sx, sy` is the frame's screen offset; points come back in screen pixels.
+MARKS_JS = """([sel, sx, sy]) => {
+  const hit = """ + DEEP_POINT_JS + """;
+  const roleName = """ + ROLE_NAME_JS + """;
+  const within = (outer, e) => {
+    for (let c = e; c; c = c.parentNode || (c instanceof ShadowRoot ? c.host : null)) if (c === outer) return true;
+    return false;
+  };
+  const out = [], seen = new Set();
+  const visit = root => {
+    for (const el of root.querySelectorAll('*')) {
+      if (el.shadowRoot) visit(el.shadowRoot);
+      if (!el.matches(sel)) continue;
+      for (const r of el.getClientRects()) {  // one rect per line for a link that wraps; the first that hits it wins
+        const x0 = Math.max(r.left, 0), y0 = Math.max(r.top, 0), x1 = Math.min(r.right, innerWidth), y1 = Math.min(r.bottom, innerHeight);
+        if (x1 - x0 < 2 || y1 - y0 < 2) continue;
+        const px = Math.round(sx + (x0 + x1) / 2), py = Math.round(sy + (y0 + y1) / 2);
+        const h = hit([px - sx, py - sy]);
+        if (!h || h.tagName === 'IFRAME' || !within(el, h)) continue;
+        if (!seen.has(h)) {
+          seen.add(h);
+          const b = h.getBoundingClientRect();
+          const [role, name] = roleName(h);
+          out.push({role, name, point: [px, py], box: {x: b.x, y: b.y, w: b.width, h: b.height}});
+        }
+        break;
+      }
+    }
+  };
+  visit(document);
+  return out;
+}"""
+# Which of these points (in the iframe element's own document) land on that iframe.
+ON_TOP_JS = "(fe, pts) => { const hit = " + DEEP_POINT_JS + "; return pts.map(p => hit(p) === fe); }"
 
 VALUE_LINE_RE = re.compile(r"^(\s*- (?:textbox|searchbox|combobox|spinbutton)\b.*?\[ref=([a-z0-9]+)\][^:\n]*): (.+)$")
 CURRENCY = r"[$€£¥]|\b(?:USD|EUR|GBP|CAD|AUD|JPY|CHF|MXN|NZD)\b"
@@ -191,7 +244,8 @@ def context_fingerprint(context) -> str | None:
 
 
 class BrowserSession:
-    def __init__(self):
+    def __init__(self, desktop):
+        self.desktop = desktop  # whose window is in front decides whether a screen pixel is the browser's
         self._pw = None
         self.browser = None
         self.agent: str | None = None
@@ -311,6 +365,8 @@ class BrowserSession:
         return frame, None, x, y
 
     async def element_at_pixel(self, page, sx: int, sy: int):
+        if not await self.desktop.chromium_in_front():  # a terminal or app window has the screen
+            return None, None
         ox, oy, m = await self.page_offset(page)
         x, y = sx - ox, sy - oy
         if not (0 <= x < m["iw"] and 0 <= y < m["ih"]):
@@ -409,7 +465,56 @@ class BrowserSession:
             want, have = expect["total"], actual.get("total")
             if not isinstance(have, dict) or have["amount"] != str(want.get("amount")) or have["currency"] != want.get("currency"):
                 bad.append("total")
+        if "box" in expect and expect["box"] is not None:
+            want, have = expect["box"], actual.get("screen_box") or {}
+            try:
+                moved = not all(abs(float(want[k]) - have[k]) <= BOX_TOLERANCE_PX for k in ("x", "y", "w", "h"))  # NaN too
+            except (KeyError, TypeError, ValueError):
+                moved = True  # a malformed box can't be matched: refuse
+            if moved:
+                bad.append("box")
         return bad
+
+    async def marks(self, page) -> list[dict]:
+        """Numbered marks for the visible interactive elements of every frame, cross-origin ones
+        included, in screen pixels: `{n, role, name, box, point}`, where role, name (cut to 80
+        characters) and box are what describe(point=point) reports at that pixel when taken. A
+        candidate covered by something else, or in a frame covered in its parent, gets no mark; a
+        frame that fails or takes over 5 s is left out. Empty while another window is in front of
+        Chromium."""
+        if not await self.desktop.chromium_in_front():
+            return []
+        ox, oy, _ = await self.page_offset(page)
+
+        async def frame_marks(frame) -> list[dict]:
+            chain, fx, fy, f = [], 0.0, 0.0, frame  # each enclosing iframe element, with the offset so far
+            while f.parent_frame is not None:
+                fe = await f.frame_element()
+                dx, dy = await fe.evaluate(FRAME_OFFSET_JS)
+                fx, fy = fx + dx, fy + dy
+                chain.append((fe, fx, fy))
+                f = f.parent_frame
+            sx, sy = ox + fx, oy + fy
+            found = await frame.evaluate(MARKS_JS, [MARK_SELECTOR, sx, sy])
+            for fe, ax, ay in chain:  # the frame must be what's on top at each point in every parent
+                if not found:
+                    break
+                on_top = await fe.evaluate(ON_TOP_JS, [[x - sx + ax, y - sy + ay] for x, y in (m["point"] for m in found)])
+                found = [m for m, ok in zip(found, on_top) if ok]
+            return [{"role": m["role"], "name": m["name"][:MARK_NAME_CHARS],
+                     "box": {"x": round(sx + m["box"]["x"]), "y": round(sy + m["box"]["y"]),
+                             "w": round(m["box"]["w"]), "h": round(m["box"]["h"])},
+                     "point": m["point"]} for m in found]
+
+        marks = []
+        for r in await asyncio.gather(*(asyncio.wait_for(frame_marks(f), FRAME_MARKS_TIMEOUT_S) for f in page.frames),
+                                      return_exceptions=True):
+            if isinstance(r, list):
+                marks += r
+            elif not isinstance(r, (PlaywrightError, TimeoutError)):  # a frame that navigated, went away or hung
+                raise r
+        marks.sort(key=lambda m: (m["box"]["y"], m["box"]["x"]))
+        return [{"n": n, **m} for n, m in enumerate(marks[:MARKS_MAX], 1)]
 
     # ----- acting --------------------------------------------------------------------------------
 
