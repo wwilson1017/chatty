@@ -34,7 +34,7 @@ interface Site { domain: string; [k: string]: unknown }
 
 const GUIDE = 'https://github.com/WWilson1017/chatty/blob/master/docs/computer.md';
 const DOCKER_CMD = 'docker run -d --name chatty-computer --restart unless-stopped -p 127.0.0.1:8765:8080 -v chatty-computer:/data '
-  + '-e COMPUTER_SECRET=<48 random characters> -e HOST=0.0.0.0 --shm-size=1g ghcr.io/wwilson1017/chatty-computer:latest';
+  + '-e COMPUTER_SECRET=<48 random characters> --shm-size=1g ghcr.io/wwilson1017/chatty-computer:latest';
 // After "Add computer", Railway pulls the image and starts it; offline inside this window is "starting", not an error.
 const STARTING_WINDOW_S = 5 * 60;
 const startingUp = (s: Status) => s.configured && !s.online && !!s.setup_at && Date.now() / 1000 - s.setup_at < STARTING_WINDOW_S;

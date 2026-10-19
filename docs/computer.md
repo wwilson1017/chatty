@@ -46,7 +46,7 @@ Run the container where Chatty can reach it, with your own secret of at least 32
 ```bash
 docker run -d --name chatty-computer --restart unless-stopped \
   -p 127.0.0.1:8765:8080 -v chatty-computer:/data \
-  -e COMPUTER_SECRET=<your secret> -e HOST=0.0.0.0 --shm-size=1g \
+  -e COMPUTER_SECRET=<your secret> --shm-size=1g \
   ghcr.io/wwilson1017/chatty-computer:latest
 ```
 
