@@ -215,6 +215,7 @@ NESTED_PAGE = """<title>Nested</title><style>button,a{padding:2px} span{display:
 <button type="submit"><span>Submit</span></button>
 <button aria-label="Continue"><svg width="40" height="24"><rect width="40" height="24"/></svg></button>
 <button type="button"><span>Preview</span></button><button type="bogus"><span>Go</span></button>
+<button><span onclick="">Proceed</span></button>
 <input type="submit" value="Save"><input type="image" alt="Upload" style="width:80px;height:30px"></form>
 <a href="/somewhere" style="display:inline-block"><span>Read more</span></a> <input type="checkbox" id="cb">
 <label for="cb" style="position:absolute;left:600px;top:360px">Remember me</label>
@@ -360,11 +361,17 @@ def part1():
               f"a pixel read inside {role} {name!r} returns that {role}, is_submit {submit}, its box ({at})")
         mark = marks.get(name)
         check(mark is not None and mark["role"] == role and mark["box"] == b, f"the mark for {name!r} is the {role} itself ({mark})")
+    m = re.search(r'button "Proceed" \[ref=([a-z0-9]+)\]', snap.get("snapshot") or "")
+    st, ctl = api("POST", "/browser/element", {"lease": lease, "epoch": epoch, "ref": m.group(1)}) if m else (0, {})
+    b = ctl.get("screen_box") or {"x": 0, "y": 0, "w": 0, "h": 0}
+    st, at = api("POST", "/browser/element", {"lease": lease, "epoch": epoch, "x": b["x"] + b["w"] // 2, "y": b["y"] + b["h"] // 2})
+    check(at.get("tag") == "span" and at.get("name") == "Proceed" and at.get("is_submit") is True,
+          f"an [onclick] span inside a typeless button reads as itself but still is_submit ({at})")
     readback = []
     for m in mk.get("marks") or []:
         st, at = api("POST", "/browser/element", {"lease": lease, "epoch": epoch, "x": m["point"][0], "y": m["point"][1]})
         readback.append(at.get("role") == m["role"] and (at.get("name") or "")[:80] == m["name"] and at.get("screen_box") == m["box"])
-    check(len(readback) >= 9 and all(readback), f"every mark reads back at its point as the same control ({readback})")
+    check(len(readback) >= 10 and all(readback), f"every mark reads back at its point as the same control ({readback})")
     vb = ctl.get("box") or {"x": 0, "y": 0}  # the checkbox's viewport box: screen = viewport + the page's offset
     ox, oy = boxes["Remember me"]["x"] - round(vb["x"]), boxes["Remember me"]["y"] - round(vb["y"])
     st, at = api("POST", "/browser/element", {"lease": lease, "epoch": epoch, "x": ox + 610, "y": oy + 368})

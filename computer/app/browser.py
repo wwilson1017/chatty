@@ -121,10 +121,12 @@ DESCRIBE_JS = """(el) => {
   const text = n => n.innerText || n.textContent || '';
   const tag = el.tagName.toLowerCase();
   const type = (el.getAttribute('type') || '').toLowerCase();
-  const form = el.form || el.closest('form');
-  // el.type, not the attribute: a <button> with no type, or one the browser doesn't know, submits
-  const isSubmit = !!form && ((tag === 'button' && el.type === 'submit')
-    || (tag === 'input' && (el.type === 'submit' || el.type === 'image')));
+  // A control nested in a <button> ([onclick], a role) doesn't stop that button's own submit.
+  // .type, not the attribute: a <button> with no type, or one the browser doesn't know, submits.
+  const btn = el.closest('button') || el;
+  const form = btn.form || el.closest('form');
+  const isSubmit = !!form && ((btn.localName === 'button' && btn.type === 'submit')
+    || (btn.localName === 'input' && (btn.type === 'submit' || btn.type === 'image')));
   const anchor = el.closest('a[href]');
   const r = el.getBoundingClientRect();
   const SKIP = ['password', 'hidden', 'submit', 'button', 'reset', 'image', 'file'];

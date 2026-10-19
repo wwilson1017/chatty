@@ -193,7 +193,8 @@ textarea, `summary`, `option`, `[role=button|link|checkbox|radio|switch|menuitem
 menuitemradio|tab|option|treeitem]`, `[onclick]` or editor (`contenteditable`); a `<label>` reads as the
 control it activates. With none above it (plain text, a canvas) it is the element under the pixel. So a
 `<span>` or an icon inside `<button type=submit>` reads as that button with its box. `is_submit` is true
-for a form's `<input type=submit|image>` and for a `<button>` whose type is `submit`, missing or unknown.
+for a form's `<input type=submit|image>` and for a `<button>` whose type is `submit`, missing or unknown,
+and for anything inside such a button (an `[onclick]` span, say: its click still submits).
 
 - **Context fingerprint**: for an element inside a form, sha256 of the sorted `[name, normalised value]`
   pairs of the form's visible fields (hidden, password, file and button inputs excluded; checkbox/radio
