@@ -38,7 +38,8 @@ REPLACED_TOOLS = frozenset({
     "read_memory", "update_memory", "add_fact", "query_facts", "invalidate_fact", "consolidate_memory",
 })
 # Reads whose results are never edited back: sanitized like the old backend's reads (see call).
-SANITIZED_TOOLS = frozenset({"brain_search", "brain_page_list", "brain_changes"})
+# brain_start feeds the prompt block and the nightly consolidation's prompt.
+SANITIZED_TOOLS = frozenset({"brain_start", "brain_search", "brain_page_list", "brain_changes"})
 # Appended to the brain write tools' descriptions (from Hermes' memory tool).
 BRAIN_SKIP_TEXT = (
     " Skip: task progress, completed-work logs, temporary status, assistant actions, in-progress state, "
