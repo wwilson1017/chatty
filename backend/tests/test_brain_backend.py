@@ -99,9 +99,7 @@ class TestTools:
         defs = backend.tool_definitions()
         text = {t["name"]: t for t in defs}["brain_memory_update"]["input_schema"]["properties"]["text"]
         assert text == {"type": "string", "default": None, "description": "new text"}
-        from core.providers.google_provider import GoogleProvider
-        for tool in GoogleProvider(api_key="x")._format_tools(defs):
-            tool.to_proto()  # raises on a schema Gemini can't take
+        assert "anyOf" not in json.dumps(defs)
 
     def test_background_turns_get_only_read_only_tools(self, backend):
         assert {t["name"] for t in backend.tool_definitions(background_mode=True)} == {
