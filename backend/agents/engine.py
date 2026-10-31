@@ -99,8 +99,8 @@ def get_context_manager(slug: str) -> ContextManager:
 
     Every prompt path (chat, WhatsApp, reminders, heartbeats, crons, coach)
     builds its knowledge block through this, so the brain switch lives here:
-    a brain-backed agent's manager injects the brain's /context text in place
-    of local MEMORY.md / topic notes / daily/.
+    a brain-backed agent's manager injects the brain's ``brain_start`` (rules and
+    memories) in place of local MEMORY.md; topic notes and daily/ stay local.
     """
     return ContextManager(
         data_dir=_context_dir(slug),
@@ -171,20 +171,24 @@ def memory_backend_for(slug: str) -> str:
     return backend if backend in MEMORY_BACKENDS else "builtin"
 
 
-@lru_cache(maxsize=32)
-def _brain_backend(slug: str, base_url: str, api_key: str):
-    """One ``BrainBackend`` (one httpx.Client) per agent + credentials; a re-setup gets a fresh one."""
+@lru_cache(maxsize=4)
+def _brain_backend(base_url: str, api_key: str):
+    """One ``BrainBackend`` (one httpx.Client, one cache) per credentials, shared by every
+    brain-backed agent: they all use the one Common Brain key. A re-setup gets a fresh one."""
     from core.agents.memory.brain_backend import BrainBackend
-    return BrainBackend(base_url, api_key, agent_slug=slug)
+    return BrainBackend(base_url, api_key)
+
+
+def brain_backend():
+    """The ``BrainBackend`` for the configured Second Brain (unconfigured: every call errors)."""
+    from integrations.registry import get_credentials
+    creds = get_credentials("brain")
+    return _brain_backend(creds.get("base_url", ""), creds.get("api_key", ""))
 
 
 def get_brain_backend(slug: str):
-    """A ``BrainBackend`` for a brain-backed agent, else None (builtin memory)."""
-    if memory_backend_for(slug) != "brain":
-        return None
-    from integrations.registry import get_credentials
-    creds = get_credentials("brain")
-    return _brain_backend(slug, creds.get("base_url", ""), creds.get("api_key", ""))
+    """The ``BrainBackend`` for a brain-backed agent, else None (builtin memory)."""
+    return brain_backend() if memory_backend_for(slug) == "brain" else None
 
 
 def ensure_memory_db(slug: str):

@@ -151,17 +151,34 @@ class TestBrainReconfigure:
         from integrations.brain import onboarding
         from integrations.registry import get_credentials, list_integrations, save_credentials
 
-        save_credentials("brain", {"base_url": "https://old/brain", "api_key": "secret", "enabled": True})
+        save_credentials("brain", {"base_url": "https://old.test", "api_key": "secret", "enabled": True})
         brain = next(i for i in list_integrations() if i["id"] == "brain")
-        assert brain["base_url"] == "https://old/brain"
+        assert brain["base_url"] == "https://old.test"
         assert "secret" not in str(brain)
 
         seen = {}
+        about = {"account_no": "5400-3224", "key": {"name": "chatty", "access": "write"},
+                 "tools": [{"name": "brain_start"}, {"name": "brain_search"}]}
         def fake_get(url, headers, timeout):
-            seen["headers"] = headers
-            return httpx.Response(200, json={"ok": True})
+            seen.update(url=url, headers=headers)
+            return httpx.Response(200, json=about)
         monkeypatch.setattr(onboarding.httpx, "get", fake_get)
-        assert onboarding.setup("https://new/brain/", "")["ok"]
-        assert seen["headers"] == {"X-Api-Key": "secret"}
-        assert get_credentials("brain")["base_url"] == "https://new/brain"
+        assert onboarding.setup("https://new.test/api/v1/", "") == {
+            "ok": True, "account_no": "5400-3224", "key": "chatty", "access": "write"}
+        assert seen == {"url": "https://new.test/api/v1", "headers": {"Authorization": "Bearer secret"}}
+        assert get_credentials("brain")["base_url"] == "https://new.test"
         assert get_credentials("brain")["api_key"] == "secret"
+
+    def test_setup_refuses_a_bad_key_and_a_key_without_brain(self, registry_dir, monkeypatch):
+        import httpx
+        from integrations.brain import onboarding
+        from integrations.registry import get_credentials
+
+        answer = {}
+        monkeypatch.setattr(onboarding.httpx, "get", lambda url, headers, timeout: answer["r"])
+        answer["r"] = httpx.Response(403, json={"error": "unknown or revoked key"})
+        assert "check the program key" in onboarding.setup("https://cb.test", "cb_x")["error"]
+        answer["r"] = httpx.Response(200, json={"tools": [{"name": "todo_add"}]})
+        assert "reaches no Common Brain" in onboarding.setup("https://cb.test", "cb_x")["error"]
+        assert "program key" in onboarding.setup("https://cb.test", "")["error"]
+        assert get_credentials("brain") == {}

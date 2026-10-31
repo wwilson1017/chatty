@@ -142,7 +142,7 @@ class ContextManager:
         self.gcs_prefix = gcs_prefix
         # BrainBackend when the agent's memory_backend is "brain" (set by
         # agents.engine.get_context_manager): the prompt's MEMORY section then
-        # comes from the brain's GET /context instead of local MEMORY.md.
+        # comes from the brain's brain_start (rules and memories) instead of local MEMORY.md.
         # Everything else (persona files, topic notes, daily/) stays local.
         self.brain = brain
 

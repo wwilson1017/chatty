@@ -928,10 +928,10 @@ export function IntegrationsTab() {
                 {integration.id === 'brain' && (
                   <>
                     <p style={{ fontSize: 12, color: 'rgba(237,240,244,0.50)', lineHeight: 1.5, marginBottom: 4 }}>
-                      URL of your <code>brain</code> server (the mount point, e.g. https://host/brain) and its API key. Then set an agent&apos;s memory backend to &ldquo;brain&rdquo; in its Knowledge tab.
+                      Your Common Brain address (https://commonbrain.ai) and a program key (<code>cb_…</code>, made in Common Brain under Connect &rarr; For programs). Then set an agent&apos;s memory backend to &ldquo;brain&rdquo; in its Knowledge tab.
                     </p>
-                    <input placeholder="Brain URL (https://host/brain)" value={brainUrl} onChange={e => setBrainUrl(e.target.value)} style={inputStyle} />
-                    <input placeholder={integration.configured ? 'API key (leave blank to keep current)' : 'API key'} type="password" value={brainKey} onChange={e => setBrainKey(e.target.value)} style={inputStyle} />
+                    <input placeholder="Common Brain URL (https://commonbrain.ai)" value={brainUrl} onChange={e => setBrainUrl(e.target.value)} style={inputStyle} />
+                    <input placeholder={integration.configured ? 'Program key (leave blank to keep current)' : 'Program key (cb_…)'} type="password" value={brainKey} onChange={e => setBrainKey(e.target.value)} style={inputStyle} />
                     <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
                       <button onClick={() => setSetupFor(null)} style={{ flex: 1, padding: '8px 16px', fontSize: 13, borderRadius: 4, border: '1px solid rgba(230,235,242,0.14)', background: 'transparent', color: 'rgba(237,240,244,0.62)', cursor: 'pointer' }}>Cancel</button>
                       <button onClick={setupBrain} disabled={saving || !brainUrl.trim()} style={{ flex: 1, padding: '8px 16px', fontSize: 13, borderRadius: 4, background: 'var(--color-ch-accent, #C8D1D9)', color: '#0E1013', border: 'none', cursor: 'pointer', fontWeight: 500, opacity: saving || !brainUrl.trim() ? 0.5 : 1 }}>{saving ? 'Connecting...' : 'Connect'}</button>

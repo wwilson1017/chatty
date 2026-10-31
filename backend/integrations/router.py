@@ -161,7 +161,7 @@ async def disconnect_todoist(user=Depends(get_current_user)):
 
 @router.post("/brain/setup")
 async def setup_brain(body: BrainSetupRequest, user=Depends(get_current_user)):
-    """Configure and validate the second-brain server (GET /health)."""
+    """Configure the second brain: check the Common Brain program key (GET /api/v1)."""
     from .brain.onboarding import setup
     result = setup(base_url=body.base_url, api_key=body.api_key)
     if not result["ok"]:
