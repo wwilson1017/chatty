@@ -316,7 +316,7 @@ class ToolRegistry:
                 as_of=args.get("as_of"), memory_type=args.get("memory_type"),
                 include_expired=args.get("include_expired", False),
                 # simplification: since/until post-filter on ISO valid_from over the full window
-                # (500 = query_facts' cap), then cut to limit; the brain does it server-side
+                # (500 = query_facts' cap), then cut to limit
                 limit=500 if (since or until) else limit,
             )
             if "facts" in out and (since or until):
