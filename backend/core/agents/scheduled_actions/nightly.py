@@ -67,7 +67,7 @@ def run_nightly_jobs() -> None:
         slug = agent["slug"]
         agent_name = agent["agent_name"]
         # Brain-backed agent: short-term steps (daily summary, dreaming, archive)
-        # run locally as usual; consolidation promotes durable items to the brain
+        # run locally as usual; consolidation appends durable items to the brain's daily page
         # instead of rewriting local MEMORY.md; the memory.db steps (fact decay,
         # observations, commitments) have no local memory.db to work on.
         from agents.engine import get_brain_backend

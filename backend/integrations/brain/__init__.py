@@ -1,1 +1,1 @@
-"""Chatty — second-brain integration (server URL + API key; no agent tools of its own)."""
+"""Chatty — second-brain integration (Common Brain URL + program key; no agent tools of its own)."""

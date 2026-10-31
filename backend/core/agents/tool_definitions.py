@@ -1734,123 +1734,37 @@ NOTIFY_USER_TOOLS = [
 ]
 
 
-# Advertised only to brain-backed agents (memory_backend == "brain"). Executed by
-# BrainBackend via ToolRegistry._execute_memory (kind "memory"). propose_change and
-# review_proposal are proposals/decisions, not writes, so background turns keep them;
-# heartbeats drop both (scheduled_actions.processor._build_tools).
-BRAIN_ONLY_TOOLS = [
-    {
-        "name": "propose_change",
-        "description": (
-            "Propose a structural change to the second brain: merge duplicate people pages, move a note to "
-            "another domain, archive a note (never ask for a deletion — archive it), update a MEMORY.md "
-            "section, add a review rule, or change AGENTS.md. If you are one of the brain's curators, "
-            "merge-people / move-note / archive-note / memory-section changes apply at once (the result says "
-            "`applied: true`); rules, AGENTS.md and the locked MEMORY.md sections (Identity, Preferences & "
-            "Rules) always wait for the owner, as does everything from a non-curator. Check `list_proposals` "
-            "first — a rejected proposal carries the reviewer's reason; don't re-propose without new evidence."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "kind": {
-                    "type": "string",
-                    "enum": ["merge-people", "move-note", "archive-note", "memory-section", "rule", "agents-md"],
-                    "description": "What kind of change",
-                },
-                "payload": {
-                    "type": "object",
-                    "description": (
-                        "merge-people: {keep, drop: slug or [slugs]} · move-note: {path, to} · archive-note: {path} · "
-                        "memory-section: {section, text} · rule: {text, section?} · agents-md: {text, section?}"
-                    ),
-                },
-                "reason": {"type": "string", "description": "Why this change is right, in one or two sentences"},
-                "evidence": {"type": "string", "description": "Optional: the notes, facts or quotes that support it"},
-            },
-            "required": ["kind", "payload", "reason"],
-        },
-        "kind": "memory",
-        "writes": False,
-        "context_memory": True,
+# A brain-backed agent's search_memory searches only its local daily notes and topic
+# files (ToolRegistry._execute_memory); the second brain has brain_search.
+_LOCAL_SEARCH_MEMORY = {
+    "name": "search_memory",
+    "description": (
+        "Search your local short-term memory — daily notes and topic files — by keyword. "
+        "Long-term memory is in the second brain: use brain_search for it."
+    ),
+    "input_schema": {
+        "type": "object",
+        "properties": {"query": {"type": "string", "description": "Words to look for"}},
+        "required": ["query"],
     },
-    {
-        "name": "list_proposals",
-        "description": (
-            "List proposals in the second brain's review inbox. Default: your own pending structural proposals "
-            "(merge-people, move-note, archive-note, memory-section, rule, agents-md). kind=extraction lists the "
-            "fact/note/person/preference/decision/lesson rows extracted from transcripts (a curator decides "
-            "those with `review_proposal`); kind=all lists both. Rejected rows carry the reviewer's reason."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "kind": {
-                    "type": "string",
-                    "description": (
-                        "Optional: extraction, all, or one kind (merge-people, move-note, archive-note, "
-                        "memory-section, rule, agents-md, fact, note, person, preference, decision, lesson). "
-                        "Omit for structural proposals only."
-                    ),
-                },
-                "status": {
-                    "type": "string", "enum": ["pending", "rejected", "accepted", "all"],
-                    "description": "Default pending",
-                },
-                "mine": {
-                    "type": "boolean",
-                    "description": "Default true: only proposals you filed. false: every agent's (what a curator reviews)",
-                },
-            },
-            "required": [],
-        },
-        "kind": "memory",
-        "writes": False,
-        "context_memory": True,
-    },
-    {
-        "name": "review_proposal",
-        "description": (
-            "Accept or reject a proposal in the second brain's review inbox — curators only (anyone else gets "
-            "a refusal). Accept writes it exactly as the owner would (a fact, note or person page; a structural "
-            "change is applied); reject records your reason for the proposer. Rules, AGENTS.md and locked "
-            "MEMORY.md sections are owner-only and cannot be decided here. An accepted age fact is rejected by "
-            "the brain's gate instead (store the birth date). Read the row with `list_proposals` first."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "id": {"type": "string", "description": "The proposal id from list_proposals"},
-                "decision": {"type": "string", "enum": ["accept", "reject"]},
-                "reason": {"type": "string", "description": "Why (required for reject; the proposer reads it)"},
-                "domain": {"type": "string", "description": "Accept only: override the proposal's domain folder"},
-            },
-            "required": ["id", "decision"],
-        },
-        "kind": "memory",
-        "writes": False,
-        "context_memory": True,
-    },
-]
+    "kind": "memory",
+    "writes": False,
+    "context_memory": True,
+}
 
 
 def _memory_tools_for(memory_backend: str, background_mode: bool) -> list[dict]:
-    """MEMORY_TOOLS, adjusted for a brain-backed agent: the brain write tools
-    carry the SKIP guidance, and background turns (heartbeats, crons) drop them
-    entirely — a heartbeat's "X is WORKING" belongs in the local daily note, not
-    the second brain."""
+    """MEMORY_TOOLS, adjusted for a brain-backed agent: the builtin long-term tools
+    give way to Common Brain's own (GET /api/v1), and background turns (heartbeats,
+    crons) get only its read-only ones — a heartbeat's "X is WORKING" belongs in the
+    local daily note, not the second brain."""
     if memory_backend != "brain":
         return list(MEMORY_TOOLS)
-    from core.agents.memory.brain_backend import BRAIN_SKIP_TEXT, BRAIN_WRITE_TOOLS
-    out = []
-    for t in MEMORY_TOOLS:
-        if t["name"] in BRAIN_WRITE_TOOLS:
-            if background_mode:
-                continue
-            t = {**t, "description": t["description"] + BRAIN_SKIP_TEXT}
-        out.append(t)
-    out.extend(BRAIN_ONLY_TOOLS)
-    return out
+    from agents.engine import brain_backend
+    from core.agents.memory.brain_backend import REPLACED_TOOLS
+    out = [_LOCAL_SEARCH_MEMORY if t["name"] == "search_memory" else t
+           for t in MEMORY_TOOLS if t["name"] not in REPLACED_TOOLS]
+    return out + brain_backend().tool_definitions(background_mode)
 
 
 def get_tool_definitions(

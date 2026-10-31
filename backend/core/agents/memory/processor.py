@@ -294,19 +294,21 @@ def new_memory_lines(snapshot: str, known: str) -> str:
 
 def process_brain_promotion(agent_name: str, ctx_manager: ContextManager, brain, api_key: str, days: int = 1) -> dict:
     """Brain-backed agents: the nightly consolidation runs unchanged over the LOCAL
-    daily notes, but its sink is the second brain — only the lines the brain's
-    MEMORY.md does not already carry are posted, as one daily entry, so a night
-    with nothing durable posts nothing. Local MEMORY.md is never written."""
-    known = brain.execute("read_memory", {})
-    if "error" in known:
-        return {"ok": False, "error": known["error"], "agent": agent_name}
+    daily notes, starting from the brain's memories (brain_start), but its sink is
+    the brain's journal — only the lines the brain does not already hold are
+    appended to its ``daily/<date>`` page as one ``[chatty:<slug>]`` entry, so a
+    night with nothing durable writes nothing. Local MEMORY.md is never written."""
+    started = brain.start()
+    if "error" in started:
+        return {"ok": False, "error": started["error"], "agent": agent_name}
+    known = "\n".join(f"- {m.get('text', '')}" for m in started.get("memories") or [])
 
     def sink(new_memory: str) -> dict:
-        promoted = new_memory_lines(new_memory, known["content"])
+        promoted = new_memory_lines(new_memory, known)
         if not promoted:
             return {"promoted": 0}
         entry = f"[chatty:{ctx_manager.data_dir.parent.name}] durable items promoted from daily notes\n\n{promoted}"
-        posted = brain._post("/daily", content=entry, type="consolidation")
+        posted = brain.call("brain_page_append", {"path": f"daily/{ctx_manager._today_str()}", "text": entry})
         if "error" in posted:
             return {"promoted": 0, "error": posted["error"]}
         return {"promoted": sum(1 for line in promoted.splitlines() if line.startswith(("-", "*")))}
@@ -314,7 +316,7 @@ def process_brain_promotion(agent_name: str, ctx_manager: ContextManager, brain,
     start = time.monotonic()
     result = consolidate_memory(
         data_dir=str(ctx_manager.data_dir), gcs_prefix=ctx_manager.gcs_prefix, api_key=api_key, days=days,
-        current_memory=known["content"], sink=sink,
+        current_memory=known, sink=sink,
     )
     result["agent"] = agent_name
     result["duration_ms"] = int((time.monotonic() - start) * 1000)

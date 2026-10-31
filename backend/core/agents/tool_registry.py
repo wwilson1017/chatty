@@ -244,19 +244,19 @@ class ToolRegistry:
 
     async def _execute_memory(self, tool_name: str, args: dict) -> dict:
         from agents.engine import get_brain_backend
-        from core.agents.memory.brain_backend import BRAIN_TOOLS
+        from core.agents.memory.brain_backend import REPLACED_TOOLS
         brain = get_brain_backend(self.agent_slug)
-        if brain is not None and tool_name in BRAIN_TOOLS:
-            # memory_backend == 'brain': long-term tools go to the second brain;
+        if brain is not None:
+            # memory_backend == 'brain': long-term memory is Common Brain's own tools;
             # daily notes, meetings and commitments stay local (below).
-            result = brain.execute(tool_name, args)
-            if tool_name == "search_memory" and "error" not in result:
-                result["local_results"] = _local_memory_hits(self.context_dir, self.gcs_prefix, args.get("query", ""))
-                result["local_total"] = len(result["local_results"])
-            return result
-        if brain is not None and tool_name == "consolidate_memory":
-            return {"error": "consolidate_memory is not available on the brain backend: the nightly job "
-                             "promotes durable items from your daily notes to the brain"}
+            if tool_name.startswith("brain_"):
+                return brain.call(tool_name, args)
+            if tool_name == "search_memory":
+                hits = _local_memory_hits(self.context_dir, self.gcs_prefix, args.get("query", ""))
+                return {"query": args.get("query", ""), "results": hits, "total": len(hits)}
+            if tool_name in REPLACED_TOOLS:
+                return {"error": f"{tool_name} is not available on the brain backend: use the brain_ tools "
+                                 "(brain_search, brain_remember, brain_page_append, …)"}
 
         from core.agents.tools.memory_tools import (
             append_daily_note, read_daily_note, list_daily_notes,
@@ -316,7 +316,7 @@ class ToolRegistry:
                 as_of=args.get("as_of"), memory_type=args.get("memory_type"),
                 include_expired=args.get("include_expired", False),
                 # simplification: since/until post-filter on ISO valid_from over the full window
-                # (500 = query_facts' cap), then cut to limit; the brain does it server-side
+                # (500 = query_facts' cap), then cut to limit
                 limit=500 if (since or until) else limit,
             )
             if "facts" in out and (since or until):

@@ -207,18 +207,11 @@ def _within_active_hours(action: dict) -> bool:
         return current_minutes >= start_minutes or current_minutes < end_minutes
 
 
-# Brain tools a heartbeat never gets: proposing structure and deciding proposals are judgement calls.
-HEARTBEAT_EXCLUDED_BRAIN_TOOLS = frozenset({"propose_change", "review_proposal"})
-
-
-def _build_tools(agent_slug: str, agent: dict, *, background_mode: bool = False,
-                 heartbeat: bool = False) -> tuple[list[dict], ToolRegistry, dict]:
+def _build_tools(agent_slug: str, agent: dict, *,
+                 background_mode: bool = False) -> tuple[list[dict], ToolRegistry, dict]:
     """Build full tool definitions and registry with integration parity.
 
-    Returns (tool_defs, registry, account_info_map). ``heartbeat`` drops
-    ``propose_change`` and ``review_proposal``: a checklist sweep every N minutes
-    is not the place to file structural proposals against the owner's second
-    brain, nor to decide what enters its long-term memory (chat, cron and coach only).
+    Returns (tool_defs, registry, account_info_map).
     """
     from agents.tool_loader import load_integration_tools, build_agent_handlers, INTEGRATION_MODULES, tool_flags
     from agents.engine import build_agent_config
@@ -271,7 +264,6 @@ def _build_tools(agent_slug: str, agent: dict, *, background_mode: bool = False,
         t for t in tool_defs
         if not (t.get("integration") and t.get("writes")
                 and integration_modes.get(t["integration"]) == "read-only")
-        and not (heartbeat and t["name"] in HEARTBEAT_EXCLUDED_BRAIN_TOOLS)
     ]
 
     registry = ToolRegistry(
@@ -460,7 +452,7 @@ def _process_heartbeat(action: dict) -> None:
     context = ctx_manager.load_all_context()
     context_snippet = context[:30000] if context else "(no context files)"
 
-    tool_defs, registry, account_info_map = _build_tools(agent_slug, agent, background_mode=True, heartbeat=True)
+    tool_defs, registry, account_info_map = _build_tools(agent_slug, agent, background_mode=True)
     registry._turn_action_id = action["id"]
     on_iteration = _make_lease_renewer(action["id"], lease_id)
 

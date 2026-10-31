@@ -10,7 +10,7 @@ Available integrations:
   bamboohr    — BambooHR HR system
   crm_lite    — Built-in lightweight CRM
   whatsapp    — WhatsApp (stub)
-  brain       — second-brain server (per-agent memory backend, no tools of its own)
+  brain       — Common Brain account (per-agent memory backend, no tools of its own)
   claude_code — the user's own Claude Code / Codex via the chatty-connector (paired, polls outbound)
   mcp         — remote MCP servers (streamable HTTP + API key); every agent gets their tools
   computer    — the virtual computer (a desktop container's control API; env or saved url + api_key)
@@ -92,7 +92,7 @@ AVAILABLE_INTEGRATIONS = {
     },
     "brain": {
         "name": "Second Brain",
-        "description": "A personal `brain` server — agents with memory backend 'brain' read and write it instead of their own memory",
+        "description": "Common Brain (commonbrain.ai) — agents with memory backend 'brain' keep their long-term memory there",
         "icon": "🧠",
         "auth_type": "api_key",
     },

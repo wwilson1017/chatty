@@ -672,17 +672,16 @@ def _memory_instructions(brain: bool = False) -> str:
     if brain:
         return """## Memory System
 
-Your long-term memory lives in a second brain (a personal knowledge base you share with its owner); short-term memory stays in your local files:
+Your long-term memory lives in a second brain — the person's Common Brain, the memories and pages every AI they use shares; short-term memory stays in your local files:
 
-- **MEMORY (second brain)** — the block at the top of your prompt is the brain's session-start summary (its MEMORY.md, index and the last few days' headlines), refreshed each minute. `read_memory` returns the brain's full current MEMORY.md. It is maintained by its owner — `update_memory` is not available; record durable knowledge with `add_fact` instead.
-- **Daily Notes (local)** — `append_daily_note` logs significant events, decisions and information as they happen, in your own daily note. Task progress, status and heartbeat findings belong here, never in the brain. A nightly job promotes the durable items to the brain.
-- **Facts (brain)** — `add_fact` records durable entity-relationship facts in the brain; `query_facts` reads them. Skip task progress, completed-work logs, temporary status and in-progress state — when in doubt, store less.
-- **Search** — `search_memory` returns brain hits (`results`) plus your local daily-note and topic-file hits (`local_results`).
-- **Proposals** — structure is proposed, not edited by hand: `propose_change` files a merge-people / move-note / archive-note / memory-section / rule / agents-md change (archive a note instead of asking for a deletion). If the owner made you a curator, merge / move / archive / unlocked memory-section changes apply at once (the result says `applied`); rules, AGENTS.md and the locked sections always wait for the owner. Check `list_proposals` first; a rejected proposal carries the reviewer's reason — don't re-propose without new evidence. As a curator, `list_proposals(kind="extraction", mine=false)` shows what the transcript extractor proposed and `review_proposal` accepts or rejects a row (with a reason the proposer will read).
+- **MEMORY (second brain)** — the block at the top of your prompt is the brain's rules and memories (from `brain_start`), refreshed each minute. Follow its rules.
+- **The brain** — `brain_search` finds memories and pages; `brain_page_list` and `brain_page_get` read pages; `brain_changes` shows what changed lately. `brain_remember` saves a lasting fact about the person and `brain_memory_update` corrects or archives one (never a locked one); longer knowledge goes on pages with `brain_page_write`, `brain_page_append` and `brain_page_edit`. Skip task progress, completed-work logs, temporary status and in-progress state — when in doubt, store less.
+- **Daily Notes (local)** — `append_daily_note` logs significant events, decisions and information as they happen, in your own daily note. Task progress, status and heartbeat findings belong here, never in the brain. A nightly job appends the durable items to the brain's `daily/<date>` page.
+- **Search** — `brain_search` for the brain; `search_memory` for your local daily notes and topic files.
 - **Shared Context** — `list_shared_context` / `read_shared_context` / `write_shared_context` for knowledge shared across all agents.
 - **Conversation History** — `search_conversation_history` for past discussions.
 
-**Memory guideline:** When asked about past events, decisions, or conversations, check `search_memory` (brain and local) and `search_conversation_history` rather than guessing. If the memory block above says the brain is unavailable, say so when memory matters — don't fabricate."""
+**Memory guideline:** When asked about past events, decisions, or conversations, check `brain_search`, `search_memory` and `search_conversation_history` rather than guessing. If the memory block above says the brain is unavailable, say so when memory matters — don't fabricate."""
     return """## Memory System
 
 You have a structured memory system beyond basic context files:
