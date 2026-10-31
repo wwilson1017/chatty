@@ -37,6 +37,8 @@ ALLOWED_TOOLS = (
 REPLACED_TOOLS = frozenset({
     "read_memory", "update_memory", "add_fact", "query_facts", "invalidate_fact", "consolidate_memory",
 })
+# Reads whose results are never edited back: sanitized like the old backend's reads (see call).
+SANITIZED_TOOLS = frozenset({"brain_search", "brain_page_list", "brain_changes"})
 # Appended to the brain write tools' descriptions (from Hermes' memory tool).
 BRAIN_SKIP_TEXT = (
     " Skip: task progress, completed-work logs, temporary status, assistant actions, in-progress state, "
@@ -123,7 +125,10 @@ class BrainBackend:
 
     def tool_definitions(self, background_mode: bool = False) -> list[dict]:
         """The allowed tools as Chatty tool definitions. Background turns (heartbeats, crons, the
-        coach) get only the read_only ones: their findings belong in the local daily note."""
+        coach) get only the read_only ones: their findings belong in the local daily note. Schemas go
+        through the MCP integration's clean_schema: Gemini rejects the nullable anyOf Common Brain
+        gives every optional argument."""
+        from integrations.mcp.store import clean_schema
         out = []
         for t in self.tools():
             writes = t.get("read_only") is not True
@@ -132,7 +137,7 @@ class BrainBackend:
             out.append({
                 "name": t["name"],
                 "description": (t.get("description") or t.get("title") or t["name"]) + (BRAIN_SKIP_TEXT if writes else ""),
-                "input_schema": t.get("input_schema") or {"type": "object", "properties": {}},
+                "input_schema": clean_schema(t.get("input_schema") or {}),
                 "kind": "memory",
                 "writes": writes,
                 "context_memory": True,
@@ -140,13 +145,15 @@ class BrainBackend:
         return out
 
     def call(self, tool_name: str, args: dict, timeout: float | None = None) -> dict:
-        """POST /api/v1/tools/<tool_name>: its result, or {"error"}. Results come back verbatim
-        (not sanitized): a page body is read to be edited, and brain_page_edit's old_str must
-        match it exactly. The prompt block is sanitized where it is injected (ContextManager)."""
+        """POST /api/v1/tools/<tool_name>: its result, or {"error"}. Only SANITIZED_TOOLS' results
+        are sanitized: a page body is read to be edited (brain_page_edit's old_str must match it
+        exactly), and a sanitized body written back would replace the page's text. The prompt
+        block is sanitized where it is injected (ContextManager)."""
         if tool_name != "brain_start" and tool_name not in ALLOWED_TOOLS:
             return {"error": f"{tool_name} is not a Common Brain tool Chatty's agents use"}
         kw = {"timeout": timeout} if timeout is not None else {}
-        return self._request("POST", f"/api/v1/tools/{tool_name}", json=args or {}, **kw)
+        data = self._request("POST", f"/api/v1/tools/{tool_name}", json=args or {}, **kw)
+        return _sanitized(data) if tool_name in SANITIZED_TOOLS else data
 
     # ── transport ────────────────────────────────────────────────────────
 
@@ -186,3 +193,15 @@ def _render_start(data: dict, max_chars: int) -> str:
     if len(text) > max_chars:
         text = text[:max_chars - len(TRUNCATED)].rsplit("\n", 1)[0] + TRUNCATED
     return text
+
+
+def _sanitized(value):
+    """*value* with every string through sanitize_memory_content."""
+    from core.agents.security.scanner import sanitize_memory_content
+    if isinstance(value, str):
+        return sanitize_memory_content(value)
+    if isinstance(value, list):
+        return [_sanitized(v) for v in value]
+    if isinstance(value, dict):
+        return {k: _sanitized(v) for k, v in value.items()}
+    return value
